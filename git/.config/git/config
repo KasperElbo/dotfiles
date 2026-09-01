@@ -1,0 +1,17 @@
+[init]
+	defaultBranch = main
+[pull]
+	rebase = false
+[fetch]
+	prune = true
+[push]
+	autoSetupRemote = true
+[rerere]
+	enabled = true
+[diff]
+	algorithm = histogram
+[color]
+	ui = auto
+[user]
+	name = KasperElbo
+	email = kasper.elbo@gmail.com
