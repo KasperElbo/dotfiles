@@ -1,4 +1,15 @@
 [tools]
+ast-grep = "latest"
 dotnet = "10"
+"dotnet:EasyDotnet" = "latest"
+lazygit = "latest"
 node = "24"
+"npm:@mermaid-js/mermaid-cli" = "latest"
+"npm:neovim" = "latest"
+"pipx:pynvim" = "latest"
 python = "3.14"
+tree-sitter = "latest"
+uv = "latest"
+
+[settings.npm]
+package_manager = "npm"
