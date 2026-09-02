@@ -19,11 +19,34 @@
 [color]
     ui = auto
 
+[sequence]
+    editor = nvim
+
+[core]
+    pager = delta
+    editor = nvim
+
+[interactive]
+    diffFilter = delta --color-only
+
+[delta]
+    navigate = true
+    line-numbers = true
+
+[merge]
+    conflictStyle = zdiff3
+
 # Optional machine/user-specific configuration.
 [include]
-   path = ~/.config/git/local
+    path = ~/.config/git/local
 
 # DR commit identity
 [includeIf "hasconfig:remote.*.url:git@github.com:drdk/**"]
     path = ~/.config/git/drdk
 
+# Theming
+[include]
+  path = ~/.config/git/themes/catppuccin.gitconfig
+
+[include]
+  path = ~/.config/dotfiles/git-theme

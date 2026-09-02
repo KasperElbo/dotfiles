@@ -1,0 +1,4 @@
+git:
+  diffRenderers:
+    - name: delta
+      command: delta --paging=never

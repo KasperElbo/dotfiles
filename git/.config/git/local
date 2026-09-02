@@ -1,0 +1,14 @@
+[user]
+  name = KasperElbo
+  email = kasper.elbo@gmail.com
+  signingkey = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFZ/CHsh+yc6XM3nN8sZB+/HcKbkoe/5OEZrPa/ZvFNf
+
+[gpg]
+  format = ssh
+
+[gpg "ssh"]
+  program = "/opt/1Password/op-ssh-sign"
+
+[commit]
+  gpgsign = true
+

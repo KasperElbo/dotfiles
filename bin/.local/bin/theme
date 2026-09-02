@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+flavour="${1:-}"
+
+case "$flavour" in
+  latte|frappe|macchiato|mocha)
+    ;;
+  *)
+    echo "Usage: theme {latte|frappe|macchiato|mocha}" >&2
+    exit 2
+    ;;
+esac
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+state_dir="$config_home/dotfiles"
+
+mkdir -p "$state_dir"
+
+# Resolve the dotfiles repository from this script's real path:
+# <repo>/bin/.local/bin/theme
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+repo_root="$(cd "$(dirname "$script_path")/../../.." && pwd)"
+
+write_file() {
+  local path="$1"
+  local tmp
+
+  tmp="$(mktemp "${path}.XXXXXX")"
+  cat > "$tmp"
+  mv "$tmp" "$path"
+}
+
+echo "Switching to Catppuccin $flavour..."
+
+# ---------------------------------------------------------------------------
+# Canonical machine-local theme state
+# ---------------------------------------------------------------------------
+
+printf '%s\n' "$flavour" \
+  | write_file "$state_dir/theme"
+
+# ---------------------------------------------------------------------------
+# Ghostty
+# ---------------------------------------------------------------------------
+
+printf 'theme = catppuccin-%s.conf\n' "$flavour" \
+  | write_file "$state_dir/ghostty.conf"
+
+# ---------------------------------------------------------------------------
+# Delta
+# ---------------------------------------------------------------------------
+
+printf '[delta]\n    features = catppuccin-%s\n' "$flavour" \
+  | write_file "$state_dir/git-theme"
+
+# ---------------------------------------------------------------------------
+# tmux
+# ---------------------------------------------------------------------------
+
+printf 'set -g @catppuccin_flavor "%s"\n' "$flavour" \
+  | write_file "$state_dir/tmux-theme.conf"
+
+# Reload an existing tmux server.
+if command -v tmux >/dev/null 2>&1 && tmux list-sessions >/dev/null 2>&1; then
+  tmux source-file "$HOME/.tmux.conf"
+fi
+
+# ---------------------------------------------------------------------------
+# KDE Plasma
+# ---------------------------------------------------------------------------
+
+if command -v lookandfeeltool >/dev/null 2>&1 \
+  && command -v plasma-apply-colorscheme >/dev/null 2>&1 \
+  && command -v plasma-apply-cursortheme >/dev/null 2>&1; then
+
+  "$repo_root/scripts/apply-kde-theme.sh" "$flavour"
+fi
+
+# ---------------------------------------------------------------------------
+# Ghostty live reload
+# ---------------------------------------------------------------------------
+
+if command -v systemctl >/dev/null 2>&1 \
+  && systemctl --user is-active --quiet app-com.mitchellh.ghostty.service 2>/dev/null; then
+
+  if ! systemctl reload --user app-com.mitchellh.ghostty.service; then
+    echo "Warning: Ghostty could not be reloaded automatically." >&2
+    echo "Reload it manually with Ctrl-Shift-,." >&2
+  fi
+else
+  echo "Ghostty: reload with Ctrl-Shift-, if currently running."
+fi
+
+echo
+echo "Catppuccin $flavour selected."
+echo "New Neovim instances will use catppuccin-$flavour."
