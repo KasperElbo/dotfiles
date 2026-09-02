@@ -1,5 +1,5 @@
 return {
-  -- Mason: official Roslyn language server + netcoredbg.
+  -- Mason owns editor-specific .NET tooling.
   {
     "mason-org/mason.nvim",
     opts = function(_, opts)
@@ -24,13 +24,13 @@ return {
     end,
   },
 
-  -- Official Microsoft Roslyn integration.
+  -- Official Microsoft Roslyn language-server integration.
   {
     "seblyng/roslyn.nvim",
     opts = {},
   },
 
-  -- C# Tree-sitter parser.
+  -- C# Tree-sitter support.
   {
     "nvim-treesitter/nvim-treesitter",
     opts = function(_, opts)
@@ -42,42 +42,14 @@ return {
     end,
   },
 
-  -- .NET debugging through LazyVim's generic nvim-dap infrastructure.
-  {
-    "mfussenegger/nvim-dap",
-    optional = true,
-    opts = function()
-      local dap = require("dap")
-
-      dap.adapters.netcoredbg = {
-        type = "executable",
-        command = vim.fn.exepath("netcoredbg"),
-        args = { "--interpreter=vscode" },
-        options = {
-          detached = false,
-        },
-      }
-
-      dap.configurations.cs = {
-        {
-          type = "netcoredbg",
-          name = "Launch .NET DLL",
-          request = "launch",
-          program = function()
-            return vim.fn.input("Path to dll: ", vim.fn.getcwd() .. "/", "file")
-          end,
-          cwd = "${workspaceFolder}",
-        },
-      }
-    end,
-  },
-
-  -- .NET project and test tooling.
+  -- .NET project, test and debugging integration.
   {
     "GustavEikaas/easy-dotnet.nvim",
+
     dependencies = {
       "nvim-lua/plenary.nvim",
       "folke/snacks.nvim",
+      "mfussenegger/nvim-dap",
     },
 
     cmd = { "Dotnet" },
@@ -86,31 +58,34 @@ return {
     opts = {
       picker = "snacks",
 
-      -- Roslyn is handled by roslyn.nvim.
+      -- Roslyn is handled by roslyn.nvim above.
       lsp = {
         enabled = false,
       },
 
-      -- DAP is configured separately above.
+      -- EasyDotnet provides the project-aware DAP configuration,
+      -- while Mason remains responsible for installing netcoredbg.
       debugger = {
         auto_register_dap = false,
       },
 
-      -- Don't add EasyDotnet mappings to project files.
+      -- Don't add mappings when editing project files themselves.
       csproj_mappings = false,
       fsproj_mappings = false,
 
       test_runner = {
-        -- Use EasyDotnet's native MTP-aware test integration.
+        -- Use EasyDotnet's native MTP-aware test runner.
         neotest_integration = false,
+
+        -- Keep test discovery available in the background.
         auto_start_testrunner = true,
 
-        -- Persistent test explorer when explicitly opened.
-        -- LazyVim's splitright setting puts this on the right.
+        -- Persistent test explorer.
+        -- LazyVim already has splitright=true, so this opens on the right.
         viewmode = "vsplit",
         vsplit_width = 45,
 
-        -- C# buffer mappings preserve LazyVim's existing test semantics.
+        -- Preserve LazyVim's normal test semantics in C# buffers.
         mappings = {
           run_test_from_buffer = {
             lhs = "<leader>tr",

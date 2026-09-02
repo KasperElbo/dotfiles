@@ -1,17 +1,29 @@
 [init]
-	defaultBranch = main
+    defaultBranch = main
+
 [pull]
-	rebase = false
+    rebase = false
+
 [fetch]
-	prune = true
+    prune = true
+
 [push]
-	autoSetupRemote = true
+    autoSetupRemote = true
+
 [rerere]
-	enabled = true
+    enabled = true
+
 [diff]
-	algorithm = histogram
+    algorithm = histogram
+
 [color]
-	ui = auto
-[user]
-	name = KasperElbo
-	email = kasper.elbo@gmail.com
+    ui = auto
+
+# Optional machine/user-specific configuration.
+[include]
+   path = ~/.config/git/local
+
+# DR commit identity
+[includeIf "hasconfig:remote.*.url:git@github.com:drdk/**"]
+    path = ~/.config/git/drdk
+

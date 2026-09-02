@@ -12,5 +12,7 @@ if python_host ~= "" then
   vim.g.python3_host_prog = python_host
 end
 
+vim.g.lazyvim_eslint_auto_format = false
+
 vim.g.loaded_ruby_provider = 0
 vim.g.loaded_perl_provider = 0
