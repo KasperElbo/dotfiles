@@ -20,6 +20,11 @@ jobs:
     timeout-minutes: 10
     container: fedora:44
 
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+
     defaults:
       run:
         shell: bash
@@ -31,7 +36,7 @@ jobs:
           install git ShellCheck
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
