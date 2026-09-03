@@ -294,7 +294,7 @@ The hardware installer:
 - enables Terra and installs `asusctl` plus ROG Control Center
 - starts `asusd.service` and enables `asus-shutdown.service`
 - gives `asusd` sole ownership of power-profile and CPU EPP changes by
-  disabling active PPD/Tuned services
+  masking installed PPD/Tuned services
 - leaves GPU/MUX mode unchanged
 - changes the battery charge limit only when requested
 - never flashes firmware or reboots the machine
@@ -304,6 +304,11 @@ is still experimental and is not part of this setup. Use ROG Control Center or
 `asusctl armoury list` to inspect the firmware GPU controls. Changing the
 firmware dGPU setting requires a reboot and may affect which external display
 ports remain available.
+
+The conflicting power-profile services are masked, rather than merely
+disabled, because KDE PowerDevil can reactivate `power-profiles-daemon` through
+D-Bus after a reboot. To return profile ownership to PPD or Tuned, first disable
+profile management in `asusd`, then explicitly unmask the chosen service.
 
 If the GA402XZ akmods certificate is not yet enrolled, the installer offers to
 queue it for MOK enrollment and then stops before installing or rebuilding the
@@ -1132,12 +1137,16 @@ Before opening a pull request, run the same read-only validation used by CI:
 ```bash
 ./scripts/lint.sh
 ./tests/test-secure-boot.sh
+./tests/test-power-profiles.sh
 ./scripts/test-installer.sh
 git diff --check
 ```
 
 The Secure Boot regression test verifies privileged `mokutil` probing and its
 enrolled, pending, blocked, and unknown result handling.
+
+The power-profile regression test verifies that installed external profile
+daemons are persistently masked while absent services remain untouched.
 
 The installer test exercises the default plan, explicit KDE and LaTeX options,
 both supported ASUS hardware profiles, and invalid argument handling. It uses

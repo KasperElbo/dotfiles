@@ -6,6 +6,8 @@ set -u
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=lib/secure-boot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/secure-boot.sh"
+# shellcheck source=lib/power-profiles.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/power-profiles.sh"
 
 failures=0
 warnings=0
@@ -82,17 +84,28 @@ else
   warning "asus-shutdown.service is not enabled"
 fi
 
-for conflicting_unit in \
-  power-profiles-daemon.service \
-  tuned-ppd.service \
-  tuned.service; do
-  if systemctl is-active --quiet "$conflicting_unit" ||
-    systemctl is-enabled --quiet "$conflicting_unit"; then
-    fail "Conflicting power-profile service is active or enabled: $conflicting_unit"
-  else
-    pass "Power-profile service is not active: $conflicting_unit"
-  fi
-done
+while IFS= read -r conflicting_unit; do
+  unit_state="$(power_profile_unit_state "$conflicting_unit")"
+
+  case "$unit_state" in
+  masked)
+    if systemctl is-active --quiet "$conflicting_unit"; then
+      fail "Masked power-profile service is still active: $conflicting_unit"
+    else
+      pass "Power-profile service is masked: $conflicting_unit"
+    fi
+    ;;
+  "" | not-found)
+    pass "Power-profile service is not installed: $conflicting_unit"
+    ;;
+  masked-runtime)
+    fail "Power-profile service is only masked until reboot: $conflicting_unit"
+    ;;
+  *)
+    fail "Conflicting power-profile service is installed but not masked: $conflicting_unit ($unit_state)"
+    ;;
+  esac
+done < <(conflicting_power_profile_units)
 
 if asusctl armoury list >/dev/null 2>&1; then
   pass "ASUS Armoury capabilities are available"

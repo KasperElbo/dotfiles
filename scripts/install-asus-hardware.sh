@@ -8,6 +8,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fedora.sh"
 # shellcheck source=lib/secure-boot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/secure-boot.sh"
+# shellcheck source=lib/power-profiles.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/power-profiles.sh"
 
 model=""
 charge_limit=""
@@ -131,7 +133,7 @@ Shared steps:
   2. Read Secure Boot state and require it before changes when requested.
   3. Enable Terra and install asusctl plus ROG Control Center.
   4. Start asusd and enable asus-shutdown.
-  5. Let asusd own power profiles by disabling active PPD/Tuned services.
+  5. Let asusd own power profiles by masking installed PPD/Tuned services.
 EOF
 
   step=6
@@ -243,17 +245,7 @@ else
   warn "asus-shutdown.service is not provided by the installed package"
 fi
 
-for conflicting_unit in \
-  power-profiles-daemon.service \
-  tuned-ppd.service \
-  tuned.service; do
-  if systemctl cat "$conflicting_unit" >/dev/null 2>&1 &&
-    { systemctl is-active --quiet "$conflicting_unit" ||
-      systemctl is-enabled --quiet "$conflicting_unit"; }; then
-    info "Disabling conflicting power-profile service: $conflicting_unit"
-    sudo systemctl disable --now "$conflicting_unit"
-  fi
-done
+mask_conflicting_power_profile_services
 
 if [[ "$secure_boot" == "unknown" ]]; then
   secure_boot="$(secure_boot_state)"
