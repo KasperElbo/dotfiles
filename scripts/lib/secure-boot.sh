@@ -6,6 +6,14 @@ MOK_KEY_STATE="unknown"
 MOK_KEY_STATUS=0
 MOK_KEY_OUTPUT=""
 
+privileged_file_exists() {
+  sudo test -f "$1"
+}
+
+privileged_path_exists() {
+  sudo test -e "$1"
+}
+
 secure_boot_state() {
   local output
   local efivars_root="${EFI_VARS_ROOT:-/sys/firmware/efi/efivars}"

@@ -138,7 +138,7 @@ if [[ "$model" == "ga402xz" ]]; then
   if [[ "$secure_boot" == "enabled" ]]; then
     mok_certificate="${MOK_CERTIFICATE:-/etc/pki/akmods/certs/public_key.der}"
 
-    if [[ ! -f "$mok_certificate" ]]; then
+    if ! privileged_file_exists "$mok_certificate"; then
       fail "akmods signing certificate is missing"
     else
       probe_mok_key "$mok_certificate"

@@ -271,22 +271,22 @@ if [[ "$model" == "ga402xz" ]]; then
     mok_certificate="${MOK_CERTIFICATE:-/etc/pki/akmods/certs/public_key.der}"
     mok_private_key="${MOK_PRIVATE_KEY:-/etc/pki/akmods/private/private_key.priv}"
 
-    if [[ -f "$mok_certificate" ]]; then
-      if ! sudo test -f "$mok_private_key"; then
+    if privileged_file_exists "$mok_certificate"; then
+      if ! privileged_file_exists "$mok_private_key"; then
         die "akmods certificate exists, but its private key is missing: $mok_private_key"
       fi
 
       info "Using the existing akmods signing key pair"
     else
-      if sudo test -e "$mok_private_key"; then
+      if privileged_path_exists "$mok_private_key"; then
         die "akmods private key exists, but its certificate is missing: $mok_certificate"
       fi
 
       sudo kmodgenca -a
 
-      [[ -f "$mok_certificate" ]] ||
+      privileged_file_exists "$mok_certificate" ||
         die "kmodgenca did not create the akmods certificate: $mok_certificate"
-      sudo test -f "$mok_private_key" ||
+      privileged_file_exists "$mok_private_key" ||
         die "kmodgenca did not create the akmods private key: $mok_private_key"
     fi
 
