@@ -334,6 +334,22 @@ if [[ -d "$tmux_theme_dir/.git" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Optional machine hardware
+# ---------------------------------------------------------------------------
+
+hardware_state="$XDG_CONFIG_HOME/dotfiles/hardware.conf"
+
+if [[ -f "$hardware_state" ]]; then
+  section "ASUS hardware"
+
+  if "$DOTFILES_ROOT/scripts/verify-asus-hardware.sh"; then
+    pass "ASUS hardware profile verification completed"
+  else
+    fail "ASUS hardware profile verification failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Repository hygiene
 # ---------------------------------------------------------------------------
 
