@@ -46,6 +46,9 @@ jobs:
       - name: Test Secure Boot helpers
         run: ./tests/test-secure-boot.sh
 
+      - name: Test power-profile service handling
+        run: ./tests/test-power-profiles.sh
+
       - name: Test installer validation and dry-runs
         run: ./scripts/test-installer.sh
 
