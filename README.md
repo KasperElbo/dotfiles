@@ -1111,6 +1111,17 @@ The verifier checks:
 
 Missing essential components are failures. Optional/editor-specific omissions may be warnings.
 
+Validate every tracked shell script and sourced shell fragment with Bash and
+ShellCheck:
+
+```bash
+./scripts/lint.sh
+```
+
+The lint command supplies the Bash dialect for source-only fragments and
+resolves sourced libraries relative to each script. It requires `shellcheck`
+to be available in `PATH`.
+
 ---
 
 # Updating Starship themes
