@@ -8,6 +8,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/scripts/lib/common.sh"
 theme="macchiato"
 install_kde="auto"
 install_latex="false"
+hardware_model=""
+hardware_secure_boot="false"
+hardware_charge_limit=""
 interactive="true"
 dry_run="false"
 
@@ -25,6 +28,12 @@ Options:
 
   --latex            Install the LaTeX toolchain
   --no-latex         Do not install the LaTeX toolchain
+
+  --hardware MODEL   Install ASUS hardware support:
+                     ga402xz or ga402rk
+                     Default: disabled
+  --secure-boot      Require Secure Boot for the selected hardware
+  --charge-limit N   Set ASUS battery charge limit (40-100 percent)
 
   --dry-run          Show the installation plan without changing anything
   --non-interactive  Use defaults without prompting
@@ -61,6 +70,23 @@ while (($#)); do
     shift
     ;;
 
+  --hardware)
+    [[ $# -ge 2 ]] || die "--hardware requires a value"
+    hardware_model="$2"
+    shift 2
+    ;;
+
+  --secure-boot)
+    hardware_secure_boot="true"
+    shift
+    ;;
+
+  --charge-limit)
+    [[ $# -ge 2 ]] || die "--charge-limit requires a value"
+    hardware_charge_limit="$2"
+    shift 2
+    ;;
+
   --dry-run)
     dry_run="true"
     interactive="false"
@@ -91,6 +117,27 @@ latte | frappe | macchiato | mocha)
   ;;
 esac
 
+case "$hardware_model" in
+"" | ga402xz | ga402rk)
+  ;;
+*)
+  die "Invalid hardware profile: $hardware_model"
+  ;;
+esac
+
+if [[ "$hardware_secure_boot" == "true" && -z "$hardware_model" ]]; then
+  die "--secure-boot requires --hardware"
+fi
+
+if [[ -n "$hardware_charge_limit" ]]; then
+  [[ -n "$hardware_model" ]] || die "--charge-limit requires --hardware"
+
+  if [[ ! "$hardware_charge_limit" =~ ^[0-9]+$ ]] ||
+    ((hardware_charge_limit < 40 || hardware_charge_limit > 100)); then
+    die "--charge-limit must be an integer from 40 to 100"
+  fi
+fi
+
 # ---------------------------------------------------------------------------
 # Resolve automatic options
 # ---------------------------------------------------------------------------
@@ -116,6 +163,9 @@ Dotfiles installation plan
 Catppuccin flavour:  $theme
 KDE integration:     $install_kde
 LaTeX toolchain:     $install_latex
+ASUS hardware:       ${hardware_model:-disabled}
+Require Secure Boot: $hardware_secure_boot
+Battery limit:       ${hardware_charge_limit:-unchanged}
 
 Steps:
 
@@ -124,21 +174,35 @@ Steps:
 
   2. Enable Terra and install Terra-managed packages
      scripts/install-terra.sh
+EOF
 
-  3. Initialize machine-local configuration
+  step=3
+
+  if [[ -n "$hardware_model" ]]; then
+    cat <<EOF
+
+  $step. Install ASUS hardware support for $hardware_model
+     scripts/install-asus-hardware.sh --model $hardware_model
+EOF
+    step=$((step + 1))
+  fi
+
+  cat <<EOF
+
+  $step. Initialize machine-local configuration
      scripts/setup-local.sh $theme
 
-  4. Deploy tracked configuration with GNU Stow
+  $((step + 1)). Deploy tracked configuration with GNU Stow
      scripts/stow.sh
 
-  5. Install mise-managed runtimes and developer tools
+  $((step + 2)). Install mise-managed runtimes and developer tools
      scripts/install-mise.sh
 
-  6. Install pinned Catppuccin tmux theme
+  $((step + 3)). Install pinned Catppuccin tmux theme
      scripts/install-tmux-theme.sh
 EOF
 
-  step=7
+  step=$((step + 4))
 
   if [[ "$install_kde" == "true" ]]; then
     cat <<EOF
@@ -194,6 +258,7 @@ if [[ "$interactive" == "true" ]]; then
   printf '%s\n' '---------------------'
   printf 'Catppuccin flavour: %s\n' "$theme"
   printf 'KDE integration:    %s\n' "$install_kde"
+  printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
 
   if [[ "$install_latex" == "false" ]]; then
@@ -208,6 +273,13 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Catppuccin flavour: %s\n' "$theme"
   printf 'KDE integration:    %s\n' "$install_kde"
   printf 'LaTeX toolchain:    %s\n' "$install_latex"
+  printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
+
+  if [[ -n "$hardware_model" ]]; then
+    printf 'Require Secure Boot: %s\n' "$hardware_secure_boot"
+    printf 'Battery limit:       %s\n' "${hardware_charge_limit:-unchanged}"
+  fi
+
   printf '\n'
 
   confirm "Continue with installation?" "y" || exit 0
@@ -217,11 +289,38 @@ fi
 # Installation
 # ---------------------------------------------------------------------------
 
+hardware_args=()
+
+if [[ -n "$hardware_model" ]]; then
+  hardware_args=(--model "$hardware_model")
+
+  if [[ "$hardware_secure_boot" == "true" ]]; then
+    hardware_args+=(--secure-boot)
+  fi
+
+  if [[ -n "$hardware_charge_limit" ]]; then
+    hardware_args+=(--charge-limit "$hardware_charge_limit")
+  fi
+
+  info "Validating ASUS hardware requirements"
+  "$DOTFILES_ROOT/scripts/install-asus-hardware.sh" \
+    "${hardware_args[@]}" --preflight
+fi
+
 info "Installing base Fedora packages"
 "$DOTFILES_ROOT/scripts/install-system.sh"
 
 info "Installing Terra packages"
 "$DOTFILES_ROOT/scripts/install-terra.sh"
+
+if [[ -n "$hardware_model" ]]; then
+  if [[ "$interactive" == "false" ]]; then
+    hardware_args+=(--non-interactive)
+  fi
+
+  info "Installing ASUS hardware support"
+  "$DOTFILES_ROOT/scripts/install-asus-hardware.sh" "${hardware_args[@]}"
+fi
 
 info "Initializing machine-local configuration"
 "$DOTFILES_ROOT/scripts/setup-local.sh" "$theme"

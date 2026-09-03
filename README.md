@@ -84,6 +84,19 @@ A minimal non-KDE installation:
   --non-interactive
 ```
 
+ASUS laptop hardware support is explicitly opt-in:
+
+```bash
+./install.sh \
+  --hardware ga402xz \
+  --secure-boot \
+  --charge-limit 80
+```
+
+The supported hardware profiles are `ga402xz` and `ga402rk`. The selected
+profile is checked against the machine's DMI board name before any
+model-specific packages are installed.
+
 ## Installer options
 
 ```text
@@ -95,6 +108,11 @@ A minimal non-KDE installation:
 
 --latex            install the LaTeX toolchain
 --no-latex         skip the LaTeX toolchain
+
+--hardware MODEL   install ASUS hardware support for ga402xz or ga402rk
+                   default: disabled
+--secure-boot      require Secure Boot for the selected hardware profile
+--charge-limit N   set ASUS battery charge limit (40-100 percent)
 
 --dry-run          print the installation plan only
 --non-interactive  use defaults without prompting
@@ -218,6 +236,83 @@ For 1Password:
 
 Do not commit signing keys or user-specific signing configuration to this repository.
 
+## 6. ASUS laptop hardware
+
+Hardware setup is deliberately separate from the default workstation install.
+It currently supports these ROG Zephyrus G14 profiles:
+
+| Profile | Laptop | Graphics stack |
+|---|---|---|
+| `ga402xz` | 2023 GA402XZ | Fedora AMD iGPU plus RPM Fusion NVIDIA akmod |
+| `ga402rk` | 2022 GA402RK, including GA402RK-L81152 | Fedora AMD firmware, kernel `amdgpu`, and Mesa |
+
+Run the component directly when the workstation configuration is already
+installed:
+
+```bash
+./scripts/install-asus-hardware.sh \
+  --model ga402xz \
+  --secure-boot \
+  --charge-limit 80
+
+./scripts/install-asus-hardware.sh \
+  --model ga402rk \
+  --secure-boot
+```
+
+`--secure-boot` requires Secure Boot to be enabled, but never changes UEFI
+firmware settings itself. On the NVIDIA model, the installer also prepares the
+akmods signing certificate and can initiate interactive MOK enrollment. The
+all-AMD GA402RK needs no MOK; the option simply records and verifies that Secure
+Boot remains enabled. If the flag is used while Secure Boot is disabled, the
+installer fails its read-only preflight before enabling repositories, installing
+packages, or changing services.
+
+The preflight can also be run independently:
+
+```bash
+./scripts/install-asus-hardware.sh \
+  --model ga402rk \
+  --secure-boot \
+  --preflight
+```
+
+Before running either hardware profile on a fresh Fedora installation, fully
+update the operating system and firmware, then reboot:
+
+```bash
+sudo dnf upgrade --refresh
+sudo fwupdmgr refresh
+sudo fwupdmgr get-updates
+sudo fwupdmgr update
+sudo reboot
+```
+
+The hardware installer:
+
+- requires Fedora and a kernel of at least 7.1
+- enables Terra and installs `asusctl` plus ROG Control Center
+- enables `asusd.service` and `asus-shutdown.service`
+- gives `asusd` sole ownership of power-profile and CPU EPP changes by
+  disabling active PPD/Tuned services
+- leaves GPU/MUX mode unchanged
+- changes the battery charge limit only when requested
+- never flashes firmware or reboots the machine
+
+Do not add `supergfxctl`; it has been removed from current `asusctl`. Cardwire
+is still experimental and is not part of this setup. Use ROG Control Center or
+`asusctl armoury list` to inspect the firmware GPU controls. Changing the
+firmware dGPU setting requires a reboot and may affect which external display
+ports remain available.
+
+After installing the GA402XZ profile with Secure Boot, reboot into MOK Manager,
+choose **Enroll MOK**, enter the temporary password, and continue booting.
+Then run:
+
+```bash
+./scripts/verify-asus-hardware.sh
+```
+
 ---
 
 # Installation architecture
@@ -229,6 +324,7 @@ install.sh
 │
 ├── scripts/install-system.sh
 ├── scripts/install-terra.sh
+├── scripts/install-asus-hardware.sh optional, model-specific
 ├── scripts/setup-local.sh
 ├── scripts/stow.sh
 ├── scripts/install-mise.sh
@@ -236,6 +332,7 @@ install.sh
 ├── scripts/install-kde-theme.sh      optional
 ├── scripts/install-latex.sh          optional
 ├── ~/.local/bin/theme
+├── scripts/verify-asus-hardware.sh  optional, model-specific
 └── scripts/verify.sh
 ```
 
@@ -404,6 +501,7 @@ The following files are intentionally outside the repository:
 ```text
 ~/.config/dotfiles/
 ├── theme
+├── hardware.conf
 ├── ghostty.conf
 ├── git-theme
 └── tmux-theme.conf
@@ -413,7 +511,10 @@ The following files are intentionally outside the repository:
 └── drdk
 ```
 
-The first group is derived from the selected Catppuccin flavor.
+The theme-related files in the first group are derived from the selected
+Catppuccin flavor. `hardware.conf` is created only after an optional hardware
+profile has been installed; it records the selected model and verification
+requirements.
 
 The Git files contain user-specific identity and optional authentication/signing configuration.
 
@@ -1004,6 +1105,7 @@ The verifier checks:
 - Mason editor tooling
 - Neovim startup/version
 - Catppuccin tmux installation/version
+- optional ASUS hardware profile, drivers, services, and Secure Boot state
 - nested Git repositories
 - obvious generated junk files
 
@@ -1115,26 +1217,33 @@ After a fresh install:
 4. Configure optional SSH commit signing.
 5. Run `gh auth login`.
 6. Start Neovim and allow lazy.nvim/Mason to complete setup.
-7. Run:
+7. If an ASUS hardware profile requested a reboot, perform it now. For the
+   GA402XZ Secure Boot flow, complete MOK enrollment during that reboot.
+
+8. Run:
 
    ```bash
    ./scripts/verify.sh
    ```
 
-8. Confirm Git identity:
+   When a hardware profile is configured, this automatically includes its
+   driver, service, DMI, and Secure Boot checks. For a focused rerun, use
+   `./scripts/verify-asus-hardware.sh`.
+
+9. Confirm Git identity:
 
    ```bash
    git config --show-origin --get user.name
    git config --show-origin --get user.email
    ```
 
-9. Confirm GitHub SSH:
+10. Confirm GitHub SSH:
 
    ```bash
    ssh -T git@github.com
    ```
 
-10. Confirm the selected theme:
+11. Confirm the selected theme:
 
     ```bash
     cat ~/.config/dotfiles/theme
