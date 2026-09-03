@@ -1127,11 +1127,28 @@ The lint command supplies the Bash dialect for source-only fragments and
 resolves sourced libraries relative to each script. It requires `shellcheck`
 to be available in `PATH`.
 
-Run the Secure Boot helper regression tests with:
+Before opening a pull request, run the same read-only validation used by CI:
 
 ```bash
+./scripts/lint.sh
 ./tests/test-secure-boot.sh
+./scripts/test-installer.sh
+git diff --check
 ```
+
+The Secure Boot regression test verifies privileged `mokutil` probing and its
+enrolled, pending, blocked, and unknown result handling.
+
+The installer test exercises the default plan, explicit KDE and LaTeX options,
+both supported ASUS hardware profiles, and invalid argument handling. It uses
+isolated home/XDG directories and blocks system-mutating commands so every
+installer invocation remains a dry-run.
+
+GitHub Actions runs these commands in a Fedora 44 container for every pull
+request and every push to `main`. The workflow installs validation dependencies
+inside the ephemeral container, but it never performs a workstation install or
+changes firmware, Secure Boot, MOK enrollment, GPU/MUX settings, services, or
+battery limits.
 
 ---
 
