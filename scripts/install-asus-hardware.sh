@@ -128,17 +128,18 @@ Battery charge limit:   ${charge_limit:-unchanged}
 
 Shared steps:
   1. Verify Fedora, kernel version, and the DMI board name.
-  2. Enable Terra and install asusctl plus ROG Control Center.
-  3. Enable asusd and asus-shutdown.
-  4. Let asusd own power profiles by disabling active PPD/Tuned services.
+  2. Read Secure Boot state and require it before changes when requested.
+  3. Enable Terra and install asusctl plus ROG Control Center.
+  4. Start asusd and enable asus-shutdown.
+  5. Let asusd own power profiles by disabling active PPD/Tuned services.
 EOF
 
-  step=5
+  step=6
 
   if [[ "$model" == "ga402xz" ]]; then
     cat <<EOF
-  $step. Enable RPM Fusion and install the NVIDIA akmod/CUDA packages.
-  $((step + 1)). When Secure Boot is enabled, prepare and enroll the akmods MOK.
+  $step. Enable RPM Fusion and prepare the akmods MOK when Secure Boot is enabled.
+  $((step + 1)). Install the NVIDIA akmod/CUDA packages after MOK enrollment is confirmed.
   $((step + 2)). Build and verify the NVIDIA kernel module.
 EOF
     step=$((step + 3))
@@ -148,13 +149,6 @@ EOF
   $((step + 1)). Verify that both AMD GPUs use the in-kernel amdgpu driver.
 EOF
     step=$((step + 2))
-  fi
-
-  if [[ "$require_secure_boot" == "true" ]]; then
-    cat <<EOF
-  $step. Require Secure Boot to be enabled; firmware changes remain manual.
-EOF
-    step=$((step + 1))
   fi
 
   if [[ -n "$charge_limit" ]]; then
@@ -234,8 +228,14 @@ ensure_terra_repository
 info "Installing ASUS hardware support"
 sudo dnf install -y "${common_packages[@]}"
 
-info "Enabling ASUS services"
-sudo systemctl enable --now asusd.service
+info "Starting ASUS services"
+asusd_enablement="$(systemctl is-enabled asusd.service 2>/dev/null || true)"
+
+if [[ "$asusd_enablement" == "static" ]]; then
+  sudo systemctl start asusd.service
+else
+  sudo systemctl enable --now asusd.service
+fi
 
 if systemctl cat asus-shutdown.service >/dev/null 2>&1; then
   sudo systemctl enable --now asus-shutdown.service
@@ -260,8 +260,6 @@ if [[ "$secure_boot" == "unknown" ]]; then
 fi
 
 reboot_recommended="false"
-mok_enrollment_pending="false"
-mok_enrollment_required="false"
 
 if [[ "$model" == "ga402xz" ]]; then
   ensure_rpm_fusion_repositories
@@ -269,29 +267,62 @@ if [[ "$model" == "ga402xz" ]]; then
   if [[ "$secure_boot" == "enabled" ]]; then
     info "Preparing akmods signing for Secure Boot"
     sudo dnf install -y kmodtool akmods mokutil openssl
-    sudo kmodgenca -a
 
     mok_certificate="${MOK_CERTIFICATE:-/etc/pki/akmods/certs/public_key.der}"
+    mok_private_key="${MOK_PRIVATE_KEY:-/etc/pki/akmods/private/private_key.priv}"
 
-    if mokutil --test-key "$mok_certificate" >/dev/null 2>&1; then
+    if [[ -f "$mok_certificate" ]]; then
+      if ! sudo test -f "$mok_private_key"; then
+        die "akmods certificate exists, but its private key is missing: $mok_private_key"
+      fi
+
+      info "Using the existing akmods signing key pair"
+    else
+      if sudo test -e "$mok_private_key"; then
+        die "akmods private key exists, but its certificate is missing: $mok_certificate"
+      fi
+
+      sudo kmodgenca -a
+
+      [[ -f "$mok_certificate" ]] ||
+        die "kmodgenca did not create the akmods certificate: $mok_certificate"
+      sudo test -f "$mok_private_key" ||
+        die "kmodgenca did not create the akmods private key: $mok_private_key"
+    fi
+
+    probe_mok_key "$mok_certificate"
+
+    case "$MOK_KEY_STATE" in
+    enrolled)
       info "The akmods signing certificate is already enrolled"
-    elif [[ "$interactive" == "true" ]]; then
-      mok_enrollment_required="true"
+      ;;
+    pending)
+      warn "The akmods certificate is waiting for MOK enrollment"
+      warn "Reboot, complete enrollment in MOK Manager, then rerun this installer"
+      exit 2
+      ;;
+    not-enrolled)
       warn "MOK enrollment requires a temporary password and confirmation after reboot"
 
-      if confirm "Initiate MOK enrollment now?" "y"; then
+      if [[ "$interactive" == "true" ]] &&
+        confirm "Initiate MOK enrollment now?" "y"; then
         sudo mokutil --import "$mok_certificate"
-        mok_enrollment_pending="true"
-        reboot_recommended="true"
+        warn "MOK enrollment has been scheduled"
+        warn "Reboot, complete enrollment in MOK Manager, then rerun this installer"
+        exit 2
       else
-        warn "MOK enrollment skipped; NVIDIA will not load under Secure Boot"
+        warn "Run: sudo mokutil --import $mok_certificate"
+        die "Enroll the akmods certificate before rebuilding NVIDIA under Secure Boot"
       fi
-    else
-      mok_enrollment_required="true"
-      reboot_recommended="true"
-      warn "The akmods signing certificate is not enrolled"
-      warn "Run: sudo mokutil --import $mok_certificate"
-    fi
+      ;;
+    blocked)
+      die "The akmods signing certificate is blocked by Secure Boot policy"
+      ;;
+    unknown)
+      warn "mokutil returned status $MOK_KEY_STATUS: ${MOK_KEY_OUTPUT:-no diagnostic output}"
+      die "Unable to determine whether the akmods signing certificate is enrolled"
+      ;;
+    esac
   fi
 
   info "Installing the NVIDIA driver from RPM Fusion"
@@ -343,12 +374,6 @@ chmod 600 "$state_temp"
 mv -- "$state_temp" "$state_file"
 
 success "ASUS hardware support installed for $model_label"
-
-if [[ "$mok_enrollment_pending" == "true" ]]; then
-  warn "On reboot, choose Enroll MOK and enter the temporary password"
-elif [[ "$mok_enrollment_required" == "true" ]]; then
-  warn "Import the MOK certificate before rebooting if NVIDIA should load under Secure Boot"
-fi
 
 if [[ "$reboot_recommended" == "true" ]]; then
   warn "Reboot before relying on the NVIDIA driver, then run scripts/verify.sh"

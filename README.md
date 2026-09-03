@@ -292,7 +292,7 @@ The hardware installer:
 
 - requires Fedora and a kernel of at least 7.1
 - enables Terra and installs `asusctl` plus ROG Control Center
-- enables `asusd.service` and `asus-shutdown.service`
+- starts `asusd.service` and enables `asus-shutdown.service`
 - gives `asusd` sole ownership of power-profile and CPU EPP changes by
   disabling active PPD/Tuned services
 - leaves GPU/MUX mode unchanged
@@ -305,8 +305,13 @@ is still experimental and is not part of this setup. Use ROG Control Center or
 firmware dGPU setting requires a reboot and may affect which external display
 ports remain available.
 
-After installing the GA402XZ profile with Secure Boot, reboot into MOK Manager,
-choose **Enroll MOK**, enter the temporary password, and continue booting.
+If the GA402XZ akmods certificate is not yet enrolled, the installer offers to
+queue it for MOK enrollment and then stops before installing or rebuilding the
+NVIDIA module. Reboot into MOK Manager, choose **Enroll MOK**, enter the
+temporary password, and continue booting. Rerun the same hardware installation
+command after reboot; the NVIDIA work begins only after the privileged MOK
+check confirms that the certificate is enrolled.
+
 Then run:
 
 ```bash
@@ -1121,6 +1126,12 @@ ShellCheck:
 The lint command supplies the Bash dialect for source-only fragments and
 resolves sourced libraries relative to each script. It requires `shellcheck`
 to be available in `PATH`.
+
+Run the Secure Boot helper regression tests with:
+
+```bash
+./tests/test-secure-boot.sh
+```
 
 ---
 
