@@ -18,6 +18,7 @@ packages=(
   git-delta
   neovim
   ripgrep
+  ShellCheck
   sqlite
   sqlite-devel
   stow
