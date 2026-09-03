@@ -11,7 +11,7 @@ require_fedora() {
   [[ -r "$os_release_file" ]] || die "Cannot read $os_release_file"
 
   os_id="$(
-    awk -F= '$1 == "ID" { gsub(/\"/, "", $2); print $2 }' \
+    awk -F= '$1 == "ID" { gsub(/"/, "", $2); print $2 }' \
       "$os_release_file"
   )"
 

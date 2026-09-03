@@ -140,10 +140,27 @@ if [[ "$model" == "ga402xz" ]]; then
 
     if [[ ! -f "$mok_certificate" ]]; then
       fail "akmods signing certificate is missing"
-    elif mokutil --test-key "$mok_certificate" >/dev/null 2>&1; then
-      pass "akmods signing certificate is enrolled"
     else
-      warning "akmods signing certificate still requires MOK enrollment"
+      probe_mok_key "$mok_certificate"
+
+      case "$MOK_KEY_STATE" in
+      enrolled)
+        pass "akmods signing certificate is enrolled"
+        ;;
+      pending)
+        fail "akmods signing certificate is pending MOK enrollment"
+        ;;
+      not-enrolled)
+        fail "akmods signing certificate is not enrolled"
+        ;;
+      blocked)
+        fail "akmods signing certificate is blocked"
+        ;;
+      unknown)
+        warning "mokutil returned status $MOK_KEY_STATUS: ${MOK_KEY_OUTPUT:-no diagnostic output}"
+        fail "akmods signing certificate state could not be determined"
+        ;;
+      esac
     fi
   fi
 
