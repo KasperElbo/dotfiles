@@ -1136,22 +1136,21 @@ Before opening a pull request, run the same read-only validation used by CI:
 
 ```bash
 ./scripts/lint.sh
-./tests/test-secure-boot.sh
-./tests/test-power-profiles.sh
-./scripts/test-installer.sh
+./scripts/test.sh
 git diff --check
 ```
 
-The Secure Boot regression test verifies privileged `mokutil` probing and its
-enrolled, pending, blocked, and unknown result handling.
+The bootstrap harness covers Secure Boot helpers, power-profile service
+handling, installer option validation and dry-runs, fresh and repeated local
+setup, legacy Git identity migration, and preservation of unrelated user files
+and symlinks. It also exercises GA402XZ and GA402RK hardware preflights,
+fail-before-mutation behavior, and representative package and service flows
+through command mocks.
 
-The power-profile regression test verifies that installed external profile
-daemons are persistently masked while absent services remain untouched.
-
-The installer test exercises the default plan, explicit KDE and LaTeX options,
-both supported ASUS hardware profiles, and invalid argument handling. It uses
-isolated home/XDG directories and blocks system-mutating commands so every
-installer invocation remains a dry-run.
+Every integration-style test uses temporary home, XDG, OS-release, and DMI
+state. Package managers, firmware tooling, and service commands are either
+blocked or mocked, so the harness never installs packages, enrolls keys,
+changes real services, or writes to the user's configuration.
 
 GitHub Actions runs these commands in a Fedora 44 container for every pull
 request and every push to `main`. The workflow installs validation dependencies
