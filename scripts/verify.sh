@@ -73,6 +73,7 @@ commands=(
   mise
   nvim
   rg
+  shellcheck
   sqlite3
   starship
   stow
@@ -292,6 +293,26 @@ for package in "${mason_packages[@]}"; do
     warning "Mason package not installed: $package"
   fi
 done
+
+if [[ -d "$mason_root" ]]; then
+  for package_dir in "$mason_root"/*; do
+    [[ -d "$package_dir" ]] || continue
+
+    package="$(basename "$package_dir")"
+    expected="false"
+
+    for expected_package in "${mason_packages[@]}"; do
+      if [[ "$package" == "$expected_package" ]]; then
+        expected="true"
+        break
+      fi
+    done
+
+    if [[ "$expected" == "false" ]]; then
+      warning "Unexpected Mason package (review ownership): $package"
+    fi
+  done
+fi
 
 if nvim --headless \
   '+lua assert(vim.fn.has("nvim-0.12") == 1)' \

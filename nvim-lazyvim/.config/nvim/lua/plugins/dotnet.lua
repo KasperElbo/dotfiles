@@ -63,10 +63,11 @@ return {
         enabled = false,
       },
 
-      -- EasyDotnet provides the project-aware DAP configuration,
-      -- while Mason remains responsible for installing netcoredbg.
+      -- EasyDotnet owns project-aware DAP registration and uses the
+      -- Mason-owned netcoredbg binary instead of downloading another copy.
       debugger = {
-        auto_register_dap = false,
+        bin_path = LazyVim.get_pkg_path("netcoredbg", "/libexec/netcoredbg/netcoredbg"),
+        auto_register_dap = true,
       },
 
       -- Don't add mappings when editing project files themselves.

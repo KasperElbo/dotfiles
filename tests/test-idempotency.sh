@@ -163,6 +163,7 @@ mock_commands=(
   nvim
   python
   rg
+  shellcheck
   sqlite3
   starship
   systemctl

@@ -369,6 +369,7 @@ git
 git-delta
 neovim
 ripgrep
+ShellCheck
 sqlite
 sqlite-devel
 stow
@@ -422,22 +423,27 @@ pipx:pynvim
 
 ## Mason
 
-Mason owns Neovim-specific binaries such as:
+Mason owns the editor-facing binaries below. This is the complete expected
+inventory, derived from the tracked LazyVim extras and local plugin specs:
 
-```text
-angular-language-server
-eslint-lsp
-js-debug-adapter
-json-lsp
-lua-language-server
-netcoredbg
-roslyn
-shfmt
-stylua
-texlab
-vtsls
-yaml-language-server
-```
+| Mason package | Declared by | Responsibility |
+|---|---|---|
+| `angular-language-server` | LazyVim Angular extra | Angular template and framework language support |
+| `eslint-lsp` | LazyVim ESLint extra | Editor-to-project ESLint bridge |
+| `js-debug-adapter` | LazyVim TypeScript extra when DAP is enabled | JavaScript and TypeScript debugging |
+| `json-lsp` | LazyVim JSON extra | JSON language support |
+| `lua-language-server` | LazyVim core | Lua language support for Neovim configuration |
+| `netcoredbg` | `lua/plugins/dotnet.lua` | Debug adapter binary used by EasyDotnet |
+| `roslyn` | `lua/plugins/dotnet.lua` | C# language server used by `roslyn.nvim` |
+| `shfmt` | LazyVim core | Editor formatting for shell files |
+| `stylua` | LazyVim core | Editor formatting for Lua files |
+| `texlab` | LazyVim TeX extra | TeX language support |
+| `vtsls` | LazyVim TypeScript extra, imported by Angular | TypeScript language server using the workspace TypeScript SDK |
+| `yaml-language-server` | LazyVim YAML extra | YAML language support |
+
+`scripts/verify.sh` checks this expected inventory and warns about additional
+Mason packages so stale or manually installed tools can be reviewed instead of
+silently acquiring a second owner.
 
 ## Project-local tooling
 
@@ -994,7 +1000,10 @@ mise
     .NET SDK/runtime
 ```
 
-EasyDotnet's own LSP integration is disabled; Roslyn is owned by `roslyn.nvim`.
+EasyDotnet's own LSP integration is disabled; `roslyn.nvim` owns LSP client
+configuration and Mason owns the Roslyn binary. The mise-managed
+`dotnet:EasyDotnet` global tool is the companion server required by the
+`easy-dotnet.nvim` plugin; it does not replace Roslyn or `netcoredbg`.
 
 ## Testing
 
@@ -1022,19 +1031,10 @@ It is configured as a right-side vertical split.
 
 ## Debugging
 
-EasyDotnet's project-aware DAP registration is intentionally disabled.
-
-On the reference project it successfully built a selected project but then failed with:
-
-```text
-No binary path supplied
-```
-
-The reliable setup is therefore:
-
-- Mason-managed `netcoredbg`
-- `nvim-dap`
-- generic `NetCoreDbg: Launch`
+EasyDotnet owns the project-aware DAP registration, while Mason owns the
+`netcoredbg` executable. The configured `bin_path` points EasyDotnet at Mason's
+package, preventing EasyDotnet's companion server from downloading a second
+debugger. `nvim-dap` remains the generic debugger framework.
 
 Repository-specific `.vscode/launch.json` files are considered project configuration rather than workstation configuration.
 
@@ -1069,6 +1069,18 @@ The editor-side `eslint-lsp` is Mason-managed.
 
 ESLint handles diagnostics/code actions; Prettier owns formatting.
 
+The split is intentional:
+
+- mise owns the Node runtime
+- each repository owns TypeScript, ESLint, angular-eslint, Prettier, and its
+  test runner through `package.json`
+- Mason owns VTSLS, Angular Language Server, the ESLint editor bridge, and the
+  JavaScript debug adapter
+- VTSLS is configured to use the workspace TypeScript SDK
+
+JSON and YAML language servers remain Mason-owned. Their formatting falls back
+to the language server unless a project-local Prettier executable is available.
+
 ---
 
 # LaTeX
@@ -1088,6 +1100,9 @@ or:
 Fedora owns the TeX distribution and Biber.
 
 Mason owns `texlab`.
+
+LazyVim owns the VimTeX editor plugin. TeX project build configuration remains
+in the project.
 
 Mermaid CLI (`mmdc`) is installed through mise/npm.
 
@@ -1112,7 +1127,7 @@ The verifier checks:
 - derived Ghostty/Delta/tmux theme overrides
 - Git local configuration
 - mise configuration and commands
-- Mason editor tooling
+- expected Mason editor tooling and warnings for untracked Mason packages
 - Neovim startup/version
 - Catppuccin tmux installation/version
 - optional ASUS hardware profile, drivers, services, and Secure Boot state
@@ -1142,10 +1157,10 @@ git diff --check
 
 The bootstrap harness covers Secure Boot helpers, power-profile service
 handling, installer option validation and dry-runs, fresh and repeated local
-setup, legacy Git identity migration, and preservation of unrelated user files
-and symlinks. It also exercises GA402XZ and GA402RK hardware preflights,
-fail-before-mutation behavior, and representative package and service flows
-through command mocks.
+setup, legacy Git identity migration, developer-tool ownership invariants, and
+preservation of unrelated user files and symlinks. It also exercises GA402XZ
+and GA402RK hardware preflights, fail-before-mutation behavior, and
+representative package and service flows through command mocks.
 
 Every integration-style test uses temporary home, XDG, OS-release, and DMI
 state. Package managers, firmware tooling, and service commands are either
