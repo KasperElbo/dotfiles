@@ -10,6 +10,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib/power-profiles.sh"
 command_log="$(mktemp)"
 trap 'rm -f -- "$command_log"' EXIT
 
+# The production helper calls systemctl through sudo; this test intercepts sudo
+# separately and uses this function only for read-only state queries.
+# shellcheck disable=SC2032
 systemctl() {
   if [[ "$1" == "is-enabled" ]]; then
     case "$2" in
