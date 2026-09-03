@@ -18,41 +18,27 @@ esac
 
 state_dir="$XDG_CONFIG_HOME/dotfiles"
 git_dir="$XDG_CONFIG_HOME/git"
+former_git_dir="$DOTFILES_ROOT/git/.config/git"
 
 ensure_dir "$state_dir"
-ensure_dir "$git_dir"
 
-migrate_stow_managed_git_config() {
+restore_former_git_config() {
   local name="$1"
-  local config_path="$git_dir/$name"
+  local destination="$2"
   local repo_relative_path="git/.config/git/$name"
   local former_stow_path="$DOTFILES_ROOT/$repo_relative_path"
-
-  if [[ ! -L "$config_path" ]]; then
-    touch "$config_path"
-    return
-  fi
-
-  if [[ "$(realpath -m "$config_path")" != "$former_stow_path" ]]; then
-    info "Keeping existing Git config symlink: $config_path"
-    return
-  fi
-
-  local replacement
   local revision
   local restored="false"
 
-  replacement="$(mktemp "$git_dir/.${name}.XXXXXX")"
-
   if [[ -f "$former_stow_path" ]]; then
-    cp -- "$former_stow_path" "$replacement"
+    cp -- "$former_stow_path" "$destination"
     restored="true"
   else
     while IFS= read -r revision; do
       if git -C "$DOTFILES_ROOT" cat-file -e \
         "${revision}:${repo_relative_path}" 2>/dev/null; then
         git -C "$DOTFILES_ROOT" show \
-          "${revision}:${repo_relative_path}" >"$replacement"
+          "${revision}:${repo_relative_path}" >"$destination"
         restored="true"
         break
       fi
@@ -62,7 +48,91 @@ migrate_stow_managed_git_config() {
     )
   fi
 
-  chmod 600 "$replacement"
+  chmod 600 "$destination"
+  [[ "$restored" == "true" ]]
+}
+
+migrate_folded_git_directory() {
+  [[ -L "$git_dir" ]] || return 0
+
+  if [[ "$(realpath -m "$git_dir")" != "$former_git_dir" ]]; then
+    info "Keeping existing Git config directory symlink: $git_dir"
+    return
+  fi
+
+  local migration_dir
+  local source_path
+  local relative_path
+  local identity
+
+  # Older Stow defaults could make the whole Git directory one symlink. Build
+  # the equivalent no-folding layout beside it before replacing that link.
+  migration_dir="$(mktemp -d "$XDG_CONFIG_HOME/.git-migration.XXXXXX")"
+
+  while IFS= read -r -d '' source_path; do
+    relative_path="${source_path#"$former_git_dir"/}"
+
+    case "$relative_path" in
+    local | drdk)
+      continue
+      ;;
+    esac
+
+    if [[ -d "$source_path" && ! -L "$source_path" ]]; then
+      mkdir -p "$migration_dir/$relative_path"
+    else
+      local destination_path="$migration_dir/$relative_path"
+      local relative_source
+
+      ensure_dir "$(dirname "$destination_path")"
+      relative_source="$(
+        realpath --relative-to="$(dirname "$destination_path")" "$source_path"
+      )"
+      ln -s "$relative_source" "$destination_path"
+    fi
+  done < <(find "$former_git_dir" -mindepth 1 -print0)
+
+  for identity in local drdk; do
+    : >"$migration_dir/$identity"
+    restore_former_git_config "$identity" "$migration_dir/$identity" || true
+  done
+
+  rm -- "$git_dir"
+  mv -- "$migration_dir" "$git_dir"
+  info "Unfolded legacy Stow-managed Git config directory: $git_dir"
+}
+
+migrate_folded_git_directory
+ensure_dir "$git_dir"
+
+migrate_stow_managed_git_config() {
+  local name="$1"
+  local config_path="$git_dir/$name"
+  local former_stow_path="$former_git_dir/$name"
+
+  if [[ ! -L "$config_path" ]]; then
+    if [[ ! -e "$config_path" ]]; then
+      : >"$config_path"
+      chmod 600 "$config_path"
+    fi
+
+    return
+  fi
+
+  if [[ "$(realpath -m "$config_path")" != "$former_stow_path" ]]; then
+    info "Keeping existing Git config symlink: $config_path"
+    return
+  fi
+
+  local replacement
+  local restored="false"
+
+  replacement="$(mktemp "$git_dir/.${name}.XXXXXX")"
+
+  if restore_former_git_config "$name" "$replacement"; then
+    restored="true"
+  fi
+
   mv -- "$replacement" "$config_path"
 
   if [[ "$restored" == "true" ]]; then
@@ -84,13 +154,13 @@ fi
 current_theme="$(cat "$state_dir/theme")"
 
 printf 'theme = catppuccin-%s.conf\n' "$current_theme" \
-  >"$state_dir/ghostty.conf"
+  | atomic_write_file "$state_dir/ghostty.conf"
 
 printf '[delta]\n    features = catppuccin-%s\n' "$current_theme" \
-  >"$state_dir/git-theme"
+  | atomic_write_file "$state_dir/git-theme"
 
 printf 'set -g @catppuccin_flavor "%s"\n' "$current_theme" \
-  >"$state_dir/tmux-theme.conf"
+  | atomic_write_file "$state_dir/tmux-theme.conf"
 
 # Identity files are intentionally local. Migrate links created by older
 # versions of this repository before Stow runs, then keep the files outside

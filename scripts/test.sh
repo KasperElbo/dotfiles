@@ -11,6 +11,7 @@ tests=(
   tests/test-installer-options.sh
   tests/test-local-state.sh
   tests/test-neovim-tool-ownership.sh
+  tests/test-idempotency.sh
   tests/test-asus-preflight.sh
   tests/test-mocked-installs.sh
 )
