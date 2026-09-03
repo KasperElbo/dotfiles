@@ -194,10 +194,28 @@ fi
 
 section "Git local configuration"
 
-for file in \
-  "$XDG_CONFIG_HOME/git/local" \
-  "$XDG_CONFIG_HOME/git/drdk"; do
-  if [[ -f "$file" ]]; then
+for name in local drdk; do
+  file="$XDG_CONFIG_HOME/git/$name"
+  repo_relative_path="git/.config/git/$name"
+  repo_file="$DOTFILES_ROOT/$repo_relative_path"
+
+  if git -C "$DOTFILES_ROOT" ls-files --error-unmatch -- \
+    "$repo_relative_path" >/dev/null 2>&1; then
+    fail "Machine-local Git config is tracked: $repo_relative_path"
+  else
+    pass "Machine-local Git config is not tracked: $repo_relative_path"
+  fi
+
+  if [[ -e "$repo_file" || -L "$repo_file" ]]; then
+    fail "Machine-local Git config exists inside the Stow package: $repo_file"
+  else
+    pass "Machine-local Git config is outside the Stow package: $name"
+  fi
+
+  if [[ -L "$file" ]] &&
+    [[ "$(realpath -m "$file")" == "$repo_file" ]]; then
+    fail "Local Git config still links into the dotfiles repo: $file"
+  elif [[ -f "$file" ]]; then
     pass "Local Git config exists: $file"
   else
     warning "Local Git config missing: $file"

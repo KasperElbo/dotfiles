@@ -125,11 +125,11 @@ Steps:
   2. Enable Terra and install Terra-managed packages
      scripts/install-terra.sh
 
-  3. Deploy tracked configuration with GNU Stow
-     scripts/stow.sh
-
-  4. Initialize machine-local configuration
+  3. Initialize machine-local configuration
      scripts/setup-local.sh $theme
+
+  4. Deploy tracked configuration with GNU Stow
+     scripts/stow.sh
 
   5. Install mise-managed runtimes and developer tools
      scripts/install-mise.sh
@@ -223,11 +223,11 @@ info "Installing base Fedora packages"
 info "Installing Terra packages"
 "$DOTFILES_ROOT/scripts/install-terra.sh"
 
-info "Deploying dotfiles with GNU Stow"
-"$DOTFILES_ROOT/scripts/stow.sh"
-
 info "Initializing machine-local configuration"
 "$DOTFILES_ROOT/scripts/setup-local.sh" "$theme"
+
+info "Deploying dotfiles with GNU Stow"
+"$DOTFILES_ROOT/scripts/stow.sh"
 
 info "Installing mise-managed runtimes and tools"
 "$DOTFILES_ROOT/scripts/install-mise.sh"

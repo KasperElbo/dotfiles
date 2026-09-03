@@ -229,8 +229,8 @@ install.sh
 │
 ├── scripts/install-system.sh
 ├── scripts/install-terra.sh
-├── scripts/stow.sh
 ├── scripts/setup-local.sh
+├── scripts/stow.sh
 ├── scripts/install-mise.sh
 ├── scripts/install-tmux-theme.sh
 ├── scripts/install-kde-theme.sh      optional
@@ -416,6 +416,10 @@ The following files are intentionally outside the repository:
 The first group is derived from the selected Catppuccin flavor.
 
 The Git files contain user-specific identity and optional authentication/signing configuration.
+
+When upgrading from a version that tracked these files accidentally,
+`scripts/setup-local.sh` replaces the old Stow links with private local files
+before the remaining dotfiles are restowed.
 
 ---
 
@@ -1157,4 +1161,3 @@ KDE decoration:       Classic
 ```
 
 The goal is not to turn the workstation into a custom framework. The goal is a reproducible setup that remains understandable to someone already familiar with Fedora, Zsh, Neovim, Git, and the upstream tools themselves.
-
