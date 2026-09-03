@@ -26,9 +26,24 @@ write_file() {
   local path="$1"
   local tmp
 
+  if [[ -d "$path" ]]; then
+    echo "Cannot replace directory with file: $path" >&2
+    return 1
+  fi
+
   tmp="$(mktemp "${path}.XXXXXX")"
-  cat > "$tmp"
-  mv "$tmp" "$path"
+
+  if ! cat >"$tmp"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+
+  chmod 600 "$tmp"
+
+  if ! mv -- "$tmp" "$path"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
 }
 
 echo "Switching to Catppuccin $flavour..."

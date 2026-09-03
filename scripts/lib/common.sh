@@ -33,6 +33,27 @@ ensure_dir() {
   mkdir -p "$1"
 }
 
+atomic_write_file() {
+  local path="$1"
+  local temporary
+
+  [[ ! -d "$path" ]] || die "Cannot replace directory with file: $path"
+
+  temporary="$(mktemp "${path}.XXXXXX")"
+
+  if ! cat >"$temporary"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+
+  chmod 600 "$temporary"
+
+  if ! mv -- "$temporary" "$path"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+}
+
 confirm() {
   local prompt="$1"
   local default="${2:-y}"
