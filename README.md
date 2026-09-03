@@ -290,7 +290,7 @@ sudo reboot
 
 The hardware installer:
 
-- requires Fedora and a kernel of at least 6.19
+- requires Fedora and a kernel of at least 7.1
 - enables Terra and installs `asusctl` plus ROG Control Center
 - enables `asusd.service` and `asus-shutdown.service`
 - gives `asusd` sole ownership of power-profile and CPU EPP changes by

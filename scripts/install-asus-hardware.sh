@@ -176,7 +176,7 @@ require_fedora
 
 kernel_release="${KERNEL_RELEASE:-$(uname -r)}"
 kernel_version="${kernel_release%%-*}"
-minimum_kernel="6.19"
+minimum_kernel="7.1"
 
 if [[ "$(printf '%s\n' "$minimum_kernel" "$kernel_version" | sort -V | head -n1)" != \
   "$minimum_kernel" ]]; then
