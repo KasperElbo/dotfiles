@@ -24,6 +24,7 @@ lazyvim_extras=(
   lazyvim.plugins.extras.dap.core
   lazyvim.plugins.extras.lang.angular
   lazyvim.plugins.extras.lang.json
+  lazyvim.plugins.extras.lang.python
   lazyvim.plugins.extras.lang.tex
   lazyvim.plugins.extras.lang.yaml
   lazyvim.plugins.extras.linting.eslint
@@ -48,6 +49,10 @@ assert_contains "$dotnet_config" 'coreclr = function() end'
 formatting_config="$lazyvim_config/lua/plugins/formatting.lua"
 assert_contains "$formatting_config" 'cs = { "csharpier" }'
 assert_contains "$formatting_config" 'typescript = { "prettier" }'
+assert_contains "$formatting_config" 'htmlangular = { "prettier" }'
+assert_contains "$formatting_config" 'python = { "ruff_format" }'
+assert_contains "$lazyvim_config/lua/config/options.lua" \
+  'vim.g.lazyvim_eslint_auto_format = false'
 
 assert_contains "$repo_root/scripts/install-system.sh" '  ShellCheck'
 
@@ -57,12 +62,15 @@ mason_inventory="$(
 
 expected_mason_packages=(
   angular-language-server
+  debugpy
   eslint-lsp
   js-debug-adapter
   json-lsp
   lua-language-server
   netcoredbg
+  pyright
   roslyn
+  ruff
   shfmt
   stylua
   texlab
@@ -80,6 +88,7 @@ project_tools=(
   dotnet-ef
   eslint
   prettier
+  pytest
   trx2junit
   typescript
 )
@@ -93,5 +102,18 @@ for tool in "${project_tools[@]}"; do
     fail "project-local tool is declared through Mason: $tool"
   fi
 done
+
+angular_fixture="$repo_root/tests/fixtures/angular-smoke"
+assert_contains "$angular_fixture/package.json" '"@angular/cli":'
+assert_contains "$angular_fixture/package.json" '"typescript":'
+assert_contains "$angular_fixture/package.json" '"eslint":'
+assert_contains "$angular_fixture/package.json" '"prettier":'
+assert_contains "$angular_fixture/angular.json" '"sourceMap": true'
+assert_contains "$angular_fixture/.vscode/launch.json" '"type": "pwa-chrome"'
+
+python_fixture="$repo_root/tests/fixtures/python-smoke"
+assert_contains "$python_fixture/pyproject.toml" '"pytest>='
+assert_contains "$python_fixture/pyproject.toml" '"ruff>='
+assert_contains "$python_fixture/.vscode/launch.json" '"type": "debugpy"'
 
 printf 'Neovim and developer-tool ownership checks passed.\n'

@@ -429,12 +429,15 @@ inventory, derived from the tracked LazyVim extras and local plugin specs:
 | Mason package | Declared by | Responsibility |
 |---|---|---|
 | `angular-language-server` | LazyVim Angular extra | Angular template and framework language support |
+| `debugpy` | LazyVim Python extra | Python debug adapter used by `nvim-dap-python` |
 | `eslint-lsp` | LazyVim ESLint extra | Editor-to-project ESLint bridge |
 | `js-debug-adapter` | LazyVim TypeScript extra when DAP is enabled | JavaScript and TypeScript debugging |
 | `json-lsp` | LazyVim JSON extra | JSON language support |
 | `lua-language-server` | LazyVim core | Lua language support for Neovim configuration |
 | `netcoredbg` | `lua/plugins/dotnet.lua` | Debug adapter binary used by EasyDotnet |
+| `pyright` | LazyVim Python extra | Python language server and type checking |
 | `roslyn` | `lua/plugins/dotnet.lua` | C# language server used by `roslyn.nvim` |
+| `ruff` | LazyVim Python extra | Editor diagnostics and formatting using project configuration |
 | `shfmt` | LazyVim core | Editor formatting for shell files |
 | `stylua` | LazyVim core | Editor formatting for Lua files |
 | `texlab` | LazyVim TeX extra | TeX language support |
@@ -473,6 +476,18 @@ Karma / other project test runner
 ```
 
 These belong in `package.json`.
+
+### Python repository
+
+```text
+pytest
+Ruff
+application and library dependencies
+```
+
+These belong in `pyproject.toml` and are resolved into a project-local `.venv`
+with `uv`. Mason's Ruff installation is editor-only; CLI and CI execution uses
+the project-declared version.
 
 ---
 
@@ -1059,6 +1074,23 @@ project-local Prettier
 project-local ESLint/angular-eslint
 ```
 
+From a repository with a committed `package.json`, use its scripts rather than
+globally installed framework commands:
+
+```bash
+npm install
+npm run build
+npm start
+npm test
+npm run lint
+npx prettier --check .
+```
+
+Open Neovim from the repository root after installing dependencies. `:LspInfo`
+should show VTSLS for TypeScript, Angular Language Server for Angular templates,
+and ESLint when the repository has a supported ESLint configuration. VTSLS uses
+the repository's TypeScript SDK.
+
 Prettier remains project-local:
 
 ```bash
@@ -1067,7 +1099,9 @@ npm install --save-dev prettier
 
 ESLint remains project-local.
 
-The editor-side `eslint-lsp` is Mason-managed.
+The editor-side `eslint-lsp` is Mason-managed. Its formatter is disabled so
+ESLint provides diagnostics and code actions while project-local Prettier is
+the only JavaScript, TypeScript, and Angular-template formatter.
 
 ESLint handles diagnostics/code actions; Prettier owns formatting.
 
@@ -1082,6 +1116,105 @@ The split is intentional:
 
 JSON and YAML language servers remain Mason-owned. Their formatting falls back
 to the language server unless a project-local Prettier executable is available.
+
+## Debugging
+
+The LazyVim TypeScript extra registers the Mason-owned `js-debug-adapter` for
+Node, Chrome, and Chromium-compatible workflows. Project-specific launch
+details belong in `.vscode/launch.json`; the workstation does not guess the
+application URL or browser process.
+
+The Angular smoke fixture contains an attach configuration that proves source
+mapping without requiring a global Angular CLI. To exercise it manually:
+
+```bash
+cp -R tests/fixtures/angular-smoke /tmp/angular-smoke
+cd /tmp/angular-smoke
+npm install
+npm start
+```
+
+In another terminal, start Chrome or Chromium with a disposable debug profile:
+
+```bash
+chromium \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/angular-debug-profile \
+  http://localhost:4200
+```
+
+Open `/tmp/angular-smoke` in Neovim, set a breakpoint on
+`this.answer.set(answer)` in `src/app/app.ts`, press `<F5>`, select
+`Angular: Attach Chrome/Chromium`, and click **Calculate** in the browser. The
+breakpoint should resolve against the emitted source map and stop on the
+TypeScript line. Replace `chromium` with the installed Chrome/Chromium command
+when necessary.
+
+---
+
+# Python development
+
+The Python setup uses mise for the interpreter and `uv` command, while every
+project owns its environment and development dependencies:
+
+```bash
+uv init --package
+uv add --dev pytest ruff
+uv sync
+uv run python -m your_package
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv build
+```
+
+`uv sync` creates a project-local `.venv`; it does not modify the mise-managed
+Python installation. In Neovim, the LazyVim Python extra provides Pyright,
+Ruff, pytest discovery through Neotest, virtual-environment selection with
+`<leader>cv`, and debugging through `nvim-dap-python` plus Mason's `debugpy`.
+Use `:LspInfo` to confirm Pyright and Ruff are attached to a Python buffer.
+
+Formatting and lint ownership is split deliberately:
+
+- the project declares Ruff and all rules in `pyproject.toml`, so shell and CI
+  use `uv run ruff ...`
+- Mason's Ruff binary is editor-only and Conform uses it for format-on-save
+- Mason owns Pyright and debugpy because they are editor adapters
+- pytest and all application dependencies remain in the project
+
+Repository-specific debug targets belong in `.vscode/launch.json`. To verify
+the included module-launch example:
+
+```bash
+cp -R tests/fixtures/python-smoke /tmp/python-smoke
+cd /tmp/python-smoke
+uv sync --all-groups
+nvim .
+```
+
+Set a breakpoint on `answer = left * right` in
+`src/dotfiles_smoke/calculator.py`, press `<F5>`, and choose `Python: Module`.
+The debugger should stop inside the project interpreter without adding debugpy
+to the project's dependencies.
+
+## Disposable workflow validation
+
+The repository includes network-dependent fixtures that exercise real project
+tooling in temporary directories:
+
+```bash
+./scripts/test-dev-workflows.sh
+./scripts/test-dev-workflows.sh --angular
+./scripts/test-dev-workflows.sh --python
+```
+
+The Angular check installs only fixture-local dependencies, formats, lints,
+tests, builds with source maps, starts the development server, and probes it.
+The Python check resolves an isolated environment, runs the package and tests,
+lints, checks formatting, and builds both source and wheel distributions. These
+larger download-based checks are intentionally separate from `scripts/test.sh`;
+the normal repository suite validates their configuration without fetching
+language ecosystems.
 
 ---
 
