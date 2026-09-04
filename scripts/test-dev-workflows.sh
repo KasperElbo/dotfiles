@@ -89,8 +89,8 @@ run_angular_workflow() {
   ) >"$log" 2>&1 &
   server_pid=$!
 
-  local attempt
-  for attempt in {1..60}; do
+  local _
+  for _ in {1..60}; do
     if curl --fail --silent --show-error \
       "http://127.0.0.1:$port" >"$response" 2>/dev/null; then
       break
