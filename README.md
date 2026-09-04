@@ -459,7 +459,6 @@ Examples:
 ```text
 CSharpier
 dotnet-ef
-trx2junit
 ```
 
 These belong in `.config/dotnet-tools.json`.
