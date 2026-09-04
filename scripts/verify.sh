@@ -273,12 +273,15 @@ mason_root="${XDG_DATA_HOME}/nvim/mason/packages"
 
 mason_packages=(
   angular-language-server
+  debugpy
   eslint-lsp
   js-debug-adapter
   json-lsp
   lua-language-server
   netcoredbg
+  pyright
   roslyn
+  ruff
   shfmt
   stylua
   texlab
