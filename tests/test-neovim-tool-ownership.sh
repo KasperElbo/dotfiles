@@ -42,6 +42,8 @@ assert_contains "$dotnet_config" 'enabled = false'
 assert_contains "$dotnet_config" \
   'bin_path = LazyVim.get_pkg_path("netcoredbg", "/libexec/netcoredbg/netcoredbg")'
 assert_contains "$dotnet_config" 'auto_register_dap = true'
+assert_contains "$dotnet_config" '"jay-babu/mason-nvim-dap.nvim"'
+assert_contains "$dotnet_config" 'coreclr = function() end'
 
 formatting_config="$lazyvim_config/lua/plugins/formatting.lua"
 assert_contains "$formatting_config" 'cs = { "csharpier" }'

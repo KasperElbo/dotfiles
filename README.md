@@ -1034,7 +1034,9 @@ It is configured as a right-side vertical split.
 EasyDotnet owns the project-aware DAP registration, while Mason owns the
 `netcoredbg` executable. The configured `bin_path` points EasyDotnet at Mason's
 package, preventing EasyDotnet's companion server from downloading a second
-debugger. `nvim-dap` remains the generic debugger framework.
+debugger. Mason's generic `NetCoreDbg: Launch` configuration is suppressed so
+only EasyDotnet appears in the C# debug picker. `nvim-dap` remains the generic
+debugger framework.
 
 Repository-specific `.vscode/launch.json` files are considered project configuration rather than workstation configuration.
 
