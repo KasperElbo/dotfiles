@@ -106,4 +106,16 @@ return {
       },
     },
   },
+
+  -- EasyDotnet registers the C# launch configuration. Prevent mason-nvim-dap
+  -- from adding its generic NetCoreDbg launch option as well.
+  {
+    "jay-babu/mason-nvim-dap.nvim",
+    optional = true,
+    opts = {
+      handlers = {
+        coreclr = function() end,
+      },
+    },
+  },
 }
