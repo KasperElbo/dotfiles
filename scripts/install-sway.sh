@@ -17,7 +17,7 @@ packages=(
   libnotify
   lxqt-policykit
   mako
-  NetworkManager-connection-editor
+  nm-connection-editor
   pavucontrol
   playerctl
   slurp
