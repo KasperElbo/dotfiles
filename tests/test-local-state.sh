@@ -21,6 +21,10 @@ run_setup "$fresh_home" frappe
 grep -Fqx frappe "$fresh_home/.config/dotfiles/theme"
 grep -Fqx 'theme = catppuccin-frappe.conf' \
   "$fresh_home/.config/dotfiles/ghostty.conf"
+# The dollar-prefixed string is a literal Sway variable.
+# shellcheck disable=SC2016
+grep -Fq 'set $wallpaper' "$fresh_home/.config/dotfiles/sway-theme.conf"
+grep -Fq 'background=303446f2' "$fresh_home/.config/dotfiles/fuzzel.ini"
 
 for identity in local drdk; do
   identity_path="$fresh_home/.config/git/$identity"
@@ -42,6 +46,25 @@ grep -Fqx user-owned "$fresh_home/notes.txt"
 [[ "$(readlink "$fresh_home/.config/git/local")" == \
   "$fresh_home/external-identity" ]]
 printf 'PASS: fresh and repeated setup preserve user-managed state\n'
+
+sway_home="$test_root/sway-home"
+mkdir -p "$sway_home"
+HOME="$sway_home" \
+  XDG_CONFIG_HOME="$sway_home/.config" \
+  XDG_DATA_HOME="$sway_home/.local/share" \
+  "$repo_root/scripts/setup-local.sh" mocha --sway >/dev/null
+
+local_sway="$sway_home/.config/sway/local.conf"
+[[ -f "$local_sway" && ! -L "$local_sway" ]]
+printf 'output DP-9 mode 1920x1080\n' >"$local_sway"
+
+HOME="$sway_home" \
+  XDG_CONFIG_HOME="$sway_home/.config" \
+  XDG_DATA_HOME="$sway_home/.local/share" \
+  "$repo_root/scripts/setup-local.sh" latte --sway >/dev/null
+
+grep -Fqx 'output DP-9 mode 1920x1080' "$local_sway"
+printf 'PASS: local Sway output configuration remains machine-owned\n'
 
 migration_home="$test_root/migration-home"
 mkdir -p "$migration_home/.config/git"

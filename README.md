@@ -3,7 +3,7 @@
 Opinionated, reproducible dotfiles for a keyboard-driven development workstation built around:
 
 - Fedora
-- KDE Plasma / Wayland
+- KDE Plasma / Wayland, with an optional Sway session
 - Ghostty
 - Zsh
 - Neovim + LazyVim
@@ -33,6 +33,7 @@ This configuration has been developed and tested on:
 
 - Fedora 44
 - KDE Plasma on Wayland
+- Sway on Wayland when installed with `--sway`
 - Zsh
 - Ghostty
 - Neovim 0.12+
@@ -97,6 +98,14 @@ The supported hardware profiles are `ga402xz` and `ga402rk`. The selected
 profile is checked against the machine's DMI board name before any
 model-specific packages are installed.
 
+The keyboard-driven Sway session is also explicitly opt-in. It is installed
+alongside Plasma, so the session can be selected at login without replacing
+the dependable KDE fallback:
+
+```bash
+./install.sh --sway
+```
+
 ## Installer options
 
 ```text
@@ -108,6 +117,9 @@ model-specific packages are installed.
 
 --latex            install the LaTeX toolchain
 --no-latex         skip the LaTeX toolchain
+
+--sway             install the optional keyboard-driven Sway session
+--no-sway          skip Sway (default)
 
 --hardware MODEL   install ASUS hardware support for ga402xz or ga402rk
                    default: disabled
@@ -335,6 +347,7 @@ install.sh
 ├── scripts/install-system.sh
 ├── scripts/install-terra.sh
 ├── scripts/install-asus-hardware.sh optional, model-specific
+├── scripts/install-sway.sh          optional
 ├── scripts/setup-local.sh
 ├── scripts/stow.sh
 ├── scripts/install-mise.sh
@@ -380,6 +393,11 @@ zsh
 zsh-autosuggestions
 zsh-syntax-highlighting
 ```
+
+The optional Sway session adds Sway, Waybar, Fuzzel, Mako, swaylock,
+swayidle, swaybg, desktop portals, a polkit agent, clipboard and screenshot
+utilities, hardware-key utilities, and the small GUI control tools used by the
+bar. These packages remain Fedora/DNF-owned.
 
 ## Terra RPM repository
 
@@ -504,7 +522,9 @@ lazygit/
 mise/
 nvim-lazyvim/
 starship/
+sway/              # only stowed with --sway
 tmux/
+waybar/             # only stowed with --sway
 zsh/
 ```
 
@@ -534,11 +554,19 @@ The following files are intentionally outside the repository:
 ├── hardware.conf
 ├── ghostty.conf
 ├── git-theme
-└── tmux-theme.conf
+├── tmux-theme.conf
+├── sway-theme.conf
+├── waybar-theme.css
+├── fuzzel.ini
+├── mako.conf
+└── swaylock.conf
 
 ~/.config/git/
 ├── local
 └── drdk
+
+~/.config/sway/
+└── local.conf       # output names, positions, modes, and scaling
 ```
 
 The theme-related files in the first group are derived from the selected
@@ -707,6 +735,81 @@ by:
 ```bash
 ./scripts/install-tmux-theme.sh
 ```
+
+## Sway desktop
+
+The `theme` command also updates Sway, Waybar, Fuzzel, Mako, swaylock, and the
+flavour-matched wallpaper. A running Sway session is reloaded automatically;
+new Fuzzel invocations read the new generated configuration.
+
+The four tracked 3840x2160 wallpapers are adaptations of official
+MIT-licensed Catppuccin flavour artwork. Their exact upstream revision and
+license are recorded beside the assets and in `LICENSES/Catppuccin.txt`.
+
+---
+
+# Optional Sway session
+
+`./install.sh --sway` produces a complete daily-driver session while leaving
+KDE and KWin untouched. Select **Sway** from the display manager when desired;
+the installer deliberately does not change the default login session.
+
+The session uses Sway's native container tree, no gaps, and thin Catppuccin
+borders. Nine workspaces form this conceptual grid:
+
+| | | |
+|---|---|---|
+| 1 | 2 | 3 |
+| 4 | 5 | 6 |
+| 7 | 8 | 9 |
+
+Directional workspace movement wraps at every edge. For example, moving left
+from workspace 1 selects 3, and moving up from workspace 1 selects 7.
+
+| Shortcut | Action |
+|---|---|
+| `Super+Enter` | Open Ghostty |
+| `Super+P` | Open Fuzzel |
+| `Super+H/J/K/L` | Focus a container |
+| `Super+Shift+H/J/K/L` | Rearrange a container |
+| `Super+Ctrl+H/J/K/L` | Navigate the wrapped workspace grid |
+| `Super+1..9` | Select a numbered workspace |
+| `Super+Shift+1..9` | Move a container to a workspace |
+| `Super+F` | Toggle fullscreen |
+| `Super+Shift+C` | Close the focused window |
+| `Super+Shift+X` | Lock the session |
+| `Super+N` / `Super+Shift+N` | Dismiss / restore a Mako notification |
+| `Super+Shift+V` | Open clipboard history |
+| `Print` | Select and annotate a screenshot region |
+| `Shift+Print` | Save the current output to `~/Pictures/Screenshots` |
+
+Waybar remains visible and shows workspaces, the focused title, power profile,
+network, Bluetooth, audio, battery, and clock. Clicking network, Bluetooth, or
+audio opens `nm-connection-editor`, `blueman-manager`, or `pavucontrol`.
+Notifications use Mako.
+
+Swayidle locks after 10 minutes and powers displays off after 15 minutes. Input
+turns the displays back on. It intentionally never suspends or hibernates the
+machine; system power policy remains outside the compositor configuration.
+
+Output discovery is automatic. Put machine-specific arrangements in the
+untracked file created by the installer:
+
+```text
+~/.config/sway/local.conf
+```
+
+Find current output names with `swaymsg -t get_outputs`, then add `output`
+directives for laptop-only, USB-C, HDMI, or docked layouts. The tracked config
+does not assume stable connector names.
+
+On the NVIDIA-equipped GA402XZ, keep Plasma available as the recovery and
+hardware-compatibility session. Sway works best when the AMD iGPU drives the
+desktop; HDMI and the right USB-C port may depend on the NVIDIA dGPU. This
+configuration does not force `--unsupported-gpu`, alter the MUX, or change GPU
+mode. If Sway cannot start or an external output is absent, log back into
+Plasma and inspect the current ASUS/NVIDIA state before changing local output
+rules.
 
 ---
 
@@ -1424,8 +1527,10 @@ After a fresh install:
 6. Start Neovim and allow lazy.nvim/Mason to complete setup.
 7. If an ASUS hardware profile requested a reboot, perform it now. For the
    GA402XZ Secure Boot flow, complete MOK enrollment during that reboot.
+8. If Sway was installed, select it once at login and confirm the required
+   outputs. Put any connector-specific rules in `~/.config/sway/local.conf`.
 
-8. Run:
+9. Run:
 
    ```bash
    ./scripts/verify.sh
@@ -1435,20 +1540,20 @@ After a fresh install:
    driver, service, DMI, and Secure Boot checks. For a focused rerun, use
    `./scripts/verify-asus-hardware.sh`.
 
-9. Confirm Git identity:
+10. Confirm Git identity:
 
    ```bash
    git config --show-origin --get user.name
    git config --show-origin --get user.email
    ```
 
-10. Confirm GitHub SSH:
+11. Confirm GitHub SSH:
 
    ```bash
    ssh -T git@github.com
    ```
 
-11. Confirm the selected theme:
+12. Confirm the selected theme:
 
     ```bash
     cat ~/.config/dotfiles/theme
@@ -1461,6 +1566,7 @@ After a fresh install:
 ```text
 Distribution:         Fedora
 Desktop:              KDE Plasma / Wayland
+Optional session:     Sway / Wayland (`--sway`)
 Terminal:             Ghostty
 Shell:                Zsh
 Prompt:               Starship

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v asusctl >/dev/null 2>&1 \
+  && output="$(asusctl profile -p 2>/dev/null)"; then
+  profile="$(printf '%s\n' "$output" | tail -n 1 | sed 's/.*: //')"
+elif command -v powerprofilesctl >/dev/null 2>&1 \
+  && profile="$(powerprofilesctl get 2>/dev/null)"; then
+  :
+else
+  profile="unavailable"
+fi
+
+printf 'Power %s\n' "${profile:-unknown}"

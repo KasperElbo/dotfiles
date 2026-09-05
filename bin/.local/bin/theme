@@ -12,69 +12,18 @@ case "$flavour" in
     ;;
 esac
 
-config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
-state_dir="$config_home/dotfiles"
-
-mkdir -p "$state_dir"
-
 # Resolve the dotfiles repository from this script's real path:
 # <repo>/bin/.local/bin/theme
 script_path="$(readlink -f "${BASH_SOURCE[0]}")"
 repo_root="$(cd "$(dirname "$script_path")/../../.." && pwd)"
-
-write_file() {
-  local path="$1"
-  local tmp
-
-  if [[ -d "$path" ]]; then
-    echo "Cannot replace directory with file: $path" >&2
-    return 1
-  fi
-
-  tmp="$(mktemp "${path}.XXXXXX")"
-
-  if ! cat >"$tmp"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
-
-  chmod 600 "$tmp"
-
-  if ! mv -- "$tmp" "$path"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
-}
+# shellcheck source=scripts/lib/common.sh
+source "$repo_root/scripts/lib/common.sh"
+# shellcheck source=scripts/lib/theme-state.sh
+source "$repo_root/scripts/lib/theme-state.sh"
 
 echo "Switching to Catppuccin $flavour..."
 
-# ---------------------------------------------------------------------------
-# Canonical machine-local theme state
-# ---------------------------------------------------------------------------
-
-printf '%s\n' "$flavour" \
-  | write_file "$state_dir/theme"
-
-# ---------------------------------------------------------------------------
-# Ghostty
-# ---------------------------------------------------------------------------
-
-printf 'theme = catppuccin-%s.conf\n' "$flavour" \
-  | write_file "$state_dir/ghostty.conf"
-
-# ---------------------------------------------------------------------------
-# Delta
-# ---------------------------------------------------------------------------
-
-printf '[delta]\n    features = catppuccin-%s\n' "$flavour" \
-  | write_file "$state_dir/git-theme"
-
-# ---------------------------------------------------------------------------
-# tmux
-# ---------------------------------------------------------------------------
-
-printf 'set -g @catppuccin_flavor "%s"\n' "$flavour" \
-  | write_file "$state_dir/tmux-theme.conf"
+write_theme_state "$flavour"
 
 # Reload an existing tmux server.
 if command -v tmux >/dev/null 2>&1 && tmux list-sessions >/dev/null 2>&1; then
@@ -105,6 +54,22 @@ if command -v systemctl >/dev/null 2>&1 \
   fi
 else
   echo "Ghostty: reload with Ctrl-Shift-, if currently running."
+fi
+
+# ---------------------------------------------------------------------------
+# Sway session live reload
+# ---------------------------------------------------------------------------
+
+if command -v swaymsg >/dev/null 2>&1 && swaymsg -t get_version >/dev/null 2>&1; then
+  swaymsg reload >/dev/null
+
+  if command -v makoctl >/dev/null 2>&1; then
+    makoctl reload >/dev/null 2>&1 || true
+  fi
+
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -SIGUSR2 waybar >/dev/null 2>&1 || true
+  fi
 fi
 
 echo

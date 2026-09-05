@@ -1,0 +1,128 @@
+# Keyboard-driven Sway session. Machine-specific outputs belong in local.conf.
+set $mod Mod4
+set $left h
+set $down j
+set $up k
+set $right l
+
+include ~/.config/dotfiles/sway-theme.conf
+
+font pango:monospace 10
+floating_modifier $mod normal
+default_border pixel 2
+default_floating_border pixel 2
+gaps inner 0
+gaps outer 0
+smart_borders no_gaps
+
+client.focused          $mauve $mauve $base $mauve $mauve
+client.focused_inactive $surface1 $surface1 $text $surface1 $surface1
+client.unfocused        $surface0 $surface0 $subtext1 $surface0 $surface0
+client.urgent           $red $red $base $red $red
+client.placeholder      $surface0 $surface0 $text $surface0 $surface0
+client.background       $base
+
+output * bg $wallpaper fill
+
+# Applications and lifecycle
+bindsym $mod+Return exec ghostty
+bindsym $mod+p exec fuzzel --config=$HOME/.config/dotfiles/fuzzel.ini
+bindsym $mod+Shift+c kill
+bindsym $mod+f fullscreen toggle
+bindsym $mod+Shift+x exec swaylock --config "$HOME/.config/dotfiles/swaylock.conf" -f
+bindsym $mod+n exec makoctl dismiss
+bindsym $mod+Shift+n exec makoctl restore
+bindsym $mod+Shift+e exec swaynag -t warning -m 'Exit Sway?' -b 'Exit' 'swaymsg exit'
+bindsym $mod+Shift+r reload
+
+# Native Sway container tree
+bindsym $mod+$left focus left
+bindsym $mod+$down focus down
+bindsym $mod+$up focus up
+bindsym $mod+$right focus right
+bindsym $mod+Shift+$left move left
+bindsym $mod+Shift+$down move down
+bindsym $mod+Shift+$up move up
+bindsym $mod+Shift+$right move right
+bindsym $mod+b splith
+bindsym $mod+v splitv
+bindsym $mod+s layout stacking
+bindsym $mod+w layout tabbed
+bindsym $mod+e layout toggle split
+bindsym $mod+Shift+space floating toggle
+bindsym $mod+space focus mode_toggle
+bindsym $mod+a focus parent
+
+# Nine numbered workspaces arranged conceptually as a wrapping 3x3 grid.
+set $ws1 1
+set $ws2 2
+set $ws3 3
+set $ws4 4
+set $ws5 5
+set $ws6 6
+set $ws7 7
+set $ws8 8
+set $ws9 9
+
+bindsym $mod+1 workspace number $ws1
+bindsym $mod+2 workspace number $ws2
+bindsym $mod+3 workspace number $ws3
+bindsym $mod+4 workspace number $ws4
+bindsym $mod+5 workspace number $ws5
+bindsym $mod+6 workspace number $ws6
+bindsym $mod+7 workspace number $ws7
+bindsym $mod+8 workspace number $ws8
+bindsym $mod+9 workspace number $ws9
+bindsym $mod+Shift+1 move container to workspace number $ws1
+bindsym $mod+Shift+2 move container to workspace number $ws2
+bindsym $mod+Shift+3 move container to workspace number $ws3
+bindsym $mod+Shift+4 move container to workspace number $ws4
+bindsym $mod+Shift+5 move container to workspace number $ws5
+bindsym $mod+Shift+6 move container to workspace number $ws6
+bindsym $mod+Shift+7 move container to workspace number $ws7
+bindsym $mod+Shift+8 move container to workspace number $ws8
+bindsym $mod+Shift+9 move container to workspace number $ws9
+bindsym $mod+Ctrl+$left exec sway-workspace-grid left
+bindsym $mod+Ctrl+$down exec sway-workspace-grid down
+bindsym $mod+Ctrl+$up exec sway-workspace-grid up
+bindsym $mod+Ctrl+$right exec sway-workspace-grid right
+
+# Hardware, screenshots, and clipboard history
+bindsym XF86AudioRaiseVolume exec wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+
+bindsym XF86AudioLowerVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+bindsym XF86AudioMute exec wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+bindsym XF86AudioMicMute exec wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+bindsym XF86MonBrightnessUp exec brightnessctl set 5%+
+bindsym XF86MonBrightnessDown exec brightnessctl set 5%-
+bindsym XF86AudioPlay exec playerctl play-pause
+bindsym XF86AudioNext exec playerctl next
+bindsym XF86AudioPrev exec playerctl previous
+bindsym Print exec sway-screenshot region
+bindsym Shift+Print exec sway-screenshot output
+bindsym $mod+Shift+v exec cliphist list | fuzzel --dmenu --config=$HOME/.config/dotfiles/fuzzel.ini | cliphist decode | wl-copy
+
+# Session services. Swayidle deliberately never suspends the machine.
+exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
+exec systemctl --user import-environment WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
+exec lxqt-policykit-agent
+exec mako --config "$HOME/.config/dotfiles/mako.conf"
+exec wl-paste --type text --watch cliphist store
+exec wl-paste --type image --watch cliphist store
+exec swayidle -w timeout 600 'swaylock --config "$HOME/.config/dotfiles/swaylock.conf" -f' timeout 900 'swaymsg "output * power off"' resume 'swaymsg "output * power on"' before-sleep 'swaylock --config "$HOME/.config/dotfiles/swaylock.conf" -f'
+
+bar {
+    swaybar_command waybar
+}
+
+mode "resize" {
+    bindsym $left resize shrink width 10 px
+    bindsym $down resize grow height 10 px
+    bindsym $up resize shrink height 10 px
+    bindsym $right resize grow width 10 px
+    bindsym Return mode "default"
+    bindsym Escape mode "default"
+}
+bindsym $mod+r mode "resize"
+
+# The installer creates this untracked file. Keep output names and geometry here.
+include ~/.config/sway/local.conf

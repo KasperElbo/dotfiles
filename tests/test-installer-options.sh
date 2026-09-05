@@ -70,6 +70,13 @@ run_success "default dry-run" "ASUS hardware:       disabled" \
   ./install.sh --dry-run
 run_success "optional feature dry-run" "LaTeX toolchain:     true" \
   ./install.sh --dry-run --theme latte --kde --latex
+run_success "Sway remains opt-in" "Sway session:        false" \
+  ./install.sh --dry-run
+run_success "Sway dry-run" "scripts/install-sway.sh" \
+  ./install.sh --dry-run --sway
+run_success "Sway dry-run forwards local setup" \
+  "scripts/setup-local.sh macchiato --sway" \
+  ./install.sh --dry-run --sway
 run_success "GA402XZ dry-run" "Require Secure Boot: true" \
   ./install.sh --dry-run --hardware ga402xz --secure-boot --charge-limit 80
 run_success "GA402RK dry-run" "Graphics:               AMD iGPU + AMD dGPU" \

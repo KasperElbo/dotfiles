@@ -190,6 +190,74 @@ if [[ -n "$current_theme" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Optional Sway session
+# ---------------------------------------------------------------------------
+
+if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]]; then
+  section "Sway session"
+
+  sway_commands=(
+    blueman-manager
+    brightnessctl
+    cliphist
+    fuzzel
+    grim
+    jq
+    lxqt-policykit-agent
+    mako
+    nm-connection-editor
+    pavucontrol
+    playerctl
+    slurp
+    sway
+    swaybg
+    swayidle
+    swaylock
+    swappy
+    waybar
+  )
+
+  for cmd in "${sway_commands[@]}"; do
+    check_command "$cmd"
+  done
+
+  check_symlink "$XDG_CONFIG_HOME/sway/config" "$DOTFILES_ROOT/sway/"
+  check_symlink "$XDG_CONFIG_HOME/waybar/config.jsonc" "$DOTFILES_ROOT/waybar/"
+  check_symlink "$XDG_CONFIG_HOME/waybar/style.css" "$DOTFILES_ROOT/waybar/"
+  check_symlink "$HOME/.local/bin/sway-workspace-grid" "$DOTFILES_ROOT/sway/"
+
+  local_sway="$XDG_CONFIG_HOME/sway/local.conf"
+  if [[ -f "$local_sway" && ! -L "$local_sway" ]]; then
+    pass "Machine-local Sway output override: $local_sway"
+  else
+    fail "Machine-local Sway output override missing or linked: $local_sway"
+  fi
+
+  if git -C "$DOTFILES_ROOT" ls-files --error-unmatch -- \
+    "sway/.config/sway/local.conf" >/dev/null 2>&1; then
+    fail "Machine-local Sway output override is tracked"
+  else
+    pass "Machine-local Sway output override is not tracked"
+  fi
+
+  sway_theme_files=(
+    "$XDG_CONFIG_HOME/dotfiles/sway-theme.conf"
+    "$XDG_CONFIG_HOME/dotfiles/waybar-theme.css"
+    "$XDG_CONFIG_HOME/dotfiles/fuzzel.ini"
+    "$XDG_CONFIG_HOME/dotfiles/mako.conf"
+    "$XDG_CONFIG_HOME/dotfiles/swaylock.conf"
+  )
+
+  for theme_path in "${sway_theme_files[@]}"; do
+    if [[ -f "$theme_path" ]]; then
+      pass "Sway theme state: $theme_path"
+    else
+      fail "Sway theme state missing: $theme_path"
+    fi
+  done
+fi
+
+# ---------------------------------------------------------------------------
 # Git identities
 # ---------------------------------------------------------------------------
 

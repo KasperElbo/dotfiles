@@ -66,12 +66,14 @@ test_environment=(
 
 "${test_environment[@]}" "$repo_root/scripts/install-system.sh" >/dev/null
 "${test_environment[@]}" "$repo_root/scripts/install-terra.sh" >/dev/null
+"${test_environment[@]}" "$repo_root/scripts/install-sway.sh" >/dev/null
 "${test_environment[@]}" \
   "$repo_root/scripts/install-asus-hardware.sh" \
   --model ga402rk --charge-limit 80 --non-interactive >/dev/null
 
 grep -Fq 'sudo dnf install -y bat curl eza' "$command_log"
 grep -Fq 'sudo dnf install -y ghostty mise starship' "$command_log"
+grep -Fq 'sudo dnf install -y blueman brightnessctl cliphist fuzzel' "$command_log"
 grep -Fq 'sudo systemctl start asusd.service' "$command_log"
 grep -Fq \
   'sudo systemctl mask --now power-profiles-daemon.service' "$command_log"
