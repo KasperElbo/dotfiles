@@ -1,0 +1,60 @@
+@import url("../dotfiles/waybar-theme.css");
+
+* {
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+window#waybar {
+  background: @base;
+  color: @text;
+  border-bottom: 2px solid @surface0;
+}
+
+#workspaces button {
+  padding: 0 7px;
+  color: @overlay0;
+  background: transparent;
+}
+
+#workspaces button.visible {
+  color: @text;
+  background: @surface0;
+}
+
+#workspaces button.focused {
+  color: @base;
+  background: @mauve;
+}
+
+#workspaces button.urgent {
+  color: @base;
+  background: @red;
+}
+
+#window {
+  padding: 0 10px;
+  color: @subtext1;
+}
+
+#custom-power-profile,
+#network,
+#bluetooth,
+#pulseaudio,
+#battery,
+#clock {
+  padding: 0 8px;
+  border-left: 1px solid @surface1;
+}
+
+#custom-power-profile { color: @mauve; }
+#network { color: @blue; }
+#bluetooth { color: @teal; }
+#pulseaudio { color: @peach; }
+#battery { color: @green; }
+#battery.warning { color: @yellow; }
+#battery.critical { color: @red; }
+#clock { color: @text; }

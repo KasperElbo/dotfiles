@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:-region}"
+screenshots="${XDG_PICTURES_DIR:-$HOME/Pictures}/Screenshots"
+mkdir -p "$screenshots"
+filename="$screenshots/$(date +'%Y-%m-%d_%H-%M-%S').png"
+
+case "$mode" in
+region)
+  geometry="$(slurp)" || exit 0
+  grim -g "$geometry" - | swappy -f -
+  ;;
+output)
+  grim "$filename"
+  notify-send "Screenshot saved" "$filename"
+  ;;
+*)
+  printf 'Usage: sway-screenshot {region|output}\n' >&2
+  exit 2
+  ;;
+esac

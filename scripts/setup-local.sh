@@ -5,8 +5,24 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=lib/theme-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/theme-state.sh"
 
 theme="${1:-macchiato}"
+install_sway="false"
+shift || true
+
+while (($#)); do
+  case "$1" in
+  --sway)
+    install_sway="true"
+    ;;
+  *)
+    die "Unknown option: $1"
+    ;;
+  esac
+  shift
+done
 
 case "$theme" in
 latte | frappe | macchiato | mocha)
@@ -152,15 +168,27 @@ fi
 
 # Derived local configuration. These contain no secrets.
 current_theme="$(cat "$state_dir/theme")"
+write_theme_state "$current_theme"
 
-printf 'theme = catppuccin-%s.conf\n' "$current_theme" \
-  | atomic_write_file "$state_dir/ghostty.conf"
+if [[ "$install_sway" == "true" ]]; then
+  sway_dir="$XDG_CONFIG_HOME/sway"
+  ensure_dir "$sway_dir"
 
-printf '[delta]\n    features = catppuccin-%s\n' "$current_theme" \
-  | atomic_write_file "$state_dir/git-theme"
-
-printf 'set -g @catppuccin_flavor "%s"\n' "$current_theme" \
-  | atomic_write_file "$state_dir/tmux-theme.conf"
+  if [[ ! -e "$sway_dir/local.conf" ]]; then
+    cat <<'EOF' | atomic_write_file "$sway_dir/local.conf"
+# Machine-local output configuration. This file is intentionally untracked.
+# Discover output names with: swaymsg -t get_outputs
+#
+# Examples:
+# output eDP-1 scale 1.5
+# output DP-1 position 0 0
+# output HDMI-A-1 position 2560 0
+EOF
+    info "Created local Sway output override: $sway_dir/local.conf"
+  else
+    info "Keeping existing local Sway output override: $sway_dir/local.conf"
+  fi
+fi
 
 # Identity files are intentionally local. Migrate links created by older
 # versions of this repository before Stow runs, then keep the files outside

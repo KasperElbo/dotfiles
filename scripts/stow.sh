@@ -8,6 +8,20 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 require_command stow
 
+install_sway="false"
+
+while (($#)); do
+  case "$1" in
+  --sway)
+    install_sway="true"
+    ;;
+  *)
+    die "Unknown option: $1"
+    ;;
+  esac
+  shift
+done
+
 packages=(
   bat
   bin
@@ -21,6 +35,10 @@ packages=(
   tmux
   zsh
 )
+
+if [[ "$install_sway" == "true" ]]; then
+  packages+=(sway waybar)
+fi
 
 info "Stowing dotfiles into $HOME"
 

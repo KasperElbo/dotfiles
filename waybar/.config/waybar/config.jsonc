@@ -1,0 +1,59 @@
+{
+  "layer": "top",
+  "position": "top",
+  "height": 26,
+  "spacing": 4,
+  "modules-left": ["sway/workspaces", "sway/window"],
+  "modules-right": ["custom/power-profile", "network", "bluetooth", "pulseaudio", "battery", "clock"],
+  "sway/workspaces": {
+    "disable-scroll": true,
+    "all-outputs": true,
+    "persistent-workspaces": {
+      "*": [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    }
+  },
+  "sway/window": {
+    "max-length": 80,
+    "rewrite": {
+      "(.*) — Mozilla Firefox": "Firefox: $1"
+    }
+  },
+  "custom/power-profile": {
+    "exec": "power-profile-status",
+    "interval": 15,
+    "tooltip": false
+  },
+  "network": {
+    "format-wifi": "Wi-Fi {essid}",
+    "format-ethernet": "LAN {ipaddr}",
+    "format-disconnected": "Network offline",
+    "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
+    "on-click": "nm-connection-editor"
+  },
+  "bluetooth": {
+    "format": "BT {status}",
+    "format-disabled": "BT off",
+    "format-connected": "BT {num_connections}",
+    "tooltip-format-connected": "{device_enumerate}",
+    "tooltip-format-enumerate-connected": "{device_alias}",
+    "on-click": "blueman-manager"
+  },
+  "pulseaudio": {
+    "format": "Vol {volume}%",
+    "format-muted": "Vol muted",
+    "on-click": "pavucontrol"
+  },
+  "battery": {
+    "states": {
+      "warning": 30,
+      "critical": 15
+    },
+    "format": "Bat {capacity}%",
+    "format-charging": "Bat +{capacity}%",
+    "format-plugged": "Bat AC {capacity}%"
+  },
+  "clock": {
+    "format": "{:%a %d %b  %H:%M}",
+    "tooltip-format": "<tt>{calendar}</tt>"
+  }
+}

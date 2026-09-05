@@ -8,6 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/scripts/lib/common.sh"
 theme="macchiato"
 install_kde="auto"
 install_latex="false"
+install_sway="false"
 hardware_model=""
 hardware_secure_boot="false"
 hardware_charge_limit=""
@@ -28,6 +29,9 @@ Options:
 
   --latex            Install the LaTeX toolchain
   --no-latex         Do not install the LaTeX toolchain
+
+  --sway             Install the optional keyboard-driven Sway session
+  --no-sway          Do not install the Sway session (default)
 
   --hardware MODEL   Install ASUS hardware support:
                      ga402xz or ga402rk
@@ -67,6 +71,16 @@ while (($#)); do
 
   --no-latex)
     install_latex="false"
+    shift
+    ;;
+
+  --sway)
+    install_sway="true"
+    shift
+    ;;
+
+  --no-sway)
+    install_sway="false"
     shift
     ;;
 
@@ -155,6 +169,11 @@ fi
 # ---------------------------------------------------------------------------
 
 if [[ "$dry_run" == "true" ]]; then
+  sway_suffix=""
+  if [[ "$install_sway" == "true" ]]; then
+    sway_suffix=" --sway"
+  fi
+
   cat <<EOF
 
 Dotfiles installation plan
@@ -163,6 +182,7 @@ Dotfiles installation plan
 Catppuccin flavour:  $theme
 KDE integration:     $install_kde
 LaTeX toolchain:     $install_latex
+Sway session:        $install_sway
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
@@ -187,13 +207,22 @@ EOF
     step=$((step + 1))
   fi
 
+  if [[ "$install_sway" == "true" ]]; then
+    cat <<EOF
+
+  $step. Install the optional Sway daily-driver session
+     scripts/install-sway.sh
+EOF
+    step=$((step + 1))
+  fi
+
   cat <<EOF
 
   $step. Initialize machine-local configuration
-     scripts/setup-local.sh $theme
+     scripts/setup-local.sh $theme$sway_suffix
 
   $((step + 1)). Deploy tracked configuration with GNU Stow
-     scripts/stow.sh
+     scripts/stow.sh$sway_suffix
 
   $((step + 2)). Install mise-managed runtimes and developer tools
      scripts/install-mise.sh
@@ -258,6 +287,7 @@ if [[ "$interactive" == "true" ]]; then
   printf '%s\n' '---------------------'
   printf 'Catppuccin flavour: %s\n' "$theme"
   printf 'KDE integration:    %s\n' "$install_kde"
+  printf 'Sway session:       %s\n' "$install_sway"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
 
@@ -273,6 +303,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Catppuccin flavour: %s\n' "$theme"
   printf 'KDE integration:    %s\n' "$install_kde"
   printf 'LaTeX toolchain:    %s\n' "$install_latex"
+  printf 'Sway session:       %s\n' "$install_sway"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
   if [[ -n "$hardware_model" ]]; then
@@ -322,11 +353,24 @@ if [[ -n "$hardware_model" ]]; then
   "$DOTFILES_ROOT/scripts/install-asus-hardware.sh" "${hardware_args[@]}"
 fi
 
+if [[ "$install_sway" == "true" ]]; then
+  info "Installing optional Sway session"
+  "$DOTFILES_ROOT/scripts/install-sway.sh"
+fi
+
 info "Initializing machine-local configuration"
-"$DOTFILES_ROOT/scripts/setup-local.sh" "$theme"
+setup_local_args=("$theme")
+stow_args=()
+
+if [[ "$install_sway" == "true" ]]; then
+  setup_local_args+=(--sway)
+  stow_args+=(--sway)
+fi
+
+"$DOTFILES_ROOT/scripts/setup-local.sh" "${setup_local_args[@]}"
 
 info "Deploying dotfiles with GNU Stow"
-"$DOTFILES_ROOT/scripts/stow.sh"
+"$DOTFILES_ROOT/scripts/stow.sh" "${stow_args[@]}"
 
 info "Installing mise-managed runtimes and tools"
 "$DOTFILES_ROOT/scripts/install-mise.sh"
