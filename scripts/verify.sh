@@ -203,7 +203,7 @@ if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]];
     fuzzel
     grim
     jq
-    lxqt-policykit-agent
+    /usr/libexec/lxqt-policykit-agent
     mako
     nm-connection-editor
     pavucontrol

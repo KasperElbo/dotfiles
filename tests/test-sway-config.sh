@@ -24,6 +24,8 @@ for shortcut in \
   grep -Fq "$shortcut" "$config"
 done
 
+grep -Fq 'exec /usr/libexec/lxqt-policykit-agent' "$config"
+
 grep -Fq "timeout 600" "$config"
 grep -Fq "timeout 900" "$config"
 if grep -Ev '^[[:space:]]*#' "$config" | grep -Eq 'suspend|hibernate'; then
