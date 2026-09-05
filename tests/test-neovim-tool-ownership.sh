@@ -113,7 +113,7 @@ assert_contains "$angular_fixture/package.json" '"prettier":'
 assert_contains "$angular_fixture/angular.json" '"sourceMap": true'
 assert_contains "$angular_fixture/.vscode/launch.json" '"type": "pwa-chrome"'
 assert_contains "$angular_fixture/.vscode/launch.json" '"address": "127.0.0.1"'
-assert_contains "$angular_fixture/.vscode/launch.json" '"cwd": "${workspaceFolder}"'
+assert_contains "$angular_fixture/.vscode/launch.json" "\"cwd\": \"\${workspaceFolder}\""
 
 python_fixture="$repo_root/tests/fixtures/python-smoke"
 assert_contains "$python_fixture/pyproject.toml" '"pytest>='
