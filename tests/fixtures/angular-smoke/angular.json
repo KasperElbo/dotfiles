@@ -30,6 +30,27 @@
           },
           "defaultConfiguration": "production"
         },
+        "debug-build": {
+          "builder": "@angular-devkit/build-angular:browser",
+          "options": {
+            "outputPath": "dist/angular-smoke-debug",
+            "index": "src/index.html",
+            "main": "src/main.ts",
+            "polyfills": [],
+            "tsConfig": "tsconfig.app.json",
+            "assets": [],
+            "styles": ["src/styles.css"],
+            "scripts": [],
+            "optimization": false,
+            "sourceMap": true
+          }
+        },
+        "debug-serve": {
+          "builder": "@angular-devkit/build-angular:dev-server",
+          "options": {
+            "buildTarget": "angular-smoke:debug-build"
+          }
+        },
         "serve": {
           "builder": "@angular/build:dev-server",
           "configurations": {

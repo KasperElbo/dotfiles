@@ -5,13 +5,12 @@
       "name": "Angular: Attach Chrome/Chromium",
       "type": "pwa-chrome",
       "request": "attach",
+      "address": "127.0.0.1",
       "port": 9222,
+      "urlFilter": "http://localhost:4200/*",
+      "cwd": "${workspaceFolder}",
       "webRoot": "${workspaceFolder}",
-      "sourceMaps": true,
-      "resolveSourceMapLocations": [
-        "${workspaceFolder}/**",
-        "!**/node_modules/**"
-      ]
+      "sourceMaps": true
     }
   ]
 }

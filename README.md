@@ -1086,10 +1086,10 @@ npm run lint
 npx prettier --check .
 ```
 
-Open Neovim from the repository root after installing dependencies. `:LspInfo`
-should show VTSLS for TypeScript, Angular Language Server for Angular templates,
-and ESLint when the repository has a supported ESLint configuration. VTSLS uses
-the repository's TypeScript SDK.
+Open Neovim from the repository root after installing dependencies. Use
+`:checkhealth vim.lsp` to confirm that VTSLS, Angular Language Server, and ESLint
+are attached when the repository has a supported ESLint configuration. VTSLS
+uses the repository's TypeScript SDK.
 
 Prettier remains project-local:
 
@@ -1125,26 +1125,32 @@ details belong in `.vscode/launch.json`; the workstation does not guess the
 application URL or browser process.
 
 The Angular smoke fixture contains an attach configuration that proves source
-mapping without requiring a global Angular CLI. To exercise it manually:
+mapping without requiring a global Angular CLI. Modern Angular development
+uses the `application` builder, but its esbuild source maps currently have an
+[open breakpoint-binding bug in `vscode-js-debug`](https://github.com/microsoft/vscode-js-debug/issues/2304).
+The fixture therefore keeps its normal build and serve workflow on the modern
+builder and provides a debug-only webpack target until that upstream bug is
+resolved. To exercise it manually:
 
 ```bash
 cp -R tests/fixtures/angular-smoke /tmp/angular-smoke
 cd /tmp/angular-smoke
 npm install
-npm start
+npm run start:debug
 ```
 
 In another terminal, start Chrome or Chromium with a disposable debug profile:
 
 ```bash
 chromium \
+  --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port=9222 \
   --user-data-dir=/tmp/angular-debug-profile \
   http://localhost:4200
 ```
 
 Open `/tmp/angular-smoke` in Neovim, set a breakpoint on
-`this.answer.set(answer)` in `src/app/app.ts`, press `<F5>`, select
+`this.answer.set(answer)` in `src/app/app.ts`, press `<leader>dc`, select
 `Angular: Attach Chrome/Chromium`, and click **Calculate** in the browser. The
 breakpoint should resolve against the emitted source map and stop on the
 TypeScript line. Replace `chromium` with the installed Chrome/Chromium command
@@ -1172,7 +1178,8 @@ uv build
 Python installation. In Neovim, the LazyVim Python extra provides Pyright,
 Ruff, pytest discovery through Neotest, virtual-environment selection with
 `<leader>cv`, and debugging through `nvim-dap-python` plus Mason's `debugpy`.
-Use `:LspInfo` to confirm Pyright and Ruff are attached to a Python buffer.
+Use `:checkhealth vim.lsp` to confirm Pyright and Ruff are attached to a Python
+buffer.
 
 Formatting and lint ownership is split deliberately:
 
@@ -1193,7 +1200,8 @@ nvim .
 ```
 
 Set a breakpoint on `answer = left * right` in
-`src/dotfiles_smoke/calculator.py`, press `<F5>`, and choose `Python: Module`.
+`src/dotfiles_smoke/calculator.py`, press `<leader>dc`, and choose
+`Python: Module`.
 The debugger should stop inside the project interpreter without adding debugpy
 to the project's dependencies.
 
@@ -1209,7 +1217,8 @@ tooling in temporary directories:
 ```
 
 The Angular check installs only fixture-local dependencies, formats, lints,
-tests, builds with source maps, starts the development server, and probes it.
+tests, exercises both the modern and debug builds with source maps, starts the
+debug server, and probes it.
 The Python check resolves an isolated environment, runs the package and tests,
 lints, checks formatting, and builds both source and wheel distributions. These
 larger download-based checks are intentionally separate from `scripts/test.sh`;

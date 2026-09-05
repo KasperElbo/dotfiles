@@ -77,15 +77,19 @@ run_angular_workflow() {
     npm run lint
     npm test -- --watch=false
     npm run build -- --configuration development
+    npm run build:debug
   )
 
   find "$project/dist" -type f -name '*.map' -print -quit |
     grep -q . || die "Angular development build did not emit source maps"
 
-  info "Starting and probing the Angular development server"
+  find "$project/dist/angular-smoke-debug" -type f -name '*.map' -print -quit |
+    grep -q . || die "Angular debug build did not emit source maps"
+
+  info "Starting and probing the Angular debug server"
   (
     cd "$project"
-    npm start -- --host 127.0.0.1 --port "$port"
+    npm run start:debug -- --host 127.0.0.1 --port "$port"
   ) >"$log" 2>&1 &
   server_pid=$!
 
@@ -98,7 +102,7 @@ run_angular_workflow() {
 
     if ! kill -0 "$server_pid" 2>/dev/null; then
       sed -n '1,200p' "$log" >&2
-      die "Angular development server stopped before becoming ready"
+      die "Angular debug server stopped before becoming ready"
     fi
 
     sleep 1
@@ -106,14 +110,14 @@ run_angular_workflow() {
 
   grep -Fq '<app-root>' "$response" || {
     sed -n '1,200p' "$log" >&2
-    die "Angular development server did not return the application shell"
+    die "Angular debug server did not return the application shell"
   }
 
   kill "$server_pid" 2>/dev/null || true
   wait "$server_pid" 2>/dev/null || true
   server_pid=""
 
-  success "Angular install, format, lint, test, build, source-map and serve checks passed"
+  success "Angular install, format, lint, test, build, debug-build, source-map and debug-serve checks passed"
 }
 
 run_python_workflow() {
