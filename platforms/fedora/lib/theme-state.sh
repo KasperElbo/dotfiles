@@ -38,9 +38,20 @@ catppuccin_palette() {
 
 write_fedora_theme_state() {
   local flavour="$1"
+  local preserve_wallpaper="${2:-false}"
   local state_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles"
   local wallpaper="$HOME/.local/share/wallpapers/catppuccin-${flavour}.webp"
   local lock_wallpaper="$HOME/.local/share/wallpapers/catppuccin-${flavour}-lock.webp"
+
+  if [[ "$preserve_wallpaper" == "true" ]]; then
+    wallpaper="$(current_sway_wallpaper || true)"
+    if [[ -z "$wallpaper" ]]; then
+      wallpaper="$(configured_sway_wallpaper "$state_dir/sway-theme.conf" || true)"
+    fi
+    if [[ -z "$wallpaper" ]]; then
+      wallpaper="$HOME/.local/share/wallpapers/catppuccin-${flavour}.webp"
+    fi
+  fi
 
   catppuccin_palette "$flavour"
   ensure_dir "$state_dir"
@@ -148,4 +159,59 @@ text-ver-color=$base
 text-wrong-color=$base
 separator-color=00000000
 EOF
+}
+
+current_sway_wallpaper() {
+  local proc_root="${DOTFILES_PROC_ROOT:-/proc}"
+  local pid
+  local index
+  local -a arguments=()
+
+  command -v pgrep >/dev/null 2>&1 || return 1
+
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[0-9]+$ && -r "$proc_root/$pid/cmdline" ]] || continue
+    arguments=()
+    readarray -d '' -t arguments <"$proc_root/$pid/cmdline"
+
+    for ((index = 0; index < ${#arguments[@]}; index++)); do
+      case "${arguments[$index]}" in
+      -i | --image)
+        if ((index + 1 < ${#arguments[@]})); then
+          sway_quote "${arguments[$((index + 1))]}"
+          return 0
+        fi
+        ;;
+      esac
+    done
+  done < <(pgrep -u "$UID" -x swaybg 2>/dev/null || true)
+
+  return 1
+}
+
+sway_quote() {
+  local value="$1"
+
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"\n' "$value"
+}
+
+configured_sway_wallpaper() {
+  local theme_file="$1"
+  local line
+  # This is a literal Sway variable, not a shell variable.
+  # shellcheck disable=SC2016
+  local wallpaper_prefix='set $wallpaper '
+
+  [[ -r "$theme_file" ]] || return 1
+
+  while IFS= read -r line; do
+    if [[ "$line" == "$wallpaper_prefix"* ]]; then
+      printf '%s\n' "${line#"$wallpaper_prefix"}"
+      return 0
+    fi
+  done <"$theme_file"
+
+  return 1
 }

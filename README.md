@@ -160,6 +160,16 @@ theme macchiato
 theme mocha
 ```
 
+To change the flavour while keeping the wallpaper currently selected in KDE
+or Sway, pass `--preserve-wallpaper`:
+
+```bash
+theme macchiato --preserve-wallpaper
+```
+
+This preserves only the desktop wallpaper. The Sway lock-screen wallpaper
+continues to follow the selected Catppuccin flavour.
+
 The selection is stored locally in:
 
 ```text
@@ -778,6 +788,9 @@ Sway session is reloaded automatically; new Fuzzel invocations read the new
 generated configuration. Ghostty is reloaded through its systemd user service
 when active, or directly with Ghostty's `SIGUSR2` reload signal when launched
 from Sway.
+
+Pass `--preserve-wallpaper` to keep the current KDE or Sway desktop wallpaper
+while applying those theme changes. Swaylock remains flavour-controlled.
 
 The four tracked 3840x2160 wallpapers form a flavour-matched tropical-island
 day-to-night cycle adapted from the MIT-licensed Catppuccin wallpaper
