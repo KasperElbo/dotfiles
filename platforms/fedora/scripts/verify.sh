@@ -493,6 +493,22 @@ if [[ -f "$vm_host_state" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Optional VM guest
+# ---------------------------------------------------------------------------
+
+vm_guest_state="$XDG_CONFIG_HOME/dotfiles/vm-guest.conf"
+
+if [[ -f "$vm_guest_state" ]]; then
+  section "VM guest"
+
+  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-guest.sh"; then
+    pass "Fedora VM-guest profile verification completed"
+  else
+    fail "Fedora VM-guest profile verification failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Repository hygiene
 # ---------------------------------------------------------------------------
 

@@ -143,12 +143,14 @@ if [[ "$smoke_test" == "true" ]]; then
     --disk=size=1,format=qcow2,bus=virtio \
     --network=network="$network_name",model=virtio \
     --graphics=spice \
+    --channel=unix,target_type=virtio,name=org.qemu.guest_agent.0 \
+    --channel=spicevmc \
     --boot=uefi \
     --osinfo=name=generic \
     --import \
     --dry-run \
     --print-xml >/dev/null; then
-    pass "virt-install produced a UEFI/VirtIO/SPICE guest definition"
+    pass "virt-install produced a UEFI/VirtIO/SPICE guest definition with agent channels"
   else
     fail "virt-install guest-definition smoke test failed"
   fi

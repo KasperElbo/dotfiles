@@ -117,6 +117,10 @@ grep -Fqx 'firmware=uefi-ovmf' "$state_file"
 grep -Fqx 'device_model=virtio' "$state_file"
 grep -Fqx 'display=spice' "$state_file"
 grep -Fq 'dnf install -y edk2-ovmf libvirt-client' "$command_log"
+if grep -E '^sudo dnf install .*qemu-guest-agent' "$command_log"; then
+  printf 'VM host must not install the guest-only qemu-guest-agent package.\n' >&2
+  exit 1
+fi
 grep -Fq 'systemctl enable --now libvirtd.service' "$command_log"
 grep -Fq 'virsh -c qemu:///system net-autostart default' "$command_log"
 grep -Fq 'virsh -c qemu:///system pool-autostart default' "$command_log"
@@ -130,5 +134,8 @@ verification_output="$("${test_environment[@]}" \
 grep -Fq 'devices-cgroup warning is advisory' <<<"$verification_output"
 grep -Fq 'secure-guest warning is advisory' <<<"$verification_output"
 grep -Fq -- '--dry-run --print-xml' "$command_log"
+grep -Fq -- '--channel=unix,target_type=virtio,name=org.qemu.guest_agent.0' \
+  "$command_log"
+grep -Fq -- '--channel=spicevmc' "$command_log"
 
 printf 'VM-host package, service, validation, smoke-test, and idempotency tests passed.\n'

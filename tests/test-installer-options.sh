@@ -84,6 +84,10 @@ run_success "VM-host dry-run" "platforms/fedora/scripts/install-vm-host.sh" \
   ./install.sh --dry-run --vm-host
 run_success "VM-host remains opt-in" "VM-host profile:     false" \
   ./install.sh --dry-run
+run_success "VM-guest dry-run" "platforms/fedora/scripts/install-vm-guest.sh" \
+  ./install.sh --dry-run --vm-guest
+run_success "VM-guest remains opt-in" "VM-guest profile:    false" \
+  ./install.sh --dry-run
 run_success "Sway dry-run forwards local setup" \
   "platforms/fedora/scripts/setup-local.sh macchiato --sway" \
   ./install.sh --dry-run --sway
@@ -111,6 +115,12 @@ run_failure "charge limit without hardware" "--charge-limit requires --hardware"
 run_failure "invalid charge limit" \
   "--charge-limit must be an integer from 40 to 100" \
   ./install.sh --dry-run --hardware ga402xz --charge-limit 101
+run_failure "VM host and guest are mutually exclusive" \
+  "--vm-host and --vm-guest cannot be combined" \
+  ./install.sh --dry-run --vm-host --vm-guest
+run_failure "VM guest excludes laptop hardware" \
+  "--vm-guest and --hardware cannot be combined" \
+  ./install.sh --dry-run --vm-guest --hardware ga402xz
 
 if find "$test_root/home" "$test_root/config" "$test_root/data" \
   "$test_root/cache" -mindepth 1 -print -quit | grep -q .; then

@@ -23,7 +23,6 @@ vm_host_packages=(
   libvirt-daemon-driver-qemu
   qemu-img
   qemu-kvm
-  qemu-guest-agent
   spice-gtk
   spice-server
   swtpm
@@ -101,7 +100,7 @@ libvirt network:        $libvirt_network (NAT, no bridge)
 libvirt storage pool:   $libvirt_pool ($libvirt_image_dir)
 Guest disks:            qcow2 with VirtIO devices
 Guest firmware:         UEFI/OVMF with optional TPM support
-Guest agent:            qemu-guest-agent package; enable it inside guests
+Guest agents:           installed inside guests with --vm-guest
 Host access:            standard Fedora libvirt/polkit policy and libvirt group
 
 Packages:
