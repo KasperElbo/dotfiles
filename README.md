@@ -746,7 +746,9 @@ by:
 
 The `theme` command also updates Sway, Waybar, Fuzzel, Mako, swaylock, and the
 flavour-matched wallpaper. A running Sway session is reloaded automatically;
-new Fuzzel invocations read the new generated configuration.
+new Fuzzel invocations read the new generated configuration. Ghostty is
+reloaded through its systemd user service when active, or directly with
+Ghostty's `SIGUSR2` reload signal when launched from Sway.
 
 The four tracked 3840x2160 wallpapers form a flavour-matched tropical-island
 day-to-night cycle adapted from the MIT-licensed Catppuccin wallpaper
