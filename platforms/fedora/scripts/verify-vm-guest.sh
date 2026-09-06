@@ -52,7 +52,7 @@ none)
   ;;
 esac
 
-for package_name in qemu-guest-agent spice-vdagent; do
+for package_name in qemu-guest-agent spice-vdagent xclip; do
   if rpm -q "$package_name" >/dev/null 2>&1; then
     pass "Fedora package installed: $package_name"
   else

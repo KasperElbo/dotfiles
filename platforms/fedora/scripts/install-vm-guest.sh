@@ -18,6 +18,7 @@ preflight_only="false"
 vm_guest_packages=(
   qemu-guest-agent
   spice-vdagent
+  xclip
 )
 
 legacy_clipboard_bridge_unit="dotfiles-spice-wayland-clipboard.service"
@@ -90,7 +91,7 @@ Fedora VM-guest installation plan
 Reference hypervisor:   KVM/QEMU through libvirt
 Guest network:          Existing guest network (default host profile uses NAT)
 Guest devices:          Existing VirtIO disk, network, and serial channels
-Desktop integration:    Packaged SPICE clipboard, display, and pointer support
+Desktop integration:    Packaged SPICE support plus manual Wayland clipboard export
 Power management:       No laptop power-profile or battery changes
 Shared folders:         No host path is mounted implicitly
 
@@ -100,7 +101,7 @@ $(printf '  %s\n' "${vm_guest_packages[@]}")
 Steps:
   1. Verify Fedora and explicitly detect a KVM/QEMU virtual machine.
   2. Require the QEMU and SPICE virtio-serial channels supplied by the host.
-  3. Install qemu-guest-agent and spice-vdagent from Fedora.
+  3. Install qemu-guest-agent, spice-vdagent, and the xclip workaround from Fedora.
   4. Activate the packaged agents and remove the rejected legacy clipboard bridge.
   5. Preserve NetworkManager, display layout, power settings, and shared folders.
   6. Record the guest profile in \$XDG_CONFIG_HOME/dotfiles/vm-guest.conf.

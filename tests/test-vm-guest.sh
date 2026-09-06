@@ -21,7 +21,7 @@ EOF
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
-  '-q qemu-guest-agent' | '-q spice-vdagent') exit 0 ;;
+  '-q qemu-guest-agent' | '-q spice-vdagent' | '-q xclip') exit 0 ;;
 esac
 exit 1
 EOF
@@ -96,7 +96,7 @@ grep -Fqx 'desktop_agent=spice-vdagent' "$state_file"
 grep -Fqx 'display=spice' "$state_file"
 grep -Fqx 'network=host-managed' "$state_file"
 grep -Fqx 'shared_folders=manual' "$state_file"
-grep -Fq 'sudo dnf install -y qemu-guest-agent spice-vdagent' "$command_log"
+grep -Fq 'sudo dnf install -y qemu-guest-agent spice-vdagent xclip' "$command_log"
 grep -Fq \
   'sudo systemctl enable --now qemu-guest-agent.service' "$command_log"
 grep -Fq \
@@ -159,8 +159,9 @@ dry_run_output="$(
 )"
 grep -Fq 'qemu-guest-agent' <<<"$dry_run_output"
 grep -Fq 'spice-vdagent' <<<"$dry_run_output"
-if grep -Fq 'xclip' <<<"$dry_run_output"; then
-  printf 'VM-guest dry-run unexpectedly included the rejected clipboard bridge.\n' >&2
+grep -Fq 'xclip' <<<"$dry_run_output"
+if grep -Fq 'wl-paste --watch' <<<"$dry_run_output"; then
+  printf 'VM-guest dry-run unexpectedly included the rejected clipboard watcher.\n' >&2
   exit 1
 fi
 [[ -z "$(find "$dry_run_root" -mindepth 1 -print -quit)" ]]

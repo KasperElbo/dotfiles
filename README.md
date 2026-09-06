@@ -593,7 +593,7 @@ composition found no reason to copy the Fedora installer or any Stow package:
 | ASUS/NVIDIA laptop provisioning | Already opt-in; rejected when `--vm-guest` is selected |
 | Power management | No guest override; laptop-specific masking runs only in the hardware profile |
 | Networking | Left to the guest and hypervisor; the #13 default network supplies normal NAT/DHCP |
-| Clipboard and pointer integration | Requires `spice-vdagent` and the SPICE virtio channel; host-to-guest works in Plasma Wayland, while guest-to-host remains limited by the packaged agent's X11 clipboard support |
+| Clipboard and pointer integration | Requires `spice-vdagent` and the SPICE virtio channel; host-to-guest works in Plasma Wayland, while `xclip` provides an explicit one-shot guest-to-host workaround for the packaged agent's X11 clipboard limitation |
 | Display and resolution | SPICE supplies modes and pointer integration; enable virt-manager's **Resize guest with window** setting on the host for automatic resizing |
 | Host lifecycle integration | Requires `qemu-guest-agent` and its virtio channel |
 | Shared folders | Kept manual because the host path and security boundary are machine-specific |
@@ -625,7 +625,17 @@ its virtio-port udev rule; Plasma starts the packaged SPICE user agent with its
 graphical session. In the tested Plasma Wayland guest, host-to-guest clipboard
 sharing works, while guest-to-host succeeds only when text is placed directly
 on the X11 clipboard. The packaged `spice-vdagent` therefore does not provide
-complete bidirectional Wayland clipboard integration in this environment.
+complete bidirectional Wayland clipboard integration in this environment. The
+guest profile installs `xclip` so text already copied by a Wayland application
+can be exported explicitly to SPICE's X11 clipboard path:
+
+```bash
+wl-paste --no-newline | xclip -selection clipboard -in
+```
+
+Run that command once after copying text in the guest, then paste it on the
+host. It is intentionally a manual, text-only workaround rather than a
+background clipboard synchronizer.
 
 An attempted `wl-paste --watch` to `xclip` bridge was rejected because feedback
 between KWin's Wayland and X11 clipboards immediately repeated clipboard
