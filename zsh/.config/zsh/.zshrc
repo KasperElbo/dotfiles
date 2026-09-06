@@ -86,6 +86,12 @@ alias cat='bat'
 # Developmet Toolchains
 eval "$(mise activate zsh)"
 
+# opam owns OCaml compilers and ecosystem tooling when the optional profile is
+# installed. The generated hook is sourced from tracked config so `opam init`
+# never needs to edit shell startup files.
+[[ ! -r "$HOME/.opam/opam-init/init.zsh" ]] ||
+  source "$HOME/.opam/opam-init/init.zsh" >/dev/null 2>/dev/null
+
 # Startship Theming
 export STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/starship/catppuccin-${DOTFILES_THEME}.toml"
 

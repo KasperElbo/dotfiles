@@ -1,0 +1,6 @@
+(executable
+ (name main)
+ (public_name dotfiles-smoke)
+ (modes byte exe)
+ (package dotfiles_smoke)
+ (libraries dotfiles_smoke))

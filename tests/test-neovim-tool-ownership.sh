@@ -54,6 +54,16 @@ assert_contains "$formatting_config" 'python = { "ruff_format" }'
 assert_contains "$lazyvim_config/lua/config/options.lua" \
   'vim.g.lazyvim_eslint_auto_format = false'
 
+ocaml_config="$lazyvim_config/lua/plugins/ocaml.lua"
+assert_contains "$ocaml_config" 'vim.fn.executable("opam") == 1'
+assert_contains "$ocaml_config" 'table.insert(opts.ensure_installed, "ocaml")'
+assert_contains "$ocaml_config" 'mason = false'
+assert_contains "$ocaml_config" \
+  'cmd = { "opam", "exec", "--", "ocamllsp" }'
+assert_contains "$ocaml_config" 'dap.adapters.ocamlearlybird'
+assert_contains "$ocaml_config" \
+  'args = { "exec", "--", "ocamlearlybird", "debug" }'
+
 assert_contains "$repo_root/platforms/fedora/scripts/install-system.sh" '  ShellCheck'
 
 mason_inventory="$(
@@ -84,6 +94,11 @@ for package in "${expected_mason_packages[@]}"; do
     fail "expected Mason package is not verified: $package"
 done
 
+if grep -Fqx '  ocaml-lsp' <<<"$mason_inventory" ||
+  grep -Fqx '  ocamlformat' <<<"$mason_inventory"; then
+  fail "OCaml switch tooling must not be Mason-managed"
+fi
+
 project_tools=(
   csharpier
   dotnet-ef
@@ -92,6 +107,11 @@ project_tools=(
   pytest
   trx2junit
   typescript
+  dune
+  earlybird
+  ocaml-lsp-server
+  ocamlformat
+  utop
 )
 
 for tool in "${project_tools[@]}"; do

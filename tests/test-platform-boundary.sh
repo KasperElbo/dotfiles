@@ -23,6 +23,13 @@ if grep -R -E -n \
   exit 1
 fi
 
+if grep -E -n '\b(dnf|rpm)\b' \
+  "$repo_root/common/install-ocaml.sh" \
+  "$repo_root/common/verify-ocaml.sh"; then
+  printf 'Portable OCaml scripts contain Fedora-specific package management.\n' >&2
+  exit 1
+fi
+
 grep -Fq 'zsh/platform.zsh' \
   "$repo_root/zsh/.config/zsh/.zshrc"
 grep -Fq '/usr/share/zsh-autosuggestions' \
