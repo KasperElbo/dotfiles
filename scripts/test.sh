@@ -10,6 +10,7 @@ tests=(
   tests/test-power-profiles.sh
   tests/test-installer-options.sh
   tests/test-local-state.sh
+  tests/test-theme.sh
   tests/test-sway-config.sh
   tests/test-neovim-tool-ownership.sh
   tests/test-idempotency.sh
