@@ -7,6 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/common.sh"
 theme="macchiato"
 install_kde="auto"
 install_latex="false"
+install_ocaml="false"
 install_sway="false"
 hardware_model=""
 hardware_secure_boot="false"
@@ -28,6 +29,9 @@ Options:
 
   --latex            Install the LaTeX toolchain
   --no-latex         Do not install the LaTeX toolchain
+
+  --ocaml            Install the optional OCaml development profile
+  --no-ocaml         Do not install the OCaml profile (default)
 
   --sway             Install the optional keyboard-driven Sway session
   --no-sway          Do not install the Sway session (default)
@@ -70,6 +74,16 @@ while (($#)); do
 
   --no-latex)
     install_latex="false"
+    shift
+    ;;
+
+  --ocaml)
+    install_ocaml="true"
+    shift
+    ;;
+
+  --no-ocaml)
+    install_ocaml="false"
     shift
     ;;
 
@@ -186,6 +200,7 @@ Dotfiles installation plan
 Catppuccin flavour:  $theme
 KDE integration:     $install_kde
 LaTeX toolchain:     $install_latex
+OCaml profile:       $install_ocaml
 Sway session:        $install_sway
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
@@ -201,6 +216,15 @@ Steps:
 EOF
 
   step=3
+
+  if [[ "$install_ocaml" == "true" ]]; then
+    cat <<EOF
+
+  $step. Install Fedora-owned OCaml prerequisites
+     platforms/fedora/scripts/install-ocaml.sh
+EOF
+    step=$((step + 1))
+  fi
 
   if [[ -n "$hardware_model" ]]; then
     cat <<EOF
@@ -236,6 +260,17 @@ EOF
 EOF
 
   step=$((step + 4))
+
+  if [[ "$install_ocaml" == "true" ]]; then
+    cat <<EOF
+
+  $step. Create the opam-owned OCaml switch and install Platform tools
+     OCaml ${OCAML_COMPILER_VERSION:-5.5.0}
+     dune, ocaml-lsp-server, ocamlformat and utop
+     common/install-ocaml.sh
+EOF
+    step=$((step + 1))
+  fi
 
   if [[ "$install_kde" == "true" ]]; then
     cat <<EOF
@@ -291,6 +326,7 @@ if [[ "$interactive" == "true" ]]; then
   printf '%s\n' '---------------------'
   printf 'Catppuccin flavour: %s\n' "$theme"
   printf 'KDE integration:    %s\n' "$install_kde"
+  printf 'OCaml profile:      %s\n' "$install_ocaml"
   printf 'Sway session:       %s\n' "$install_sway"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
@@ -307,6 +343,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Catppuccin flavour: %s\n' "$theme"
   printf 'KDE integration:    %s\n' "$install_kde"
   printf 'LaTeX toolchain:    %s\n' "$install_latex"
+  printf 'OCaml profile:      %s\n' "$install_ocaml"
   printf 'Sway session:       %s\n' "$install_sway"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
@@ -348,6 +385,11 @@ info "Installing base Fedora packages"
 info "Installing Terra packages"
 "$DOTFILES_ROOT/platforms/fedora/scripts/install-terra.sh"
 
+if [[ "$install_ocaml" == "true" ]]; then
+  info "Installing Fedora-owned OCaml prerequisites"
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-ocaml.sh"
+fi
+
 if [[ -n "$hardware_model" ]]; then
   if [[ "$interactive" == "false" ]]; then
     hardware_args+=(--non-interactive)
@@ -383,6 +425,11 @@ info "Deploying dotfiles with GNU Stow"
 
 info "Installing mise-managed runtimes and tools"
 "$DOTFILES_ROOT/common/install-mise.sh"
+
+if [[ "$install_ocaml" == "true" ]]; then
+  info "Installing opam-managed OCaml compiler and tools"
+  "$DOTFILES_ROOT/common/install-ocaml.sh"
+fi
 
 info "Installing Catppuccin tmux"
 "$DOTFILES_ROOT/common/install-tmux-theme.sh"

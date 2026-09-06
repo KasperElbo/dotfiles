@@ -1,2 +1,6 @@
 /git/.config/git/local
 /git/.config/git/drdk
+
+# OCaml/Dune build artifacts
+_build/
+*.install

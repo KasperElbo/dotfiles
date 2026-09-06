@@ -17,7 +17,7 @@ exit 97
 EOF
 chmod +x "$guard_dir/mutation-guard"
 
-for command_name in akmods asusctl curl dnf kmodgenca mise mokutil \
+for command_name in akmods asusctl curl dnf kmodgenca mise mokutil opam \
   reboot rpm stow sudo systemctl; do
   ln -s mutation-guard "$guard_dir/$command_name"
 done
@@ -70,6 +70,12 @@ run_success "default dry-run" "ASUS hardware:       disabled" \
   ./install.sh --dry-run
 run_success "optional feature dry-run" "LaTeX toolchain:     true" \
   ./install.sh --dry-run --theme latte --kde --latex
+run_success "OCaml remains opt-in" "OCaml profile:       false" \
+  ./install.sh --dry-run
+run_success "OCaml profile dry-run" "common/install-ocaml.sh" \
+  ./install.sh --dry-run --ocaml
+run_success "OCaml version override dry-run" "OCaml 5.4.1" \
+  env OCAML_COMPILER_VERSION=5.4.1 ./install.sh --dry-run --ocaml
 run_success "Sway remains opt-in" "Sway session:        false" \
   ./install.sh --dry-run
 run_success "Sway dry-run" "platforms/fedora/scripts/install-sway.sh" \

@@ -10,6 +10,7 @@ Opinionated, reproducible dotfiles for a keyboard-driven development workstation
 - tmux
 - Git + GitHub CLI + Lazygit
 - mise-managed language runtimes
+- an optional opam-managed OCaml environment
 - Catppuccin across the desktop, terminal, editor, and CLI tools
 
 The configuration is intended to stay close to upstream defaults. Custom behavior is added only where it solves a concrete workflow problem.
@@ -19,8 +20,11 @@ The current default Catppuccin flavor is **Macchiato** with the **Mauve** accent
 ## Design principles
 
 1. **Use the native package manager for machine-level tools.** Fedora/DNF owns operating-system and desktop-integrated tools.
-2. **Use mise for language runtimes and portable developer CLIs.**
-3. **Use Mason only for Neovim-specific tooling.**
+2. **Use mise for general language runtimes and portable developer CLIs.**
+   Ecosystems with their own switch model, such as OCaml/opam, remain with
+   their native manager.
+3. **Use Mason only for Neovim-specific tooling.** Tooling that must match a
+   language environment stays with that environment.
 4. **Keep project tooling in the project.** CSharpier, Prettier, ESLint, `dotnet-ef`, TypeScript, etc. should normally be declared by the repository that uses them.
 5. **Keep shared configuration tracked and user-specific state local.**
 6. **Prefer upstream workflows over custom glue.**
@@ -108,6 +112,12 @@ the dependable KDE fallback:
 ./install.sh --sway
 ```
 
+The complete OCaml development environment is explicitly opt-in:
+
+```bash
+./install.sh --ocaml
+```
+
 ## Installer options
 
 ```text
@@ -119,6 +129,9 @@ the dependable KDE fallback:
 
 --latex            install the LaTeX toolchain
 --no-latex         skip the LaTeX toolchain
+
+--ocaml            install the optional OCaml development profile
+--no-ocaml         skip the OCaml profile (default)
 
 --sway             install the optional keyboard-driven Sway session
 --no-sway          skip Sway (default)
@@ -355,8 +368,8 @@ The repository has two ownership layers:
 
 | Layer | Owns | Must not own |
 |---|---|---|
-| Portable common | Shared Stow packages, user-local Git/theme state, mise tools, and the tmux theme | Package managers, services, hardware, desktop integration, or OS-specific paths |
-| `platforms/fedora` | DNF/Terra packages, KDE and Sway integration, system services, SELinux/system paths, Secure Boot, and ASUS hardware | Copies of shared Zsh/Git/Neovim/tmux/mise configuration |
+| Portable common | Shared Stow packages, user-local Git/theme state, mise tools, opam switch/tool setup, and the tmux theme | Native package-manager installation, services, hardware, desktop integration, or OS-specific paths |
+| `platforms/fedora` | DNF/Terra packages, including the opam binary and OCaml build prerequisites; KDE and Sway integration; system services; SELinux/system paths; Secure Boot; and ASUS hardware | Copies of shared Zsh/Git/Neovim/tmux/mise configuration or OCaml packages inside opam switches |
 
 The shared Stow package directories remain at the repository root to preserve
 existing symlink targets. `common/stow.sh` is their authoritative package
@@ -377,6 +390,7 @@ install.sh                         compatibility entry point
 └── platforms/fedora/install.sh
     ├── platforms/fedora/scripts/install-system.sh
     ├── platforms/fedora/scripts/install-terra.sh
+    ├── platforms/fedora/scripts/install-ocaml.sh          optional prerequisites
     ├── platforms/fedora/scripts/install-asus-hardware.sh  optional
     ├── platforms/fedora/scripts/install-sway.sh           optional
     ├── common/setup-local.sh
@@ -384,6 +398,7 @@ install.sh                         compatibility entry point
     ├── common/stow.sh
     ├── platforms/fedora/scripts/stow.sh
     ├── common/install-mise.sh
+    ├── common/install-ocaml.sh                            optional switch/tools
     ├── common/install-tmux-theme.sh
     ├── platforms/fedora/scripts/install-kde-theme.sh      optional
     ├── platforms/fedora/scripts/install-latex.sh          optional
@@ -438,6 +453,11 @@ they do in KDE. Waybar provides the StatusNotifier tray required by background
 applications, while GTK handles general desktop portals and the wlroots backend
 handles screenshots and screen sharing. These packages remain Fedora/DNF-owned.
 
+The optional OCaml profile adds the `opam` binary plus `gcc`, `gcc-c++`, `make`,
+`m4`, `patch`, `pkgconf-pkg-config`, `unzip`, and `bubblewrap`. These are native
+package/build prerequisites only; DNF does not own the selected OCaml compiler
+or the OCaml Platform tools.
+
 ## Terra RPM repository
 
 The reference setup uses Terra packages for:
@@ -477,6 +497,23 @@ pipx:pynvim
 ```
 
 `mise install` installs what is declared in the tracked config; the install script does not duplicate the tool list.
+
+## opam
+
+The optional OCaml profile deliberately uses the ecosystem's switch model:
+
+| Component | Owner |
+|---|---|
+| `opam` binary and native build prerequisites | Fedora/DNF |
+| OCaml compiler and versioned switch | opam |
+| `dune`, `utop`, `ocaml-lsp-server`, `ocamlformat`, `earlybird` | opam, in the same switch as the compiler |
+| OCaml Treesitter parser | `nvim-treesitter`, only when opam is present |
+| Project libraries and test dependencies | The project's opam switch and `.opam` files |
+
+Neither mise nor Mason installs OCaml, dune, OCaml LSP, OCamlFormat, or utop.
+Keeping the compiler and editor tools together avoids the version mismatch that
+can occur when Mason installs `ocaml-lsp-server` independently of an opam
+switch.
 
 ## Mason
 
@@ -544,6 +581,13 @@ application and library dependencies
 These belong in `pyproject.toml` and are resolved into a project-local `.venv`
 with `uv`. Mason's Ruff installation is editor-only; CLI and CI execution uses
 the project-declared version.
+
+### OCaml repository
+
+Application libraries and test dependencies belong in the project's `.opam`
+files, with build structure in `dune-project` and `dune` files. opam resolves
+them into the selected switch; the workstation profile supplies only the
+compiler and common development tools.
 
 ---
 
@@ -1365,7 +1409,107 @@ Set a breakpoint on `answer = left * right` in
 The debugger should stop inside the project interpreter without adding debugpy
 to the project's dependencies.
 
-## Disposable workflow validation
+---
+
+# OCaml development
+
+Install the profile explicitly:
+
+```bash
+./install.sh --ocaml
+```
+
+The default profile creates the named switch `dotfiles-ocaml-5.5.0`, selects it
+as the global opam switch, and installs dune, utop, `ocaml-lsp-server`,
+OCamlFormat, and Earlybird into that switch. The selection is recorded in the machine-local
+file `~/.config/dotfiles/ocaml.conf`; it is not tracked by Git. The tracked Zsh
+configuration sources opam's generated environment hook when it exists, so a
+new shell exposes the selected switch without allowing `opam init` to edit
+`.zshrc`.
+
+To intentionally bootstrap a different stable compiler release:
+
+```bash
+OCAML_COMPILER_VERSION=5.4.1 ./install.sh --ocaml
+```
+
+The version becomes a separate named opam switch. Existing switches are not
+deleted or overwritten.
+
+## Project workflow
+
+For a new project using the profile switch:
+
+```bash
+dune init proj hello
+cd hello
+opam install . --deps-only --with-test
+dune build
+dune exec hello
+dune runtest
+dune fmt
+dune utop
+nvim .
+```
+
+Use the executable name declared by the project's `dune` files with
+`dune exec`. For an existing repository, begin with
+`opam install . --deps-only --with-test`, then use its committed build, run,
+and test aliases.
+
+Projects that require a different compiler should create a local switch and
+install the editor tools into that same switch:
+
+```bash
+opam switch create . 5.4.1
+opam install . --deps-only --with-test
+opam install dune utop ocaml-lsp-server ocamlformat
+```
+
+Because opam automatically selects a local switch from its directory, shell
+commands and Neovim then use the project-specific compiler and packages.
+
+## Neovim workflow
+
+The LazyVim configuration becomes active only when the `opam` executable is
+present. It adds the OCaml Treesitter parser and configures `ocamllsp` for
+OCaml, interfaces, Dune files, Menhir, ocamllex, and Reason. The server starts
+through `opam exec`, so it follows the switch selected for the project. Mason
+is explicitly disabled for this server.
+
+OCaml LSP provides diagnostics, completion, hover information, definitions,
+references, rename, and code actions through the normal LazyVim mappings.
+Formatting uses the OCamlFormat binary from the same switch through LSP; use
+`<leader>cf` or the normal format-on-save behavior. Run Dune commands from a
+LazyVim terminal (`<C-/>`) when an editor-adjacent build or test loop is useful.
+Use `:checkhealth vim.lsp` in an OCaml buffer to confirm that `ocamllsp` is
+attached.
+
+## Debugging
+
+The optional profile installs the opam-owned `earlybird` package. It provides
+the `ocamlearlybird` Debug Adapter Protocol server, and the LazyVim DAP extra
+is configured to launch it through the active opam switch. In an OCaml buffer:
+
+1. Build a bytecode executable with `dune build`.
+2. Set a breakpoint with `:DapToggleBreakpoint`.
+3. Start the `OCaml: debug bytecode executable` configuration with
+   `:DapContinue`.
+4. Select the resulting `_build/default/.../*.bc` executable when prompted.
+
+The adapter supports normal launch, breakpoints, stepping, stack inspection,
+and variables through `nvim-dap`. It is restricted to bytecode executables;
+native binaries are not supported. It is also a launch configuration, not a
+general attach-to-an-already-running-native-process workflow. Earlybird has
+known limitations, including Dune workspace-root handling, so projects should
+use Dune 3.7 or newer and include `(map_workspace_root false)` when source
+breakpoints do not resolve correctly. The repository's smoke fixture exercises
+the required bytecode build shape; the interactive breakpoint itself must be
+checked in Neovim because it depends on the editor session.
+
+---
+
+# Disposable development workflow validation
 
 The repository includes network-dependent fixtures that exercise real project
 tooling in temporary directories:
@@ -1374,15 +1518,18 @@ tooling in temporary directories:
 ./scripts/test-dev-workflows.sh
 ./scripts/test-dev-workflows.sh --angular
 ./scripts/test-dev-workflows.sh --python
+./scripts/test-dev-workflows.sh --ocaml
 ```
 
 The Angular check installs only fixture-local dependencies, formats, lints,
 tests, exercises both the modern and debug builds with source maps, starts the
 debug server, and probes it.
 The Python check resolves an isolated environment, runs the package and tests,
-lints, checks formatting, and builds both source and wheel distributions. These
-larger download-based checks are intentionally separate from `scripts/test.sh`;
-the normal repository suite validates their configuration without fetching
+lints, checks formatting, and builds both source and wheel distributions. The
+OCaml check resolves the fixture through opam and exercises Dune build, run,
+test, format, and bytecode targets using the configured profile switch. These larger
+download-based checks are intentionally separate from `scripts/test.sh`; the
+normal repository suite validates their configuration without fetching
 language ecosystems.
 
 ---
@@ -1433,6 +1580,7 @@ The verifier checks:
 - mise configuration and commands
 - expected Mason editor tooling and warnings for untracked Mason packages
 - Neovim startup/version
+- optional opam switch, compiler, and OCaml Platform tools
 - Catppuccin tmux installation/version
 - optional ASUS hardware profile, drivers, services, and Secure Boot state
 - nested Git repositories
@@ -1462,8 +1610,10 @@ git diff --check
 The bootstrap harness covers Secure Boot helpers, power-profile service
 handling, installer option validation and dry-runs, fresh and repeated local
 setup, legacy Git identity migration, developer-tool ownership invariants, and
-preservation of unrelated user files and symlinks. It also exercises GA402XZ
-and GA402RK hardware preflights, fail-before-mutation behavior, and
+preservation of unrelated user files and symlinks. It validates the optional
+OCaml profile's idempotency, switch state, and manager boundaries without
+downloading a compiler. It also exercises GA402XZ and GA402RK hardware
+preflights, fail-before-mutation behavior, and
 representative package and service flows through command mocks.
 
 Every integration-style test uses temporary home, XDG, OS-release, and DMI
@@ -1633,6 +1783,7 @@ Editor:               Neovim + LazyVim
 Git TUI:              Lazygit
 GitHub CLI:           gh
 Runtime manager:      mise
+Optional OCaml:       opam (`--ocaml`)
 Theme:                Catppuccin Macchiato
 Accent:               Mauve
 KDE decoration:       Classic
