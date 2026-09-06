@@ -10,6 +10,7 @@ install_latex="false"
 install_ocaml="false"
 install_sway="false"
 install_vm_host="false"
+install_vm_guest="false"
 hardware_model=""
 hardware_secure_boot="false"
 hardware_charge_limit=""
@@ -38,6 +39,7 @@ Options:
   --no-sway          Do not install the Sway session (default)
 
   --vm-host          Install the optional KVM/QEMU + libvirt VM-host profile
+  --vm-guest         Install KVM/QEMU agents inside an explicit Fedora guest
 
   --hardware MODEL   Install ASUS hardware support:
                      ga402xz or ga402rk
@@ -105,6 +107,11 @@ while (($#)); do
     shift
     ;;
 
+  --vm-guest)
+    install_vm_guest="true"
+    shift
+    ;;
+
   --hardware)
     [[ $# -ge 2 ]] || die "--hardware requires a value"
     hardware_model="$2"
@@ -164,6 +171,14 @@ if [[ "$hardware_secure_boot" == "true" && -z "$hardware_model" ]]; then
   die "--secure-boot requires --hardware"
 fi
 
+if [[ "$install_vm_host" == "true" && "$install_vm_guest" == "true" ]]; then
+  die "--vm-host and --vm-guest cannot be combined"
+fi
+
+if [[ "$install_vm_guest" == "true" && -n "$hardware_model" ]]; then
+  die "--vm-guest and --hardware cannot be combined"
+fi
+
 if [[ -n "$hardware_charge_limit" ]]; then
   [[ -n "$hardware_model" ]] || die "--charge-limit requires --hardware"
 
@@ -211,6 +226,7 @@ LaTeX toolchain:     $install_latex
 OCaml profile:       $install_ocaml
 Sway session:        $install_sway
 VM-host profile:     $install_vm_host
+VM-guest profile:    $install_vm_guest
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
@@ -259,6 +275,16 @@ EOF
   $step. Install the optional Fedora KVM/QEMU + libvirt VM-host profile
      platforms/fedora/scripts/install-vm-host.sh
      qemu:///system, default NAT network, qcow2, UEFI/OVMF, VirtIO, SPICE
+EOF
+    step=$((step + 1))
+  fi
+
+  if [[ "$install_vm_guest" == "true" ]]; then
+    cat <<EOF
+
+  $step. Install the explicit Fedora KVM/QEMU VM-guest profile
+     platforms/fedora/scripts/install-vm-guest.sh
+     qemu-guest-agent, SPICE desktop integration, existing guest networking
 EOF
     step=$((step + 1))
   fi
@@ -348,6 +374,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'OCaml profile:      %s\n' "$install_ocaml"
   printf 'Sway session:       %s\n' "$install_sway"
   printf 'VM-host profile:    %s\n' "$install_vm_host"
+  printf 'VM-guest profile:   %s\n' "$install_vm_guest"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
 
@@ -365,6 +392,8 @@ if [[ "$interactive" == "true" ]]; then
   printf 'LaTeX toolchain:    %s\n' "$install_latex"
   printf 'OCaml profile:      %s\n' "$install_ocaml"
   printf 'Sway session:       %s\n' "$install_sway"
+  printf 'VM-host profile:    %s\n' "$install_vm_host"
+  printf 'VM-guest profile:   %s\n' "$install_vm_guest"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
   if [[ -n "$hardware_model" ]]; then
@@ -382,6 +411,11 @@ fi
 # ---------------------------------------------------------------------------
 
 hardware_args=()
+
+if [[ "$install_vm_guest" == "true" ]]; then
+  info "Validating VM-guest requirements"
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-guest.sh" --preflight
+fi
 
 if [[ -n "$hardware_model" ]]; then
   hardware_args=(--model "$hardware_model")
@@ -428,6 +462,11 @@ fi
 if [[ "$install_vm_host" == "true" ]]; then
   info "Installing optional Fedora VM-host profile"
   "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-host.sh"
+fi
+
+if [[ "$install_vm_guest" == "true" ]]; then
+  info "Installing optional Fedora VM-guest profile"
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-guest.sh"
 fi
 
 info "Initializing machine-local configuration"

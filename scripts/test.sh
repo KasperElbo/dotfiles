@@ -19,6 +19,7 @@ tests=(
   tests/test-asus-preflight.sh
   tests/test-mocked-installs.sh
   tests/test-vm-host.sh
+  tests/test-vm-guest.sh
 )
 
 for test_script in "${tests[@]}"; do

@@ -43,6 +43,9 @@ This configuration has been developed and tested on:
 - Neovim 0.12+
 - GNU Stow
 
+The optional guest profile targets Fedora 44 KVM/QEMU guests managed by
+libvirt, with virt-manager as the normal graphical client.
+
 The supported machine bootstrap is currently Fedora-only. The portable layer
 has its own entry points so future macOS or WSL installers can reuse it without
 copying configuration; those installers are intentionally not implemented yet.
@@ -126,6 +129,16 @@ The same profile can be installed or validated independently:
 ./scripts/verify-vm-host.sh --smoke-test
 ```
 
+Inside a Fedora guest created by that host profile, reuse the normal bootstrap
+and add only the explicit guest-integration profile:
+
+```bash
+./install.sh --vm-guest --kde --non-interactive
+```
+
+The guest profile is never selected automatically. It refuses bare metal and
+does not allow the ASUS hardware profile to be combined with it.
+
 The complete OCaml development environment is explicitly opt-in:
 
 ```bash
@@ -151,6 +164,8 @@ The complete OCaml development environment is explicitly opt-in:
 --no-sway          skip Sway (default)
 
 --vm-host          install the optional KVM/QEMU + libvirt VM-host profile
+
+--vm-guest         install QEMU/SPICE agents inside an explicit Fedora guest
 
 --hardware MODEL   install ASUS hardware support for ga402xz or ga402rk
                    default: disabled
@@ -419,6 +434,7 @@ install.sh                         compatibility entry point
     ├── platforms/fedora/scripts/install-kde-theme.sh      optional
     ├── platforms/fedora/scripts/install-latex.sh          optional
     ├── platforms/fedora/scripts/install-vm-host.sh        optional
+    ├── platforms/fedora/scripts/install-vm-guest.sh       optional, guest only
     ├── ~/.local/bin/theme + Fedora theme hook
     └── platforms/fedora/scripts/verify.sh
 ```
@@ -488,6 +504,8 @@ virt-install \
   --disk size=40,format=qcow2,bus=virtio \
   --network network=default,model=virtio \
   --graphics spice \
+  --channel unix,target_type=virtio,name=org.qemu.guest_agent.0 \
+  --channel spicevmc \
   --boot uefi \
   --cdrom ~/Downloads/Fedora.iso
 ```
@@ -504,6 +522,62 @@ the packages with DNF. The installer does not delete guest disks, networks,
 or storage pools on rerun or rollback. Issues #17 and #19 should reuse this
 libvirt system backend and these storage/network conventions rather than add a
 second provisioning path.
+
+## Optional VM-guest profile
+
+The normal Fedora bootstrap is also the guest bootstrap. Validation of its
+composition found no reason to copy the Fedora installer or any Stow package:
+
+| Area | Guest result |
+|---|---|
+| Portable dotfiles and developer tools | Reused unchanged |
+| Fedora base and Terra packages | Reused unchanged |
+| KDE theming | Reused unchanged |
+| ASUS/NVIDIA laptop provisioning | Already opt-in; rejected when `--vm-guest` is selected |
+| Power management | No guest override; laptop-specific masking runs only in the hardware profile |
+| Networking | Left to the guest and hypervisor; the #13 default network supplies normal NAT/DHCP |
+| Clipboard, display resizing, and pointer integration | Requires the small `spice-vdagent` guest package and SPICE virtio channel |
+| Host lifecycle integration | Requires `qemu-guest-agent` and its virtio channel |
+| Shared folders | Kept manual because the host path and security boundary are machine-specific |
+
+Run the profile only inside the guest:
+
+```bash
+./scripts/install-vm-guest.sh
+./scripts/verify-vm-guest.sh
+```
+
+It uses `systemd-detect-virt --vm` as an explicit preflight and currently
+accepts only `kvm` and `qemu`. Other hypervisors are detected and rejected
+before DNF runs, rather than receiving inappropriate QEMU packages. This check
+exists only in the selected guest component, so it cannot change the normal
+physical Fedora path.
+
+The reference VM must expose these two virtio-serial channels:
+
+```text
+org.qemu.guest_agent.0
+com.redhat.spice.0
+```
+
+The host example above and the VM-host `--smoke-test` include both. In
+virt-manager they can also be inspected or added in the guest hardware details.
+Fedora starts the QEMU system agent and SPICE socket; Plasma starts the packaged
+SPICE user agent with its graphical session. The verifier checks the packages,
+both channels, both system units, and a default network route. If Plasma is not
+running, the user-session check is a warning and can be repeated after login.
+
+The profile does not create a static display layout. SPICE can therefore follow
+the virt-viewer window size instead of competing with machine-local KDE display
+settings. It also does not alter NetworkManager, sleep policy, battery settings,
+or shared folders. For an optional virtiofs share, choose the host path and
+guest mount point explicitly in virt-manager; `/mnt/shared` is a reasonable
+guest convention, but the bootstrap does not create or mount it.
+
+DNF and systemd operations are safe to repeat, and
+`~/.config/dotfiles/vm-guest.conf` is rewritten atomically with stable content.
+The Fedora packages are deliberately guest-owned: `qemu-guest-agent` is no
+longer installed by the VM-host profile.
 
 
 ---
@@ -1681,6 +1755,7 @@ The verifier checks:
 - Catppuccin tmux installation/version
 - optional ASUS hardware profile, drivers, services, and Secure Boot state
 - optional Fedora VM-host backend, KVM, libvirt, network, and storage validation
+- optional Fedora VM-guest detection, agents, channels, and network route
 - nested Git repositories
 - obvious generated junk files
 
@@ -1713,6 +1788,10 @@ OCaml profile's idempotency, switch state, and manager boundaries without
 downloading a compiler. It also exercises GA402XZ and GA402RK hardware
 preflights, fail-before-mutation behavior, and
 representative package and service flows through command mocks.
+The guest harness additionally proves that bare metal and unsupported
+hypervisors fail before package mutation, no ASUS/NVIDIA, power, bridge, or
+NetworkManager command is issued, and repeated guest setup preserves stable
+local state.
 
 Every integration-style test uses temporary home, XDG, OS-release, and DMI
 state. Package managers, firmware tooling, and service commands are either

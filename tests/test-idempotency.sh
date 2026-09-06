@@ -141,7 +141,10 @@ EOF
 
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
-[[ "$1" == -q && "$2" == terra-release ]]
+case "$1 $2" in
+  '-q terra-release' | '-q qemu-guest-agent' | '-q spice-vdagent') exit 0 ;;
+esac
+exit 1
 EOF
 
 cat >"$mock_bin/sudo" <<'EOF'
@@ -194,6 +197,24 @@ for command_name in "${mock_commands[@]}"; do
   ln -s mock-command "$mock_bin/$command_name"
 done
 
+cat >"$mock_bin/systemd-detect-virt" <<'EOF'
+#!/usr/bin/env bash
+printf 'kvm\n'
+EOF
+chmod +x "$mock_bin/systemd-detect-virt"
+
+cat >"$mock_bin/ip" <<'EOF'
+#!/usr/bin/env bash
+printf 'default via 192.168.122.1 dev enp1s0 proto dhcp\n'
+EOF
+chmod +x "$mock_bin/ip"
+
+virtio_ports="$test_root/virtio-ports"
+mkdir -p "$virtio_ports"
+touch \
+  "$virtio_ports/org.qemu.guest_agent.0" \
+  "$virtio_ports/com.redhat.spice.0"
+
 theme_origin="$test_root/tmux-theme-origin"
 mkdir -p "$theme_origin"
 git -C "$theme_origin" init -q
@@ -218,6 +239,8 @@ bootstrap_environment=(
   "XDG_DATA_HOME=$bootstrap_data"
   "XDG_CACHE_HOME=$bootstrap_cache"
   "OS_RELEASE_FILE=$test_root/os-release"
+  "QEMU_AGENT_CHANNEL=$virtio_ports/org.qemu.guest_agent.0"
+  "SPICE_AGENT_CHANNEL=$virtio_ports/com.redhat.spice.0"
   "PATH=$mock_bin:$PATH"
 )
 
@@ -227,6 +250,7 @@ run_bootstrap() {
   if ! "${bootstrap_environment[@]}" \
     "$repo_root/install.sh" \
     --theme macchiato --no-kde --no-latex --non-interactive \
+    "$@" \
     >"$output" 2>&1; then
     printf 'Complete mocked bootstrap failed:\n' >&2
     sed -n '1,240p' "$output" >&2
@@ -246,5 +270,13 @@ run_bootstrap
 [[ -L "$bootstrap_config/git/config" ]]
 [[ -L "$bootstrap_home/.local/bin/theme" ]]
 printf 'PASS: a complete mocked bootstrap succeeds twice without side effects\n'
+
+run_bootstrap --vm-guest
+vm_guest_state="$bootstrap_config/dotfiles/vm-guest.conf"
+first_vm_guest_state="$(sha256sum "$vm_guest_state")"
+run_bootstrap --vm-guest
+[[ "$(sha256sum "$vm_guest_state")" == "$first_vm_guest_state" ]]
+grep -Fqx 'profile=vm-guest' "$vm_guest_state"
+printf 'PASS: the normal bootstrap composes with the VM-guest profile twice\n'
 
 printf 'Bootstrap idempotency and upgrade tests passed.\n'
