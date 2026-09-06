@@ -112,6 +112,7 @@ the dependable KDE fallback:
 ./install.sh --sway
 ```
 
+<<<<<<< HEAD
 The Fedora VM-host profile is also explicitly opt-in. It adds the native
 KVM/QEMU + libvirt stack without changing the default workstation bootstrap:
 
@@ -126,6 +127,9 @@ The same profile can be installed or validated independently:
 ./scripts/verify-vm-host.sh --smoke-test
 ```
 
+||||||| 9cf124d
+=======
+>>>>>>> main
 The complete OCaml development environment is explicitly opt-in:
 
 ```bash

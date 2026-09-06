@@ -66,6 +66,8 @@ test_environment=(
 
 "${test_environment[@]}" "$repo_root/scripts/install-system.sh" >/dev/null
 "${test_environment[@]}" "$repo_root/scripts/install-terra.sh" >/dev/null
+"${test_environment[@]}" \
+  "$repo_root/platforms/fedora/scripts/install-ocaml.sh" >/dev/null
 "${test_environment[@]}" "$repo_root/scripts/install-sway.sh" >/dev/null
 "${test_environment[@]}" \
   "$repo_root/scripts/install-asus-hardware.sh" \
@@ -73,6 +75,9 @@ test_environment=(
 
 grep -Fq 'sudo dnf install -y bat curl eza' "$command_log"
 grep -Fq 'sudo dnf install -y ghostty mise starship' "$command_log"
+grep -Fq \
+  'sudo dnf install -y bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config unzip' \
+  "$command_log"
 grep -Fq \
   'sudo dnf install -y blueman brightnessctl cliphist dex-autostart fuzzel grim jq libnotify lxqt-policykit mako nm-connection-editor pavucontrol playerctl slurp sway swaybg swayidle swaylock sway-systemd swappy waybar wireplumber xdg-desktop-portal-gtk xdg-desktop-portal-wlr' \
   "$command_log"

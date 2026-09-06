@@ -7,16 +7,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/test-dev-workflows.sh [--angular | --python | --all]
+Usage: ./scripts/test-dev-workflows.sh [--angular | --python | --ocaml | --all]
 
 Run disposable, network-dependent development workflow smoke tests. The
-default is --all. Project dependencies are installed only below a temporary
-directory and are removed when the script exits.
+default is --all for the default language environments. The optional OCaml
+profile is checked explicitly with --ocaml. Project sources and generated
+artifacts exist only below a temporary directory and are removed on exit.
 EOF
 }
 
 run_angular=true
 run_python=true
+run_ocaml=false
 
 if (($# > 1)); then
   usage >&2
@@ -30,6 +32,11 @@ case "${1:---all}" in
   ;;
 --python)
   run_angular=false
+  ;;
+--ocaml)
+  run_angular=false
+  run_python=false
+  run_ocaml=true
   ;;
 -h | --help)
   usage
@@ -146,12 +153,45 @@ run_python_workflow() {
   success "Python resolve, run, test, lint, format and package checks passed"
 }
 
+run_ocaml_workflow() {
+  require_command opam
+  "$DOTFILES_ROOT/common/verify-ocaml.sh"
+
+  local state_file="$XDG_CONFIG_HOME/dotfiles/ocaml.conf"
+  local switch_name
+  local project="$test_root/ocaml-smoke"
+  local output="$test_root/ocaml-output.txt"
+
+  switch_name="$(awk -F= '$1 == "switch" { print $2 }' "$state_file")"
+  cp -R "$DOTFILES_ROOT/tests/fixtures/ocaml-smoke" "$project"
+
+  info "Resolving and exercising the disposable OCaml project"
+  (
+    cd "$project"
+    opam install --switch "$switch_name" --yes . --deps-only --with-test
+    opam exec --switch "$switch_name" -- dune build
+    opam exec --switch "$switch_name" -- dune exec dotfiles-smoke >"$output"
+    opam exec --switch "$switch_name" -- dune runtest
+    opam exec --switch "$switch_name" -- dune build @fmt
+  )
+
+  find "$project/_build/default" -type f -name '*.bc' -print -quit |
+    grep -q . || die "OCaml workflow did not produce a bytecode executable"
+
+  grep -Fqx '42' "$output" || die "OCaml application returned unexpected output"
+  success "OCaml resolve, build, run, test, format and bytecode checks passed"
+}
+
 if [[ "$run_angular" == true ]]; then
   run_angular_workflow
 fi
 
 if [[ "$run_python" == true ]]; then
   run_python_workflow
+fi
+
+if [[ "$run_ocaml" == true ]]; then
+  run_ocaml_workflow
 fi
 
 success "Disposable development workflow checks passed"

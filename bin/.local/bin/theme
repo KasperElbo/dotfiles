@@ -1,13 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-flavour="${1:-}"
+usage() {
+  cat <<'EOF'
+Usage: theme {latte|frappe|macchiato|mocha} [--preserve-wallpaper]
+
+Options:
+  --preserve-wallpaper  change the theme without replacing the desktop wallpaper
+  -h, --help            show this help
+EOF
+}
+
+flavour=""
+preserve_wallpaper="false"
+
+while (($#)); do
+  case "$1" in
+  --preserve-wallpaper)
+    preserve_wallpaper="true"
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -*)
+    echo "Unknown option: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+  *)
+    if [[ -n "$flavour" ]]; then
+      echo "Unexpected argument: $1" >&2
+      usage >&2
+      exit 2
+    fi
+    flavour="$1"
+    ;;
+  esac
+  shift
+done
 
 case "$flavour" in
   latte|frappe|macchiato|mocha)
     ;;
   *)
-    echo "Usage: theme {latte|frappe|macchiato|mocha}" >&2
+    if [[ -n "$flavour" ]]; then
+      echo "Invalid Catppuccin flavour: $flavour" >&2
+    fi
+    usage >&2
     exit 2
     ;;
 esac

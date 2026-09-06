@@ -14,6 +14,7 @@ tests=(
   tests/test-theme.sh
   tests/test-sway-config.sh
   tests/test-neovim-tool-ownership.sh
+  tests/test-ocaml-profile.sh
   tests/test-idempotency.sh
   tests/test-asus-preflight.sh
   tests/test-mocked-installs.sh
