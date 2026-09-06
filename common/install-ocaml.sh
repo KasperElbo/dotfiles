@@ -50,5 +50,6 @@ success "OCaml $compiler_version development environment installed"
 
 printf '\n'
 printf 'Start a new shell, or activate it now with:\n'
+# shellcheck disable=SC2016 # This is literal shell code shown to the user.
 printf '  eval "$(opam env --switch=%s --set-switch --shell=zsh)"\n' \
   "$switch_name"

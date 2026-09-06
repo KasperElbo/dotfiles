@@ -27,6 +27,7 @@ actual_compiler="$(opam exec --switch "$switch_name" -- ocamlc -version)"
 commands=(dune ocamlearlybird ocamllsp ocamlformat utop)
 
 for command_name in "${commands[@]}"; do
+  # shellcheck disable=SC2016 # The command is intentionally evaluated by sh.
   opam exec --switch "$switch_name" -- sh -c \
     'command -v "$1" >/dev/null' sh "$command_name" ||
     die "opam-managed command missing from $switch_name: $command_name"

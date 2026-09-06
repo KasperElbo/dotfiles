@@ -82,6 +82,7 @@ if "${test_environment[@]}" env OCAML_COMPILER_VERSION=trunk \
   exit 1
 fi
 
+# shellcheck disable=SC2016 # The test asserts the literal shell configuration.
 grep -Fq 'source "$HOME/.opam/opam-init/init.zsh"' \
   "$repo_root/zsh/.config/zsh/.zshrc"
 
