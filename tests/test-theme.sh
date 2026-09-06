@@ -23,6 +23,10 @@ if [[ "$*" == "-x ghostty" ]]; then
 fi
 exit 1
 EOF
+cat >"$mock_bin/tmux" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
 cat >"$mock_bin/pkill" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >"$MOCK_LOG"
