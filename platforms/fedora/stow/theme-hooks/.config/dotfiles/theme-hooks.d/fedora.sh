@@ -4,12 +4,17 @@
 source "$DOTFILES_ROOT/platforms/fedora/lib/theme-state.sh"
 
 # shellcheck disable=SC2154
-write_fedora_theme_state "$flavour"
+write_fedora_theme_state "$flavour" "$preserve_wallpaper"
 
 if command -v lookandfeeltool >/dev/null 2>&1 \
   && command -v plasma-apply-colorscheme >/dev/null 2>&1 \
   && command -v plasma-apply-cursortheme >/dev/null 2>&1; then
-  "$DOTFILES_ROOT/platforms/fedora/scripts/apply-kde-theme.sh" "$flavour"
+  kde_theme_args=("$flavour")
+  if [[ "$preserve_wallpaper" == "true" ]]; then
+    kde_theme_args+=(--preserve-wallpaper)
+  fi
+  "$DOTFILES_ROOT/platforms/fedora/scripts/apply-kde-theme.sh" \
+    "${kde_theme_args[@]}"
 fi
 
 ghostty_reloaded="false"
