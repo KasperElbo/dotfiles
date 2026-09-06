@@ -459,8 +459,25 @@ Validation checks `virt-host-validate qemu`, KVM device availability, access to
 `qemu:///system`, the active/autostart NAT network, and the active/autostart
 storage pool. The optional `--smoke-test` renders a representative UEFI guest
 definition with qcow2, VirtIO, the default network, and SPICE without creating
-or booting a guest. To boot a real guest, supply an installer ISO explicitly,
-for example:
+or booting a guest.
+
+`virt-host-validate qemu` may report two advisory warnings on modern Fedora
+hosts:
+
+- A missing `devices` cgroup controller affects optional resource-control
+  features; it does not prevent normal QEMU guests from running. Libvirt's QEMU
+  driver does not require every resource controller to be mounted.
+- Missing SEV/SEV-ES/SEV-SNP/TDX support means confidential encrypted guests are
+  unavailable on the host. It is unrelated to Secure Boot and does not affect
+  ordinary KVM guests.
+
+These warnings do not disable or weaken Secure Boot, SELinux, or firewalld, and
+the verifier reports them as advisory when the required KVM/libvirt checks pass.
+See the [libvirt cgroups documentation](https://libvirt.org/cgroups.html) and
+[domain security documentation](https://libvirt.org/formatdomain.html) for
+the optional features involved.
+
+To boot a real guest, supply an installer ISO explicitly, for example:
 
 ```bash
 virt-install \

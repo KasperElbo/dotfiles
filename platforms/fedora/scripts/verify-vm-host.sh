@@ -70,10 +70,26 @@ else
   fail "${KVM_DEVICE:-/dev/kvm} is unavailable; KVM acceleration cannot be used"
 fi
 
-if virt-host-validate qemu; then
+host_validate_output=""
+if host_validate_output="$(virt-host-validate qemu 2>&1)"; then
+  host_validate_status=0
+else
+  host_validate_status=$?
+fi
+printf '%s\n' "$host_validate_output"
+
+if ((host_validate_status == 0)); then
   pass "virt-host-validate qemu"
 else
   fail "virt-host-validate qemu reported a problem"
+fi
+
+if grep -Eiq "cgroup 'devices' controller support.*WARN" <<<"$host_validate_output"; then
+  warning "virt-host-validate devices-cgroup warning is advisory; optional resource controls may be unavailable, but normal QEMU guests are supported"
+fi
+
+if grep -Eiq 'secure guest support.*WARN' <<<"$host_validate_output"; then
+  warning "virt-host-validate secure-guest warning is advisory; SEV/TDX confidential guests are unavailable, but normal KVM guests are supported"
 fi
 
 if [[ "$(virsh -c "$libvirt_uri" uri 2>/dev/null || true)" == "$libvirt_uri" ]]; then

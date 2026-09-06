@@ -61,6 +61,8 @@ EOF
 cat >"$mock_bin/virt-host-validate" <<'EOF'
 #!/usr/bin/env bash
 printf 'virt-host-validate %s\n' "$*" >>"$COMMAND_LOG"
+printf "QEMU: Checking for cgroup 'devices' controller support : WARN\n"
+printf 'QEMU: Checking for secure guest support : WARN\n'
 exit 0
 EOF
 
@@ -123,8 +125,10 @@ if grep -Eiq 'bridge|brctl|nmcli.*bridge' "$command_log"; then
   exit 1
 fi
 
-"${test_environment[@]}" \
-  "$repo_root/scripts/verify-vm-host.sh" --smoke-test >/dev/null
+verification_output="$("${test_environment[@]}" \
+  "$repo_root/scripts/verify-vm-host.sh" --smoke-test 2>&1)"
+grep -Fq 'devices-cgroup warning is advisory' <<<"$verification_output"
+grep -Fq 'secure-guest warning is advisory' <<<"$verification_output"
 grep -Fq -- '--dry-run --print-xml' "$command_log"
 
 printf 'VM-host package, service, validation, smoke-test, and idempotency tests passed.\n'
