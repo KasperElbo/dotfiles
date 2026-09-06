@@ -74,6 +74,10 @@ run_success "Sway remains opt-in" "Sway session:        false" \
   ./install.sh --dry-run
 run_success "Sway dry-run" "platforms/fedora/scripts/install-sway.sh" \
   ./install.sh --dry-run --sway
+run_success "VM-host dry-run" "platforms/fedora/scripts/install-vm-host.sh" \
+  ./install.sh --dry-run --vm-host
+run_success "VM-host remains opt-in" "VM-host profile:     false" \
+  ./install.sh --dry-run
 run_success "Sway dry-run forwards local setup" \
   "platforms/fedora/scripts/setup-local.sh macchiato --sway" \
   ./install.sh --dry-run --sway

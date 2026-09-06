@@ -17,6 +17,7 @@ tests=(
   tests/test-idempotency.sh
   tests/test-asus-preflight.sh
   tests/test-mocked-installs.sh
+  tests/test-vm-host.sh
 )
 
 for test_script in "${tests[@]}"; do

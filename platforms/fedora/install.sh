@@ -8,6 +8,7 @@ theme="macchiato"
 install_kde="auto"
 install_latex="false"
 install_sway="false"
+install_vm_host="false"
 hardware_model=""
 hardware_secure_boot="false"
 hardware_charge_limit=""
@@ -31,6 +32,8 @@ Options:
 
   --sway             Install the optional keyboard-driven Sway session
   --no-sway          Do not install the Sway session (default)
+
+  --vm-host          Install the optional KVM/QEMU + libvirt VM-host profile
 
   --hardware MODEL   Install ASUS hardware support:
                      ga402xz or ga402rk
@@ -80,6 +83,11 @@ while (($#)); do
 
   --no-sway)
     install_sway="false"
+    shift
+    ;;
+
+  --vm-host)
+    install_vm_host="true"
     shift
     ;;
 
@@ -187,6 +195,7 @@ Catppuccin flavour:  $theme
 KDE integration:     $install_kde
 LaTeX toolchain:     $install_latex
 Sway session:        $install_sway
+VM-host profile:     $install_vm_host
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
@@ -216,6 +225,16 @@ EOF
 
   $step. Install the optional Sway daily-driver session
      platforms/fedora/scripts/install-sway.sh
+EOF
+    step=$((step + 1))
+  fi
+
+  if [[ "$install_vm_host" == "true" ]]; then
+    cat <<EOF
+
+  $step. Install the optional Fedora KVM/QEMU + libvirt VM-host profile
+     platforms/fedora/scripts/install-vm-host.sh
+     qemu:///system, default NAT network, qcow2, UEFI/OVMF, VirtIO, SPICE
 EOF
     step=$((step + 1))
   fi
@@ -292,6 +311,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Catppuccin flavour: %s\n' "$theme"
   printf 'KDE integration:    %s\n' "$install_kde"
   printf 'Sway session:       %s\n' "$install_sway"
+  printf 'VM-host profile:    %s\n' "$install_vm_host"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
 
@@ -361,6 +381,11 @@ fi
 if [[ "$install_sway" == "true" ]]; then
   info "Installing optional Sway session"
   "$DOTFILES_ROOT/platforms/fedora/scripts/install-sway.sh"
+fi
+
+if [[ "$install_vm_host" == "true" ]]; then
+  info "Installing optional Fedora VM-host profile"
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-host.sh"
 fi
 
 info "Initializing machine-local configuration"
