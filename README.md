@@ -455,6 +455,7 @@ The VM-host profile uses Fedora's native virtualization stack:
 | Guest console | `virt-viewer` with SPICE where supported |
 | Guest firmware | UEFI/OVMF; `swtpm` is available for guest TPM support |
 | Guest devices | VirtIO disk and network devices |
+| Accelerated display | Virtio video with 3D acceleration and local SPICE OpenGL |
 | Guest disks | `qcow2` in the libvirt `default` storage pool |
 | Storage path | `/var/lib/libvirt/images` (managed by libvirt) |
 | Default network | libvirt `default` NAT network |
@@ -509,6 +510,62 @@ virt-install \
   --boot uefi \
   --cdrom ~/Downloads/Fedora.iso
 ```
+
+For the tested Fedora KDE development guest, shut the VM down and apply these
+settings in virt-manager's hardware details before enabling acceleration:
+
+| Setting | Value |
+|---|---|
+| Memory | 8192 MiB for both current and maximum allocation |
+| CPUs | 8 virtual CPUs with host-passthrough |
+| Video | Virtio with **3D acceleration** enabled |
+| Display | SPICE with **OpenGL** enabled |
+| SPICE listen type | **None**; native SPICE OpenGL is local-only and cannot use the normal TCP listener |
+| Render node | The host's Mesa-backed AMD iGPU render node, preferably its stable `/dev/dri/by-path/...-render` path |
+| Console resizing | **View → Scale Display → Resize guest with window**; this is disabled by default |
+
+Render-node numbering is machine-specific. Identify the stable device paths
+and their PCI devices on the host rather than assuming `renderD128`:
+
+```bash
+for node in /dev/dri/renderD*; do
+  device_path="$(readlink -f "/sys/class/drm/${node##*/}/device")"
+  pci_address="${device_path##*/}"
+  printf '\n%s -> %s\n' "$node" "$pci_address"
+  lspci -nnk -s "$pci_address"
+done
+
+ls -l /dev/dri/by-path/*-render
+```
+
+The resulting graphics and video XML should have this shape, with the actual
+AMD render-node path substituted:
+
+```xml
+<graphics type='spice'>
+  <listen type='none'/>
+  <gl enable='yes' rendernode='/dev/dri/by-path/AMD-PCI-PATH-render'/>
+</graphics>
+<video>
+  <model type='virtio' heads='1' primary='yes'>
+    <acceleration accel3d='yes'/>
+  </model>
+</video>
+```
+
+After booting the guest, verify the renderer:
+
+```bash
+glxinfo -B |
+  grep -E 'direct rendering|OpenGL vendor|OpenGL renderer|OpenGL version'
+```
+
+The OpenGL renderer should contain `virgl`; `llvmpipe` means the desktop is
+still rendering on the guest CPU. `eglInitialize failed` or `render node init
+failed` points to the selected host render node or its host driver. If QEMU
+reports that the display backend lacks OpenGL support, confirm that SPICE uses
+`<listen type='none'/>` rather than `<listen type='address'/>`. This virtual
+acceleration path does not require PCI-passing the laptop's NVIDIA dGPU.
 
 The saved local state file is:
 
