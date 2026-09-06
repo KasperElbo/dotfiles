@@ -27,6 +27,7 @@ for shortcut in \
 done
 
 grep -Fq 'exec /usr/libexec/lxqt-policykit-agent' "$config"
+grep -Fq 'exec dex --autostart --environment sway' "$config"
 
 grep -Fq "timeout 600" "$config"
 grep -Fq "timeout 900" "$config"
