@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+sway_args=()
+
+# Sway 1.11 refuses to start whenever the proprietary NVIDIA DRM module is
+# loaded, including on hybrid laptops where the AMD iGPU drives the display.
+# Keep the normal supported path everywhere else.
+if [[ -d /sys/module/nvidia_drm ]]; then
+  sway_args+=(--unsupported-gpu)
+fi
+
+exec /usr/bin/sway "${sway_args[@]}" "$@"

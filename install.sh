@@ -170,8 +170,13 @@ fi
 
 if [[ "$dry_run" == "true" ]]; then
   sway_suffix=""
+  setup_local_suffix=""
   if [[ "$install_sway" == "true" ]]; then
     sway_suffix=" --sway"
+    setup_local_suffix=" --sway"
+    if [[ -n "$hardware_model" ]]; then
+      setup_local_suffix+=" --hardware $hardware_model"
+    fi
   fi
 
   cat <<EOF
@@ -219,7 +224,7 @@ EOF
   cat <<EOF
 
   $step. Initialize machine-local configuration
-     scripts/setup-local.sh $theme$sway_suffix
+     scripts/setup-local.sh $theme$setup_local_suffix
 
   $((step + 1)). Deploy tracked configuration with GNU Stow
      scripts/stow.sh$sway_suffix
@@ -364,6 +369,9 @@ stow_args=()
 
 if [[ "$install_sway" == "true" ]]; then
   setup_local_args+=(--sway)
+  if [[ -n "$hardware_model" ]]; then
+    setup_local_args+=(--hardware "$hardware_model")
+  fi
   stow_args+=(--sway)
 fi
 

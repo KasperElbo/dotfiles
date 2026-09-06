@@ -98,6 +98,7 @@ bindsym XF86AudioPlay exec playerctl play-pause
 bindsym XF86AudioNext exec playerctl next
 bindsym XF86AudioPrev exec playerctl previous
 bindsym Print exec sway-screenshot region
+bindsym $mod+Shift+s exec sway-screenshot region
 bindsym Shift+Print exec sway-screenshot output
 bindsym $mod+Shift+v exec cliphist list | fuzzel --dmenu --config=$HOME/.config/dotfiles/fuzzel.ini | cliphist decode | wl-copy
 

@@ -10,12 +10,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/theme-state.sh"
 
 theme="${1:-macchiato}"
 install_sway="false"
+hardware_model=""
 shift || true
 
 while (($#)); do
   case "$1" in
   --sway)
     install_sway="true"
+    ;;
+  --hardware)
+    [[ $# -ge 2 ]] || die "--hardware requires a value"
+    hardware_model="$2"
+    shift
     ;;
   *)
     die "Unknown option: $1"
@@ -29,6 +35,14 @@ latte | frappe | macchiato | mocha)
   ;;
 *)
   die "Invalid Catppuccin flavour: $theme"
+  ;;
+esac
+
+case "$hardware_model" in
+"" | ga402xz | ga402rk)
+  ;;
+*)
+  die "Invalid hardware profile: $hardware_model"
   ;;
 esac
 
@@ -175,7 +189,8 @@ if [[ "$install_sway" == "true" ]]; then
   ensure_dir "$sway_dir"
 
   if [[ ! -e "$sway_dir/local.conf" ]]; then
-    cat <<'EOF' | atomic_write_file "$sway_dir/local.conf"
+    {
+      cat <<'EOF'
 # Machine-local output configuration. This file is intentionally untracked.
 # Discover output names with: swaymsg -t get_outputs
 #
@@ -184,6 +199,14 @@ if [[ "$install_sway" == "true" ]]; then
 # output DP-1 position 0 0
 # output HDMI-A-1 position 2560 0
 EOF
+      if [[ "$hardware_model" == "ga402xz" ]]; then
+        cat <<'EOF'
+
+# The GA402XZ panel is intentionally used without HiDPI scaling.
+output eDP-1 scale 1
+EOF
+      fi
+    } | atomic_write_file "$sway_dir/local.conf"
     info "Created local Sway output override: $sway_dir/local.conf"
   else
     info "Keeping existing local Sway output override: $sway_dir/local.conf"

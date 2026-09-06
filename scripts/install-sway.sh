@@ -35,4 +35,12 @@ packages=(
 info "Installing the optional Sway session"
 sudo dnf install -y "${packages[@]}"
 
+info "Installing the dotfiles Sway login session"
+sudo install -Dm755 \
+  "$DOTFILES_ROOT/scripts/assets/dotfiles-sway" \
+  /usr/local/bin/dotfiles-sway
+sudo install -Dm644 \
+  "$DOTFILES_ROOT/scripts/assets/dotfiles-sway.desktop" \
+  /usr/share/wayland-sessions/dotfiles-sway.desktop
+
 success "Sway session packages installed"

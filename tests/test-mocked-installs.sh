@@ -75,6 +75,12 @@ grep -Fq 'sudo dnf install -y bat curl eza' "$command_log"
 grep -Fq 'sudo dnf install -y ghostty mise starship' "$command_log"
 grep -Fq 'sudo dnf install -y blueman brightnessctl cliphist fuzzel' "$command_log"
 grep -Fq 'nm-connection-editor' "$command_log"
+grep -Fq \
+  'sudo install -Dm755' "$command_log"
+grep -Fq \
+  '/usr/local/bin/dotfiles-sway' "$command_log"
+grep -Fq \
+  '/usr/share/wayland-sessions/dotfiles-sway.desktop' "$command_log"
 grep -Fq 'sudo systemctl start asusd.service' "$command_log"
 grep -Fq \
   'sudo systemctl mask --now power-profiles-daemon.service' "$command_log"

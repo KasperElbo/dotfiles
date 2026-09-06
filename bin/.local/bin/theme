@@ -61,14 +61,16 @@ fi
 # ---------------------------------------------------------------------------
 
 if command -v swaymsg >/dev/null 2>&1 && swaymsg -t get_version >/dev/null 2>&1; then
+  # Reload Waybar before Sway recreates its managed bar. Sending SIGUSR2 after
+  # the compositor reload races with the replacement process starting up.
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -SIGUSR2 waybar >/dev/null 2>&1 || true
+  fi
+
   swaymsg reload >/dev/null
 
   if command -v makoctl >/dev/null 2>&1; then
     makoctl reload >/dev/null 2>&1 || true
-  fi
-
-  if command -v pkill >/dev/null 2>&1; then
-    pkill -SIGUSR2 waybar >/dev/null 2>&1 || true
   fi
 fi
 

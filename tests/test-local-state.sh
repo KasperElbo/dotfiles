@@ -24,6 +24,9 @@ grep -Fqx 'theme = catppuccin-frappe.conf' \
 # The dollar-prefixed string is a literal Sway variable.
 # shellcheck disable=SC2016
 grep -Fq 'set $wallpaper' "$fresh_home/.config/dotfiles/sway-theme.conf"
+grep -Fq 'catppuccin-frappe-lock.webp' \
+  "$fresh_home/.config/dotfiles/swaylock.conf"
+grep -Fqx 'scaling=fill' "$fresh_home/.config/dotfiles/swaylock.conf"
 grep -Fq 'background=303446f2' "$fresh_home/.config/dotfiles/fuzzel.ini"
 
 for identity in local drdk; do
@@ -52,10 +55,12 @@ mkdir -p "$sway_home"
 HOME="$sway_home" \
   XDG_CONFIG_HOME="$sway_home/.config" \
   XDG_DATA_HOME="$sway_home/.local/share" \
-  "$repo_root/scripts/setup-local.sh" mocha --sway >/dev/null
+  "$repo_root/scripts/setup-local.sh" \
+  mocha --sway --hardware ga402xz >/dev/null
 
 local_sway="$sway_home/.config/sway/local.conf"
 [[ -f "$local_sway" && ! -L "$local_sway" ]]
+grep -Fqx 'output eDP-1 scale 1' "$local_sway"
 printf 'output DP-9 mode 1920x1080\n' >"$local_sway"
 
 HOME="$sway_home" \
