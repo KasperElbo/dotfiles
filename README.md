@@ -453,7 +453,7 @@ they do in KDE. Waybar provides the StatusNotifier tray required by background
 applications, while GTK handles general desktop portals and the wlroots backend
 handles screenshots and screen sharing. These packages remain Fedora/DNF-owned.
 
-The optional OCaml profile adds the `opam` binary plus `gcc`, `gcc-c++`, `make`,
+The optional OCaml profile adds the `opam` binary plus `bzip2`,`gcc`, `gcc-c++`, `make`,
 `m4`, `patch`, `pkgconf-pkg-config`, `unzip`, and `bubblewrap`. These are native
 package/build prerequisites only; DNF does not own the selected OCaml compiler
 or the OCaml Platform tools.
