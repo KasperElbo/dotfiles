@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Portal activation and XDG autostarts both depend on the compositor's session
+# environment. Import it synchronously before any autostart application can
+# request a portal.
+export XDG_CURRENT_DESKTOP=sway
+dbus-update-activation-environment \
+  --systemd WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
+systemctl --user import-environment \
+  WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
+
+# A user portal daemon can survive a desktop-session switch. Restart it after
+# importing Sway's environment so it selects sway-portals.conf and the wlroots
+# backend for screenshots and screen sharing.
+systemctl --user restart xdg-desktop-portal.service || true
+
+exec dex-autostart --autostart --environment sway
