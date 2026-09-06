@@ -84,7 +84,7 @@ run_setup "$home" macchiato
 
 theme_bin="$test_root/theme-bin"
 mkdir -p "$theme_bin"
-for command in bash cat chmod dirname mkdir mktemp mv readlink; do
+for command in bash basename cat chmod dirname mkdir mktemp mv readlink; do
   ln -s "$(command -v "$command")" "$theme_bin/$command"
 done
 

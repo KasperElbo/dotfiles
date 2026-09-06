@@ -54,10 +54,11 @@ assert_contains "$formatting_config" 'python = { "ruff_format" }'
 assert_contains "$lazyvim_config/lua/config/options.lua" \
   'vim.g.lazyvim_eslint_auto_format = false'
 
-assert_contains "$repo_root/scripts/install-system.sh" '  ShellCheck'
+assert_contains "$repo_root/platforms/fedora/scripts/install-system.sh" '  ShellCheck'
 
 mason_inventory="$(
-  sed -n '/^mason_packages=(/,/^)/p' "$repo_root/scripts/verify.sh"
+  sed -n '/^mason_packages=(/,/^)/p' \
+    "$repo_root/platforms/fedora/scripts/verify.sh"
 )"
 
 expected_mason_packages=(

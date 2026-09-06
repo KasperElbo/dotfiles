@@ -1,25 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# shellcheck source-path=SCRIPTDIR
-# shellcheck source=lib/common.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
-
-command_exists dnf || die "LaTeX installation currently supports Fedora/DNF systems only."
-
-packages=(
-  texlive-scheme-medium
-  biber
-)
-
-info "Installing LaTeX toolchain"
-sudo dnf install -y "${packages[@]}"
-
-success "LaTeX toolchain installed"
-
-printf '\n'
-printf 'Installed tooling should include:\n'
-printf '  latex / pdflatex / xelatex / lualatex\n'
-printf '  latexmk\n'
-printf '  latexindent\n'
-printf '  biber\n'
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$repo_root/platforms/fedora/scripts/install-latex.sh" "$@"

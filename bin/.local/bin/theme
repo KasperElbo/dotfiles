@@ -12,14 +12,26 @@ case "$flavour" in
     ;;
 esac
 
-# Resolve the dotfiles repository from this script's real path:
-# <repo>/bin/.local/bin/theme
-script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+# Resolve the dotfiles repository from this script's symlink without GNU-only
+# readlink flags: <repo>/bin/.local/bin/theme
+script_path="${BASH_SOURCE[0]}"
+while [[ -L "$script_path" ]]; do
+  script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
+  link_target="$(readlink "$script_path")"
+
+  if [[ "$link_target" == /* ]]; then
+    script_path="$link_target"
+  else
+    script_path="$script_dir/$link_target"
+  fi
+done
+
+script_path="$(cd -P "$(dirname "$script_path")" && pwd)/$(basename "$script_path")"
 repo_root="$(cd "$(dirname "$script_path")/../../.." && pwd)"
-# shellcheck source=scripts/lib/common.sh
-source "$repo_root/scripts/lib/common.sh"
-# shellcheck source=scripts/lib/theme-state.sh
-source "$repo_root/scripts/lib/theme-state.sh"
+# shellcheck source=../../../common/lib/common.sh
+source "$repo_root/common/lib/common.sh"
+# shellcheck source=../../../common/lib/theme-state.sh
+source "$repo_root/common/lib/theme-state.sh"
 
 echo "Switching to Catppuccin $flavour..."
 
@@ -30,63 +42,14 @@ if command -v tmux >/dev/null 2>&1 && tmux list-sessions >/dev/null 2>&1; then
   tmux source-file "$HOME/.tmux.conf"
 fi
 
-# ---------------------------------------------------------------------------
-# KDE Plasma
-# ---------------------------------------------------------------------------
-
-if command -v lookandfeeltool >/dev/null 2>&1 \
-  && command -v plasma-apply-colorscheme >/dev/null 2>&1 \
-  && command -v plasma-apply-cursortheme >/dev/null 2>&1; then
-
-  "$repo_root/scripts/apply-kde-theme.sh" "$flavour"
-fi
-
-# ---------------------------------------------------------------------------
-# Ghostty live reload
-# ---------------------------------------------------------------------------
-
-ghostty_reloaded="false"
-
-if command -v systemctl >/dev/null 2>&1 \
-  && systemctl --user is-active --quiet app-com.mitchellh.ghostty.service 2>/dev/null; then
-  if systemctl reload --user app-com.mitchellh.ghostty.service; then
-    ghostty_reloaded="true"
-  fi
-fi
-
-# Sway launches Ghostty directly rather than through the systemd app unit.
-# Ghostty supports SIGUSR2 as a configuration reload signal, so cover that
-# launch mode without changing how Super+Enter creates new windows.
-if [[ "$ghostty_reloaded" == "false" ]] \
-  && command -v pgrep >/dev/null 2>&1 \
-  && command -v pkill >/dev/null 2>&1 \
-  && pgrep -x ghostty >/dev/null 2>&1; then
-  if pkill -USR2 -x ghostty; then
-    ghostty_reloaded="true"
-  fi
-fi
-
-if [[ "$ghostty_reloaded" == "false" ]]; then
-  echo "Ghostty: reload with Ctrl-Shift-, if currently running."
-fi
-
-# ---------------------------------------------------------------------------
-# Sway session live reload
-# ---------------------------------------------------------------------------
-
-if command -v swaymsg >/dev/null 2>&1 && swaymsg -t get_version >/dev/null 2>&1; then
-  # Reload Waybar before Sway recreates its managed bar. Sending SIGUSR2 after
-  # the compositor reload races with the replacement process starting up.
-  if command -v pkill >/dev/null 2>&1; then
-    pkill -SIGUSR2 waybar >/dev/null 2>&1 || true
-  fi
-
-  swaymsg reload >/dev/null
-
-  if command -v makoctl >/dev/null 2>&1; then
-    makoctl reload >/dev/null 2>&1 || true
-  fi
-fi
+# Platform hooks may add desktop integration without putting platform checks
+# in the portable command itself.
+hook_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/theme-hooks.d"
+for hook in "$hook_dir"/*.sh; do
+  [[ -r "$hook" ]] || continue
+  # shellcheck source=/dev/null
+  source "$hook"
+done
 
 echo
 echo "Catppuccin $flavour selected."

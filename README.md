@@ -39,7 +39,9 @@ This configuration has been developed and tested on:
 - Neovim 0.12+
 - GNU Stow
 
-The scripts currently assume a Fedora/DNF system.
+The supported machine bootstrap is currently Fedora-only. The portable layer
+has its own entry points so future macOS or WSL installers can reuse it without
+copying configuration; those installers are intentionally not implemented yet.
 
 ---
 
@@ -339,27 +341,48 @@ Then run:
 
 # Installation architecture
 
-The top-level installer orchestrates independent component scripts:
+The repository has two ownership layers:
+
+| Layer | Owns | Must not own |
+|---|---|---|
+| Portable common | Shared Stow packages, user-local Git/theme state, mise tools, and the tmux theme | Package managers, services, hardware, desktop integration, or OS-specific paths |
+| `platforms/fedora` | DNF/Terra packages, KDE and Sway integration, system services, SELinux/system paths, Secure Boot, and ASUS hardware | Copies of shared Zsh/Git/Neovim/tmux/mise configuration |
+
+The shared Stow package directories remain at the repository root to preserve
+existing symlink targets. `common/stow.sh` is their authoritative package
+manifest and deployment entry point. A future platform installer should call
+the common scripts directly and then add only its own integration layer.
+
+Fedora-specific shell paths and theme behavior are injected through tracked
+platform files under `platforms/fedora/stow`; the portable Zsh and `theme`
+configurations contain no Fedora path or service assumptions. Machine-local
+identities, authentication, output layout, and selected theme remain outside
+the repository.
+
+The current Fedora flow is:
 
 ```text
-install.sh
+install.sh                         compatibility entry point
 │
-├── scripts/install-system.sh
-├── scripts/install-terra.sh
-├── scripts/install-asus-hardware.sh optional, model-specific
-├── scripts/install-sway.sh          optional
-├── scripts/setup-local.sh
-├── scripts/stow.sh
-├── scripts/install-mise.sh
-├── scripts/install-tmux-theme.sh
-├── scripts/install-kde-theme.sh      optional
-├── scripts/install-latex.sh          optional
-├── ~/.local/bin/theme
-├── scripts/verify-asus-hardware.sh  optional, model-specific
-└── scripts/verify.sh
+└── platforms/fedora/install.sh
+    ├── platforms/fedora/scripts/install-system.sh
+    ├── platforms/fedora/scripts/install-terra.sh
+    ├── platforms/fedora/scripts/install-asus-hardware.sh  optional
+    ├── platforms/fedora/scripts/install-sway.sh           optional
+    ├── common/setup-local.sh
+    ├── platforms/fedora/scripts/setup-local.sh
+    ├── common/stow.sh
+    ├── platforms/fedora/scripts/stow.sh
+    ├── common/install-mise.sh
+    ├── common/install-tmux-theme.sh
+    ├── platforms/fedora/scripts/install-kde-theme.sh      optional
+    ├── platforms/fedora/scripts/install-latex.sh          optional
+    ├── ~/.local/bin/theme + Fedora theme hook
+    └── platforms/fedora/scripts/verify.sh
 ```
 
-Component scripts are intended to be individually callable and safe to rerun.
+The historical `scripts/*.sh` paths remain thin compatibility entry points for
+Fedora. Component scripts are individually callable and safe to rerun.
 
 ---
 
@@ -528,10 +551,14 @@ lazygit/
 mise/
 nvim-lazyvim/
 starship/
-sway/              # only stowed with --sway
 tmux/
-waybar/             # only stowed with --sway
 zsh/
+
+platforms/fedora/stow/
+├── theme-hooks/    # Fedora desktop response to `theme`
+├── zsh-platform/   # Fedora package paths for Zsh plugins
+├── sway/           # only stowed with --sway
+└── waybar/         # only stowed with --sway
 ```
 
 Stow is run with `--no-folding`.
@@ -575,10 +602,11 @@ The following files are intentionally outside the repository:
 └── local.conf       # output names, positions, modes, and scaling
 ```
 
-The theme-related files in the first group are derived from the selected
-Catppuccin flavor. `hardware.conf` is created only after an optional hardware
-profile has been installed; it records the selected model and verification
-requirements.
+The shared Ghostty, Git, and tmux theme files are produced by the portable
+theme state. The Sway, Waybar, Fuzzel, Mako, and swaylock files are produced by
+the Fedora theme hook. `hardware.conf` is created only after an optional
+hardware profile has been installed; it records the selected model and
+verification requirements.
 
 The Git files contain user-specific identity and optional authentication/signing configuration.
 
@@ -744,11 +772,12 @@ by:
 
 ## Sway desktop
 
-The `theme` command also updates Sway, Waybar, Fuzzel, Mako, swaylock, and the
-flavour-matched wallpaper. A running Sway session is reloaded automatically;
-new Fuzzel invocations read the new generated configuration. Ghostty is
-reloaded through its systemd user service when active, or directly with
-Ghostty's `SIGUSR2` reload signal when launched from Sway.
+On Fedora, a platform hook makes the portable `theme` command also update Sway,
+Waybar, Fuzzel, Mako, swaylock, and the flavour-matched wallpaper. A running
+Sway session is reloaded automatically; new Fuzzel invocations read the new
+generated configuration. Ghostty is reloaded through its systemd user service
+when active, or directly with Ghostty's `SIGUSR2` reload signal when launched
+from Sway.
 
 The four tracked 3840x2160 wallpapers form a flavour-matched tropical-island
 day-to-night cycle adapted from the MIT-licensed Catppuccin wallpaper

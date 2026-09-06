@@ -2,12 +2,13 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-config="$repo_root/sway/.config/sway/config"
-waybar="$repo_root/waybar/.config/waybar/config.jsonc"
-grid="$repo_root/sway/.local/bin/sway-workspace-grid"
-session_start="$repo_root/sway/.local/bin/sway-session-start"
-portal_config="$repo_root/sway/.config/xdg-desktop-portal/sway-portals.conf"
-theme_command="$repo_root/bin/.local/bin/theme"
+fedora_stow="$repo_root/platforms/fedora/stow"
+config="$fedora_stow/sway/.config/sway/config"
+waybar="$fedora_stow/waybar/.config/waybar/config.jsonc"
+grid="$fedora_stow/sway/.local/bin/sway-workspace-grid"
+session_start="$fedora_stow/sway/.local/bin/sway-session-start"
+portal_config="$fedora_stow/sway/.config/xdg-desktop-portal/sway-portals.conf"
+theme_hook="$fedora_stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -46,7 +47,13 @@ for module in \
 done
 
 stow_home="$test_root/home"
-mkdir -p "$stow_home"
+mkdir -p "$stow_home/.config/sway" "$stow_home/.config/waybar"
+# Simulate links created by the pre-boundary layout. They are dangling after
+# the tracked package directories move and must be replaced safely.
+ln -s "$repo_root/sway/.config/sway/config" \
+  "$stow_home/.config/sway/config"
+ln -s "$repo_root/waybar/.config/waybar/config.jsonc" \
+  "$stow_home/.config/waybar/config.jsonc"
 HOME="$stow_home" \
   XDG_CONFIG_HOME="$stow_home/.config" \
   XDG_DATA_HOME="$stow_home/.local/share" \
@@ -61,6 +68,8 @@ HOME="$stow_home" \
 [[ -L "$stow_home/.config/waybar/config.jsonc" ]]
 [[ -L "$stow_home/.local/bin/sway-workspace-grid" ]]
 [[ -L "$stow_home/.local/bin/sway-session-start" ]]
+[[ "$(readlink -f "$stow_home/.config/sway/config")" == "$config" ]]
+[[ "$(readlink -f "$stow_home/.config/waybar/config.jsonc")" == "$waybar" ]]
 [[ -f "$stow_home/.config/sway/local.conf" ]]
 [[ ! -L "$stow_home/.config/sway/local.conf" ]]
 
@@ -95,17 +104,17 @@ assert_grid 5 right 6
 assert_grid 5 up 2
 
 for flavour in latte frappe macchiato mocha; do
-  wallpaper="$repo_root/sway/.local/share/wallpapers/catppuccin-$flavour.webp"
-  lock_wallpaper="$repo_root/sway/.local/share/wallpapers/catppuccin-$flavour-lock.webp"
+  wallpaper="$fedora_stow/sway/.local/share/wallpapers/catppuccin-$flavour.webp"
+  lock_wallpaper="$fedora_stow/sway/.local/share/wallpapers/catppuccin-$flavour-lock.webp"
   [[ -s "$wallpaper" ]]
   [[ -s "$lock_wallpaper" ]]
 done
 
 bash -n "$grid"
-bash -n "$repo_root/sway/.local/bin/sway-screenshot"
-bash -n "$repo_root/sway/.local/bin/power-profile-status"
+bash -n "$fedora_stow/sway/.local/bin/sway-screenshot"
+bash -n "$fedora_stow/sway/.local/bin/power-profile-status"
 bash -n "$session_start"
-bash -n "$repo_root/scripts/assets/dotfiles-sway"
+bash -n "$repo_root/platforms/fedora/assets/dotfiles-sway"
 
 grep -Fq 'session_script=/usr/libexec/sway-systemd/session.sh' "$session_start"
 grep -Fq 'systemctl --user is-active --quiet graphical-session.target' "$session_start"
@@ -124,13 +133,13 @@ if ((target_line >= portal_line || portal_line >= autostart_line)); then
 fi
 
 grep -Fq 'sway_args+=(--unsupported-gpu)' \
-  "$repo_root/scripts/assets/dotfiles-sway"
+  "$repo_root/platforms/fedora/assets/dotfiles-sway"
 grep -Fqx 'Exec=/usr/local/bin/dotfiles-sway' \
-  "$repo_root/scripts/assets/dotfiles-sway.desktop"
+  "$repo_root/platforms/fedora/assets/dotfiles-sway.desktop"
 
 # Waybar must be signalled before Sway reloads and recreates its managed bar.
-waybar_reload_line="$(grep -n 'pkill -SIGUSR2 waybar' "$theme_command" | cut -d: -f1)"
-sway_reload_line="$(grep -n 'swaymsg reload' "$theme_command" | cut -d: -f1)"
+waybar_reload_line="$(grep -n 'pkill -SIGUSR2 waybar' "$theme_hook" | cut -d: -f1)"
+sway_reload_line="$(grep -n 'swaymsg reload' "$theme_hook" | cut -d: -f1)"
 if [[ -z "$waybar_reload_line" || -z "$sway_reload_line" ]] ||
   ((waybar_reload_line >= sway_reload_line)); then
   printf 'Waybar reload must happen before the Sway reload.\n' >&2

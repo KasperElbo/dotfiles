@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Secure Boot helpers. Source scripts/lib/common.sh before this file.
+# Secure Boot helpers. Source common/lib/common.sh before this file.
 
 MOK_KEY_STATE="unknown"
 MOK_KEY_STATUS=0
