@@ -105,7 +105,7 @@ bindsym $mod+Shift+v exec cliphist list | fuzzel --dmenu --config=$HOME/.config/
 # Session services. Swayidle deliberately never suspends the machine.
 exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
 exec systemctl --user import-environment WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
-exec dex --autostart --environment sway
+exec dex-autostart --autostart --environment sway
 exec /usr/libexec/lxqt-policykit-agent
 exec mako --config "$HOME/.config/dotfiles/mako.conf"
 exec wl-paste --type text --watch cliphist store
