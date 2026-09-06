@@ -397,7 +397,9 @@ zsh-syntax-highlighting
 The optional Sway session adds Sway, Waybar, Fuzzel, Mako, swaylock,
 swayidle, swaybg, desktop portals, a polkit agent, clipboard and screenshot
 utilities, hardware-key utilities, and the small GUI control tools used by the
-bar. These packages remain Fedora/DNF-owned.
+bar. It also runs standard XDG autostart entries through `dex`, so application
+preferences such as 1Password's **Start at Login** work in Sway as they do in
+KDE. These packages remain Fedora/DNF-owned.
 
 ## Terra RPM repository
 
