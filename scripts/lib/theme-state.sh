@@ -40,6 +40,7 @@ write_theme_state() {
   local flavour="$1"
   local state_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles"
   local wallpaper="$HOME/.local/share/wallpapers/catppuccin-${flavour}.webp"
+  local lock_wallpaper="$HOME/.local/share/wallpapers/catppuccin-${flavour}-lock.webp"
 
   catppuccin_palette "$flavour"
   ensure_dir "$state_dir"
@@ -133,6 +134,8 @@ layer=overlay
 EOF
 
   cat <<EOF | atomic_write_file "$state_dir/swaylock.conf"
+image=$lock_wallpaper
+scaling=fill
 color=$base
 font=monospace
 indicator-radius=90

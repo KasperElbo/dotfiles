@@ -742,9 +742,11 @@ The `theme` command also updates Sway, Waybar, Fuzzel, Mako, swaylock, and the
 flavour-matched wallpaper. A running Sway session is reloaded automatically;
 new Fuzzel invocations read the new generated configuration.
 
-The four tracked 3840x2160 wallpapers are adaptations of official
-MIT-licensed Catppuccin flavour artwork. Their exact upstream revision and
-license are recorded beside the assets and in `LICENSES/Catppuccin.txt`.
+The four tracked 3840x2160 wallpapers form a flavour-matched tropical-island
+day-to-night cycle adapted from the MIT-licensed Catppuccin wallpaper
+collection. Swaylock uses a separately tracked blurred and darkened derivative
+of the active wallpaper. The exact upstream revision and license are recorded
+beside the assets and in `LICENSES/Catppuccin.txt`.
 
 ---
 
@@ -780,7 +782,7 @@ from workspace 1 selects 3, and moving up from workspace 1 selects 7.
 | `Super+Shift+X` | Lock the session |
 | `Super+N` / `Super+Shift+N` | Dismiss / restore a Mako notification |
 | `Super+Shift+V` | Open clipboard history |
-| `Print` | Select and annotate a screenshot region |
+| ASUS screenshot key / `Print` | Select and annotate a screenshot region |
 | `Shift+Print` | Save the current output to `~/Pictures/Screenshots` |
 
 Waybar remains visible and shows workspaces, the focused title, power profile,
@@ -801,15 +803,18 @@ untracked file created by the installer:
 
 Find current output names with `swaymsg -t get_outputs`, then add `output`
 directives for laptop-only, USB-C, HDMI, or docked layouts. The tracked config
-does not assume stable connector names.
+does not assume stable connector names. A fresh `ga402xz` installation writes
+`output eDP-1 scale 1` to this local file; existing local overrides are never
+replaced.
 
 On the NVIDIA-equipped GA402XZ, keep Plasma available as the recovery and
 hardware-compatibility session. Sway works best when the AMD iGPU drives the
 desktop; HDMI and the right USB-C port may depend on the NVIDIA dGPU. This
-configuration does not force `--unsupported-gpu`, alter the MUX, or change GPU
-mode. If Sway cannot start or an external output is absent, log back into
-Plasma and inspect the current ASUS/NVIDIA state before changing local output
-rules.
+configuration does not alter the MUX or change GPU mode. The installer adds a
+`Sway (dotfiles)` login session which passes `--unsupported-gpu` only when the
+proprietary `nvidia_drm` module is loaded, because Sway 1.11 otherwise refuses
+to start. If an external output is absent, log back into Plasma and inspect the
+current ASUS/NVIDIA state before changing local output rules.
 
 ---
 

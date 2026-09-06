@@ -5,6 +5,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 config="$repo_root/sway/.config/sway/config"
 waybar="$repo_root/waybar/.config/waybar/config.jsonc"
 grid="$repo_root/sway/.local/bin/sway-workspace-grid"
+theme_command="$repo_root/bin/.local/bin/theme"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -20,6 +21,7 @@ for shortcut in \
   'bindsym $mod+p exec fuzzel' \
   'bindsym $mod+Shift+c kill' \
   'bindsym $mod+f fullscreen toggle' \
+  'bindsym $mod+Shift+s exec sway-screenshot region' \
   'bindsym $mod+Ctrl+$left exec sway-workspace-grid left'; do
   grep -Fq "$shortcut" "$config"
 done
@@ -88,11 +90,28 @@ assert_grid 5 up 2
 
 for flavour in latte frappe macchiato mocha; do
   wallpaper="$repo_root/sway/.local/share/wallpapers/catppuccin-$flavour.webp"
+  lock_wallpaper="$repo_root/sway/.local/share/wallpapers/catppuccin-$flavour-lock.webp"
   [[ -s "$wallpaper" ]]
+  [[ -s "$lock_wallpaper" ]]
 done
 
 bash -n "$grid"
 bash -n "$repo_root/sway/.local/bin/sway-screenshot"
 bash -n "$repo_root/sway/.local/bin/power-profile-status"
+bash -n "$repo_root/scripts/assets/dotfiles-sway"
+
+grep -Fq 'sway_args+=(--unsupported-gpu)' \
+  "$repo_root/scripts/assets/dotfiles-sway"
+grep -Fqx 'Exec=/usr/local/bin/dotfiles-sway' \
+  "$repo_root/scripts/assets/dotfiles-sway.desktop"
+
+# Waybar must be signalled before Sway reloads and recreates its managed bar.
+waybar_reload_line="$(grep -n 'pkill -SIGUSR2 waybar' "$theme_command" | cut -d: -f1)"
+sway_reload_line="$(grep -n 'swaymsg reload' "$theme_command" | cut -d: -f1)"
+if [[ -z "$waybar_reload_line" || -z "$sway_reload_line" ]] ||
+  ((waybar_reload_line >= sway_reload_line)); then
+  printf 'Waybar reload must happen before the Sway reload.\n' >&2
+  exit 1
+fi
 
 printf 'Sway configuration and 3x3 workspace navigation tests passed.\n'

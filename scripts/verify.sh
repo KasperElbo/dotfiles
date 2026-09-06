@@ -215,11 +215,18 @@ if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]];
     swaylock
     swappy
     waybar
+    /usr/local/bin/dotfiles-sway
   )
 
   for cmd in "${sway_commands[@]}"; do
     check_command "$cmd"
   done
+
+  if [[ -f /usr/share/wayland-sessions/dotfiles-sway.desktop ]]; then
+    pass "Dotfiles Sway login session installed"
+  else
+    fail "Dotfiles Sway login session missing"
+  fi
 
   check_symlink "$XDG_CONFIG_HOME/sway/config" "$DOTFILES_ROOT/sway/"
   check_symlink "$XDG_CONFIG_HOME/waybar/config.jsonc" "$DOTFILES_ROOT/waybar/"

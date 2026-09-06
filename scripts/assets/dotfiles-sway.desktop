@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Sway (dotfiles)
+Comment=Keyboard-driven Sway session configured by dotfiles
+Exec=/usr/local/bin/dotfiles-sway
+Type=Application
+DesktopNames=sway

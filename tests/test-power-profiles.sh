@@ -8,7 +8,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib/power-profiles.sh"
 
 command_log="$(mktemp)"
-trap 'rm -f -- "$command_log"' EXIT
+platform_profile_file="$(mktemp)"
+trap 'rm -f -- "$command_log" "$platform_profile_file"' EXIT
+
+printf 'balanced\n' >"$platform_profile_file"
+PLATFORM_PROFILE_FILE="$platform_profile_file" \
+  "$(dirname "${BASH_SOURCE[0]}")/../sway/.local/bin/power-profile-status" \
+  | grep -Fqx 'Power balanced'
 
 # The production helper calls systemctl through sudo; this test intercepts sudo
 # separately and uses this function only for read-only state queries.

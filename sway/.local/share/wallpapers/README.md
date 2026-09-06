@@ -1,15 +1,18 @@
 # Catppuccin wallpapers
 
-The four tracked wallpapers are adapted from the matching flavour previews in
-the official Catppuccin repository at commit
-`d09787dd98ca6fba08af5ef2ae94a7e09f17daca`:
+The four tracked wallpapers are adapted from the tropical-island series in
+the MIT-licensed Catppuccin wallpaper collection at commit
+`1023077979591cdeca76aae94e0359da1707a60e`:
 
-- `assets/previews/latte.webp`
-- `assets/previews/frappe.webp`
-- `assets/previews/macchiato.webp`
-- `assets/previews/mocha.webp`
+- Latte: `landscapes/tropic_island_day.jpg`
+- Frappé: `landscapes/tropic_island_morning.jpg`
+- Macchiato: `landscapes/tropic_island_evening.jpg`
+- Mocha: `landscapes/tropic_island_night.jpg`
 
-Each source image was resized and centre-cropped to 3840x2160 for use as a
-desktop background. The original artwork is Copyright (c) 2021 Catppuccin and
-licensed under the MIT License; see `LICENSES/Catppuccin.txt` in this
-repository.
+The sources are stored at
+<https://github.com/zhichaoh/catppuccin-wallpapers>. Each desktop image is
+converted to a 3840x2160 WebP. Its matching `-lock.webp` derivative is blurred
+and darkened for Swaylock.
+
+The original artwork is Copyright (c) 2021 Catppuccin and licensed under the
+MIT License; see `LICENSES/Catppuccin.txt` in this repository.
