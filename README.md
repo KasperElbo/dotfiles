@@ -593,7 +593,7 @@ composition found no reason to copy the Fedora installer or any Stow package:
 | ASUS/NVIDIA laptop provisioning | Already opt-in; rejected when `--vm-guest` is selected |
 | Power management | No guest override; laptop-specific masking runs only in the hardware profile |
 | Networking | Left to the guest and hypervisor; the #13 default network supplies normal NAT/DHCP |
-| Clipboard and pointer integration | Requires `spice-vdagent` and the SPICE virtio channel; Plasma Wayland also needs the guest-only text clipboard bridge described below |
+| Clipboard and pointer integration | Requires `spice-vdagent` and the SPICE virtio channel; host-to-guest works in Plasma Wayland, while guest-to-host remains limited by the packaged agent's X11 clipboard support |
 | Display and resolution | SPICE supplies modes and pointer integration; enable virt-manager's **Resize guest with window** setting on the host for automatic resizing |
 | Host lifecycle integration | Requires `qemu-guest-agent` and its virtio channel |
 | Shared folders | Kept manual because the host path and security boundary are machine-specific |
@@ -622,17 +622,22 @@ The host example above and the VM-host `--smoke-test` include both. In
 virt-manager they can also be inspected or added in the guest hardware details.
 Fedora starts the QEMU system agent and activates the static SPICE socket from
 its virtio-port udev rule; Plasma starts the packaged SPICE user agent with its
-graphical session. `spice-vdagent` still observes the X11 clipboard in a
-Wayland Plasma guest, so the profile adds a narrowly scoped text bridge from
-Wayland (`wl-paste`) to XWayland (`xclip`). The user unit is enabled only by the
-explicit VM-guest profile and has a Wayland session condition, so physical
-Fedora and X11 sessions are unaffected.
+graphical session. In the tested Plasma Wayland guest, host-to-guest clipboard
+sharing works, while guest-to-host succeeds only when text is placed directly
+on the X11 clipboard. The packaged `spice-vdagent` therefore does not provide
+complete bidirectional Wayland clipboard integration in this environment.
 
-The verifier checks the packages, both channels, both system units, the
-Wayland clipboard bridge when run from a Wayland session, and a default network
-route. If Plasma is not running, the user-session checks can be repeated after
-login. Verify both clipboard directions explicitly; in Ghostty use
-`Ctrl+Shift+C`, because `Ctrl+C` does not copy terminal text.
+An attempted `wl-paste --watch` to `xclip` bridge was rejected because feedback
+between KWin's Wayland and X11 clipboards immediately repeated clipboard
+ownership changes and froze the desktop. The installer removes that legacy
+user unit if an earlier test revision installed it; it does not replace the
+upstream clipboard implementation with polling or another fragile bridge.
+
+The verifier checks the packages, both channels, both system units, rejects an
+active legacy clipboard bridge, and checks a default network route. If Plasma
+is not running, the user-session check can be repeated after login. Verify both
+clipboard directions explicitly; in Ghostty use `Ctrl+Shift+C`, because
+`Ctrl+C` does not copy terminal text.
 
 On Plasma Wayland, `spice-vdagent` may log a failed call to
 `org.gnome.Mutter.DisplayConfig` because that GNOME API is not provided by KWin.
