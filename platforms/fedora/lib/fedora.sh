@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Fedora-specific helpers. Source scripts/lib/common.sh before this file.
+# Fedora-specific helpers. Source common/lib/common.sh before this file.
 
 require_fedora() {
   local os_release_file="${OS_RELEASE_FILE:-/etc/os-release}"

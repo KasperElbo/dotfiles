@@ -9,6 +9,7 @@ tests=(
   tests/test-secure-boot.sh
   tests/test-power-profiles.sh
   tests/test-installer-options.sh
+  tests/test-platform-boundary.sh
   tests/test-local-state.sh
   tests/test-theme.sh
   tests/test-sway-config.sh

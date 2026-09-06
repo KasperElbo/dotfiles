@@ -72,13 +72,13 @@ run_success "optional feature dry-run" "LaTeX toolchain:     true" \
   ./install.sh --dry-run --theme latte --kde --latex
 run_success "Sway remains opt-in" "Sway session:        false" \
   ./install.sh --dry-run
-run_success "Sway dry-run" "scripts/install-sway.sh" \
+run_success "Sway dry-run" "platforms/fedora/scripts/install-sway.sh" \
   ./install.sh --dry-run --sway
 run_success "Sway dry-run forwards local setup" \
-  "scripts/setup-local.sh macchiato --sway" \
+  "platforms/fedora/scripts/setup-local.sh macchiato --sway" \
   ./install.sh --dry-run --sway
 run_success "GA402XZ Sway dry-run forwards hardware to local setup" \
-  "scripts/setup-local.sh macchiato --sway --hardware ga402xz" \
+  "platforms/fedora/scripts/setup-local.sh macchiato --sway --hardware ga402xz" \
   ./install.sh --dry-run --sway --hardware ga402xz
 run_success "GA402XZ dry-run" "Require Secure Boot: true" \
   ./install.sh --dry-run --hardware ga402xz --secure-boot --charge-limit 80

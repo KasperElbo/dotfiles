@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# shellcheck source-path=SCRIPTDIR
-# shellcheck source=../scripts/lib/common.sh
-source "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib/common.sh"
-# shellcheck source=../scripts/lib/secure-boot.sh
-source "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib/secure-boot.sh"
+# shellcheck source=../common/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../common/lib/common.sh"
+# shellcheck source=../platforms/fedora/lib/secure-boot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../platforms/fedora/lib/secure-boot.sh"
 
 mock_output=""
 mock_status=0

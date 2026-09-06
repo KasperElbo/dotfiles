@@ -76,9 +76,6 @@ export FZF_CTRL_R_OPTS="
 # Fuzzy finder
 source <(fzf --zsh)
 
-# Autosuggestions
-source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
-
 # Convenience
 alias ls='eza'
 alias ll='eza -lah --git'
@@ -95,5 +92,8 @@ export STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/starship/catppuccin-${
 # Prompt
 eval "$(starship init zsh)"
 
-# Syntax highlighting must be loaded near the end of .zshrc
-source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+# Platform-owned shell integration. Fedora provides packaged plugin paths here;
+# future platforms can provide their own file without changing shared config.
+# This remains last so syntax highlighting is initialized in the correct order.
+[[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/platform.zsh" ]] &&
+  source "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/platform.zsh"

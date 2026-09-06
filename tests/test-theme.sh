@@ -9,6 +9,10 @@ mock_bin="$test_root/bin"
 sandbox_bin="$test_root/sandbox-bin"
 mock_log="$test_root/mock.log"
 mkdir -p "$mock_bin" "$sandbox_bin" "$test_root/home" "$test_root/xdg"
+mkdir -p "$test_root/xdg/dotfiles/theme-hooks.d"
+ln -s \
+  "$repo_root/platforms/fedora/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh" \
+  "$test_root/xdg/dotfiles/theme-hooks.d/fedora.sh"
 
 cat >"$mock_bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
@@ -33,7 +37,7 @@ cat >"$mock_bin/pkill" <<'EOF'
 printf '%s\n' "$*" >"$MOCK_LOG"
 EOF
 
-for command in bash cat chmod dirname mkdir mktemp mv readlink; do
+for command in bash basename cat chmod dirname mkdir mktemp mv readlink; do
   ln -s "$(command -v "$command")" "$sandbox_bin/$command"
 done
 

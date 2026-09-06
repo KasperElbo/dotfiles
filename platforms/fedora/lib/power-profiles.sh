@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Power-profile service helpers. Source scripts/lib/common.sh before this file.
+# Power-profile service helpers. Source common/lib/common.sh before this file.
 
 conflicting_power_profile_units() {
   printf '%s\n' \
