@@ -26,6 +26,7 @@ packages=(
   swaybg
   swayidle
   swaylock
+  sway-systemd
   swappy
   waybar
   wireplumber

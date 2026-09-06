@@ -74,7 +74,7 @@ test_environment=(
 grep -Fq 'sudo dnf install -y bat curl eza' "$command_log"
 grep -Fq 'sudo dnf install -y ghostty mise starship' "$command_log"
 grep -Fq \
-  'sudo dnf install -y blueman brightnessctl cliphist dex-autostart fuzzel' \
+  'sudo dnf install -y blueman brightnessctl cliphist dex-autostart fuzzel grim jq libnotify lxqt-policykit mako nm-connection-editor pavucontrol playerctl slurp sway swaybg swayidle swaylock sway-systemd swappy waybar wireplumber xdg-desktop-portal-gtk xdg-desktop-portal-wlr' \
   "$command_log"
 grep -Fq 'nm-connection-editor' "$command_log"
 grep -Fq \

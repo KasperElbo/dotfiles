@@ -397,7 +397,9 @@ zsh-syntax-highlighting
 The optional Sway session adds Sway, Waybar, Fuzzel, Mako, swaylock,
 swayidle, swaybg, desktop portals, a polkit agent, clipboard and screenshot
 utilities, hardware-key utilities, and the small GUI control tools used by the
-bar. It also runs standard XDG autostart entries through `dex-autostart`, so
+bar. It includes Fedora's `sway-systemd` integration so the Sway session
+activates the graphical-session lifecycle required by desktop portals. It also
+runs standard XDG autostart entries through `dex-autostart`, so
 application preferences such as 1Password's **Start at Login** work in Sway as
 they do in KDE. Waybar provides the StatusNotifier tray required by background
 applications, while GTK handles general desktop portals and the wlroots backend
