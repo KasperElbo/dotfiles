@@ -9,6 +9,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/virtualization.sh"
 
 qemu_agent_channel="${QEMU_AGENT_CHANNEL:-/dev/virtio-ports/org.qemu.guest_agent.0}"
 spice_agent_channel="${SPICE_AGENT_CHANNEL:-/dev/virtio-ports/com.redhat.spice.0}"
+legacy_clipboard_bridge_unit="dotfiles-spice-wayland-clipboard.service"
+legacy_clipboard_bridge_path="$XDG_CONFIG_HOME/systemd/user/$legacy_clipboard_bridge_unit"
 failures=0
 warnings=0
 
@@ -50,7 +52,7 @@ none)
   ;;
 esac
 
-for package_name in qemu-guest-agent spice-vdagent; do
+for package_name in qemu-guest-agent spice-vdagent xclip; do
   if rpm -q "$package_name" >/dev/null 2>&1; then
     pass "Fedora package installed: $package_name"
   else
@@ -86,6 +88,14 @@ if systemctl --user is-active --quiet spice-vdagent.service 2>/dev/null; then
   pass "Plasma SPICE session agent is active"
 else
   warning "SPICE session agent is not active; log in to Plasma before checking clipboard and dynamic resize"
+fi
+
+if [[ -e "$legacy_clipboard_bridge_path" ]]; then
+  if systemctl --user is-active --quiet "$legacy_clipboard_bridge_unit" 2>/dev/null; then
+    fail "Rejected clipboard bridge is active; stop $legacy_clipboard_bridge_unit immediately"
+  else
+    warning "Rejected clipboard bridge remains installed; rerun the VM-guest installer to remove it"
+  fi
 fi
 
 if ip route show default 2>/dev/null | grep -q .; then

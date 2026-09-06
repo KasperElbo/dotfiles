@@ -21,7 +21,7 @@ EOF
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
-  '-q qemu-guest-agent' | '-q spice-vdagent') exit 0 ;;
+  '-q qemu-guest-agent' | '-q spice-vdagent' | '-q xclip') exit 0 ;;
 esac
 exit 1
 EOF
@@ -33,6 +33,7 @@ case "$*" in
   'is-active --quiet qemu-guest-agent.service' | \
     'is-active --quiet spice-vdagentd.socket' | \
     '--user is-active --quiet spice-vdagent.service') exit 0 ;;
+  '--user is-active --quiet dotfiles-spice-wayland-clipboard.service') exit 1 ;;
 esac
 exit 0
 EOF
@@ -77,6 +78,10 @@ run_install() {
   "${test_environment[@]}" "$repo_root/scripts/install-vm-guest.sh" >/dev/null
 }
 
+legacy_clipboard_bridge="$test_root/xdg/systemd/user/dotfiles-spice-wayland-clipboard.service"
+mkdir -p "$(dirname "$legacy_clipboard_bridge")"
+printf '[Service]\nExecStart=/usr/bin/false\n' >"$legacy_clipboard_bridge"
+
 run_install
 state_file="$test_root/xdg/dotfiles/vm-guest.conf"
 first_state="$(sha256sum "$state_file")"
@@ -91,13 +96,17 @@ grep -Fqx 'desktop_agent=spice-vdagent' "$state_file"
 grep -Fqx 'display=spice' "$state_file"
 grep -Fqx 'network=host-managed' "$state_file"
 grep -Fqx 'shared_folders=manual' "$state_file"
-grep -Fq 'sudo dnf install -y qemu-guest-agent spice-vdagent' "$command_log"
+grep -Fq 'sudo dnf install -y qemu-guest-agent spice-vdagent xclip' "$command_log"
 grep -Fq \
   'sudo systemctl enable --now qemu-guest-agent.service' "$command_log"
 grep -Fq \
-  'sudo systemctl enable --now spice-vdagentd.socket' "$command_log"
+  'sudo systemctl start spice-vdagentd.socket' "$command_log"
+grep -Fq \
+  'systemctl --user disable --now dotfiles-spice-wayland-clipboard.service' \
+  "$command_log"
+[[ ! -e "$legacy_clipboard_bridge" ]]
 
-if grep -Eiq 'asus|nvidia|power-profile|bridge|brctl|nmcli' "$command_log"; then
+if grep -Eiq 'asus|nvidia|power-profile|brctl|nmcli' "$command_log"; then
   printf 'VM-guest profile changed hardware, power, or networking configuration.\n' >&2
   exit 1
 fi
@@ -150,6 +159,11 @@ dry_run_output="$(
 )"
 grep -Fq 'qemu-guest-agent' <<<"$dry_run_output"
 grep -Fq 'spice-vdagent' <<<"$dry_run_output"
+grep -Fq 'xclip' <<<"$dry_run_output"
+if grep -Fq 'wl-paste --watch' <<<"$dry_run_output"; then
+  printf 'VM-guest dry-run unexpectedly included the rejected clipboard watcher.\n' >&2
+  exit 1
+fi
 [[ -z "$(find "$dry_run_root" -mindepth 1 -print -quit)" ]]
 
 printf 'VM-guest detection, integration, networking, and idempotency tests passed.\n'
