@@ -90,10 +90,12 @@ else
   warning "SPICE session agent is not active; log in to Plasma before checking clipboard and dynamic resize"
 fi
 
-if systemctl --user is-active --quiet "$legacy_clipboard_bridge_unit" 2>/dev/null; then
-  fail "Rejected clipboard bridge is active; stop $legacy_clipboard_bridge_unit immediately"
-elif [[ -e "$legacy_clipboard_bridge_path" ]]; then
-  warning "Rejected clipboard bridge remains installed; rerun the VM-guest installer to remove it"
+if [[ -e "$legacy_clipboard_bridge_path" ]]; then
+  if systemctl --user is-active --quiet "$legacy_clipboard_bridge_unit" 2>/dev/null; then
+    fail "Rejected clipboard bridge is active; stop $legacy_clipboard_bridge_unit immediately"
+  else
+    warning "Rejected clipboard bridge remains installed; rerun the VM-guest installer to remove it"
+  fi
 fi
 
 if ip route show default 2>/dev/null | grep -q .; then
