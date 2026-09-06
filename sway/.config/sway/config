@@ -22,6 +22,10 @@ client.urgent           $red $red $base $red $red
 client.placeholder      $surface0 $surface0 $text $surface0 $surface0
 client.background       $base
 
+# Keep KDE's Xwayland screen-sharing bridge alive without tiling its helper
+# window into the workspace. Its StatusNotifier control remains in Waybar.
+for_window [class="^xwaylandvideobridge$"] move scratchpad
+
 output * bg $wallpaper fill
 
 # Applications and lifecycle

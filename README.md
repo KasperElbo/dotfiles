@@ -793,7 +793,9 @@ from workspace 1 selects 3, and moving up from workspace 1 selects 7.
 Waybar remains visible and shows workspaces, the focused title, a compact system
 tray, power profile, network, Bluetooth, audio, battery, and clock. Clicking
 network, Bluetooth, or audio opens `nm-connection-editor`, `blueman-manager`,
-or `pavucontrol`. Notifications use Mako.
+or `pavucontrol`. Notifications use Mako. The Xwayland Video Bridge remains
+available for legacy application screen sharing, but its helper window is kept
+in Sway's hidden scratchpad instead of occupying a tile.
 
 Swayidle locks after 10 minutes and powers displays off after 15 minutes. Input
 turns the displays back on. It intentionally never suspends or hibernates the
