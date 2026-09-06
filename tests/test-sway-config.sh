@@ -107,18 +107,19 @@ bash -n "$repo_root/sway/.local/bin/power-profile-status"
 bash -n "$session_start"
 bash -n "$repo_root/scripts/assets/dotfiles-sway"
 
-grep -Fqx 'export XDG_CURRENT_DESKTOP=sway' "$session_start"
-grep -Fq 'restart xdg-desktop-portal.service' "$session_start"
-grep -Fq 'exec dex-autostart --autostart --environment sway' "$session_start"
+grep -Fq 'session_script=/usr/libexec/sway-systemd/session.sh' "$session_start"
+grep -Fq 'systemctl --user is-active --quiet graphical-session.target' "$session_start"
+grep -Fq 'systemctl --user restart xdg-desktop-portal.service' "$session_start"
+grep -Fq 'dex-autostart --autostart --environment sway' "$session_start"
 grep -Fqx 'default=gtk' "$portal_config"
 grep -Fqx 'org.freedesktop.impl.portal.Screenshot=wlr' "$portal_config"
 grep -Fqx 'org.freedesktop.impl.portal.ScreenCast=wlr' "$portal_config"
 
-environment_line="$(grep -n 'dbus-update-activation-environment' "$session_start" | cut -d: -f1)"
+target_line="$(grep -n 'is-active --quiet graphical-session.target' "$session_start" | cut -d: -f1)"
 portal_line="$(grep -n 'restart xdg-desktop-portal.service' "$session_start" | cut -d: -f1)"
-autostart_line="$(grep -n 'exec dex-autostart' "$session_start" | cut -d: -f1)"
-if ((environment_line >= portal_line || portal_line >= autostart_line)); then
-  printf 'Session environment, portal, and XDG autostart order is invalid.\n' >&2
+autostart_line="$(grep -n 'dex-autostart --autostart' "$session_start" | cut -d: -f1)"
+if ((target_line >= portal_line || portal_line >= autostart_line)); then
+  printf 'Graphical target, portal, and XDG autostart order is invalid.\n' >&2
   exit 1
 fi
 

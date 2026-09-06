@@ -1,18 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Portal activation and XDG autostarts both depend on the compositor's session
-# environment. Import it synchronously before any autostart application can
-# request a portal.
-export XDG_CURRENT_DESKTOP=sway
-dbus-update-activation-environment \
-  --systemd WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
-systemctl --user import-environment \
-  WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
+# Fedora's xdg-desktop-portal requires graphical-session.target. The
+# sway-systemd package provides the Sway-specific target and the environment
+# import/cleanup needed to activate it correctly.
+session_script=/usr/libexec/sway-systemd/session.sh
 
-# A user portal daemon can survive a desktop-session switch. Restart it after
-# importing Sway's environment so it selects sway-portals.conf and the wlroots
-# backend for screenshots and screen sharing.
+if [[ ! -x "$session_script" ]]; then
+  printf 'sway-systemd session helper is missing: %s\n' "$session_script" >&2
+  exit 1
+fi
+
+"$session_script" &
+session_pid=$!
+
+cleanup() {
+  if kill -0 "$session_pid" 2>/dev/null; then
+    kill "$session_pid" 2>/dev/null || true
+  fi
+  wait "$session_pid" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# session.sh starts sway-session.target synchronously. Wait for the bound
+# graphical target as an explicit guard before restarting the portal and
+# launching applications that may use it.
+until systemctl --user is-active --quiet graphical-session.target; do
+  if ! kill -0 "$session_pid" 2>/dev/null; then
+    wait "$session_pid"
+    exit 1
+  fi
+  sleep 0.1
+done
+
+# A portal daemon can survive a desktop-session switch. Restart it after the
+# graphical target is active so its dependency and environment are valid.
 systemctl --user restart xdg-desktop-portal.service || true
 
-exec dex-autostart --autostart --environment sway
+dex-autostart --autostart --environment sway
+
+# Keep this helper alive until Sway exits, allowing sway-systemd to perform its
+# normal target shutdown and environment cleanup.
+wait "$session_pid"

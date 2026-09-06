@@ -214,6 +214,7 @@ if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]];
     swaybg
     swayidle
     swaylock
+    /usr/libexec/sway-systemd/session.sh
     swappy
     sway-session-start
     waybar
