@@ -9,6 +9,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/virtualization.sh"
 
 qemu_agent_channel="${QEMU_AGENT_CHANNEL:-/dev/virtio-ports/org.qemu.guest_agent.0}"
 spice_agent_channel="${SPICE_AGENT_CHANNEL:-/dev/virtio-ports/com.redhat.spice.0}"
+clipboard_bridge_unit="dotfiles-spice-wayland-clipboard.service"
+clipboard_bridge_path="$XDG_CONFIG_HOME/systemd/user/$clipboard_bridge_unit"
 failures=0
 warnings=0
 
@@ -50,7 +52,7 @@ none)
   ;;
 esac
 
-for package_name in qemu-guest-agent spice-vdagent; do
+for package_name in qemu-guest-agent spice-vdagent xclip; do
   if rpm -q "$package_name" >/dev/null 2>&1; then
     pass "Fedora package installed: $package_name"
   else
@@ -86,6 +88,22 @@ if systemctl --user is-active --quiet spice-vdagent.service 2>/dev/null; then
   pass "Plasma SPICE session agent is active"
 else
   warning "SPICE session agent is not active; log in to Plasma before checking clipboard and dynamic resize"
+fi
+
+if [[ -f "$clipboard_bridge_path" ]]; then
+  pass "Wayland-to-SPICE clipboard bridge is installed"
+else
+  fail "Wayland-to-SPICE clipboard bridge missing: $clipboard_bridge_path"
+fi
+
+if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
+  if systemctl --user is-active --quiet "$clipboard_bridge_unit" 2>/dev/null; then
+    pass "Wayland-to-SPICE clipboard bridge is active"
+  else
+    fail "Wayland-to-SPICE clipboard bridge is not active"
+  fi
+else
+  warning "Clipboard bridge activity requires verification from a Wayland session"
 fi
 
 if ip route show default 2>/dev/null | grep -q .; then

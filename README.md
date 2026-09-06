@@ -562,10 +562,19 @@ com.redhat.spice.0
 
 The host example above and the VM-host `--smoke-test` include both. In
 virt-manager they can also be inspected or added in the guest hardware details.
-Fedora starts the QEMU system agent and SPICE socket; Plasma starts the packaged
-SPICE user agent with its graphical session. The verifier checks the packages,
-both channels, both system units, and a default network route. If Plasma is not
-running, the user-session check is a warning and can be repeated after login.
+Fedora starts the QEMU system agent and activates the static SPICE socket from
+its virtio-port udev rule; Plasma starts the packaged SPICE user agent with its
+graphical session. `spice-vdagent` still observes the X11 clipboard in a
+Wayland Plasma guest, so the profile adds a narrowly scoped text bridge from
+Wayland (`wl-paste`) to XWayland (`xclip`). The user unit is enabled only by the
+explicit VM-guest profile and has a Wayland session condition, so physical
+Fedora and X11 sessions are unaffected.
+
+The verifier checks the packages, both channels, both system units, the
+Wayland clipboard bridge when run from a Wayland session, and a default network
+route. If Plasma is not running, the user-session checks can be repeated after
+login. Verify both clipboard directions explicitly; in Konsole use
+`Ctrl+Shift+C`, because `Ctrl+C` does not copy terminal text.
 
 The profile does not create a static display layout. SPICE can therefore follow
 the virt-viewer window size instead of competing with machine-local KDE display
