@@ -112,6 +112,20 @@ the dependable KDE fallback:
 ./install.sh --sway
 ```
 
+The Fedora VM-host profile is also explicitly opt-in. It adds the native
+KVM/QEMU + libvirt stack without changing the default workstation bootstrap:
+
+```bash
+./install.sh --vm-host
+```
+
+The same profile can be installed or validated independently:
+
+```bash
+./scripts/install-vm-host.sh
+./scripts/verify-vm-host.sh --smoke-test
+```
+
 The complete OCaml development environment is explicitly opt-in:
 
 ```bash
@@ -135,6 +149,8 @@ The complete OCaml development environment is explicitly opt-in:
 
 --sway             install the optional keyboard-driven Sway session
 --no-sway          skip Sway (default)
+
+--vm-host          install the optional KVM/QEMU + libvirt VM-host profile
 
 --hardware MODEL   install ASUS hardware support for ga402xz or ga402rk
                    default: disabled
@@ -402,12 +418,93 @@ install.sh                         compatibility entry point
     ├── common/install-tmux-theme.sh
     ├── platforms/fedora/scripts/install-kde-theme.sh      optional
     ├── platforms/fedora/scripts/install-latex.sh          optional
+    ├── platforms/fedora/scripts/install-vm-host.sh        optional
     ├── ~/.local/bin/theme + Fedora theme hook
     └── platforms/fedora/scripts/verify.sh
 ```
 
 The historical `scripts/*.sh` paths remain thin compatibility entry points for
 Fedora. Component scripts are individually callable and safe to rerun.
+
+## Optional VM-host profile
+
+The VM-host profile uses Fedora's native virtualization stack:
+
+| Concern | Convention |
+|---|---|
+| Backend | KVM/QEMU managed by libvirt |
+| libvirt connection | `qemu:///system` |
+| Primary graphical client | `virt-manager` |
+| CLI and automation | `virt-install` and `virsh` |
+| Guest console | `virt-viewer` with SPICE where supported |
+| Guest firmware | UEFI/OVMF; `swtpm` is available for guest TPM support |
+| Guest devices | VirtIO disk and network devices |
+| Guest disks | `qcow2` in the libvirt `default` storage pool |
+| Storage path | `/var/lib/libvirt/images` (managed by libvirt) |
+| Default network | libvirt `default` NAT network |
+| Guest agent | Install and enable `qemu-guest-agent` inside each guest |
+
+The profile activates the existing libvirt system service/socket units and the
+default NAT network and storage pool. It does not create a bridge, expose a
+new externally reachable service, or change host Secure Boot, SELinux, or
+firewalld. Bridged networking is intentionally outside this profile and must
+be designed as a separate, explicit option if it is needed later.
+
+Normal users use Fedora's upstream libvirt/polkit policy and, where Fedora
+provides it, the standard `libvirt` group. The installer never makes the
+libvirt socket world-writable and never grants broad administrator permissions.
+After a group change, log out and back in before using `qemu:///system`.
+
+Validation checks `virt-host-validate qemu`, KVM device availability, access to
+`qemu:///system`, the active/autostart NAT network, and the active/autostart
+storage pool. The optional `--smoke-test` renders a representative UEFI guest
+definition with qcow2, VirtIO, the default network, and SPICE without creating
+or booting a guest.
+
+`virt-host-validate qemu` may report two advisory warnings on modern Fedora
+hosts:
+
+- A missing `devices` cgroup controller affects optional resource-control
+  features; it does not prevent normal QEMU guests from running. Libvirt's QEMU
+  driver does not require every resource controller to be mounted.
+- Missing SEV/SEV-ES/SEV-SNP/TDX support means confidential encrypted guests are
+  unavailable on the host. It is unrelated to Secure Boot and does not affect
+  ordinary KVM guests.
+
+These warnings do not disable or weaken Secure Boot, SELinux, or firewalld, and
+the verifier reports them as advisory when the required KVM/libvirt checks pass.
+See the [libvirt cgroups documentation](https://libvirt.org/cgroups.html) and
+[domain security documentation](https://libvirt.org/formatdomain.html) for
+the optional features involved.
+
+To boot a real guest, supply an installer ISO explicitly, for example:
+
+```bash
+virt-install \
+  --connect qemu:///system \
+  --name fedora-test \
+  --memory 4096 \
+  --vcpus 4 \
+  --disk size=40,format=qcow2,bus=virtio \
+  --network network=default,model=virtio \
+  --graphics spice \
+  --boot uefi \
+  --cdrom ~/Downloads/Fedora.iso
+```
+
+The saved local state file is:
+
+```text
+~/.config/dotfiles/vm-host.conf
+```
+
+Removing the profile is deliberately conservative: stop and remove guests
+explicitly with `virsh`, preserve or delete images intentionally, then remove
+the packages with DNF. The installer does not delete guest disks, networks,
+or storage pools on rerun or rollback. Issues #17 and #19 should reuse this
+libvirt system backend and these storage/network conventions rather than add a
+second provisioning path.
+
 
 ---
 
@@ -1583,6 +1680,7 @@ The verifier checks:
 - optional opam switch, compiler, and OCaml Platform tools
 - Catppuccin tmux installation/version
 - optional ASUS hardware profile, drivers, services, and Secure Boot state
+- optional Fedora VM-host backend, KVM, libvirt, network, and storage validation
 - nested Git repositories
 - obvious generated junk files
 

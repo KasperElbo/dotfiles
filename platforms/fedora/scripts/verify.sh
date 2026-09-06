@@ -477,6 +477,22 @@ if [[ -f "$hardware_state" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Optional VM host
+# ---------------------------------------------------------------------------
+
+vm_host_state="$XDG_CONFIG_HOME/dotfiles/vm-host.conf"
+
+if [[ -f "$vm_host_state" ]]; then
+  section "VM host"
+
+  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-host.sh"; then
+    pass "Fedora VM-host profile verification completed"
+  else
+    fail "Fedora VM-host profile verification failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Repository hygiene
 # ---------------------------------------------------------------------------
 
