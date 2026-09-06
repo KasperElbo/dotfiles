@@ -119,7 +119,9 @@ grep -Fq 'systemctl enable --now libvirtd.service' "$command_log"
 grep -Fq 'virsh -c qemu:///system net-autostart default' "$command_log"
 grep -Fq 'virsh -c qemu:///system pool-autostart default' "$command_log"
 grep -Fq 'virt-host-validate qemu' "$command_log"
-! grep -Eiq 'bridge|brctl|nmcli.*bridge' "$command_log"
+if grep -Eiq 'bridge|brctl|nmcli.*bridge' "$command_log"; then
+  exit 1
+fi
 
 "${test_environment[@]}" \
   "$repo_root/scripts/verify-vm-host.sh" --smoke-test >/dev/null
