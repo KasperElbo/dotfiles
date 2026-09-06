@@ -342,9 +342,17 @@ if command -v mise >/dev/null 2>&1; then
   )
 
   for cmd in "${mise_tools[@]}"; do
-    if cmd_path="$(
+    cmd_path="$(
       mise exec -- bash -c "command -v \"\$1\"" _ "$cmd" 2>/dev/null
-    )" && [[ -n "$cmd_path" ]]; then
+    )" || true
+
+    # Preserve compatibility with explicitly system-owned commands and the
+    # isolated command mocks while preferring mise's freshly installed PATH.
+    if [[ -z "$cmd_path" ]]; then
+      cmd_path="$(command -v "$cmd" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$cmd_path" ]]; then
       pass "$cmd: $cmd_path"
     else
       fail "mise-managed command missing: $cmd"
