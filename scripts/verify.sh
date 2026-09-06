@@ -200,7 +200,7 @@ if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]];
     blueman-manager
     brightnessctl
     cliphist
-    dex
+    dex-autostart
     fuzzel
     grim
     jq
