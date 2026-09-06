@@ -30,6 +30,7 @@ done
 
 grep -Fq 'exec /usr/libexec/lxqt-policykit-agent' "$config"
 grep -Fq 'exec sway-session-start' "$config"
+grep -Fq 'for_window [class="^xwaylandvideobridge$"] move scratchpad' "$config"
 
 grep -Fq "timeout 600" "$config"
 grep -Fq "timeout 900" "$config"
