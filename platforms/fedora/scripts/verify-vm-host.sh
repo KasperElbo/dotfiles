@@ -83,28 +83,28 @@ else
 fi
 
 if virsh -c "$libvirt_uri" net-info "$network_name" 2>/dev/null |
-  grep -Eiq '^[[:space:]]*Active:[[:space:]]+yes'; then
+  grep -Ei '^[[:space:]]*Active:[[:space:]]+yes' >/dev/null; then
   pass "default libvirt network is active (NAT)"
 else
   fail "default libvirt network is not active"
 fi
 
 if virsh -c "$libvirt_uri" net-info "$network_name" 2>/dev/null |
-  grep -Eiq '^[[:space:]]*Autostart:[[:space:]]+yes'; then
+  grep -Ei '^[[:space:]]*Autostart:[[:space:]]+yes' >/dev/null; then
   pass "default libvirt network is persistent"
 else
   fail "default libvirt network is not configured for autostart"
 fi
 
 if virsh -c "$libvirt_uri" pool-info "$pool_name" 2>/dev/null |
-  grep -Eiq '^[[:space:]]*State:[[:space:]]+running'; then
+  grep -Ei '^[[:space:]]*State:[[:space:]]+running' >/dev/null; then
   pass "default libvirt storage pool is running"
 else
   fail "default libvirt storage pool is not running"
 fi
 
 if virsh -c "$libvirt_uri" pool-info "$pool_name" 2>/dev/null |
-  grep -Eiq '^[[:space:]]*Autostart:[[:space:]]+yes'; then
+  grep -Ei '^[[:space:]]*Autostart:[[:space:]]+yes' >/dev/null; then
   pass "default libvirt storage pool is persistent"
 else
   fail "default libvirt storage pool is not configured for autostart"

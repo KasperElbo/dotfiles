@@ -159,7 +159,7 @@ if ! virsh -c "$libvirt_uri" net-info "$libvirt_network" >/dev/null 2>&1; then
 fi
 
 if ! virsh -c "$libvirt_uri" net-info "$libvirt_network" |
-  grep -Eiq '^[[:space:]]*Active:[[:space:]]+yes'; then
+  grep -Ei '^[[:space:]]*Active:[[:space:]]+yes' >/dev/null; then
   info "Starting libvirt's default NAT network"
   sudo virsh -c "$libvirt_uri" net-start "$libvirt_network"
 fi
@@ -176,7 +176,7 @@ if ! virsh -c "$libvirt_uri" pool-info "$libvirt_pool" >/dev/null 2>&1; then
 fi
 
 if ! virsh -c "$libvirt_uri" pool-info "$libvirt_pool" |
-  grep -Eiq '^[[:space:]]*State:[[:space:]]+running'; then
+  grep -Ei '^[[:space:]]*State:[[:space:]]+running' >/dev/null; then
   info "Starting libvirt's default storage pool"
   sudo virsh -c "$libvirt_uri" pool-start "$libvirt_pool"
 fi
