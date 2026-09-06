@@ -159,7 +159,10 @@ dry_run_output="$(
 )"
 grep -Fq 'qemu-guest-agent' <<<"$dry_run_output"
 grep -Fq 'spice-vdagent' <<<"$dry_run_output"
-! grep -Fq 'xclip' <<<"$dry_run_output"
+if grep -Fq 'xclip' <<<"$dry_run_output"; then
+  printf 'VM-guest dry-run unexpectedly included the rejected clipboard bridge.\n' >&2
+  exit 1
+fi
 [[ -z "$(find "$dry_run_root" -mindepth 1 -print -quit)" ]]
 
 printf 'VM-guest detection, integration, networking, and idempotency tests passed.\n'
