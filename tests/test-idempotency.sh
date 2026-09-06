@@ -82,9 +82,16 @@ run_setup "$home" macchiato
 [[ -f "$home/.config/dotfiles/ghostty.conf" ]]
 [[ ! -L "$home/.config/dotfiles/ghostty.conf" ]]
 
+theme_bin="$test_root/theme-bin"
+mkdir -p "$theme_bin"
+for command in bash cat chmod dirname mkdir mktemp mv readlink; do
+  ln -s "$(command -v "$command")" "$theme_bin/$command"
+done
+
 HOME="$home" \
   XDG_CONFIG_HOME="$home/.config" \
   XDG_DATA_HOME="$home/.local/share" \
+  PATH="$theme_bin" \
   "$home/.local/bin/theme" mocha >/dev/null
 
 grep -Fqx mocha "$home/.config/dotfiles/theme"
@@ -157,16 +164,23 @@ mock_commands=(
   gh
   ghostty
   lazygit
+  lookandfeeltool
+  makoctl
   mise
   neovim-node-host
   node
   nvim
+  pgrep
+  pkill
+  plasma-apply-colorscheme
+  plasma-apply-cursortheme
   python
   rg
   shellcheck
   sqlite3
   starship
   systemctl
+  swaymsg
   tmux
   tree-sitter
   uv
