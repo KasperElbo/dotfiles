@@ -343,7 +343,7 @@ if command -v mise >/dev/null 2>&1; then
 
   for cmd in "${mise_tools[@]}"; do
     if cmd_path="$(
-      mise exec -- bash -c 'command -v "$1"' _ "$cmd" 2>/dev/null
+      mise exec -- bash -c "command -v \"\$1\"" _ "$cmd" 2>/dev/null
     )" && [[ -n "$cmd_path" ]]; then
       pass "$cmd: $cmd_path"
     else

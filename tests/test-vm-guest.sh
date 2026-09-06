@@ -108,7 +108,7 @@ grep -Fq 'ConditionEnvironment=XDG_SESSION_TYPE=wayland' "$clipboard_bridge"
 grep -Fq \
   'ExecStart=/usr/bin/wl-paste --type text --watch /usr/bin/sh -c' \
   "$clipboard_bridge"
-grep -Fq '$$CLIPBOARD_STATE' "$clipboard_bridge"
+grep -Fq "\$\$CLIPBOARD_STATE" "$clipboard_bridge"
 
 if grep -Eiq 'asus|nvidia|power-profile|bridge|brctl|nmcli' "$command_log"; then
   printf 'VM-guest profile changed hardware, power, or networking configuration.\n' >&2
