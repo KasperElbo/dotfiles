@@ -397,7 +397,11 @@ zsh-syntax-highlighting
 The optional Sway session adds Sway, Waybar, Fuzzel, Mako, swaylock,
 swayidle, swaybg, desktop portals, a polkit agent, clipboard and screenshot
 utilities, hardware-key utilities, and the small GUI control tools used by the
-bar. These packages remain Fedora/DNF-owned.
+bar. It also runs standard XDG autostart entries through `dex-autostart`, so
+application preferences such as 1Password's **Start at Login** work in Sway as
+they do in KDE. Waybar provides the StatusNotifier tray required by background
+applications, while GTK handles general desktop portals and the wlroots backend
+handles screenshots and screen sharing. These packages remain Fedora/DNF-owned.
 
 ## Terra RPM repository
 
@@ -753,8 +757,9 @@ beside the assets and in `LICENSES/Catppuccin.txt`.
 # Optional Sway session
 
 `./install.sh --sway` produces a complete daily-driver session while leaving
-KDE and KWin untouched. Select **Sway** from the display manager when desired;
-the installer deliberately does not change the default login session.
+KDE and KWin untouched. Select **Sway (dotfiles)** from the display manager
+when desired; the installer deliberately does not change the default login
+session.
 
 The session uses Sway's native container tree, no gaps, and thin Catppuccin
 borders. Nine workspaces form this conceptual grid:
@@ -785,10 +790,10 @@ from workspace 1 selects 3, and moving up from workspace 1 selects 7.
 | ASUS screenshot key / `Print` | Select and annotate a screenshot region |
 | `Shift+Print` | Save the current output to `~/Pictures/Screenshots` |
 
-Waybar remains visible and shows workspaces, the focused title, power profile,
-network, Bluetooth, audio, battery, and clock. Clicking network, Bluetooth, or
-audio opens `nm-connection-editor`, `blueman-manager`, or `pavucontrol`.
-Notifications use Mako.
+Waybar remains visible and shows workspaces, the focused title, a compact system
+tray, power profile, network, Bluetooth, audio, battery, and clock. Clicking
+network, Bluetooth, or audio opens `nm-connection-editor`, `blueman-manager`,
+or `pavucontrol`. Notifications use Mako.
 
 Swayidle locks after 10 minutes and powers displays off after 15 minutes. Input
 turns the displays back on. It intentionally never suspends or hibernates the

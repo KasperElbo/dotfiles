@@ -5,6 +5,8 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 config="$repo_root/sway/.config/sway/config"
 waybar="$repo_root/waybar/.config/waybar/config.jsonc"
 grid="$repo_root/sway/.local/bin/sway-workspace-grid"
+session_start="$repo_root/sway/.local/bin/sway-session-start"
+portal_config="$repo_root/sway/.config/xdg-desktop-portal/sway-portals.conf"
 theme_command="$repo_root/bin/.local/bin/theme"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
@@ -27,6 +29,7 @@ for shortcut in \
 done
 
 grep -Fq 'exec /usr/libexec/lxqt-policykit-agent' "$config"
+grep -Fq 'exec sway-session-start' "$config"
 
 grep -Fq "timeout 600" "$config"
 grep -Fq "timeout 900" "$config"
@@ -36,7 +39,7 @@ if grep -Ev '^[[:space:]]*#' "$config" | grep -Eq 'suspend|hibernate'; then
 fi
 
 for module in \
-  sway/workspaces sway/window custom/power-profile network bluetooth \
+  sway/workspaces sway/window tray custom/power-profile network bluetooth \
   pulseaudio battery clock; do
   grep -Fq "\"$module\"" "$waybar"
 done
@@ -53,8 +56,10 @@ HOME="$stow_home" \
   "$repo_root/scripts/stow.sh" --sway >/dev/null
 
 [[ -L "$stow_home/.config/sway/config" ]]
+[[ -L "$stow_home/.config/xdg-desktop-portal/sway-portals.conf" ]]
 [[ -L "$stow_home/.config/waybar/config.jsonc" ]]
 [[ -L "$stow_home/.local/bin/sway-workspace-grid" ]]
+[[ -L "$stow_home/.local/bin/sway-session-start" ]]
 [[ -f "$stow_home/.config/sway/local.conf" ]]
 [[ ! -L "$stow_home/.config/sway/local.conf" ]]
 
@@ -98,7 +103,23 @@ done
 bash -n "$grid"
 bash -n "$repo_root/sway/.local/bin/sway-screenshot"
 bash -n "$repo_root/sway/.local/bin/power-profile-status"
+bash -n "$session_start"
 bash -n "$repo_root/scripts/assets/dotfiles-sway"
+
+grep -Fqx 'export XDG_CURRENT_DESKTOP=sway' "$session_start"
+grep -Fq 'restart xdg-desktop-portal.service' "$session_start"
+grep -Fq 'exec dex-autostart --autostart --environment sway' "$session_start"
+grep -Fqx 'default=gtk' "$portal_config"
+grep -Fqx 'org.freedesktop.impl.portal.Screenshot=wlr' "$portal_config"
+grep -Fqx 'org.freedesktop.impl.portal.ScreenCast=wlr' "$portal_config"
+
+environment_line="$(grep -n 'dbus-update-activation-environment' "$session_start" | cut -d: -f1)"
+portal_line="$(grep -n 'restart xdg-desktop-portal.service' "$session_start" | cut -d: -f1)"
+autostart_line="$(grep -n 'exec dex-autostart' "$session_start" | cut -d: -f1)"
+if ((environment_line >= portal_line || portal_line >= autostart_line)); then
+  printf 'Session environment, portal, and XDG autostart order is invalid.\n' >&2
+  exit 1
+fi
 
 grep -Fq 'sway_args+=(--unsupported-gpu)' \
   "$repo_root/scripts/assets/dotfiles-sway"

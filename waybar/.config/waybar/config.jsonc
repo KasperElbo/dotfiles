@@ -4,7 +4,7 @@
   "height": 26,
   "spacing": 4,
   "modules-left": ["sway/workspaces", "sway/window"],
-  "modules-right": ["custom/power-profile", "network", "bluetooth", "pulseaudio", "battery", "clock"],
+  "modules-right": ["tray", "custom/power-profile", "network", "bluetooth", "pulseaudio", "battery", "clock"],
   "sway/workspaces": {
     "disable-scroll": true,
     "all-outputs": true,
@@ -17,6 +17,10 @@
     "rewrite": {
       "(.*) — Mozilla Firefox": "Firefox: $1"
     }
+  },
+  "tray": {
+    "icon-size": 16,
+    "spacing": 6
   },
   "custom/power-profile": {
     "exec": "power-profile-status",

@@ -40,6 +40,7 @@ window#waybar {
   color: @subtext1;
 }
 
+#tray,
 #custom-power-profile,
 #network,
 #bluetooth,
@@ -50,6 +51,7 @@ window#waybar {
   border-left: 1px solid @surface1;
 }
 
+#tray { padding: 0 6px; }
 #custom-power-profile { color: @mauve; }
 #network { color: @blue; }
 #bluetooth { color: @teal; }

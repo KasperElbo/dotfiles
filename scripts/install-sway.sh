@@ -11,6 +11,7 @@ packages=(
   blueman
   brightnessctl
   cliphist
+  dex-autostart
   fuzzel
   grim
   jq

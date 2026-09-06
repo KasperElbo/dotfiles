@@ -200,6 +200,7 @@ if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]];
     blueman-manager
     brightnessctl
     cliphist
+    dex-autostart
     fuzzel
     grim
     jq
@@ -214,6 +215,7 @@ if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]];
     swayidle
     swaylock
     swappy
+    sway-session-start
     waybar
     /usr/local/bin/dotfiles-sway
   )
@@ -229,9 +231,13 @@ if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]];
   fi
 
   check_symlink "$XDG_CONFIG_HOME/sway/config" "$DOTFILES_ROOT/sway/"
+  check_symlink \
+    "$XDG_CONFIG_HOME/xdg-desktop-portal/sway-portals.conf" \
+    "$DOTFILES_ROOT/sway/"
   check_symlink "$XDG_CONFIG_HOME/waybar/config.jsonc" "$DOTFILES_ROOT/waybar/"
   check_symlink "$XDG_CONFIG_HOME/waybar/style.css" "$DOTFILES_ROOT/waybar/"
   check_symlink "$HOME/.local/bin/sway-workspace-grid" "$DOTFILES_ROOT/sway/"
+  check_symlink "$HOME/.local/bin/sway-session-start" "$DOTFILES_ROOT/sway/"
 
   local_sway="$XDG_CONFIG_HOME/sway/local.conf"
   if [[ -f "$local_sway" && ! -L "$local_sway" ]]; then
