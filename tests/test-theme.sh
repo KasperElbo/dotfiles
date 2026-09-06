@@ -27,6 +27,10 @@ cat >"$mock_bin/tmux" <<'EOF'
 #!/usr/bin/env bash
 exit 1
 EOF
+cat >"$mock_bin/swaymsg" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
 cat >"$mock_bin/pkill" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >"$MOCK_LOG"
