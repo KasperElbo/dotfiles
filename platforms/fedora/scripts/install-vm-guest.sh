@@ -90,7 +90,7 @@ Fedora VM-guest installation plan
 Reference hypervisor:   KVM/QEMU through libvirt
 Guest network:          Existing guest network (default host profile uses NAT)
 Guest devices:          Existing VirtIO disk, network, and serial channels
-Desktop integration:    SPICE clipboard, dynamic display, and pointer support
+Desktop integration:    SPICE clipboard and pointer support; KDE owns display layout
 Power management:       No laptop power-profile or battery changes
 Shared folders:         No host path is mounted implicitly
 

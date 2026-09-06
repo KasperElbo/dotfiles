@@ -536,7 +536,8 @@ composition found no reason to copy the Fedora installer or any Stow package:
 | ASUS/NVIDIA laptop provisioning | Already opt-in; rejected when `--vm-guest` is selected |
 | Power management | No guest override; laptop-specific masking runs only in the hardware profile |
 | Networking | Left to the guest and hypervisor; the #13 default network supplies normal NAT/DHCP |
-| Clipboard, display resizing, and pointer integration | Requires the small `spice-vdagent` guest package and SPICE virtio channel |
+| Clipboard and pointer integration | Requires `spice-vdagent` and the SPICE virtio channel; Plasma Wayland also needs the guest-only text clipboard bridge described below |
+| Display and resolution | SPICE supplies modes and pointer integration; current `spice-vdagent` cannot automatically apply monitor changes through KWin Wayland, so KDE owns the selected mode and scale |
 | Host lifecycle integration | Requires `qemu-guest-agent` and its virtio channel |
 | Shared folders | Kept manual because the host path and security boundary are machine-specific |
 
@@ -576,12 +577,19 @@ route. If Plasma is not running, the user-session checks can be repeated after
 login. Verify both clipboard directions explicitly; in Konsole use
 `Ctrl+Shift+C`, because `Ctrl+C` does not copy terminal text.
 
-The profile does not create a static display layout. SPICE can therefore follow
-the virt-viewer window size instead of competing with machine-local KDE display
-settings. It also does not alter NetworkManager, sleep policy, battery settings,
-or shared folders. For an optional virtiofs share, choose the host path and
-guest mount point explicitly in virt-manager; `/mnt/shared` is a reasonable
-guest convention, but the bootstrap does not create or mount it.
+On Plasma Wayland, `spice-vdagent` may log a failed call to
+`org.gnome.Mutter.DisplayConfig`: that API is not provided by KWin, and automatic
+guest resizing is therefore not available through the packaged agent. This is
+not a missing SPICE channel. Inspect the virtual output with `kscreen-doctor -o`,
+select the desired guest mode and fractional scale in KDE Display Configuration,
+and use virt-manager's **View → Scale Display** setting when client-side scaling
+is preferable. The bootstrap deliberately does not hard-code a resolution or
+scale because both depend on the host display and console window.
+
+The profile also does not alter NetworkManager, sleep policy, battery settings,
+or shared folders. For an optional virtiofs share, choose the host path and guest
+mount point explicitly in virt-manager; `/mnt/shared` is a reasonable guest
+convention, but the bootstrap does not create or mount it.
 
 DNF and systemd operations are safe to repeat, and
 `~/.config/dotfiles/vm-guest.conf` is rewritten atomically with stable content.
