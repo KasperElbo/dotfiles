@@ -142,7 +142,7 @@ EOF
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
-  '-q terra-release' | '-q qemu-guest-agent' | '-q spice-vdagent' | '-q xclip') exit 0 ;;
+  '-q terra-release' | '-q qemu-guest-agent' | '-q spice-vdagent') exit 0 ;;
 esac
 exit 1
 EOF
@@ -189,7 +189,6 @@ mock_commands=(
   uv
   wl-copy
   wl-paste
-  xclip
   zoxide
   zsh
 )
