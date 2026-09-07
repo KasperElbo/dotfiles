@@ -198,14 +198,52 @@ Sway, VM and hardware flags are rejected rather than silently ignored.
 
 # Fedora on WSL
 
-The WSL variant treats Windows Terminal (or another Windows terminal) and the
-Windows desktop as the host UI. Fedora owns the shell and all development
-commands. It composes the same Zsh, Git, Neovim/LazyVim, tmux, mise, Starship,
-fzf, Lazygit and language configuration used by the normal Fedora workstation.
+The WSL variant treats Noctty (or another Windows terminal) and the Windows
+desktop as the host UI. Fedora owns the shell and all development commands. It
+composes the same Zsh, Git, Neovim/LazyVim, tmux, mise, Starship, fzf, Lazygit
+and language configuration used by the normal Fedora workstation.
 
 ## Windows-side prerequisites
 
-Use an up-to-date WSL 2 installation. In an elevated PowerShell:
+From a normal, non-administrator PowerShell session in this checkout, preview
+and run the Windows-side bootstrap:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\platforms\windows\install.ps1 -DryRun
+.\platforms\windows\install.ps1
+```
+
+Use Windows 11 or a supported Windows 10 build with current WSL updates.
+Noctty additionally requires OpenGL 4.3-capable graphics; the script does not
+remove or replace any terminal already installed on Windows.
+
+The script discovers the newest official `FedoraLinux` name advertised by WSL,
+prompts for elevation only for WSL installation or conversion, and installs
+Noctty for the current user through its official Scoop bucket. It is safe to
+run again: an installed Fedora WSL 2 distribution and Noctty are retained, and
+only the script's marked Noctty configuration block is updated.
+
+Useful options are:
+
+```powershell
+# Select an exact name shown by `wsl --list --online`.
+.\platforms\windows\install.ps1 -FedoraDistribution FedoraLinux-<version>
+
+# Install Fedora WSL without installing Noctty.
+.\platforms\windows\install.ps1 -SkipNoctty
+
+# Install Noctty but preserve all of its existing configuration.
+.\platforms\windows\install.ps1 -SkipNocttyConfiguration
+```
+
+If Noctty already has a user-managed `command =` setting, the script warns and
+leaves it untouched. Otherwise it adds a marked block to
+`%LOCALAPPDATA%\noctty\config.ghostty` that starts the selected Fedora
+distribution. Noctty is still a young project, so keep another working Windows
+terminal available while evaluating it.
+
+To perform the WSL portion manually instead, use an elevated PowerShell:
 
 ```powershell
 wsl --update
@@ -217,7 +255,8 @@ wsl --list --verbose
 
 Using the name returned by `wsl --list --online` avoids tying the repository to
 a Fedora Store image name that changes with releases. Complete the Fedora
-first-launch user setup, then clone this repository from inside Fedora:
+first-launch user setup with `wsl --distribution <Fedora-name>`, then clone this
+repository from inside Fedora:
 
 ```bash
 sudo dnf upgrade --refresh

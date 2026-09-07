@@ -21,6 +21,7 @@ tests=(
   tests/test-vm-host.sh
   tests/test-vm-guest.sh
   tests/test-fedora-wsl.sh
+  tests/test-windows-bootstrap.sh
 )
 
 for test_script in "${tests[@]}"; do
