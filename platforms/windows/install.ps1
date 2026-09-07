@@ -42,6 +42,7 @@ $ManagedBlockEnd = '# END dotfiles Fedora WSL'
 $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $GhosttyConfig = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\shared.conf'
 $GhosttyThemes = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\themes'
+$NocttyThemeHelper = Join-Path $PSScriptRoot 'set-noctty-theme.ps1'
 
 function Write-Step {
     param([string]$Message)
@@ -321,6 +322,9 @@ function Sync-NocttyGhosttyConfig {
     if (-not (Test-Path -LiteralPath $GhosttyThemes -PathType Container)) {
         throw "Tracked Ghostty themes were not found at $GhosttyThemes."
     }
+    if (-not (Test-Path -LiteralPath $NocttyThemeHelper -PathType Leaf)) {
+        throw "Noctty theme helper was not found at $NocttyThemeHelper."
+    }
 
     $sourceThemes = @(Get-ChildItem -LiteralPath $GhosttyThemes -Filter '*.conf' -File)
     if ($sourceThemes.Count -eq 0) {
@@ -329,9 +333,12 @@ function Sync-NocttyGhosttyConfig {
 
     $targetConfigDirectory = Join-Path $ConfigDirectory 'dotfiles'
     $targetConfig = Join-Path $targetConfigDirectory 'ghostty.conf'
+    $targetThemeConfig = Join-Path $targetConfigDirectory 'theme.conf'
+    $targetThemeHelper = Join-Path $targetConfigDirectory 'set-theme.ps1'
     $targetThemeDirectory = Join-Path $ConfigDirectory 'themes'
     if ($DryRun) {
         Write-Step "Would synchronize the shared Ghostty config to $targetConfig"
+        Write-Step "Would install the WSL theme bridge at $targetThemeHelper"
         Write-Step "Would synchronize $($sourceThemes.Count) tracked Ghostty themes to $targetThemeDirectory"
         return
     }
@@ -339,6 +346,23 @@ function Sync-NocttyGhosttyConfig {
     [IO.Directory]::CreateDirectory($targetConfigDirectory) | Out-Null
     [IO.Directory]::CreateDirectory($targetThemeDirectory) | Out-Null
     Copy-FileIfChanged -Source $GhosttyConfig -Destination $targetConfig
+    Copy-FileIfChanged -Source $NocttyThemeHelper -Destination $targetThemeHelper
+
+    if (-not (Test-Path -LiteralPath $targetThemeConfig)) {
+        $defaultTheme = Get-Content -LiteralPath $GhosttyConfig |
+            Where-Object { $_ -match '^\s*theme\s*=' } |
+            Select-Object -First 1
+        if (-not $defaultTheme) {
+            throw "The shared Ghostty config does not declare a default theme: $GhosttyConfig"
+        }
+
+        $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
+        [IO.File]::WriteAllText(
+            $targetThemeConfig,
+            "$defaultTheme`r`n",
+            $utf8WithoutBom
+        )
+    }
 
     foreach ($sourceTheme in $sourceThemes) {
         $targetTheme = Join-Path $targetThemeDirectory $sourceTheme.Name
@@ -373,6 +397,7 @@ function Set-NocttyConfiguration {
 $ManagedBlockStart
 # Reuse the tracked Ghostty configuration; keep Windows-only settings here.
 config-file = "dotfiles/ghostty.conf"
+config-file = "dotfiles/theme.conf"
 $commandSetting
 $ManagedBlockEnd
 "@

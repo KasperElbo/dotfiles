@@ -10,7 +10,7 @@ require_command stow
 "$DOTFILES_ROOT/common/stow.sh" --headless
 
 platform_stow_dir="$DOTFILES_ROOT/platforms/fedora-wsl/stow"
-packages=(interop nvim-wsl zsh-platform)
+packages=(interop nvim-wsl theme-hooks zsh-platform)
 
 info "Stowing Fedora WSL integration into $HOME"
 

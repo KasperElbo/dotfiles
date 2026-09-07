@@ -103,11 +103,11 @@ STOW_LOG="$stow_log" HOME="$home" XDG_CONFIG_HOME="$config" \
   "$repo_root/platforms/fedora-wsl/scripts/stow.sh" >/dev/null
 
 for package in bat bin fzf git lazygit mise nvim-lazyvim starship tmux zsh \
-  interop nvim-wsl zsh-platform; do
+  interop nvim-wsl theme-hooks zsh-platform; do
   grep -Fqx "$package" "$stow_log"
 done
 
-for rejected in ghostty sway waybar theme-hooks; do
+for rejected in ghostty sway waybar; do
   if grep -Fqx "$rejected" "$stow_log"; then
     printf 'Fedora WSL Stow deployed rejected package: %s\n' "$rejected" >&2
     exit 1
@@ -125,6 +125,7 @@ HOME="$real_home" XDG_CONFIG_HOME="$real_home/.config" \
 [[ -L "$real_home/.config/nvim/init.lua" ]]
 [[ -L "$real_home/.config/nvim/lua/plugins/wsl.lua" ]]
 [[ -L "$real_home/.local/bin/wsl-copy" ]]
+[[ -L "$real_home/.config/dotfiles/theme-hooks.d/fedora-wsl.sh" ]]
 [[ ! -e "$real_home/.config/ghostty/config" ]]
 
 platform_env="$repo_root/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform-env.zsh"
@@ -148,7 +149,11 @@ cat >"$CLIPBOARD_LOG"
 EOF
 cat >"$windows_root/System32/WindowsPowerShell/v1.0/powershell.exe" <<'EOF'
 #!/usr/bin/env bash
-printf 'first\r\nsecond\r\n'
+if [[ "$*" == *'Get-Clipboard'* ]]; then
+  printf 'first\r\nsecond\r\n'
+else
+  printf '%s\n' "$*" >"$POWERSHELL_LOG"
+fi
 EOF
 cat >"$windows_root/explorer.exe" <<'EOF'
 #!/usr/bin/env bash
@@ -172,6 +177,12 @@ WINDOWS_SYSTEM_ROOT="$windows_root" OPEN_LOG="$test_root/open.log" \
   "$repo_root/platforms/fedora-wsl/stow/interop/.local/bin/wsl-open" \
   'https://example.invalid/path?q=one two'
 grep -Fqx 'https://example.invalid/path?q=one two' "$test_root/open.log"
+
+HOME="$real_home" XDG_CONFIG_HOME="$real_home/.config" \
+  WINDOWS_SYSTEM_ROOT="$windows_root" POWERSHELL_LOG="$test_root/powershell.log" \
+  "$repo_root/bin/.local/bin/theme" mocha >/dev/null
+grep -Fq 'noctty\dotfiles\set-theme.ps1' "$test_root/powershell.log"
+grep -Fq -- '-Flavor "mocha"' "$test_root/powershell.log"
 
 bootstrap_home="$test_root/bootstrap-home"
 bootstrap_config="$bootstrap_home/.config"
