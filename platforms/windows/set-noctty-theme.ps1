@@ -54,6 +54,10 @@ if (-not $noctty) {
     exit 0
 }
 
+# A PowerShell shim may not set $LASTEXITCODE (unlike a native executable).
+# Initialize it so strict mode does not turn a successful invocation into an
+# error while we inspect the reload result.
+$LASTEXITCODE = 0
 & $noctty '+perform-action' '--timeout=1000' 'reload_config' 2>$null
 switch ($LASTEXITCODE) {
     0 {
