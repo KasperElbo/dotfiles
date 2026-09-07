@@ -82,7 +82,12 @@ else
   printf '%s\n' "$*" >"$GRID_RESULT"
 fi
 EOF
+cat >"$test_root/bin/jq" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$CURRENT_WORKSPACE"
+EOF
 chmod +x "$test_root/bin/swaymsg"
+chmod +x "$test_root/bin/jq"
 
 assert_grid() {
   local current="$1"

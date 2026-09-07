@@ -20,7 +20,10 @@ else
   # The flavour is validated by the portable theme command and again by the
   # Windows helper. Keep Windows PowerShell off the Linux PATH deliberately.
   # shellcheck disable=SC2016
-  powershell_command='& (Join-Path $env:LOCALAPPDATA "noctty\dotfiles\set-theme.ps1") -Flavor "'"$flavour"'"'
+  # The Windows bootstrap may not have run yet. Treat the absent bridge as a
+  # normal first-install state rather than invoking a missing script and
+  # turning setup output into a PowerShell error.
+  powershell_command='$helper = Join-Path $env:LOCALAPPDATA "noctty\dotfiles\set-theme.ps1"; if (Test-Path -LiteralPath $helper) { & $helper -Flavor "'"$flavour"'" }'
 
   if ! "$powershell" \
     -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \

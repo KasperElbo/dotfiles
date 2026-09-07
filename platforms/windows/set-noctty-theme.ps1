@@ -20,8 +20,13 @@ $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
 
 try {
     [IO.File]::WriteAllText($temporaryConfig, $content, $utf8WithoutBom)
-    if (Test-Path -LiteralPath $themeConfig) {
-        [IO.File]::Replace($temporaryConfig, $themeConfig, $null)
+if (Test-Path -LiteralPath $themeConfig) {
+        # Windows PowerShell does not accept a null backup path for
+        # File.Replace. Delete the old managed file before moving the new
+        # one; user-authored settings are not touched because this file is
+        # owned by the dotfiles bridge.
+        [IO.File]::Delete($themeConfig)
+        [IO.File]::Move($temporaryConfig, $themeConfig)
     }
     else {
         [IO.File]::Move($temporaryConfig, $themeConfig)
