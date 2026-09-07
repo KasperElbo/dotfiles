@@ -92,6 +92,9 @@ fi
 ln -s \
   "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp" \
   "$home/.local/share/wallpapers/catppuccin-macchiato.webp"
+ln -s \
+  "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-macchiato-lock.webp" \
+  "$home/.local/share/wallpapers/catppuccin-macchiato-lock.webp"
 
 HOME="$home" \
 PATH="$mock_bin:$PATH" \
@@ -106,6 +109,12 @@ grep -Fqx 'plasma-apply-cursortheme catppuccin-macchiato-mauve-cursors' \
   "$side_effect_log"
 grep -Fqx \
   "plasma-apply-wallpaperimage $home/.local/share/wallpapers/catppuccin-macchiato.webp" \
+  "$side_effect_log"
+grep -Fqx \
+  "kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General --key Image $home/.local/share/wallpapers/catppuccin-macchiato-lock.webp" \
+  "$side_effect_log"
+grep -Fqx \
+  "kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General --key PreviewImage $home/.local/share/wallpapers/catppuccin-macchiato-lock.webp" \
   "$side_effect_log"
 
 printf 'KDE theme installation and final flavour tests passed.\n'

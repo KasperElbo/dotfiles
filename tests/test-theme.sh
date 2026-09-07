@@ -87,6 +87,9 @@ for flavour in latte frappe macchiato mocha; do
   ln -s \
     "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-$flavour.webp" \
     "$test_root/home/.local/share/wallpapers/catppuccin-$flavour.webp"
+  ln -s \
+    "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-$flavour-lock.webp" \
+    "$test_root/home/.local/share/wallpapers/catppuccin-$flavour-lock.webp"
 done
 
 theme_command="$repo_root/bin/.local/bin/theme"
@@ -125,6 +128,15 @@ grep -Fqx \
   "$mock_log"
 grep -Fqx \
   "plasma-apply-wallpaperimage $test_root/home/.local/share/wallpapers/catppuccin-mocha.webp" \
+  "$mock_log"
+grep -Fqx \
+  'kwriteconfig6 --file kscreenlockerrc --group Greeter --key WallpaperPlugin org.kde.image' \
+  "$mock_log"
+grep -Fqx \
+  "kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General --key Image $test_root/home/.local/share/wallpapers/catppuccin-mocha-lock.webp" \
+  "$mock_log"
+grep -Fqx \
+  "kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General --key PreviewImage $test_root/home/.local/share/wallpapers/catppuccin-mocha-lock.webp" \
   "$mock_log"
 if grep -Fq 'qdbus ' "$mock_log"; then
   printf 'Default theme switching must not snapshot the KDE wallpaper.\n' >&2
@@ -176,6 +188,12 @@ if grep -Fq 'plasma-apply-wallpaperimage ' "$mock_log"; then
   printf 'Preserved KDE wallpaper must not be replaced.\n' >&2
   exit 1
 fi
+grep -Fqx \
+  "kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General --key Image $test_root/home/.local/share/wallpapers/catppuccin-frappe-lock.webp" \
+  "$mock_log"
+grep -Fqx \
+  "kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General --key PreviewImage $test_root/home/.local/share/wallpapers/catppuccin-frappe-lock.webp" \
+  "$mock_log"
 grep -Fqx 'plasma-apply-colorscheme CatppuccinFrappeMauve' "$mock_log"
 grep -Fqx 'plasma-apply-cursortheme catppuccin-frappe-mauve-cursors' \
   "$mock_log"
