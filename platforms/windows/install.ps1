@@ -15,7 +15,7 @@ automatically selecting the newest FedoraLinux entry.
 Installs or validates Fedora WSL without installing or configuring Noctty.
 
 .PARAMETER SkipNocttyConfiguration
-Installs Noctty without changing its default command.
+Installs Noctty without synchronizing Ghostty settings or changing its command.
 
 .PARAMETER DryRun
 Prints the planned changes without installing or writing configuration.
@@ -39,6 +39,9 @@ $ErrorActionPreference = 'Stop'
 $NocttyBucketUrl = 'https://github.com/amanthanvi/scoop-noctty'
 $ManagedBlockStart = '# BEGIN dotfiles Fedora WSL'
 $ManagedBlockEnd = '# END dotfiles Fedora WSL'
+$RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$GhosttyConfig = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\shared.conf'
+$GhosttyThemes = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\themes'
 
 function Write-Step {
     param([string]$Message)
@@ -294,45 +297,100 @@ function Install-Noctty {
     }
 }
 
-function Set-NocttyWslCommand {
+function Copy-FileIfChanged {
+    param(
+        [string]$Source,
+        [string]$Destination
+    )
+
+    if ((Test-Path -LiteralPath $Destination) -and
+        ((Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash -eq
+            (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash)) {
+        return
+    }
+
+    Copy-Item -LiteralPath $Source -Destination $Destination -Force
+}
+
+function Sync-NocttyGhosttyConfig {
+    param([string]$ConfigDirectory)
+
+    if (-not (Test-Path -LiteralPath $GhosttyConfig -PathType Leaf)) {
+        throw "Tracked shared Ghostty configuration was not found at $GhosttyConfig."
+    }
+    if (-not (Test-Path -LiteralPath $GhosttyThemes -PathType Container)) {
+        throw "Tracked Ghostty themes were not found at $GhosttyThemes."
+    }
+
+    $sourceThemes = @(Get-ChildItem -LiteralPath $GhosttyThemes -Filter '*.conf' -File)
+    if ($sourceThemes.Count -eq 0) {
+        throw "No tracked Ghostty themes were found at $GhosttyThemes."
+    }
+
+    $targetConfigDirectory = Join-Path $ConfigDirectory 'dotfiles'
+    $targetConfig = Join-Path $targetConfigDirectory 'ghostty.conf'
+    $targetThemeDirectory = Join-Path $ConfigDirectory 'themes'
+    if ($DryRun) {
+        Write-Step "Would synchronize the shared Ghostty config to $targetConfig"
+        Write-Step "Would synchronize $($sourceThemes.Count) tracked Ghostty themes to $targetThemeDirectory"
+        return
+    }
+
+    [IO.Directory]::CreateDirectory($targetConfigDirectory) | Out-Null
+    [IO.Directory]::CreateDirectory($targetThemeDirectory) | Out-Null
+    Copy-FileIfChanged -Source $GhosttyConfig -Destination $targetConfig
+
+    foreach ($sourceTheme in $sourceThemes) {
+        $targetTheme = Join-Path $targetThemeDirectory $sourceTheme.Name
+        Copy-FileIfChanged -Source $sourceTheme.FullName -Destination $targetTheme
+    }
+
+    Write-Step 'Synchronized the shared Ghostty configuration and themes for Noctty'
+}
+
+function Set-NocttyConfiguration {
     param([string]$Distribution)
 
     $configDirectory = Join-Path $env:LOCALAPPDATA 'noctty'
     $configPath = Join-Path $configDirectory 'config.ghostty'
-    $newBlock = @"
-$ManagedBlockStart
-command = direct:wsl.exe --distribution $Distribution
-$ManagedBlockEnd
-"@
-
     $content = ''
     if (Test-Path -LiteralPath $configPath) {
         $content = [IO.File]::ReadAllText($configPath)
     }
 
     $managedPattern = '(?ms)^# BEGIN dotfiles Fedora WSL\r?\n.*?^# END dotfiles Fedora WSL\r?\n?'
-    if ([regex]::IsMatch($content, $managedPattern)) {
-        $managedRegex = [regex]::new($managedPattern)
-        $updated = $managedRegex.Replace($content, "$newBlock`r`n", 1)
-    }
-    elseif ($content -match '(?m)^\s*command\s*=') {
-        Write-Warning "Noctty already has a user-managed command in $configPath; leaving it unchanged. Select $Distribution from Noctty's WSL profiles or update it manually."
-        return
-    }
-    else {
-        $separator = if ($content -and -not $content.EndsWith("`n")) { "`r`n" } else { '' }
-        $updated = "$content$separator$newBlock`r`n"
+    $managedRegex = [regex]::new($managedPattern)
+    $userContent = $managedRegex.Replace($content, '', 1)
+    $hasUserCommand = $userContent -match '(?m)^\s*command\s*='
+
+    $commandSetting = "command = direct:wsl.exe --distribution $Distribution"
+    if ($hasUserCommand) {
+        $commandSetting = '# Fedora WSL command omitted: a user-managed command exists below.'
+        Write-Warning "Noctty already has a user-managed command in $configPath; leaving it in control."
     }
 
+    $newBlock = @"
+$ManagedBlockStart
+# Reuse the tracked Ghostty configuration; keep Windows-only settings here.
+config-file = "dotfiles/ghostty.conf"
+$commandSetting
+$ManagedBlockEnd
+"@
+
+    $separator = if ($userContent) { "`r`n" } else { '' }
+    $updated = "$newBlock$separator$userContent"
+
     if ($DryRun) {
-        Write-Step "Would configure Noctty to open $Distribution by default in $configPath"
+        Write-Step "Would include the tracked Ghostty config and configure Noctty for $Distribution in $configPath"
+        Sync-NocttyGhosttyConfig -ConfigDirectory $configDirectory
         return
     }
 
     [IO.Directory]::CreateDirectory($configDirectory) | Out-Null
+    Sync-NocttyGhosttyConfig -ConfigDirectory $configDirectory
     $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
     [IO.File]::WriteAllText($configPath, $updated, $utf8WithoutBom)
-    Write-Step "Configured Noctty to open $Distribution by default"
+    Write-Step "Configured Noctty from the tracked Ghostty config for $Distribution"
 }
 
 if ($ElevatedWslPhase) {
@@ -366,7 +424,7 @@ else {
 if (-not $SkipNoctty) {
     Install-Noctty
     if (-not $SkipNocttyConfiguration) {
-        Set-NocttyWslCommand -Distribution $selectedFedora
+        Set-NocttyConfiguration -Distribution $selectedFedora
     }
 }
 

@@ -53,6 +53,7 @@ run_stow "$home"
 [[ "$(readlink "$home/user-link")" == "$first_user_link" ]]
 [[ -L "$home/.config/git/config" ]]
 [[ -L "$home/.config/ghostty/config" ]]
+[[ -L "$home/.config/ghostty/shared.conf" ]]
 printf 'PASS: repeated setup and Stow preserve local and unrelated state\n'
 
 conflict_home="$test_root/conflict-home"

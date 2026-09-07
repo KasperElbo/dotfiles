@@ -222,7 +222,13 @@ The script discovers the newest official `FedoraLinux` name advertised by WSL,
 prompts for elevation only for WSL installation or conversion, and installs
 Noctty for the current user through its official Scoop bucket. It is safe to
 run again: an installed Fedora WSL 2 distribution and Noctty are retained, and
-only the script's marked Noctty configuration block is updated.
+only the script's marked Noctty configuration block is updated. That block
+loads the synchronized `ghostty/.config/ghostty/shared.conf`, which is also
+included by Ghostty on Fedora, so shared terminal settings remain in one
+tracked place. The shared config and Catppuccin theme files are copied into a
+managed area below Noctty's Windows config directory. Rerun the Windows script
+after updating the dotfiles checkout to synchronize changes; Noctty does not
+depend on that checkout remaining at the same path.
 
 Useful options are:
 
@@ -237,11 +243,12 @@ Useful options are:
 .\platforms\windows\install.ps1 -SkipNocttyConfiguration
 ```
 
-If Noctty already has a user-managed `command =` setting, the script warns and
-leaves it untouched. Otherwise it adds a marked block to
-`%LOCALAPPDATA%\noctty\config.ghostty` that starts the selected Fedora
-distribution. Noctty is still a young project, so keep another working Windows
-terminal available while evaluating it.
+If Noctty already has a user-managed `command =` setting, the script retains
+it and omits the managed Fedora command. Otherwise the marked block in
+`%LOCALAPPDATA%\noctty\config.ghostty` starts the selected Fedora distribution.
+User-authored Noctty settings remain below the block and therefore stay
+separate from the shared Ghostty source. Noctty is still a young project, so
+keep another working Windows terminal available while evaluating it.
 
 To perform the WSL portion manually instead, use an elevated PowerShell:
 
