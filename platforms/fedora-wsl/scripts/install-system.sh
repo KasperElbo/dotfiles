@@ -16,6 +16,7 @@ packages=(
   eza
   fd-find
   fzf
+  gawk
   gcc
   gcc-c++
   gh
@@ -29,7 +30,6 @@ packages=(
   ShellCheck
   sqlite
   sqlite-devel
-  starship
   stow
   tmux
   unzip
@@ -42,11 +42,30 @@ packages=(
 info "Installing Fedora WSL command-line prerequisites"
 sudo dnf install -y "${packages[@]}"
 
+if command_exists starship || [[ -x "$HOME/.local/bin/starship" ]]; then
+  info "Starship is already installed"
+else
+  starship_installer="$(mktemp)"
+  trap 'rm -f -- "${installer:-}" "${starship_installer:-}"' EXIT
+
+  info "Downloading the official Starship installer"
+  curl --fail --show-error --silent --location \
+    --proto '=https' --tlsv1.2 \
+    https://starship.rs/install.sh \
+    --output "$starship_installer"
+
+  info "Installing Starship as a user executable"
+  sh "$starship_installer" --yes --bin-dir "$HOME/.local/bin"
+fi
+
+[[ -x "$HOME/.local/bin/starship" ]] || command_exists starship ||
+  die "Starship installation did not produce an executable"
+
 if command_exists mise || [[ -x "$HOME/.local/bin/mise" ]]; then
   info "mise is already installed"
 else
   installer="$(mktemp)"
-  trap 'rm -f -- "$installer"' EXIT
+  trap 'rm -f -- "$installer" "${starship_installer:-}"' EXIT
 
   info "Downloading the official mise installer"
   curl --fail --show-error --silent --location \
