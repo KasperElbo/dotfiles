@@ -129,11 +129,13 @@ bootstrap_config="$bootstrap_home/.config"
 bootstrap_data="$bootstrap_home/.local/share"
 bootstrap_cache="$bootstrap_home/.cache"
 mock_bin="$test_root/mock-bin"
+shell_state="$test_root/login-shell"
 mkdir -p \
   "$bootstrap_config/git" \
   "$bootstrap_data/tmux/plugins" \
   "$bootstrap_cache" \
   "$mock_bin"
+printf '/bin/bash\n' >"$shell_state"
 
 cat >"$mock_bin/mock-command" <<'EOF'
 #!/usr/bin/env bash
@@ -150,10 +152,37 @@ EOF
 
 cat >"$mock_bin/sudo" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$1" == usermod && "$2" == --shell ]]; then
+  printf '%s\n' "$3" >"$SHELL_STATE"
+fi
 exit 0
 EOF
 
-chmod +x "$mock_bin/mock-command" "$mock_bin/rpm" "$mock_bin/sudo"
+cat >"$mock_bin/id" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  -u) printf '1000\n' ;;
+  -un) printf 'fedora-test\n' ;;
+  *) /usr/bin/id "$@" ;;
+esac
+EOF
+
+cat >"$mock_bin/getent" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == passwd && "${2:-}" == fedora-test ]]; then
+  printf 'fedora-test:x:1000:1000:Fedora Test:/home/fedora-test:%s\n' \
+    "$(<"$SHELL_STATE")"
+else
+  /usr/bin/getent "$@"
+fi
+EOF
+
+chmod +x \
+  "$mock_bin/mock-command" \
+  "$mock_bin/rpm" \
+  "$mock_bin/sudo" \
+  "$mock_bin/id" \
+  "$mock_bin/getent"
 
 mock_commands=(
   ast-grep
@@ -242,6 +271,7 @@ bootstrap_environment=(
   "OS_RELEASE_FILE=$test_root/os-release"
   "QEMU_AGENT_CHANNEL=$virtio_ports/org.qemu.guest_agent.0"
   "SPICE_AGENT_CHANNEL=$virtio_ports/com.redhat.spice.0"
+  "SHELL_STATE=$shell_state"
   "PATH=$mock_bin:$PATH"
 )
 
@@ -261,16 +291,32 @@ run_bootstrap() {
 
 run_bootstrap
 
+grep -Fqx "$mock_bin/zsh" "$shell_state"
+
 bootstrap_identity="$(sha256sum "$bootstrap_config/git/local")"
 bootstrap_notes="$(sha256sum "$bootstrap_home/notes")"
 
 run_bootstrap
+
+grep -Fqx "$mock_bin/zsh" "$shell_state"
 
 [[ "$(sha256sum "$bootstrap_config/git/local")" == "$bootstrap_identity" ]]
 [[ "$(sha256sum "$bootstrap_home/notes")" == "$bootstrap_notes" ]]
 [[ -L "$bootstrap_config/git/config" ]]
 [[ -L "$bootstrap_home/.local/bin/theme" ]]
 printf 'PASS: a complete mocked bootstrap succeeds twice without side effects\n'
+
+printf '/bin/bash\n' >"$shell_state"
+if "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora/scripts/verify.sh" \
+  >"$test_root/login-shell-verification.log" 2>&1; then
+  printf 'Fedora verification accepted Bash as the configured login shell\n' >&2
+  exit 1
+fi
+grep -Fq 'Default login shell is not Zsh: /bin/bash' \
+  "$test_root/login-shell-verification.log"
+printf '%s\n' "$mock_bin/zsh" >"$shell_state"
+printf 'PASS: Fedora verification rejects a non-Zsh login shell\n'
 
 run_bootstrap --vm-guest
 vm_guest_state="$bootstrap_config/dotfiles/vm-guest.conf"

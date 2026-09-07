@@ -19,6 +19,7 @@ packages=(
   neovim
   ripgrep
   ShellCheck
+  shadow-utils
   sqlite
   sqlite-devel
   stow
@@ -32,5 +33,7 @@ packages=(
 
 info "Installing Fedora packages"
 sudo dnf install -y "${packages[@]}"
+
+ensure_zsh_login_shell
 
 success "Fedora packages installed"

@@ -88,3 +88,49 @@ confirm() {
 require_command() {
   command_exists "$1" || die "Required command not found: $1"
 }
+
+login_shell_for_user() {
+  local user="$1"
+  local passwd_entry
+
+  passwd_entry="$(getent passwd "$user")" || return 1
+  printf '%s\n' "${passwd_entry##*:}"
+}
+
+resolve_zsh_path() {
+  local zsh_path
+
+  zsh_path="$(command -v zsh 2>/dev/null)" || return 1
+  [[ "$zsh_path" == /* && -f "$zsh_path" && -x "$zsh_path" ]] || return 1
+  printf '%s\n' "$zsh_path"
+}
+
+shell_paths_match() {
+  local first="$1"
+  local second="$2"
+
+  [[ -n "$first" && -n "$second" ]] || return 1
+  [[ "$first" == "$second" ]] ||
+    [[ -e "$first" && -e "$second" && "$first" -ef "$second" ]]
+}
+
+ensure_zsh_login_shell() {
+  local current_user
+  local current_shell
+  local zsh_path
+
+  [[ "$(id -u)" -ne 0 ]] ||
+    die "Refusing to change root's login shell; run the installer as a regular user."
+
+  current_user="$(id -un)" || die "Could not determine the invoking user."
+  current_shell="$(login_shell_for_user "$current_user")" ||
+    die "Could not determine the login shell for $current_user."
+  zsh_path="$(resolve_zsh_path)" || die "Could not resolve an installed Zsh executable."
+
+  if shell_paths_match "$current_shell" "$zsh_path"; then
+    info "Zsh is already the default login shell"
+  else
+    info "Setting Zsh as the default login shell"
+    sudo usermod --shell "$zsh_path" "$current_user"
+  fi
+}

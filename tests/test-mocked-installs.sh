@@ -7,7 +7,9 @@ trap 'rm -rf -- "$test_root"' EXIT
 
 mock_bin="$test_root/bin"
 command_log="$test_root/commands.log"
+shell_state="$test_root/login-shell"
 mkdir -p "$mock_bin" "$test_root/home" "$test_root/xdg" "$test_root/dmi"
+printf '/bin/bash\n' >"$shell_state"
 
 cat >"$mock_bin/dnf" <<'EOF'
 #!/usr/bin/env bash
@@ -39,6 +41,30 @@ EOF
 cat >"$mock_bin/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
+if [[ "$1" == usermod && "$2" == --shell ]]; then
+  printf '%s\n' "$3" >"$SHELL_STATE"
+fi
+exit 0
+EOF
+cat >"$mock_bin/id" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  -u) printf '1000\n' ;;
+  -un) printf 'fedora-test\n' ;;
+  *) /usr/bin/id "$@" ;;
+esac
+EOF
+cat >"$mock_bin/getent" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == passwd && "${2:-}" == fedora-test ]]; then
+  printf 'fedora-test:x:1000:1000:Fedora Test:/home/fedora-test:%s\n' \
+    "$(<"$SHELL_STATE")"
+else
+  /usr/bin/getent "$@"
+fi
+EOF
+cat >"$mock_bin/zsh" <<'EOF'
+#!/usr/bin/env bash
 exit 0
 EOF
 cat >"$mock_bin/asusctl" <<'EOF'
@@ -59,11 +85,13 @@ test_environment=(
   "XDG_DATA_HOME=$test_root/home/.local/share"
   "PATH=$mock_bin:$PATH"
   "COMMAND_LOG=$command_log"
+  "SHELL_STATE=$shell_state"
   "OS_RELEASE_FILE=$test_root/os-release"
   "DMI_ROOT=$test_root/dmi"
   "KERNEL_RELEASE=7.1.0-test"
 )
 
+"${test_environment[@]}" "$repo_root/scripts/install-system.sh" >/dev/null
 "${test_environment[@]}" "$repo_root/scripts/install-system.sh" >/dev/null
 "${test_environment[@]}" "$repo_root/scripts/install-terra.sh" >/dev/null
 "${test_environment[@]}" \
@@ -74,6 +102,11 @@ test_environment=(
   --model ga402rk --charge-limit 80 --non-interactive >/dev/null
 
 grep -Fq 'sudo dnf install -y bat curl eza' "$command_log"
+grep -Fq 'ShellCheck shadow-utils sqlite' "$command_log"
+expected_zsh_path="$(PATH="$mock_bin:$PATH" command -v zsh)"
+grep -Fq "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log"
+grep -Fqx "$expected_zsh_path" "$shell_state"
+[[ "$(grep -Fc 'sudo usermod --shell ' "$command_log")" == 1 ]]
 grep -Fq 'sudo dnf install -y ghostty mise starship' "$command_log"
 grep -Fq \
   'sudo dnf install -y bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config unzip' \

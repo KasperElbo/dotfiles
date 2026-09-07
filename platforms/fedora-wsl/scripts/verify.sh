@@ -86,12 +86,12 @@ else
 fi
 
 current_user="$(id -un)"
-login_shell_entry="$(getent passwd "$current_user" 2>/dev/null || true)"
-login_shell="${login_shell_entry##*:}"
-if [[ "$login_shell" == /bin/zsh ]]; then
+login_shell="$(login_shell_for_user "$current_user" 2>/dev/null || true)"
+zsh_path="$(resolve_zsh_path 2>/dev/null || true)"
+if shell_paths_match "$login_shell" "$zsh_path"; then
   pass "Zsh is the default login shell"
 else
-  fail "Default login shell is not /bin/zsh: ${login_shell:-unknown}"
+  fail "Default login shell is not Zsh: ${login_shell:-unknown}"
 fi
 
 section "Linux-native commands"
