@@ -11,7 +11,7 @@ mock_log="$test_root/mock.log"
 proc_root="$test_root/proc"
 mkdir -p \
   "$mock_bin" "$sandbox_bin" "$test_root/home" "$test_root/xdg" \
-  "$proc_root/4242"
+  "$proc_root/4242" "$test_root/home/.local/share/wallpapers"
 mkdir -p "$test_root/xdg/dotfiles/theme-hooks.d"
 ln -s \
   "$repo_root/platforms/fedora/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh" \
@@ -51,6 +51,10 @@ cat >"$mock_bin/lookandfeeltool" <<'EOF'
 #!/usr/bin/env bash
 printf 'lookandfeeltool %s\n' "$*" >>"$MOCK_LOG"
 EOF
+cat >"$mock_bin/kwriteconfig6" <<'EOF'
+#!/usr/bin/env bash
+printf 'kwriteconfig6 %s\n' "$*" >>"$MOCK_LOG"
+EOF
 cat >"$mock_bin/plasma-apply-colorscheme" <<'EOF'
 #!/usr/bin/env bash
 printf 'plasma-apply-colorscheme %s\n' "$*" >>"$MOCK_LOG"
@@ -58,6 +62,10 @@ EOF
 cat >"$mock_bin/plasma-apply-cursortheme" <<'EOF'
 #!/usr/bin/env bash
 printf 'plasma-apply-cursortheme %s\n' "$*" >>"$MOCK_LOG"
+EOF
+cat >"$mock_bin/plasma-apply-wallpaperimage" <<'EOF'
+#!/usr/bin/env bash
+printf 'plasma-apply-wallpaperimage %s\n' "$*" >>"$MOCK_LOG"
 EOF
 cat >"$mock_bin/qdbus6" <<'EOF'
 #!/usr/bin/env bash
@@ -74,6 +82,12 @@ for command in bash basename cat chmod dirname mkdir mktemp mv readlink; do
 done
 
 chmod +x "$mock_bin"/*
+
+for flavour in latte frappe macchiato mocha; do
+  ln -s \
+    "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-$flavour.webp" \
+    "$test_root/home/.local/share/wallpapers/catppuccin-$flavour.webp"
+done
 
 theme_command="$repo_root/bin/.local/bin/theme"
 
@@ -106,8 +120,21 @@ grep -Fqx \
   "set \$wallpaper $test_root/home/.local/share/wallpapers/catppuccin-mocha.webp" \
   "$test_root/xdg/dotfiles/sway-theme.conf"
 grep -Fqx 'lookandfeeltool --apply Catppuccin-Mocha-Mauve' "$mock_log"
+grep -Fqx \
+  'kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key BorderSizeAuto false' \
+  "$mock_log"
+grep -Fqx \
+  "plasma-apply-wallpaperimage $test_root/home/.local/share/wallpapers/catppuccin-mocha.webp" \
+  "$mock_log"
 if grep -Fq 'qdbus ' "$mock_log"; then
   printf 'Default theme switching must not snapshot the KDE wallpaper.\n' >&2
+  exit 1
+fi
+
+theme_line="$(grep -n '^lookandfeeltool ' "$mock_log" | cut -d: -f1)"
+wallpaper_line="$(grep -n '^plasma-apply-wallpaperimage ' "$mock_log" | cut -d: -f1)"
+if ((theme_line >= wallpaper_line)); then
+  printf 'KDE wallpaper must be applied after the global theme.\n' >&2
   exit 1
 fi
 
@@ -145,6 +172,10 @@ fi
 
 grep -Fqx 'swaymsg reload' "$mock_log"
 grep -Fq 'file:///home/test/Pictures/custom.jpg' "$mock_log"
+if grep -Fq 'plasma-apply-wallpaperimage ' "$mock_log"; then
+  printf 'Preserved KDE wallpaper must not be replaced.\n' >&2
+  exit 1
+fi
 grep -Fqx 'plasma-apply-colorscheme CatppuccinFrappeMauve' "$mock_log"
 grep -Fqx 'plasma-apply-cursortheme catppuccin-frappe-mauve-cursors' \
   "$mock_log"

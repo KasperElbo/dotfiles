@@ -23,7 +23,7 @@ done
 "$DOTFILES_ROOT/common/stow.sh"
 
 platform_stow_dir="$DOTFILES_ROOT/platforms/fedora/stow"
-packages=(zsh-platform theme-hooks)
+packages=(zsh-platform theme-hooks theme-assets)
 
 if [[ "$install_sway" == "true" ]]; then
   packages+=(sway waybar)
@@ -50,6 +50,26 @@ migrate_moved_package_links() {
   done < <(find "$platform_stow_dir/$package" -type f -print0)
 }
 
+migrate_sway_owned_wallpaper_links() {
+  local source_path
+  local relative_path
+  local target_path
+  local resolved_target
+
+  while IFS= read -r -d '' source_path; do
+    relative_path="${source_path#"$platform_stow_dir/theme-assets/"}"
+    target_path="$HOME/$relative_path"
+
+    [[ -L "$target_path" ]] || continue
+    resolved_target="$(realpath -m "$target_path")"
+
+    if [[ "$resolved_target" == "$platform_stow_dir/sway/.local/share/wallpapers/"* ]]; then
+      info "Removing Sway-owned wallpaper link: $target_path"
+      rm -- "$target_path"
+    fi
+  done < <(find "$platform_stow_dir/theme-assets" -type f -print0)
+}
+
 info "Stowing Fedora user integration into $HOME"
 
 for package in "${packages[@]}"; do
@@ -59,6 +79,10 @@ for package in "${packages[@]}"; do
 
   if [[ "$package" == sway || "$package" == waybar ]]; then
     migrate_moved_package_links "$package"
+  fi
+
+  if [[ "$package" == theme-assets ]]; then
+    migrate_sway_owned_wallpaper_links
   fi
 
   info "Stowing Fedora package $package"

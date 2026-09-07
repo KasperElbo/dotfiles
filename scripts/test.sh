@@ -12,6 +12,7 @@ tests=(
   tests/test-platform-boundary.sh
   tests/test-local-state.sh
   tests/test-theme.sh
+  tests/test-kde-theme.sh
   tests/test-sway-config.sh
   tests/test-neovim-tool-ownership.sh
   tests/test-ocaml-profile.sh

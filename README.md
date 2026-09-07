@@ -1294,6 +1294,7 @@ tmux/
 zsh/
 
 platforms/fedora/stow/
+├── theme-assets/   # shared KDE/Sway wallpapers
 ├── theme-hooks/    # Fedora desktop response to `theme`
 ├── zsh-platform/   # Fedora package paths for Zsh plugins
 ├── sway/           # only stowed with --sway
@@ -1378,6 +1379,11 @@ All four global themes are installed with:
 - Mauve accent
 - Classic window decoration
 - Catppuccin cursor theme
+
+The pinned upstream installer always applies a theme in its non-interactive
+mode. The Fedora installer suppresses those intermediate apply calls while it
+installs all four flavours, then the shared `theme` command applies the chosen
+flavour and its matching wallpaper once as the final desktop state.
 
 Known Plasma identifiers:
 
@@ -1523,9 +1529,10 @@ while applying those theme changes. Swaylock remains flavour-controlled.
 
 The four tracked 3840x2160 wallpapers form a flavour-matched tropical-island
 day-to-night cycle adapted from the MIT-licensed Catppuccin wallpaper
-collection. Swaylock uses a separately tracked blurred and darkened derivative
-of the active wallpaper. The exact upstream revision and license are recorded
-beside the assets and in `LICENSES/Catppuccin.txt`.
+collection. They are shared Fedora desktop theme assets used by both KDE and
+Sway. Swaylock uses a separately tracked blurred and darkened derivative of the
+active wallpaper. The exact upstream revision and license are recorded beside
+the assets and in `LICENSES/Catppuccin.txt`.
 
 ---
 

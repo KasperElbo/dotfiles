@@ -2,6 +2,20 @@
 
 # Fedora desktop theme state. Source common/lib/theme-state.sh first.
 
+fedora_theme_wallpaper() {
+  local flavour="$1"
+
+  printf '%s/.local/share/wallpapers/catppuccin-%s.webp\n' \
+    "$HOME" "$flavour"
+}
+
+fedora_theme_lock_wallpaper() {
+  local flavour="$1"
+
+  printf '%s/.local/share/wallpapers/catppuccin-%s-lock.webp\n' \
+    "$HOME" "$flavour"
+}
+
 catppuccin_palette() {
   local flavour="$1"
 
@@ -40,8 +54,11 @@ write_fedora_theme_state() {
   local flavour="$1"
   local preserve_wallpaper="${2:-false}"
   local state_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles"
-  local wallpaper="$HOME/.local/share/wallpapers/catppuccin-${flavour}.webp"
-  local lock_wallpaper="$HOME/.local/share/wallpapers/catppuccin-${flavour}-lock.webp"
+  local wallpaper
+  local lock_wallpaper
+
+  wallpaper="$(fedora_theme_wallpaper "$flavour")"
+  lock_wallpaper="$(fedora_theme_lock_wallpaper "$flavour")"
 
   if [[ "$preserve_wallpaper" == "true" ]]; then
     wallpaper="$(current_sway_wallpaper || true)"
@@ -49,7 +66,7 @@ write_fedora_theme_state() {
       wallpaper="$(configured_sway_wallpaper "$state_dir/sway-theme.conf" || true)"
     fi
     if [[ -z "$wallpaper" ]]; then
-      wallpaper="$HOME/.local/share/wallpapers/catppuccin-${flavour}.webp"
+      wallpaper="$(fedora_theme_wallpaper "$flavour")"
     fi
   fi
 

@@ -9,6 +9,7 @@ grid="$fedora_stow/sway/.local/bin/sway-workspace-grid"
 session_start="$fedora_stow/sway/.local/bin/sway-session-start"
 portal_config="$fedora_stow/sway/.config/xdg-desktop-portal/sway-portals.conf"
 theme_hook="$fedora_stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh"
+wallpaper_package="$fedora_stow/theme-assets/.local/share/wallpapers"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -47,13 +48,19 @@ for module in \
 done
 
 stow_home="$test_root/home"
-mkdir -p "$stow_home/.config/sway" "$stow_home/.config/waybar"
+mkdir -p \
+  "$stow_home/.config/sway" \
+  "$stow_home/.config/waybar" \
+  "$stow_home/.local/share/wallpapers"
 # Simulate links created by the pre-boundary layout. They are dangling after
 # the tracked package directories move and must be replaced safely.
 ln -s "$repo_root/sway/.config/sway/config" \
   "$stow_home/.config/sway/config"
 ln -s "$repo_root/waybar/.config/waybar/config.jsonc" \
   "$stow_home/.config/waybar/config.jsonc"
+ln -s \
+  "$fedora_stow/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
+  "$stow_home/.local/share/wallpapers/catppuccin-macchiato.webp"
 HOME="$stow_home" \
   XDG_CONFIG_HOME="$stow_home/.config" \
   XDG_DATA_HOME="$stow_home/.local/share" \
@@ -68,10 +75,25 @@ HOME="$stow_home" \
 [[ -L "$stow_home/.config/waybar/config.jsonc" ]]
 [[ -L "$stow_home/.local/bin/sway-workspace-grid" ]]
 [[ -L "$stow_home/.local/bin/sway-session-start" ]]
+[[ -L "$stow_home/.local/share/wallpapers/catppuccin-macchiato.webp" ]]
 [[ "$(readlink -f "$stow_home/.config/sway/config")" == "$config" ]]
 [[ "$(readlink -f "$stow_home/.config/waybar/config.jsonc")" == "$waybar" ]]
 [[ -f "$stow_home/.config/sway/local.conf" ]]
 [[ ! -L "$stow_home/.config/sway/local.conf" ]]
+
+asset_home="$test_root/asset-home"
+mkdir -p "$asset_home"
+stow_theme_assets() {
+  HOME="$asset_home" \
+    XDG_CONFIG_HOME="$asset_home/.config" \
+    XDG_DATA_HOME="$asset_home/.local/share" \
+    "$repo_root/scripts/stow.sh" >/dev/null
+}
+stow_theme_assets
+stow_theme_assets
+[[ -L "$asset_home/.local/share/wallpapers/catppuccin-mocha.webp" ]]
+[[ "$(readlink -f "$asset_home/.local/share/wallpapers/catppuccin-mocha.webp")" == \
+  "$wallpaper_package/catppuccin-mocha.webp" ]]
 
 mkdir -p "$test_root/bin" "$test_root/state"
 cat >"$test_root/bin/swaymsg" <<'EOF'
@@ -111,8 +133,8 @@ assert_grid 5 right 6
 assert_grid 5 up 2
 
 for flavour in latte frappe macchiato mocha; do
-  wallpaper="$fedora_stow/sway/.local/share/wallpapers/catppuccin-$flavour.webp"
-  lock_wallpaper="$fedora_stow/sway/.local/share/wallpapers/catppuccin-$flavour-lock.webp"
+  wallpaper="$wallpaper_package/catppuccin-$flavour.webp"
+  lock_wallpaper="$wallpaper_package/catppuccin-$flavour-lock.webp"
   [[ -s "$wallpaper" ]]
   [[ -s "$lock_wallpaper" ]]
 done

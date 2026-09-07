@@ -58,7 +58,7 @@ for package in "${portable_packages[@]}"; do
   grep -Fqx "$package" "$stow_log"
 done
 
-if grep -Eq '^(sway|waybar|zsh-platform|theme-hooks)$' "$stow_log"; then
+if grep -Eq '^(sway|waybar|zsh-platform|theme-hooks|theme-assets)$' "$stow_log"; then
   printf 'Portable Stow entry point deployed a Fedora package.\n' >&2
   exit 1
 fi
@@ -80,7 +80,8 @@ done
 : >"$stow_log"
 run_stow "$repo_root/platforms/fedora/scripts/stow.sh" --sway
 
-for package in "${portable_packages[@]}" zsh-platform theme-hooks sway waybar; do
+for package in \
+  "${portable_packages[@]}" zsh-platform theme-hooks theme-assets sway waybar; do
   grep -Fqx "$package" "$stow_log"
 done
 
