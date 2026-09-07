@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../../common/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../lib/theme-state.sh
+source "$DOTFILES_ROOT/platforms/fedora/lib/theme-state.sh"
+
 flavour="${1:-}"
 preserve_wallpaper="false"
 
@@ -46,15 +51,16 @@ echo "Applying Catppuccin $flavour to KDE..."
 
 qdbus_command=""
 wallpaper_snapshot=""
+wallpaper="$(fedora_theme_wallpaper "$flavour")"
+
+for candidate in qdbus6 qdbus; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    qdbus_command="$candidate"
+    break
+  fi
+done
 
 if [[ "$preserve_wallpaper" == "true" ]]; then
-  for candidate in qdbus6 qdbus; do
-    if command -v "$candidate" >/dev/null 2>&1; then
-      qdbus_command="$candidate"
-      break
-    fi
-  done
-
   if [[ -n "$qdbus_command" ]]; then
     read_wallpaper_script='function readGroup(item, path) {
   item.currentConfigGroup = path;
@@ -98,6 +104,12 @@ print(JSON.stringify(result));'
 fi
 
 if [[ "$preserve_wallpaper" != "true" || "$wallpaper_snapshot" == \[*\] ]]; then
+  if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 \
+      --file kwinrc \
+      --group org.kde.kdecoration2 \
+      --key BorderSizeAuto false
+  fi
   lookandfeeltool --apply "$global_theme"
 fi
 
@@ -132,6 +144,16 @@ for (var index = 0; index < snapshot.length; index++) {
 
   "$qdbus_command" org.kde.plasmashell /PlasmaShell \
     org.kde.PlasmaShell.evaluateScript "$restore_wallpaper_script" >/dev/null
+fi
+
+if [[ "$preserve_wallpaper" != "true" ]]; then
+  if [[ ! -f "$wallpaper" ]]; then
+    warn "KDE wallpaper is missing: $wallpaper"
+  elif command -v plasma-apply-wallpaperimage >/dev/null 2>&1; then
+    plasma-apply-wallpaperimage "$wallpaper"
+  else
+    warn "plasma-apply-wallpaperimage is unavailable; KDE wallpaper was not changed"
+  fi
 fi
 
 plasma-apply-colorscheme "$color_scheme"

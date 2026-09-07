@@ -137,6 +137,15 @@ check_symlink "$HOME/.tmux.conf" \
 check_symlink "$HOME/.local/bin/theme" \
   "$DOTFILES_ROOT/bin/"
 
+for flavour in latte frappe macchiato mocha; do
+  check_symlink \
+    "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}.webp" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/theme-assets/"
+  check_symlink \
+    "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}-lock.webp" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/theme-assets/"
+done
+
 # ---------------------------------------------------------------------------
 # Machine-local theme
 # ---------------------------------------------------------------------------

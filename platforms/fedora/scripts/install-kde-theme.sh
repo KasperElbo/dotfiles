@@ -24,13 +24,27 @@ git clone \
 
 cd "$workdir"
 
+# The pinned upstream installer has no install-without-apply mode. Its "auto"
+# mode always calls these commands after installing a flavour, which would make
+# Plasma visibly cycle through every theme. Keep the install path intact while
+# deferring all desktop changes to the repository's theme command.
+command_shim_dir="$workdir/.dotfiles-command-shims"
+ensure_dir "$command_shim_dir"
+
+cat >"$command_shim_dir/plasma-apply-lookandfeel" <<'EOF'
+#!/usr/bin/env sh
+exit 0
+EOF
+chmod +x "$command_shim_dir/plasma-apply-lookandfeel"
+ln -sf plasma-apply-lookandfeel "$command_shim_dir/kwriteconfig6"
+
 # Catppuccin KDE installer choices:
 #
-# flavour:
-#   1 = Latte
-#   2 = Frappé
-#   3 = Macchiato
-#   4 = Mocha
+# flavour (upstream numbering):
+#   1 = Mocha
+#   2 = Macchiato
+#   3 = Frappé
+#   4 = Latte
 #
 # accent:
 #   4 = Mauve
@@ -44,7 +58,7 @@ cd "$workdir"
 
 for flavour in 1 2 3 4; do
   info "Installing Catppuccin KDE flavour $flavour"
-  ./install.sh "$flavour" 4 2 auto
+  PATH="$command_shim_dir:$PATH" ./install.sh "$flavour" 4 2 auto
 done
 
 success "All Catppuccin KDE flavours installed"
