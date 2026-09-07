@@ -74,10 +74,8 @@ assert_contains "$ocaml_config" \
 
 assert_contains "$repo_root/platforms/fedora/scripts/install-system.sh" '  ShellCheck'
 
-mason_inventory="$(
-  sed -n '/^mason_packages=(/,/^)/p' \
-    "$repo_root/platforms/fedora/scripts/verify.sh"
-)"
+mason_inventory_file="$lazyvim_config/mason-packages.txt"
+mapfile -t mason_inventory <"$mason_inventory_file"
 
 expected_mason_packages=(
   angular-language-server
@@ -97,13 +95,35 @@ expected_mason_packages=(
   yaml-language-server
 )
 
-for package in "${expected_mason_packages[@]}"; do
-  grep -Fqx "  $package" <<<"$mason_inventory" ||
-    fail "expected Mason package is not verified: $package"
-done
+[[ "${mason_inventory[*]}" == "${expected_mason_packages[*]}" ]] ||
+  fail "tracked Mason inventory does not match the intended package set"
 
-if grep -Fqx '  ocaml-lsp' <<<"$mason_inventory" ||
-  grep -Fqx '  ocamlformat' <<<"$mason_inventory"; then
+mason_config="$lazyvim_config/lua/plugins/mason.lua"
+assert_contains "$mason_config" 'require("config.mason").packages()'
+assert_contains "$mason_config" 'vim.env.DOTFILES_MASON_BOOTSTRAP == "1"'
+assert_contains "$mason_config" 'lazy = false'
+assert_contains "$dotnet_config" 'vim.env.DOTFILES_MASON_BOOTSTRAP == "1"'
+assert_contains "$repo_root/common/install-neovim-tools.sh" \
+  'nvim-lazyvim/.config/nvim/mason-packages.txt'
+assert_contains "$repo_root/common/install-neovim-tools.sh" \
+  "-u NONE -l \"\$DOTFILES_ROOT/common/bootstrap-mason.lua\""
+assert_contains "$repo_root/common/bootstrap-mason.lua" \
+  'require("mason.api.command").MasonInstall'
+assert_contains "$repo_root/platforms/fedora/install.sh" \
+  'common/install-neovim-tools.sh'
+assert_contains "$repo_root/platforms/fedora-wsl/install.sh" \
+  'common/install-neovim-tools.sh'
+assert_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
+  'nvim-lazyvim/.config/nvim/mason-packages.txt'
+assert_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
+  "fail \"Mason package not installed: \$package\""
+assert_contains "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  'nvim-lazyvim/.config/nvim/mason-packages.txt'
+assert_contains "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  "fail \"Mason package not installed: \$package\""
+
+if printf '%s\n' "${mason_inventory[@]}" | grep -Fxq 'ocaml-lsp' ||
+  printf '%s\n' "${mason_inventory[@]}" | grep -Fxq 'ocamlformat'; then
   fail "OCaml switch tooling must not be Mason-managed"
 fi
 
@@ -127,7 +147,7 @@ for tool in "${project_tools[@]}"; do
     fail "project-local tool is declared through mise: $tool"
   fi
 
-  if grep -Fqx "  $tool" <<<"$mason_inventory"; then
+  if printf '%s\n' "${mason_inventory[@]}" | grep -Fxq "$tool"; then
     fail "project-local tool is declared through Mason: $tool"
   fi
 done

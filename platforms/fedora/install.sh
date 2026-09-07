@@ -301,11 +301,14 @@ EOF
   $((step + 2)). Install mise-managed runtimes and developer tools
      common/install-mise.sh
 
-  $((step + 3)). Install pinned Catppuccin tmux theme
+  $((step + 3)). Restore LazyVim and install the intended Mason inventory
+     common/install-neovim-tools.sh
+
+  $((step + 4)). Install pinned Catppuccin tmux theme
      common/install-tmux-theme.sh
 EOF
 
-  step=$((step + 4))
+  step=$((step + 5))
 
   if [[ "$install_ocaml" == "true" ]]; then
     cat <<EOF
@@ -354,7 +357,6 @@ Manual configuration still required afterward:
   • Configure ~/.config/git/drdk if a separate DR/work identity is required.
   • Configure SSH authentication.
   • Authenticate GitHub CLI with gh auth login.
-  • Open Neovim once so lazy.nvim and Mason can finish editor setup.
 
 No changes were made.
 
@@ -492,6 +494,9 @@ info "Deploying dotfiles with GNU Stow"
 info "Installing mise-managed runtimes and tools"
 "$DOTFILES_ROOT/common/install-mise.sh"
 
+info "Installing LazyVim plugins and Mason editor tools"
+"$DOTFILES_ROOT/common/install-neovim-tools.sh"
+
 if [[ "$install_ocaml" == "true" ]]; then
   info "Installing opam-managed OCaml compiler and tools"
   "$DOTFILES_ROOT/common/install-ocaml.sh"
@@ -549,6 +554,5 @@ Manual configuration may still be required:
   • Configure SSH authentication (for example 1Password or OpenSSH).
   • Authenticate GitHub CLI with:
       gh auth login
-  • Open Neovim once so lazy.nvim and Mason can finish installing editor tooling.
 
 EOF

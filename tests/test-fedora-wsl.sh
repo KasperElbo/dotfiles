@@ -17,6 +17,7 @@ assert_contains() {
 dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ocaml)"
 assert_contains "$dry_run" 'Fedora WSL installation plan'
 assert_contains "$dry_run" 'common/install-mise.sh'
+assert_contains "$dry_run" 'common/install-neovim-tools.sh'
 assert_contains "$dry_run" 'common/install-ocaml.sh'
 assert_contains "$dry_run" "Set Zsh as the user's default login shell."
 assert_contains "$dry_run" 'Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, desktop,'
@@ -284,12 +285,33 @@ chmod +x "$bootstrap_bin/mock-command" "$bootstrap_bin/sudo" \
 
 bootstrap_commands=(
   ast-grep bat curl delta dnf dotnet dotnet-easydotnet eza fd fzf gh lazygit
-  mise neovim-node-host node npm npx nvim python rg rpm shellcheck sqlite3
+  neovim-node-host node npm npx python rg rpm shellcheck sqlite3
   starship tmux tree-sitter uv zoxide zsh
 )
 for command_name in "${bootstrap_commands[@]}"; do
   ln -s mock-command "$bootstrap_bin/$command_name"
 done
+
+cat >"$bootstrap_bin/mise" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == exec && "${2:-}" == -- ]]; then
+  shift 2
+  exec "$@"
+fi
+exit 0
+EOF
+cat >"$bootstrap_bin/nvim" <<'EOF'
+#!/usr/bin/env bash
+for argument in "$@"; do
+  if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
+    for package in $DOTFILES_MASON_PACKAGES; do
+      mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
+    done
+  fi
+done
+EOF
+chmod +x "$bootstrap_bin/mise" "$bootstrap_bin/nvim"
+
 rm -- "$bootstrap_bin/zsh"
 cat >"$bootstrap_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
