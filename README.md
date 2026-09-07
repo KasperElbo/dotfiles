@@ -266,10 +266,11 @@ theme mocha
 ```
 
 The WSL-only hook updates Noctty's managed `dotfiles/theme.conf` through an
-explicit Windows PowerShell path and asks a running Noctty instance to reload.
-If Noctty is closed, the selection applies on its next launch. A user-authored
-`theme =` setting later in `%LOCALAPPDATA%\noctty\config.ghostty` deliberately
-takes precedence over this managed selection.
+explicit Windows PowerShell path. Press `Ctrl+Shift+,` in a running Noctty
+instance to reload the configuration; otherwise the selection applies on its
+next launch. A user-authored `theme =` setting later in
+`%LOCALAPPDATA%\noctty\config.ghostty` deliberately takes precedence over this
+managed selection.
 
 To perform the WSL portion manually instead, use an elevated PowerShell:
 
