@@ -85,6 +85,15 @@ else
   pass "Current repository is on the Linux filesystem"
 fi
 
+current_user="$(id -un)"
+login_shell_entry="$(getent passwd "$current_user" 2>/dev/null || true)"
+login_shell="${login_shell_entry##*:}"
+if [[ "$login_shell" == /bin/zsh ]]; then
+  pass "Zsh is the default login shell"
+else
+  fail "Default login shell is not /bin/zsh: ${login_shell:-unknown}"
+fi
+
 section "Linux-native commands"
 
 login_path="$(zsh -lic 'print -r -- "$PATH"' 2>/dev/null || true)"
@@ -103,6 +112,21 @@ else
   if [[ "$path_has_windows_entry" == "false" ]]; then
     pass "Zsh PATH contains only Linux filesystem entries"
   fi
+fi
+
+selected_theme="macchiato"
+theme_state="$XDG_CONFIG_HOME/dotfiles/theme"
+if [[ -r "$theme_state" ]]; then
+  selected_theme="$(<"$theme_state")"
+fi
+expected_starship_config="$XDG_CONFIG_HOME/starship/catppuccin-${selected_theme}.toml"
+starship_config="$(zsh -lic 'print -r -- "${STARSHIP_CONFIG:-}"' 2>/dev/null || true)"
+if [[ "$starship_config" != "$expected_starship_config" ]]; then
+  fail "Zsh STARSHIP_CONFIG is not the selected theme: ${starship_config:-unset}"
+elif [[ ! -r "$starship_config" ]]; then
+  fail "Selected Starship configuration is not readable: $starship_config"
+else
+  pass "Zsh loads the selected Starship configuration: $starship_config"
 fi
 
 mise_command="$(command -v mise 2>/dev/null || true)"

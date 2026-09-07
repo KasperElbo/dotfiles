@@ -33,7 +33,7 @@ jobs:
       - name: Install validation dependencies
         run: >-
           dnf --assumeyes --setopt=install_weak_deps=False
-          install git jq ShellCheck stow
+          install git jq neovim ShellCheck stow
 
       - name: Check out repository
         uses: actions/checkout@v7
@@ -57,3 +57,16 @@ jobs:
           else
             git diff --check "$BEFORE_SHA..HEAD"
           fi
+
+  windows:
+    name: Windows PowerShell validation
+    runs-on: windows-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Test Windows bootstrap helpers
+        shell: pwsh
+        run: ./tests/test-windows-bootstrap.ps1
