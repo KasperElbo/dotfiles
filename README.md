@@ -79,9 +79,11 @@ Install using the defaults:
 ./install.sh
 ```
 
-The installer makes Zsh the invoking user's default login shell. Run
-`exec zsh -l` to replace the current shell immediately; new Ghostty terminals
-inherit Zsh from the account login-shell setting.
+The installer makes Zsh the invoking user's default login shell. Reboot after
+the first installation so Plasma, the systemd user manager, and D-Bus discard
+the previous `SHELL` environment value; Ghostty prefers that value over the
+account entry. Run `exec zsh -l` only when you want to replace the shell in the
+current terminal before rebooting.
 
 The default platform remains a normal Fedora workstation. From inside an
 official Fedora WSL distribution, select the WSL variant explicitly:
@@ -2408,6 +2410,21 @@ The Terra Ghostty RPM may omit the upstream bundled theme collection.
 
 This repository tracks the four required Catppuccin Ghostty theme files directly.
 
+## Ghostty starts Bash after the installer configured Zsh
+
+Confirm that the account entry changed:
+
+```bash
+getent passwd "$(id -un)" | cut -d: -f7
+```
+
+If this reports `/usr/bin/zsh` or `/bin/zsh` while `echo "$SHELL"` still reports
+Bash, reboot the machine. The already-running Plasma, systemd user, and D-Bus
+session can retain `SHELL=/bin/bash`, which Ghostty checks before the account
+entry. `env -u SHELL ghostty --gtk-single-instance=false` is a useful diagnostic
+because it makes an independent Ghostty process fall back to the passwd entry;
+it is not required after rebooting.
+
 ## `pynvim` is not an executable
 
 Expected. Verify the Python provider through Neovim health checks instead.
@@ -2424,8 +2441,10 @@ After a fresh install:
 4. Configure optional SSH commit signing.
 5. Run `gh auth login`.
 6. Start Neovim and allow lazy.nvim/Mason to complete setup.
-7. If an ASUS hardware profile requested a reboot, perform it now. For the
-   GA402XZ Secure Boot flow, complete MOK enrollment during that reboot.
+7. Reboot after the initial installation so the desktop session observes the
+   Zsh login-shell change. If an ASUS hardware profile also requested a reboot,
+   use the same reboot; for the GA402XZ Secure Boot flow, complete MOK
+   enrollment during it.
 8. If Sway was installed, select it once at login and confirm the required
    outputs. Put any connector-specific rules in `~/.config/sway/local.conf`.
 
