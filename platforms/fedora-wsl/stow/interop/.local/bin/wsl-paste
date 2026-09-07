@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+windows_root="${WINDOWS_SYSTEM_ROOT:-/mnt/c/Windows}"
+powershell="$windows_root/System32/WindowsPowerShell/v1.0/powershell.exe"
+
+[[ -x "$powershell" ]] || {
+  printf 'Windows PowerShell executable not found: %s\n' "$powershell" >&2
+  exit 1
+}
+
+"$powershell" -NoLogo -NoProfile -NonInteractive -Command \
+  '[Console]::Out.Write((Get-Clipboard -Raw))' |
+  sed 's/\r$//'

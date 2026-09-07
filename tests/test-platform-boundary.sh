@@ -64,6 +64,20 @@ if grep -Eq '^(sway|waybar|zsh-platform|theme-hooks)$' "$stow_log"; then
 fi
 
 : >"$stow_log"
+run_stow "$repo_root/common/stow.sh" --headless
+
+for package in "${portable_packages[@]}"; do
+  if [[ "$package" == ghostty ]]; then
+    if grep -Fqx "$package" "$stow_log"; then
+      printf 'Headless common profile deployed Ghostty configuration.\n' >&2
+      exit 1
+    fi
+  else
+    grep -Fqx "$package" "$stow_log"
+  fi
+done
+
+: >"$stow_log"
 run_stow "$repo_root/platforms/fedora/scripts/stow.sh" --sway
 
 for package in "${portable_packages[@]}" zsh-platform theme-hooks sway waybar; do

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ $# -eq 1 ]] || {
+  printf 'Usage: wsl-open URL_OR_PATH\n' >&2
+  exit 2
+}
+
+windows_root="${WINDOWS_SYSTEM_ROOT:-/mnt/c/Windows}"
+explorer="$windows_root/explorer.exe"
+
+[[ -x "$explorer" ]] || {
+  printf 'Windows Explorer executable not found: %s\n' "$explorer" >&2
+  exit 1
+}
+
+exec "$explorer" "$1"

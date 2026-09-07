@@ -20,6 +20,7 @@ tests=(
   tests/test-mocked-installs.sh
   tests/test-vm-host.sh
   tests/test-vm-guest.sh
+  tests/test-fedora-wsl.sh
 )
 
 for test_script in "${tests[@]}"; do

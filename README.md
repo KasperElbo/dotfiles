@@ -3,6 +3,7 @@
 Opinionated, reproducible dotfiles for a keyboard-driven development workstation built around:
 
 - Fedora
+- Fedora on WSL, with Windows as the desktop and terminal host
 - KDE Plasma / Wayland, with an optional Sway session
 - Ghostty
 - Zsh
@@ -46,9 +47,10 @@ This configuration has been developed and tested on:
 The optional guest profile targets Fedora 44 KVM/QEMU guests managed by
 libvirt, with virt-manager as the normal graphical client.
 
-The supported machine bootstrap is currently Fedora-only. The portable layer
-has its own entry points so future macOS or WSL installers can reuse it without
-copying configuration; those installers are intentionally not implemented yet.
+The supported bootstraps are a normal Fedora workstation and the official
+Fedora distribution running under WSL 2. The WSL variant is a Linux development
+runtime: it deliberately does not reproduce the Fedora desktop, laptop, GPU or
+virtualization-host setup inside WSL.
 
 ---
 
@@ -72,6 +74,14 @@ Install using the defaults:
 
 ```bash
 ./install.sh
+```
+
+The default platform remains a normal Fedora workstation. From inside an
+official Fedora WSL distribution, select the WSL variant explicitly:
+
+```bash
+./install.sh --platform fedora-wsl --dry-run
+./install.sh --platform fedora-wsl --non-interactive
 ```
 
 A fully non-interactive example:
@@ -148,6 +158,8 @@ The complete OCaml development environment is explicitly opt-in:
 ## Installer options
 
 ```text
+--platform PLATFORM fedora (default) | fedora-wsl
+
 --theme FLAVOUR    latte | frappe | macchiato | mocha
                    default: macchiato
 
@@ -177,6 +189,173 @@ The complete OCaml development environment is explicitly opt-in:
 
 -h, --help         show help
 ```
+
+The Fedora WSL installer intentionally exposes only `--theme`, `--ocaml`,
+`--smoke-test`, `--dry-run`, and `--non-interactive`. Fedora desktop, LaTeX,
+Sway, VM and hardware flags are rejected rather than silently ignored.
+
+---
+
+# Fedora on WSL
+
+The WSL variant treats Windows Terminal (or another Windows terminal) and the
+Windows desktop as the host UI. Fedora owns the shell and all development
+commands. It composes the same Zsh, Git, Neovim/LazyVim, tmux, mise, Starship,
+fzf, Lazygit and language configuration used by the normal Fedora workstation.
+
+## Windows-side prerequisites
+
+Use an up-to-date WSL 2 installation. In an elevated PowerShell:
+
+```powershell
+wsl --update
+wsl --set-default-version 2
+wsl --list --online | findstr /I Fedora
+wsl --install -d <Fedora-name-shown-by-the-previous-command>
+wsl --list --verbose
+```
+
+Using the name returned by `wsl --list --online` avoids tying the repository to
+a Fedora Store image name that changes with releases. Complete the Fedora
+first-launch user setup, then clone this repository from inside Fedora:
+
+```bash
+sudo dnf upgrade --refresh
+mkdir -p ~/src
+git clone <REPOSITORY_URL> ~/src/dotfiles
+cd ~/src/dotfiles
+./install.sh --platform fedora-wsl --dry-run
+./install.sh --platform fedora-wsl
+```
+
+Keep repositories under the WSL Linux filesystem, normally `~/src`. `/mnt/c`
+is useful for exchanging files with Windows, but its metadata, file-watching,
+case-sensitivity and I/O behavior make it a poor default for Git repositories,
+Node dependency trees and build output.
+
+## PATH and Windows interoperability
+
+Windows commonly appends its PATH to a WSL process. This can make a missing
+Linux command silently resolve to `node.exe`, `dotnet.exe`, `python.exe` or a
+Windows-installed `codex`. The WSL platform hook removes `/mnt/<drive>/...`
+entries before `.zshrc` executes any tools. mise then activates only the
+Linux-native runtimes installed inside Fedora.
+
+For the strongest process-wide policy, merge this into `/etc/wsl.conf`
+manually; do not replace unrelated existing sections:
+
+```ini
+[interop]
+appendWindowsPath=false
+```
+
+Restart WSL from PowerShell after changing it:
+
+```powershell
+wsl --shutdown
+```
+
+Windows interoperability remains available deliberately through absolute-path
+helpers rather than through every Windows executable being on `PATH`:
+
+| Helper | Purpose |
+|---|---|
+| `wsl-copy` | Send standard input to the Windows clipboard |
+| `wsl-paste` | Write the Windows clipboard to standard output |
+| `wsl-open URL_OR_PATH` | Open a URL or file with its Windows handler |
+
+`BROWSER=wsl-open` lets Linux-native tools such as `gh auth login --web` open
+the Windows browser. Set `WINDOWS_SYSTEM_ROOT` only if Windows is not available
+at the conventional `/mnt/c/Windows` mount. Neovim's `"+` and `"*` registers
+use the same clipboard helpers through a WSL-only LazyVim plugin spec.
+
+## systemd
+
+The current command-line profile does not require services, so lack of systemd
+is reported as a warning rather than causing installation to fail. If a later
+profile or a project needs system services, verify PID 1 first:
+
+```bash
+ps -p 1 -o comm=
+systemctl is-system-running
+```
+
+If the first command is not `systemd`, merge the following into
+`/etc/wsl.conf`, then run `wsl --shutdown` from PowerShell:
+
+```ini
+[boot]
+systemd=true
+```
+
+Do not enable it merely to satisfy this dotfiles profile.
+
+## Git, SSH and GitHub authentication
+
+The simplest setup is Linux-native OpenSSH plus the Linux `gh` installed by
+DNF:
+
+```bash
+ssh-keygen -t ed25519
+gh auth login --hostname github.com --git-protocol ssh --web
+ssh -T git@github.com
+```
+
+Private keys, GitHub tokens, identities and signing configuration stay outside
+the repository. Put Git identity and optional signing settings in
+`~/.config/git/local`, as on normal Fedora.
+
+If the Windows 1Password SSH Agent is preferred, enable its WSL integration in
+1Password and use Windows OpenSSH explicitly rather than restoring the Windows
+PATH. Test it with:
+
+```bash
+/mnt/c/Windows/System32/OpenSSH/ssh.exe -T git@github.com
+```
+
+Then add the following machine-local setting to `~/.config/git/local`:
+
+```gitconfig
+[core]
+    sshCommand = /mnt/c/Windows/System32/OpenSSH/ssh.exe
+```
+
+Any 1Password commit-signing snippet also belongs in that local file. This is
+an explicit boundary choice: otherwise Git and SSH remain entirely inside
+Fedora.
+
+## DNS, VPN and networking
+
+WSL networking depends on both the Windows build and the host VPN. When an
+always-on or corporate VPN breaks DNS or routing, first update WSL and compare
+Windows and Fedora resolution. On supported Windows 11 versions, these
+Windows-side `%UserProfile%\.wslconfig` settings are often appropriate:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+dnsTunneling=true
+autoProxy=true
+```
+
+Apply changes with `wsl --shutdown`. Corporate VPN and endpoint policy may
+override them, so this repository documents the choice but does not rewrite
+`resolv.conf`, routes, Windows firewall rules, proxy policy or VPN settings.
+
+## Validation
+
+The normal installer verifies `command -v` ownership and starts representative
+`.NET`, Node/npm/npx, Python/uv and optional OCaml commands. For disposable,
+network-dependent project tests covering .NET, Angular/TypeScript, Python and
+the installed OCaml profile, run:
+
+```bash
+./install.sh --platform fedora-wsl --smoke-test
+```
+
+The WSL profile does not install AI tooling. A future optional AI profile can
+compose with it; the early PATH policy ensures a Linux-native installation
+takes precedence over any Windows executable.
 
 ---
 
@@ -395,17 +574,20 @@ Then run:
 
 # Installation architecture
 
-The repository has two ownership layers:
+The repository has three ownership layers:
 
 | Layer | Owns | Must not own |
 |---|---|---|
 | Portable common | Shared Stow packages, user-local Git/theme state, mise tools, opam switch/tool setup, and the tmux theme | Native package-manager installation, services, hardware, desktop integration, or OS-specific paths |
 | `platforms/fedora` | DNF/Terra packages, including the opam binary and OCaml build prerequisites; KDE and Sway integration; system services; SELinux/system paths; Secure Boot; and ASUS hardware | Copies of shared Zsh/Git/Neovim/tmux/mise configuration or OCaml packages inside opam switches |
+| `platforms/fedora-wsl` | WSL detection, CLI prerequisites, early Windows PATH isolation, explicit clipboard/browser interop and WSL verification | Fedora desktop, Ghostty, hardware, GPU, VM host/guest, invasive host networking changes, credentials or copies of portable configuration |
 
 The shared Stow package directories remain at the repository root to preserve
 existing symlink targets. `common/stow.sh` is their authoritative package
-manifest and deployment entry point. A future platform installer should call
-the common scripts directly and then add only its own integration layer.
+manifest and deployment entry point. Each platform installer calls the common
+scripts directly and then adds only its own integration layer.
+`common/stow.sh --headless` omits the Linux GUI terminal package for the WSL
+composition without changing the normal Fedora manifest.
 
 Fedora-specific shell paths and theme behavior are injected through tracked
 platform files under `platforms/fedora/stow`; the portable Zsh and `theme`
@@ -441,6 +623,23 @@ install.sh                         compatibility entry point
 
 The historical `scripts/*.sh` paths remain thin compatibility entry points for
 Fedora. Component scripts are individually callable and safe to rerun.
+
+The Fedora WSL flow is deliberately smaller:
+
+```text
+install.sh --platform fedora-wsl
+│
+└── platforms/fedora-wsl/install.sh
+    ├── platforms/fedora-wsl/scripts/install-system.sh
+    ├── platforms/fedora/scripts/install-ocaml.sh       optional prerequisites
+    ├── common/setup-local.sh
+    ├── common/stow.sh --headless
+    ├── platforms/fedora-wsl/scripts/stow.sh
+    ├── common/install-mise.sh
+    ├── common/install-ocaml.sh                         optional switch/tools
+    ├── common/install-tmux-theme.sh
+    └── platforms/fedora-wsl/scripts/verify.sh
+```
 
 ## Optional VM-host profile
 
@@ -1775,11 +1974,13 @@ tooling in temporary directories:
 
 ```bash
 ./scripts/test-dev-workflows.sh
+./scripts/test-dev-workflows.sh --dotnet
 ./scripts/test-dev-workflows.sh --angular
 ./scripts/test-dev-workflows.sh --python
 ./scripts/test-dev-workflows.sh --ocaml
 ```
 
+The .NET check creates, restores, builds and runs a disposable console project.
 The Angular check installs only fixture-local dependencies, formats, lints,
 tests, exercises both the modern and debug builds with source maps, starts the
 debug server, and probes it.
