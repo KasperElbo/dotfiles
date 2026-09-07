@@ -66,7 +66,11 @@ return {
       -- EasyDotnet owns project-aware DAP registration and uses the
       -- Mason-owned netcoredbg binary instead of downloading another copy.
       debugger = {
-        bin_path = LazyVim.get_pkg_path("netcoredbg", "/libexec/netcoredbg/netcoredbg"),
+        bin_path = LazyVim.get_pkg_path(
+          "netcoredbg",
+          "/libexec/netcoredbg/netcoredbg",
+          { warn = false }
+        ),
         auto_register_dap = true,
       },
 
