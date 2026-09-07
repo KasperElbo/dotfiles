@@ -96,7 +96,12 @@ fi
 
 section "Linux-native commands"
 
-login_path="$(zsh -lic 'print -r -- "$PATH"' 2>/dev/null || true)"
+login_path="$(
+  zsh -lic \
+    'printf "\n__DOTFILES_VERIFY_PATH__%s\n" "$PATH"' 2>/dev/null |
+    sed -n 's/^__DOTFILES_VERIFY_PATH__//p' |
+    tail -n 1
+)"
 if [[ -z "$login_path" ]]; then
   fail "Could not inspect the Zsh login PATH"
 else
@@ -120,7 +125,13 @@ if [[ -r "$theme_state" ]]; then
   selected_theme="$(<"$theme_state")"
 fi
 expected_starship_config="$XDG_CONFIG_HOME/starship/catppuccin-${selected_theme}.toml"
-starship_config="$(zsh -lic 'print -r -- "${STARSHIP_CONFIG:-}"' 2>/dev/null || true)"
+starship_config="$(
+  zsh -lic \
+    'printf "\n__DOTFILES_VERIFY_STARSHIP__%s\n" "${STARSHIP_CONFIG:-}"' \
+    2>/dev/null |
+    sed -n 's/^__DOTFILES_VERIFY_STARSHIP__//p' |
+    tail -n 1
+)"
 if [[ "$starship_config" != "$expected_starship_config" ]]; then
   fail "Zsh STARSHIP_CONFIG is not the selected theme: ${starship_config:-unset}"
 elif [[ ! -r "$starship_config" ]]; then
