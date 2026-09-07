@@ -186,7 +186,6 @@ else
   for package in \
     amd-gpu-firmware \
     mesa-dri-drivers \
-    mesa-va-drivers \
     mesa-vulkan-drivers; do
     if rpm -q "$package" >/dev/null 2>&1; then
       pass "Package installed: $package"
@@ -194,6 +193,13 @@ else
       fail "Package missing: $package"
     fi
   done
+
+  if mesa_va_provider="$(rpm -q --whatprovides mesa-va-drivers 2>/dev/null)" &&
+    [[ -n "$mesa_va_provider" ]]; then
+    pass "RPM capability provided: mesa-va-drivers ($mesa_va_provider)"
+  else
+    fail "RPM capability missing: mesa-va-drivers"
+  fi
 
   amd_gpu_count="$(
     grep -Ei 'VGA compatible controller|3D controller|Display controller' \
