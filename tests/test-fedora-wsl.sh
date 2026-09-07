@@ -18,6 +18,7 @@ dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ocaml)"
 assert_contains "$dry_run" 'Fedora WSL installation plan'
 assert_contains "$dry_run" 'common/install-mise.sh'
 assert_contains "$dry_run" 'common/install-ocaml.sh'
+assert_contains "$dry_run" "Set Zsh as the user's default login shell."
 assert_contains "$dry_run" 'Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, desktop,'
 
 if "$repo_root/install.sh" --platform unknown --dry-run \
@@ -40,8 +41,10 @@ home="$test_root/home"
 config="$home/.config"
 stow_log="$test_root/stow.log"
 command_log="$test_root/commands.log"
+shell_state="$test_root/login-shell"
 mkdir -p "$mock_bin" "$home/.local/bin" "$config"
 printf 'ID=fedora\n' >"$test_root/os-release"
+printf '/bin/bash\n' >"$shell_state"
 
 cat >"$mock_bin/dnf" <<'EOF'
 #!/usr/bin/env bash
@@ -54,7 +57,27 @@ EOF
 cat >"$mock_bin/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
+if [[ "$1" == usermod && "$2" == --shell ]]; then
+  printf '%s\n' "$3" >"$SHELL_STATE"
+fi
 exit 0
+EOF
+cat >"$mock_bin/id" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == -un ]]; then
+  printf 'fedora-test\n'
+else
+  /usr/bin/id "$@"
+fi
+EOF
+cat >"$mock_bin/getent" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == passwd && "${2:-}" == fedora-test ]]; then
+  printf 'fedora-test:x:1000:1000:Fedora Test:/home/fedora-test:%s\n' \
+    "$(<"$SHELL_STATE")"
+else
+  /usr/bin/getent "$@"
+fi
 EOF
 cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -100,6 +123,7 @@ test_environment=(
   "WSL_DISTRO_NAME=FedoraLinux"
   "OS_RELEASE_FILE=$test_root/os-release"
   "COMMAND_LOG=$command_log"
+  "SHELL_STATE=$shell_state"
 )
 
 "${test_environment[@]}" \
@@ -107,7 +131,8 @@ test_environment=(
 [[ -x "$home/.local/bin/mise" ]]
 [[ -x "$home/.local/bin/starship" ]]
 grep -Fq 'sudo dnf install -y bat bzip2 curl eza fd-find fzf gawk' "$command_log"
-grep -Fq "sudo usermod --shell /bin/zsh $(id -un)" "$command_log"
+grep -Fq 'sudo usermod --shell /bin/zsh fedora-test' "$command_log"
+grep -Fqx '/bin/zsh' "$shell_state"
 if grep -Fq ' starship' "$command_log"; then
   printf 'Fedora WSL must not request unavailable Starship from DNF.\n' >&2
   exit 1
@@ -122,6 +147,7 @@ first_mise="$(sha256sum "$home/.local/bin/mise")"
 "${test_environment[@]}" \
   "$repo_root/platforms/fedora-wsl/scripts/install-system.sh" >/dev/null
 [[ "$(sha256sum "$home/.local/bin/mise")" == "$first_mise" ]]
+[[ "$(grep -Fc 'sudo usermod --shell /bin/zsh fedora-test' "$command_log")" == 1 ]]
 
 STOW_LOG="$stow_log" HOME="$home" XDG_CONFIG_HOME="$config" \
   PATH="$mock_bin:/usr/bin:/bin" \
@@ -213,10 +239,12 @@ bootstrap_home="$test_root/bootstrap-home"
 bootstrap_config="$bootstrap_home/.config"
 bootstrap_data="$bootstrap_home/.local/share"
 bootstrap_bin="$test_root/bootstrap-bin"
+bootstrap_shell_state="$test_root/bootstrap-login-shell"
 mkdir -p \
   "$bootstrap_config/git" \
   "$bootstrap_data/tmux/plugins" \
   "$bootstrap_bin"
+printf '/bin/bash\n' >"$bootstrap_shell_state"
 
 cat >"$bootstrap_bin/mock-command" <<'EOF'
 #!/usr/bin/env bash
@@ -224,9 +252,30 @@ exit 0
 EOF
 cat >"$bootstrap_bin/sudo" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$1" == usermod && "$2" == --shell ]]; then
+  printf '%s\n' "$3" >"$SHELL_STATE"
+fi
 exit 0
 EOF
-chmod +x "$bootstrap_bin/mock-command" "$bootstrap_bin/sudo"
+cat >"$bootstrap_bin/id" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == -un ]]; then
+  printf 'fedora-test\n'
+else
+  /usr/bin/id "$@"
+fi
+EOF
+cat >"$bootstrap_bin/getent" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == passwd && "${2:-}" == fedora-test ]]; then
+  printf 'fedora-test:x:1000:1000:Fedora Test:/home/fedora-test:%s\n' \
+    "$(<"$SHELL_STATE")"
+else
+  /usr/bin/getent "$@"
+fi
+EOF
+chmod +x "$bootstrap_bin/mock-command" "$bootstrap_bin/sudo" \
+  "$bootstrap_bin/id" "$bootstrap_bin/getent"
 
 bootstrap_commands=(
   ast-grep bat curl delta dnf dotnet dotnet-easydotnet eza fd fzf gh lazygit
@@ -241,6 +290,8 @@ cat >"$bootstrap_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$*" == *'print -r -- "$PATH"'* ]]; then
   printf '%s\n' "$PATH"
+elif [[ "$*" == *'STARSHIP_CONFIG'* ]]; then
+  printf '%s\n' "$XDG_CONFIG_HOME/starship/catppuccin-macchiato.toml"
 fi
 EOF
 chmod +x "$bootstrap_bin/zsh"
@@ -267,6 +318,7 @@ bootstrap_environment=(
   "PATH=$bootstrap_home/.local/bin:$bootstrap_bin:$PATH"
   "WSL_DISTRO_NAME=FedoraLinux"
   "OS_RELEASE_FILE=$test_root/os-release"
+  "SHELL_STATE=$bootstrap_shell_state"
 )
 
 run_bootstrap() {
@@ -289,5 +341,6 @@ run_bootstrap
 [[ -L "$bootstrap_home/.zshenv" ]]
 [[ -L "$bootstrap_config/zsh/platform-env.zsh" ]]
 [[ ! -e "$bootstrap_config/ghostty/config" ]]
+grep -Fqx '/bin/zsh' "$bootstrap_shell_state"
 
 printf 'Fedora WSL platform composition, safety and idempotency tests passed.\n'

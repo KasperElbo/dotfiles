@@ -47,6 +47,13 @@ assert_contains "$dotnet_config" 'auto_register_dap = true'
 assert_contains "$dotnet_config" '"jay-babu/mason-nvim-dap.nvim"'
 assert_contains "$dotnet_config" 'coreclr = function() end'
 
+command -v nvim >/dev/null 2>&1 || fail "nvim is required for first-launch tests"
+nvim_log="$(mktemp)"
+trap 'rm -f -- "$nvim_log"' EXIT
+NVIM_LOG_FILE="$nvim_log" nvim --headless -u NONE -i NONE \
+  -c 'lua dofile("tests/test-neovim-first-launch.lua")' \
+  -c 'quitall!'
+
 formatting_config="$lazyvim_config/lua/plugins/formatting.lua"
 assert_contains "$formatting_config" 'cs = { "csharpier" }'
 assert_contains "$formatting_config" 'typescript = { "prettier" }'

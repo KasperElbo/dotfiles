@@ -93,6 +93,7 @@ Steps:
   1. Validate that this is the official Fedora distribution running in WSL.
 
   2. Install Fedora command-line prerequisites and Linux-native mise.
+     Set Zsh as the user's default login shell.
      platforms/fedora-wsl/scripts/install-system.sh
 
   3. Initialize machine-local Git and theme state.
