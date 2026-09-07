@@ -28,6 +28,7 @@ packages=(
   procps-ng
   ripgrep
   ShellCheck
+  shadow-utils
   sqlite
   sqlite-devel
   stow
@@ -41,6 +42,19 @@ packages=(
 
 info "Installing Fedora WSL command-line prerequisites"
 sudo dnf install -y "${packages[@]}"
+
+current_user="$(id -un)"
+current_shell="$(getent passwd "$current_user")"
+current_shell="${current_shell##*:}"
+
+if [[ "$current_shell" == /bin/zsh ]]; then
+  info "Zsh is already the default login shell"
+else
+  info "Setting Zsh as the default login shell"
+  sudo usermod --shell /bin/zsh "$current_user"
+fi
+
+unset current_user current_shell
 
 if command_exists starship || [[ -x "$HOME/.local/bin/starship" ]]; then
   info "Starship is already installed"
