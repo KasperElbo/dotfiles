@@ -52,6 +52,7 @@ echo "Applying Catppuccin $flavour to KDE..."
 qdbus_command=""
 wallpaper_snapshot=""
 wallpaper="$(fedora_theme_wallpaper "$flavour")"
+lock_wallpaper="$(fedora_theme_lock_wallpaper "$flavour")"
 
 for candidate in qdbus6 qdbus; do
   if command -v "$candidate" >/dev/null 2>&1; then
@@ -154,6 +155,27 @@ if [[ "$preserve_wallpaper" != "true" ]]; then
   else
     warn "plasma-apply-wallpaperimage is unavailable; KDE wallpaper was not changed"
   fi
+fi
+
+if [[ ! -f "$lock_wallpaper" ]]; then
+  warn "KDE lock-screen wallpaper is missing: $lock_wallpaper"
+elif command -v kwriteconfig6 >/dev/null 2>&1; then
+  kwriteconfig6 \
+    --file kscreenlockerrc \
+    --group Greeter \
+    --key WallpaperPlugin org.kde.image
+
+  for key in Image PreviewImage; do
+    kwriteconfig6 \
+      --file kscreenlockerrc \
+      --group Greeter \
+      --group Wallpaper \
+      --group org.kde.image \
+      --group General \
+      --key "$key" "$lock_wallpaper"
+  done
+else
+  warn "kwriteconfig6 is unavailable; KDE lock-screen wallpaper was not changed"
 fi
 
 plasma-apply-colorscheme "$color_scheme"
