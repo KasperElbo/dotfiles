@@ -45,8 +45,12 @@ grep -Fq 'leaving it in control' "$installer"
 
 grep -Fq "[ValidateSet('latte', 'frappe', 'macchiato', 'mocha')]" "$theme_helper"
 grep -Fq "theme = catppuccin-\$Flavor.conf" "$theme_helper"
-grep -Fq "'+perform-action' '--timeout=1000' 'reload_config'" "$theme_helper"
-grep -Fq 'LASTEXITCODE = 0' "$theme_helper"
+grep -Fq 'press Ctrl+Shift+, to reload, or restart Noctty' "$theme_helper"
+
+if grep -Fq '+perform-action' "$theme_helper"; then
+  printf 'Noctty theme helper must not trigger interactive CLI error dialogs.\n' >&2
+  exit 1
+fi
 
 if grep -Fqi 'winget install' "$installer"; then
   printf 'Windows bootstrap must use the currently supported Noctty Scoop bucket.\n' >&2
