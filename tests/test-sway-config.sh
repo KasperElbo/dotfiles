@@ -84,6 +84,8 @@ fi
 EOF
 cat >"$test_root/bin/jq" <<'EOF'
 #!/usr/bin/env bash
+# Consume the producer's input so the Bash mock does not receive SIGPIPE.
+cat >/dev/null
 printf '%s\n' "$CURRENT_WORKSPACE"
 EOF
 chmod +x "$test_root/bin/swaymsg"

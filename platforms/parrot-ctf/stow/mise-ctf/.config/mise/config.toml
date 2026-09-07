@@ -1,0 +1,6 @@
+[tools]
+uv = "latest"
+
+# Parrot/APT owns the system Python used by the distribution and its security
+# tools. Add challenge-specific runtimes in the challenge repository instead
+# of turning this VM profile into the general workstation manifest.

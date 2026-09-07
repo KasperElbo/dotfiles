@@ -1,9 +1,10 @@
-# Fedora Development Dotfiles
+# Development and Security-Lab Dotfiles
 
 Opinionated, reproducible dotfiles for a keyboard-driven development workstation built around:
 
 - Fedora
 - Fedora on WSL, with Windows as the desktop and terminal host
+- Parrot Security Edition in a disposable KVM/QEMU CTF guest
 - KDE Plasma / Wayland, with an optional Sway session
 - Ghostty
 - Zsh
@@ -20,7 +21,8 @@ The current default Catppuccin flavor is **Macchiato** with the **Mauve** accent
 
 ## Design principles
 
-1. **Use the native package manager for machine-level tools.** Fedora/DNF owns operating-system and desktop-integrated tools.
+1. **Use the native package manager for machine-level tools.** Fedora/DNF or
+   Parrot/APT owns operating-system and integrated tools.
 2. **Use mise for general language runtimes and portable developer CLIs.**
    Ecosystems with their own switch model, such as OCaml/opam, remain with
    their native manager.
@@ -34,7 +36,7 @@ The current default Catppuccin flavor is **Macchiato** with the **Mauve** accent
 
 # Supported environment
 
-This configuration has been developed and tested on:
+The workstation configuration has been developed and tested on:
 
 - Fedora 44
 - KDE Plasma on Wayland
@@ -44,8 +46,9 @@ This configuration has been developed and tested on:
 - Neovim 0.12+
 - GNU Stow
 
-The optional guest profile targets Fedora 44 KVM/QEMU guests managed by
-libvirt, with virt-manager as the normal graphical client.
+The optional guest profiles target Fedora 44 and Parrot Security Edition 7.3
+KVM/QEMU guests managed by libvirt, with virt-manager as the normal graphical
+client. Parrot is a CTF/lab guest, not a general-purpose workstation target.
 
 The supported bootstraps are a normal Fedora workstation and the official
 Fedora distribution running under WSL 2. The WSL variant is a Linux development
@@ -82,6 +85,14 @@ official Fedora WSL distribution, select the WSL variant explicitly:
 ```bash
 ./install.sh --platform fedora-wsl --dry-run
 ./install.sh --platform fedora-wsl --non-interactive
+```
+
+From a Parrot Security Edition guest created on the reference Fedora VM host,
+select the dedicated lab profile explicitly:
+
+```bash
+./install.sh --platform parrot-ctf --dry-run
+./install.sh --platform parrot-ctf
 ```
 
 A fully non-interactive example:
@@ -158,7 +169,7 @@ The complete OCaml development environment is explicitly opt-in:
 ## Installer options
 
 ```text
---platform PLATFORM fedora (default) | fedora-wsl
+--platform PLATFORM fedora (default) | fedora-wsl | parrot-ctf
 
 --theme FLAVOUR    latte | frappe | macchiato | mocha
                    default: macchiato
@@ -431,6 +442,114 @@ takes precedence over any Windows executable.
 
 ---
 
+# Parrot Security Edition CTF VM
+
+This variant is an intentionally disposable security-lab guest. Parrot
+Security Edition supplies and updates its own pentesting catalogue through its
+configured APT repositories; this repository supplies only the surrounding
+working environment. It neither enumerates nor reinstalls Parrot's offensive
+tools.
+
+Use the Parrot Security Edition ISO or QCOW2 image with the #13 Fedora host
+profile. The reference guest keeps the same `qemu:///system` backend, qcow2
+storage, UEFI/OVMF firmware, VirtIO disk/network devices, SPICE display, QEMU
+guest-agent channel, and SPICE channel. A representative ISO install is:
+
+```bash
+virt-install \
+  --connect qemu:///system \
+  --name parrot-ctf \
+  --memory 8192 \
+  --vcpus 4 \
+  --disk size=80,format=qcow2,bus=virtio \
+  --network network=default,model=virtio \
+  --graphics spice \
+  --channel unix,target_type=virtio,name=org.qemu.guest_agent.0 \
+  --channel spicevmc \
+  --boot uefi \
+  --cdrom ~/Downloads/Parrot-security.iso
+```
+
+## Network and integration boundary
+
+| Concern | Reference choice |
+|---|---|
+| Normal network | libvirt `default` NAT; inbound access is not exposed by default |
+| CTF target network | A separate isolated libvirt network with forwarding disabled; attach only the lab guests that need it |
+| Host-only access | Use an isolated network shared by the host and selected guests; do not add a physical bridge |
+| Bridged network | Deliberate per-lab choice only, after reviewing exposure to the physical LAN |
+| Host lifecycle | APT-owned `qemu-guest-agent`, enabled through its virtio channel |
+| Display/clipboard | APT-owned `spice-vdagent` over SPICE; disable clipboard sharing for untrusted labs when the client permits it |
+| Shared folders | Off by default; an explicit virtiofs share is convenient but expands the path and symlink attack surface into the host |
+| Credentials | No SSH agent, SSH key, cloud config, GitHub token, password-manager socket, GPG agent, or workstation secret is forwarded or mounted |
+
+Create isolated or host-only networks in virt-manager under **Connection
+Details → Virtual Networks** with forwarding set to **Isolated**. Keep the
+normal NAT adapter only when the guest needs internet access; disconnect it
+while working on a target network if the event does not require internet.
+Bridging is never created or selected by the bootstrap.
+
+Git and `gh` are installed because they are useful for public challenge source
+and write-ups, but `gh auth login`, SSH-agent forwarding, and credential import
+are never run automatically. If a private service is unavoidable, use a
+separate narrowly scoped lab credential and do not bake it into a checkpoint.
+AI tooling is also absent from this profile: install or invoke it only as a
+deliberate per-lab decision after confirming that challenge data may leave the
+guest.
+
+## Disposable and persistent state
+
+Keep `~/src/dotfiles` as the small persistent configuration checkout. Keep
+challenge downloads, captures, malware, generated payloads, credentials, and
+tool state under a separate location such as `~/labs`; treat that entire tree
+as disposable. Do not put lab artifacts into this repository. Persistence is
+best achieved by updating the dotfiles branch or by copying a reviewed,
+non-sensitive write-up out after the lab, not by sharing the workstation home
+directory.
+
+Shut the guest down and create a checkpoint before an event, importing unknown
+artifacts, installing experimental kernels/drivers, or changing network mode:
+
+```bash
+virsh --connect qemu:///system snapshot-create-as \
+  parrot-ctf clean-pre-lab --description 'Clean Parrot CTF baseline'
+virsh --connect qemu:///system snapshot-list parrot-ctf
+```
+
+Use virt-manager's **Snapshots** view for named checkpoints and deliberate
+reverts. A revert discards later guest state, so copy out only explicitly
+reviewed artifacts first. For especially hostile work, clone the clean qcow2
+baseline and delete the clone afterward instead of accumulating snapshots.
+
+## Bootstrap and validation
+
+Inside a clean Parrot Security Edition guest:
+
+```bash
+sudo parrot-upgrade
+mkdir -p ~/src
+git clone <REPOSITORY_URL> ~/src/dotfiles
+cd ~/src/dotfiles
+./install.sh --platform parrot-ctf --dry-run
+./install.sh --platform parrot-ctf
+exec zsh -l
+./platforms/parrot-ctf/scripts/verify.sh
+./install.sh --platform parrot-ctf --non-interactive
+```
+
+The final rerun is the idempotency check. The verifier checks the Parrot and
+KVM/QEMU boundaries, both virtio channels, APT ownership, guest services,
+portable configuration links, Python/uv, and the recorded no-secret-sharing
+state. On the host, `virsh --connect qemu:///system domifaddr parrot-ctf
+--source agent` confirms that the guest agent answers.
+
+Parrot owns Python, `venv`, pip and pipx. mise owns only `uv` in this profile;
+the normal workstation's .NET, Node, Python, Mermaid and language-server
+manifest is intentionally not stowed. Use `uv init`/`uv sync`, a local `.venv`,
+or pipx rather than installing challenge packages into Parrot's system Python.
+
+---
+
 # Choices a user must make
 
 The installer intentionally does not guess personal or security-sensitive information.
@@ -653,6 +772,7 @@ The repository has three ownership layers:
 | Portable common | Shared Stow packages, user-local Git/theme state, mise tools, opam switch/tool setup, and the tmux theme | Native package-manager installation, services, hardware, desktop integration, or OS-specific paths |
 | `platforms/fedora` | DNF/Terra packages, including the opam binary and OCaml build prerequisites; KDE and Sway integration; system services; SELinux/system paths; Secure Boot; and ASUS hardware | Copies of shared Zsh/Git/Neovim/tmux/mise configuration or OCaml packages inside opam switches |
 | `platforms/fedora-wsl` | WSL detection, CLI prerequisites, early Windows PATH isolation, explicit clipboard/browser interop and WSL verification | Fedora desktop, Ghostty, hardware, GPU, VM host/guest, invasive host networking changes, credentials or copies of portable configuration |
+| `platforms/parrot-ctf` | Parrot/APT prerequisites, KVM/SPICE guest agents, Debian command shims, a narrow uv-only mise manifest, and lab-boundary verification | Fedora/Terra/KDE/ASUS provisioning, host virtualization, credentials, shared folders, or a duplicate Parrot security-tool catalogue |
 
 The shared Stow package directories remain at the repository root to preserve
 existing symlink targets. `common/stow.sh` is their authoritative package
@@ -660,6 +780,8 @@ manifest and deployment entry point. Each platform installer calls the common
 scripts directly and then adds only its own integration layer.
 `common/stow.sh --headless` omits the Linux GUI terminal package for the WSL
 composition without changing the normal Fedora manifest.
+`common/stow.sh --headless --without-mise` lets the Parrot profile substitute
+its narrow lab manifest without inheriting general-workstation runtimes.
 
 Fedora-specific shell paths and theme behavior are injected through tracked
 platform files under `platforms/fedora/stow`; the portable Zsh and `theme`
@@ -711,6 +833,23 @@ install.sh --platform fedora-wsl
     ├── common/install-ocaml.sh                         optional switch/tools
     ├── common/install-tmux-theme.sh
     └── platforms/fedora-wsl/scripts/verify.sh
+```
+
+The Parrot CTF flow is a separate guest-only composition:
+
+```text
+install.sh --platform parrot-ctf
+│
+└── platforms/parrot-ctf/install.sh
+    ├── Parrot + KVM/QEMU/channel preflight
+    ├── platforms/parrot-ctf/scripts/install-system.sh
+    ├── platforms/parrot-ctf/scripts/install-guest-integration.sh
+    ├── common/setup-local.sh
+    ├── common/stow.sh --headless --without-mise
+    ├── platforms/parrot-ctf/scripts/stow.sh
+    ├── common/install-mise.sh                         uv only
+    ├── common/install-tmux-theme.sh
+    └── platforms/parrot-ctf/scripts/verify.sh
 ```
 
 ## Optional VM-host profile
@@ -999,6 +1138,16 @@ starship
 ```
 
 These remain RPM-owned. mise itself is **not** installed by mise.
+
+## Parrot / APT
+
+The `parrot-ctf` profile installs only shell/editor/Python prerequisites and
+`qemu-guest-agent`/`spice-vdagent`. Parrot Security Edition's existing security
+packages and repositories remain untouched and APT-owned. Debian's `batcat`
+and `fdfind` command names are exposed as `bat` and `fd` through two small
+Parrot-only wrappers. Starship is APT-owned; mise is installed in
+`~/.local/bin` from its upstream installer and installs only `uv` from the
+Parrot manifest.
 
 ## mise
 
