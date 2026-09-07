@@ -107,6 +107,7 @@ test_environment=(
 [[ -x "$home/.local/bin/mise" ]]
 [[ -x "$home/.local/bin/starship" ]]
 grep -Fq 'sudo dnf install -y bat bzip2 curl eza fd-find fzf gawk' "$command_log"
+grep -Fq "sudo usermod --shell /bin/zsh $(id -un)" "$command_log"
 if grep -Fq ' starship' "$command_log"; then
   printf 'Fedora WSL must not request unavailable Starship from DNF.\n' >&2
   exit 1

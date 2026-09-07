@@ -187,7 +187,8 @@ info "Verifying Fedora WSL installation"
 
 cat <<'EOF'
 
-Fedora WSL setup completed. Start a new Zsh session before normal use.
+Fedora WSL setup completed. Zsh will be used for new sessions. Run `exec zsh -l`
+to replace the shell in the current terminal.
 
 Manual choices still remain for Git identity and authentication. See the
 Fedora WSL section in README.md; no credentials are stored in this repository.

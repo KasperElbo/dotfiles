@@ -296,6 +296,10 @@ cd ~/src/dotfiles
 ./install.sh --platform fedora-wsl
 ```
 
+The installer makes Zsh the user's default login shell. Run `exec zsh -l`
+after installation to replace the Bash process in the current terminal; new
+WSL sessions start Zsh automatically.
+
 Keep repositories under the WSL Linux filesystem, normally `~/src`. `/mnt/c`
 is useful for exchanging files with Windows, but its metadata, file-watching,
 case-sensitivity and I/O behavior make it a poor default for Git repositories,
