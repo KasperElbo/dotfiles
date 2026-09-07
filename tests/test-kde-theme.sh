@@ -72,10 +72,12 @@ install_environment=(
   "PATH=$mock_bin:$PATH"
 )
 
-for run in 1 2; do
+install_kde_themes() {
   "${install_environment[@]}" \
     "$repo_root/platforms/fedora/scripts/install-kde-theme.sh" >/dev/null
-done
+}
+install_kde_themes
+install_kde_themes
 
 for flavour in 1 2 3 4; do
   [[ "$(grep -Fxc "$flavour 4 2 auto" "$install_log")" == 2 ]]
