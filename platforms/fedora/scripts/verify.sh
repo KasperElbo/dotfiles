@@ -89,6 +89,22 @@ for cmd in "${commands[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
+# Login shell
+# ---------------------------------------------------------------------------
+
+section "Login shell"
+
+current_user="$(id -un)"
+login_shell="$(login_shell_for_user "$current_user" 2>/dev/null || true)"
+zsh_path="$(resolve_zsh_path 2>/dev/null || true)"
+
+if shell_paths_match "$login_shell" "$zsh_path"; then
+  pass "Zsh is the default login shell"
+else
+  fail "Default login shell is not Zsh: ${login_shell:-unknown}"
+fi
+
+# ---------------------------------------------------------------------------
 # Stow-managed configuration
 # ---------------------------------------------------------------------------
 

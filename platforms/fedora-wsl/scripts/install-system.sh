@@ -43,18 +43,7 @@ packages=(
 info "Installing Fedora WSL command-line prerequisites"
 sudo dnf install -y "${packages[@]}"
 
-current_user="$(id -un)"
-current_shell="$(getent passwd "$current_user")"
-current_shell="${current_shell##*:}"
-
-if [[ "$current_shell" == /bin/zsh ]]; then
-  info "Zsh is already the default login shell"
-else
-  info "Setting Zsh as the default login shell"
-  sudo usermod --shell /bin/zsh "$current_user"
-fi
-
-unset current_user current_shell
+ensure_zsh_login_shell
 
 # A fresh Fedora WSL account does not necessarily have this XDG user binary
 # directory yet. Both the Starship and mise installers require its parent

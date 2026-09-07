@@ -234,6 +234,7 @@ Battery limit:       ${hardware_charge_limit:-unchanged}
 Steps:
 
   1. Install Fedora system packages
+     Set Zsh as the user's default login shell.
      platforms/fedora/scripts/install-system.sh
 
   2. Enable Terra and install Terra-managed packages

@@ -68,6 +68,9 @@ run_failure() {
 
 run_success "default dry-run" "ASUS hardware:       disabled" \
   ./install.sh --dry-run
+run_success "default login shell dry-run" \
+  "Set Zsh as the user's default login shell." \
+  ./install.sh --dry-run
 run_success "optional feature dry-run" "LaTeX toolchain:     true" \
   ./install.sh --dry-run --theme latte --kde --latex
 run_success "OCaml remains opt-in" "OCaml profile:       false" \

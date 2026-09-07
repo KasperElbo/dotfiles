@@ -79,6 +79,10 @@ Install using the defaults:
 ./install.sh
 ```
 
+The installer makes Zsh the invoking user's default login shell. Run
+`exec zsh -l` to replace the current shell immediately; new Ghostty terminals
+inherit Zsh from the account login-shell setting.
+
 The default platform remains a normal Fedora workstation. From inside an
 official Fedora WSL distribution, select the WSL variant explicitly:
 

@@ -64,11 +64,11 @@ exit 0
 EOF
 cat >"$mock_bin/id" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == -un ]]; then
-  printf 'fedora-test\n'
-else
-  /usr/bin/id "$@"
-fi
+case "${1:-}" in
+  -u) printf '1000\n' ;;
+  -un) printf 'fedora-test\n' ;;
+  *) /usr/bin/id "$@" ;;
+esac
 EOF
 cat >"$mock_bin/getent" <<'EOF'
 #!/usr/bin/env bash
@@ -130,9 +130,10 @@ test_environment=(
   "$repo_root/platforms/fedora-wsl/scripts/install-system.sh" >/dev/null
 [[ -x "$home/.local/bin/mise" ]]
 [[ -x "$home/.local/bin/starship" ]]
+expected_zsh_path="$(PATH="$mock_bin:/usr/bin:/bin" command -v zsh)"
 grep -Fq 'sudo dnf install -y bat bzip2 curl eza fd-find fzf gawk' "$command_log"
-grep -Fq 'sudo usermod --shell /bin/zsh fedora-test' "$command_log"
-grep -Fqx '/bin/zsh' "$shell_state"
+grep -Fq "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log"
+grep -Fqx "$expected_zsh_path" "$shell_state"
 if grep -Fq ' starship' "$command_log"; then
   printf 'Fedora WSL must not request unavailable Starship from DNF.\n' >&2
   exit 1
@@ -147,7 +148,7 @@ first_mise="$(sha256sum "$home/.local/bin/mise")"
 "${test_environment[@]}" \
   "$repo_root/platforms/fedora-wsl/scripts/install-system.sh" >/dev/null
 [[ "$(sha256sum "$home/.local/bin/mise")" == "$first_mise" ]]
-[[ "$(grep -Fc 'sudo usermod --shell /bin/zsh fedora-test' "$command_log")" == 1 ]]
+[[ "$(grep -Fc "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log")" == 1 ]]
 
 STOW_LOG="$stow_log" HOME="$home" XDG_CONFIG_HOME="$config" \
   PATH="$mock_bin:/usr/bin:/bin" \
@@ -259,11 +260,11 @@ exit 0
 EOF
 cat >"$bootstrap_bin/id" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == -un ]]; then
-  printf 'fedora-test\n'
-else
-  /usr/bin/id "$@"
-fi
+case "${1:-}" in
+  -u) printf '1000\n' ;;
+  -un) printf 'fedora-test\n' ;;
+  *) /usr/bin/id "$@" ;;
+esac
 EOF
 cat >"$bootstrap_bin/getent" <<'EOF'
 #!/usr/bin/env bash
@@ -344,6 +345,6 @@ run_bootstrap
 [[ -L "$bootstrap_home/.zshenv" ]]
 [[ -L "$bootstrap_config/zsh/platform-env.zsh" ]]
 [[ ! -e "$bootstrap_config/ghostty/config" ]]
-grep -Fqx '/bin/zsh' "$bootstrap_shell_state"
+grep -Fqx "$bootstrap_bin/zsh" "$bootstrap_shell_state"
 
 printf 'Fedora WSL platform composition, safety and idempotency tests passed.\n'
