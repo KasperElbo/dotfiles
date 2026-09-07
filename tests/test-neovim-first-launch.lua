@@ -23,3 +23,76 @@ end
 
 assert(easy_dotnet, "easy-dotnet plugin spec not found")
 assert(easy_dotnet.opts.debugger.bin_path == "/not-installed-yet/libexec/netcoredbg/netcoredbg")
+
+local inventory_path = "nvim-lazyvim/.config/nvim/mason-packages.txt"
+local mason_config = dofile("nvim-lazyvim/.config/nvim/lua/config/mason.lua")
+local packages = mason_config.packages(inventory_path)
+assert(#packages == 15, "expected the complete Mason package inventory")
+assert(vim.tbl_contains(packages, "debugpy"), "debugpy is missing from the Mason inventory")
+assert(vim.tbl_contains(packages, "roslyn"), "roslyn is missing from the Mason inventory")
+assert(not vim.tbl_contains(packages, "ocaml-lsp"), "OCaml LSP must remain opam-owned")
+
+local previous_mason_module = package.loaded["config.mason"]
+local previous_bootstrap = vim.env.DOTFILES_MASON_BOOTSTRAP
+package.loaded["config.mason"] = {
+  packages = function()
+    return packages
+  end,
+}
+
+vim.env.DOTFILES_MASON_BOOTSTRAP = nil
+local mason_plugins = dofile("nvim-lazyvim/.config/nvim/lua/plugins/mason.lua")
+local mason_opts = { ensure_installed = { "stylua" } }
+mason_plugins[1].opts(nil, mason_opts)
+assert(#mason_opts.ensure_installed == #packages, "Mason ensure_installed does not match the inventory")
+for _, package in ipairs(packages) do
+  local count = 0
+  for _, installed in ipairs(mason_opts.ensure_installed) do
+    count = count + (installed == package and 1 or 0)
+  end
+  assert(count == 1, "Mason package is missing or duplicated: " .. package)
+end
+
+vim.env.DOTFILES_MASON_BOOTSTRAP = "1"
+mason_opts = { ensure_installed = { "stylua", "roslyn" } }
+mason_plugins[1].opts(nil, mason_opts)
+assert(#mason_opts.ensure_installed == 0, "bootstrap must suppress Mason's asynchronous ensure loop")
+
+vim.env.DOTFILES_MASON_BOOTSTRAP = previous_bootstrap
+package.loaded["config.mason"] = previous_mason_module
+
+local previous_mason = package.loaded.mason
+local previous_mason_command = package.loaded["mason.api.command"]
+local previous_mason_plugin = vim.env.DOTFILES_MASON_PLUGIN
+local previous_mason_packages = vim.env.DOTFILES_MASON_PACKAGES
+local mason_setup_opts
+local bootstrap_packages
+
+package.loaded.mason = {
+  setup = function(opts)
+    mason_setup_opts = opts
+  end,
+}
+package.loaded["mason.api.command"] = {
+  MasonInstall = function(requested_packages)
+    bootstrap_packages = requested_packages
+  end,
+}
+vim.env.DOTFILES_MASON_PLUGIN = vim.fn.getcwd()
+vim.env.DOTFILES_MASON_PACKAGES = table.concat(packages, " ")
+
+dofile("common/bootstrap-mason.lua")
+
+assert(#bootstrap_packages == #packages, "headless bootstrap package count does not match inventory")
+for index, package in ipairs(packages) do
+  assert(bootstrap_packages[index] == package, "headless bootstrap package mismatch: " .. package)
+end
+assert(
+  vim.tbl_contains(mason_setup_opts.registries, "github:Crashdummyy/mason-registry"),
+  "headless bootstrap omitted the custom .NET Mason registry"
+)
+
+vim.env.DOTFILES_MASON_PLUGIN = previous_mason_plugin
+vim.env.DOTFILES_MASON_PACKAGES = previous_mason_packages
+package.loaded.mason = previous_mason
+package.loaded["mason.api.command"] = previous_mason_command

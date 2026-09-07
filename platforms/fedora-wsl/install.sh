@@ -105,9 +105,12 @@ Steps:
 
   5. Install mise-managed Linux runtimes and developer CLIs.
      common/install-mise.sh
+
+  6. Restore LazyVim and install the intended Mason inventory.
+     common/install-neovim-tools.sh
 EOF
 
-  step=6
+  step=7
   if [[ "$install_ocaml" == "true" ]]; then
     cat <<EOF
 
@@ -165,6 +168,7 @@ fi
 "$DOTFILES_ROOT/common/setup-local.sh" "$theme"
 "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/stow.sh"
 "$DOTFILES_ROOT/common/install-mise.sh"
+"$DOTFILES_ROOT/common/install-neovim-tools.sh"
 
 if [[ "$install_ocaml" == "true" ]]; then
   "$DOTFILES_ROOT/common/install-ocaml.sh"

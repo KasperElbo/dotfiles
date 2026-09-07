@@ -239,6 +239,40 @@ else
   fail "uv failed"
 fi
 
+section "Neovim tooling"
+
+mason_root="${XDG_DATA_HOME}/nvim/mason/packages"
+mason_inventory="$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
+mason_packages=()
+if [[ -r "$mason_inventory" ]]; then
+  mapfile -t mason_packages < <(
+    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$mason_inventory"
+  )
+else
+  fail "Mason package inventory missing: $mason_inventory"
+fi
+
+((${#mason_packages[@]} > 0)) || fail "Mason package inventory is empty"
+
+for package in "${mason_packages[@]}"; do
+  if [[ -d "$mason_root/$package" ]]; then
+    pass "Mason: $package"
+  else
+    fail "Mason package not installed: $package"
+  fi
+done
+
+if [[ -d "$mason_root" ]]; then
+  for package_dir in "$mason_root"/*; do
+    [[ -d "$package_dir" ]] || continue
+
+    package="$(basename "$package_dir")"
+    if ! printf '%s\n' "${mason_packages[@]}" | grep -Fxq "$package"; then
+      warning "Unexpected Mason package (review ownership): $package"
+    fi
+  done
+fi
+
 section "Configuration links"
 
 check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/"

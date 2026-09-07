@@ -199,10 +199,8 @@ mock_commands=(
   lazygit
   lookandfeeltool
   makoctl
-  mise
   neovim-node-host
   node
-  nvim
   pgrep
   pkill
   plasma-apply-colorscheme
@@ -226,6 +224,28 @@ mock_commands=(
 for command_name in "${mock_commands[@]}"; do
   ln -s mock-command "$mock_bin/$command_name"
 done
+
+cat >"$mock_bin/mise" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == exec && "${2:-}" == -- ]]; then
+  shift 2
+  exec "$@"
+fi
+exit 0
+EOF
+chmod +x "$mock_bin/mise"
+
+cat >"$mock_bin/nvim" <<'EOF'
+#!/usr/bin/env bash
+for argument in "$@"; do
+  if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
+    for package in $DOTFILES_MASON_PACKAGES; do
+      mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
+    done
+  fi
+done
+EOF
+chmod +x "$mock_bin/nvim"
 
 cat >"$mock_bin/systemd-detect-virt" <<'EOF'
 #!/usr/bin/env bash

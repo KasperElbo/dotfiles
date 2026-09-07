@@ -11,6 +11,10 @@ return {
         table.insert(opts.registries, "github:Crashdummyy/mason-registry")
       end
 
+      if vim.env.DOTFILES_MASON_BOOTSTRAP == "1" then
+        return
+      end
+
       opts.ensure_installed = opts.ensure_installed or {}
 
       for _, package in ipairs({

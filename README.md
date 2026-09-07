@@ -811,6 +811,7 @@ install.sh                         compatibility entry point
     ├── common/stow.sh
     ├── platforms/fedora/scripts/stow.sh
     ├── common/install-mise.sh
+    ├── common/install-neovim-tools.sh
     ├── common/install-ocaml.sh                            optional switch/tools
     ├── common/install-tmux-theme.sh
     ├── platforms/fedora/scripts/install-kde-theme.sh      optional
@@ -836,6 +837,7 @@ install.sh --platform fedora-wsl
     ├── common/stow.sh --headless
     ├── platforms/fedora-wsl/scripts/stow.sh
     ├── common/install-mise.sh
+    ├── common/install-neovim-tools.sh
     ├── common/install-ocaml.sh                         optional switch/tools
     ├── common/install-tmux-theme.sh
     └── platforms/fedora-wsl/scripts/verify.sh
@@ -1203,7 +1205,8 @@ switch.
 ## Mason
 
 Mason owns the editor-facing binaries below. This is the complete expected
-inventory, derived from the tracked LazyVim extras and local plugin specs:
+inventory, derived from the tracked LazyVim extras and local plugin specs. The
+canonical package names live in `nvim-lazyvim/.config/nvim/mason-packages.txt`:
 
 | Mason package | Declared by | Responsibility |
 |---|---|---|
@@ -1223,9 +1226,14 @@ inventory, derived from the tracked LazyVim extras and local plugin specs:
 | `vtsls` | LazyVim TypeScript extra, imported by Angular | TypeScript language server using the workspace TypeScript SDK |
 | `yaml-language-server` | LazyVim YAML extra | YAML language support |
 
-`scripts/verify.sh` checks this expected inventory and warns about additional
-Mason packages so stale or manually installed tools can be reviewed instead of
-silently acquiring a second owner.
+The installer first restores the locked lazy.nvim plugin set and then runs a
+blocking, time-limited `:MasonInstall` for any missing packages. This avoids
+depending on language-specific plugins and filetypes loading during an
+interactive first launch. Mason's normal `ensure_installed` configuration uses
+the same inventory, so later interactive starts retain the expected behavior.
+`scripts/verify.sh` fails when an intended package is missing and warns about
+additional Mason packages so stale or manually installed tools can be reviewed
+instead of silently acquiring a second owner.
 
 ## Project-local tooling
 
@@ -2448,15 +2456,14 @@ After a fresh install:
 3. Configure SSH authentication.
 4. Configure optional SSH commit signing.
 5. Run `gh auth login`.
-6. Start Neovim and allow lazy.nvim/Mason to complete setup.
-7. Reboot after the initial installation so the desktop session observes the
+6. Reboot after the initial installation so the desktop session observes the
    Zsh login-shell change. If an ASUS hardware profile also requested a reboot,
    use the same reboot; for the GA402XZ Secure Boot flow, complete MOK
    enrollment during it.
-8. If Sway was installed, select it once at login and confirm the required
+7. If Sway was installed, select it once at login and confirm the required
    outputs. Put any connector-specific rules in `~/.config/sway/local.conf`.
 
-9. Run:
+8. Run:
 
    ```bash
    ./scripts/verify.sh
@@ -2466,7 +2473,7 @@ After a fresh install:
    driver, service, DMI, and Secure Boot checks. For a focused rerun, use
    `./scripts/verify-asus-hardware.sh`.
 
-10. Confirm Git identity:
+9. Confirm Git identity:
 
    ```bash
    git config --show-origin --get user.name
