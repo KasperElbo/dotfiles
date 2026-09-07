@@ -42,7 +42,7 @@ config="$home/.config"
 stow_log="$test_root/stow.log"
 command_log="$test_root/commands.log"
 shell_state="$test_root/login-shell"
-mkdir -p "$mock_bin" "$home/.local/bin" "$config"
+mkdir -p "$mock_bin" "$config"
 printf 'ID=fedora\n' >"$test_root/os-release"
 printf '/bin/bash\n' >"$shell_state"
 
@@ -99,7 +99,7 @@ if [[ "$url" == *starship.rs* ]]; then
     'while [ "$#" -gt 0 ]; do' \
     '  if [ "$1" = "--bin-dir" ]; then bin_dir="$2"; shift 2; else shift; fi' \
     'done' \
-    'mkdir -p "$bin_dir"' \
+    '[ -d "$bin_dir" ] || exit 1' \
     'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$bin_dir/starship"' \
     'chmod +x "$bin_dir/starship"' >"$output"
 else
