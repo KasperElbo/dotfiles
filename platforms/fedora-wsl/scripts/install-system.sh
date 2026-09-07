@@ -56,6 +56,11 @@ fi
 
 unset current_user current_shell
 
+# A fresh Fedora WSL account does not necessarily have this XDG user binary
+# directory yet. Both the Starship and mise installers require its parent
+# directory to exist before they can place their executables there.
+mkdir -p "$HOME/.local/bin"
+
 if command_exists starship || [[ -x "$HOME/.local/bin/starship" ]]; then
   info "Starship is already installed"
 else
