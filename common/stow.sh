@@ -8,11 +8,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 require_command stow
 
 headless="false"
+without_mise="false"
 
 while (($#)); do
   case "$1" in
   --headless)
     headless="true"
+    ;;
+  --without-mise)
+    without_mise="true"
     ;;
   *)
     die "Unknown option: $1"
@@ -27,12 +31,15 @@ packages=(
   fzf
   git
   lazygit
-  mise
   nvim-lazyvim
   starship
   tmux
   zsh
 )
+
+if [[ "$without_mise" == "false" ]]; then
+  packages+=(mise)
+fi
 
 if [[ "$headless" == "false" ]]; then
   packages+=(ghostty)

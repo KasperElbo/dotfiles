@@ -24,10 +24,10 @@ while (($#)); do
 done
 
 case "$platform" in
-fedora | fedora-wsl)
+fedora | fedora-wsl | parrot-ctf)
   ;;
 *)
-  printf 'ERROR: Unsupported platform: %s (expected fedora or fedora-wsl)\n' \
+  printf 'ERROR: Unsupported platform: %s (expected fedora, fedora-wsl, or parrot-ctf)\n' \
     "$platform" >&2
   exit 1
   ;;
