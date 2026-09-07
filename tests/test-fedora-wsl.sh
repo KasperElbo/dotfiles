@@ -79,6 +79,10 @@ else
   /usr/bin/getent "$@"
 fi
 EOF
+cat >"$mock_bin/zsh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
 cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 output=""
