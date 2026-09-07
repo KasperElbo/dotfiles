@@ -30,13 +30,17 @@ param(
     [switch]$DryRun,
 
     [Parameter(DontShow = $true)]
-    [switch]$ElevatedWslPhase
+    [switch]$ElevatedWslPhase,
+
+    [Parameter(DontShow = $true)]
+    [switch]$ElevatedWslUpdateOnly
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $NocttyBucketUrl = 'https://github.com/amanthanvi/scoop-noctty'
+$WslDistributionCatalogUrl = 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json'
 $ManagedBlockStart = '# BEGIN dotfiles Fedora WSL'
 $ManagedBlockEnd = '# END dotfiles Fedora WSL'
 $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
@@ -64,9 +68,13 @@ function Invoke-NativeCommand {
         [string[]]$Arguments = @()
     )
 
-    & $FilePath @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command failed with exit code ${LASTEXITCODE}: $FilePath $($Arguments -join ' ')"
+    # Native stdout is success-stream output in PowerShell. Send it to the host
+    # so callers that capture this function's return value do not also capture
+    # installer progress messages as command paths.
+    & $FilePath @Arguments | Out-Host
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "Command failed with exit code ${exitCode}: $FilePath $($Arguments -join ' ')"
     }
 }
 
@@ -96,23 +104,52 @@ function Get-WslList {
     return ConvertFrom-WslOutput -Lines $output
 }
 
+function Get-WebFedoraDistributions {
+    try {
+        $catalog = Invoke-RestMethod -UseBasicParsing -Uri $WslDistributionCatalogUrl
+        return @(
+            $catalog.ModernDistributions.Fedora |
+                ForEach-Object { $_.Name } |
+                Where-Object { $_ -match '^FedoraLinux(?:-\d+)?$' }
+        )
+    }
+    catch {
+        Write-Warning "Unable to read Microsoft's current WSL distribution catalogue: $($_.Exception.Message)"
+        return @()
+    }
+}
+
 function Resolve-FedoraDistribution {
-    param([string]$RequestedDistribution)
+    param(
+        [string]$RequestedDistribution,
+        [switch]$AllowUnavailable
+    )
 
     $installed = @(Get-WslList)
     $online = @(Get-WslList -Online)
+    $web = @()
 
     if ($RequestedDistribution) {
         if (($installed -notcontains $RequestedDistribution) -and
             ($online -notcontains $RequestedDistribution)) {
-            throw "Fedora distribution '$RequestedDistribution' is neither installed nor advertised by 'wsl --list --online'."
+            $web = @(Get-WebFedoraDistributions)
+            if ($web -notcontains $RequestedDistribution) {
+                if ($AllowUnavailable) {
+                    return $null
+                }
+                throw "Fedora distribution '$RequestedDistribution' is neither installed nor present in Microsoft's WSL catalogues."
+            }
         }
         return $RequestedDistribution
     }
 
     $candidates = @($online | Where-Object { $_ -match '^FedoraLinux(?:-\d+)?$' })
     if ($candidates.Count -eq 0) {
-        throw "No official FedoraLinux distribution was returned by 'wsl --list --online'. Update WSL or pass -FedoraDistribution explicitly."
+        $candidates = @(Get-WebFedoraDistributions)
+    }
+    if ($candidates.Count -eq 0) {
+        if ($AllowUnavailable) { return $null }
+        throw "No official FedoraLinux distribution was found in Microsoft's WSL catalogues."
     }
 
     return $candidates |
@@ -124,6 +161,36 @@ function Resolve-FedoraDistribution {
             @{ Expression = { $_ }; Descending = $true }
         ) |
         Select-Object -First 1
+}
+
+function Update-Wsl {
+    if (-not (Test-Administrator)) {
+        throw 'Updating WSL requires administrator privileges.'
+    }
+
+    Write-Step 'Updating WSL'
+    Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update')
+}
+
+function Invoke-ElevatedWslUpdate {
+    if ($DryRun) {
+        Write-Step 'Would request administrator approval to update WSL'
+        return
+    }
+
+    $powerShellPath = (Get-Process -Id $PID).Path
+    $arguments = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', ('"{0}"' -f $PSCommandPath),
+        '-ElevatedWslUpdateOnly'
+    )
+
+    Write-Step 'The current WSL catalogue does not advertise Fedora; requesting administrator approval to update WSL'
+    $process = Start-Process -FilePath $powerShellPath -ArgumentList $arguments -Verb RunAs -Wait -PassThru
+    if ($process.ExitCode -ne 0) {
+        throw "The elevated WSL update failed with exit code $($process.ExitCode)."
+    }
 }
 
 function Get-WslDistributionVersion {
@@ -175,8 +242,7 @@ function Install-WslDistribution {
         throw 'The internal WSL installation phase requires administrator privileges.'
     }
 
-    Write-Step 'Updating WSL'
-    Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update')
+    Update-Wsl
 
     Write-Step 'Making WSL 2 the default for new distributions'
     Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--set-default-version', '2')
@@ -184,9 +250,15 @@ function Install-WslDistribution {
     $installed = @(Get-WslList)
     if ($installed -notcontains $Distribution) {
         Write-Step "Installing $Distribution without launching its first-run prompt"
-        Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @(
+        $arguments = @(
             '--install', '--distribution', $Distribution, '--no-launch'
         )
+        $online = @(Get-WslList -Online)
+        if ($online -notcontains $Distribution) {
+            Write-Step "$Distribution is absent from the Store catalogue; using WSL web download"
+            $arguments += '--web-download'
+        }
+        Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments $arguments
         return
     }
 
@@ -418,6 +490,15 @@ $ManagedBlockEnd
     Write-Step "Configured Noctty from the tracked Ghostty config for $Distribution"
 }
 
+if ($ElevatedWslPhase -and $ElevatedWslUpdateOnly) {
+    throw 'Only one internal elevated WSL phase may be selected.'
+}
+
+if ($ElevatedWslUpdateOnly) {
+    Update-Wsl
+    exit 0
+}
+
 if ($ElevatedWslPhase) {
     if (-not $FedoraDistribution) {
         throw 'The internal WSL installation phase requires -FedoraDistribution.'
@@ -434,7 +515,23 @@ if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw 'wsl.exe was not found. Install current Windows updates and enable Windows Subsystem for Linux, then rerun this script.'
 }
 
-$selectedFedora = Resolve-FedoraDistribution -RequestedDistribution $FedoraDistribution
+$selectedFedora = Resolve-FedoraDistribution `
+    -RequestedDistribution $FedoraDistribution `
+    -AllowUnavailable
+
+if (-not $selectedFedora) {
+    if ($DryRun) {
+        Write-Warning 'The current WSL catalogue does not advertise an official FedoraLinux distribution.'
+        Invoke-ElevatedWslUpdate
+        Write-Step 'Would rediscover the newest official FedoraLinux distribution after the WSL update'
+        Write-Step 'Dry run stopped at this prerequisite; update WSL and rerun the dry run to preview the remaining changes'
+        exit 0
+    }
+
+    Invoke-ElevatedWslUpdate
+    $selectedFedora = Resolve-FedoraDistribution -RequestedDistribution $FedoraDistribution
+}
+
 Write-Step "Selected Fedora WSL distribution: $selectedFedora"
 
 $installedDistributions = @(Get-WslList)

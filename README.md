@@ -230,6 +230,11 @@ managed area below Noctty's Windows config directory. Rerun the Windows script
 after updating the dotfiles checkout to synchronize changes; Noctty does not
 depend on that checkout remaining at the same path.
 
+If the Store-backed `wsl --list --online` output does not show Fedora, the
+script falls back to Microsoft's published WSL distribution catalogue and uses
+`wsl --install --web-download`. This keeps discovery dynamic without requiring
+the Fedora image to be available through the Microsoft Store catalogue.
+
 Useful options are:
 
 ```powershell

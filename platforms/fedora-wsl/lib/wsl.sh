@@ -11,17 +11,25 @@ is_wsl() {
 
 require_fedora_wsl() {
   local os_release_file="${OS_RELEASE_FILE:-/etc/os-release}"
-  local os_id
+  local key
+  local os_id=""
+  local value
 
   is_wsl || die "This installer must run inside Windows Subsystem for Linux."
   command_exists dnf || die "This installer requires Fedora and DNF."
   command_exists rpm || die "This installer requires Fedora and RPM."
   [[ -r "$os_release_file" ]] || die "Cannot read $os_release_file"
 
-  os_id="$(
-    awk -F= '$1 == "ID" { gsub(/"/, "", $2); print $2 }' \
-      "$os_release_file"
-  )"
+  # Keep the initial platform check free of packages installed by the next
+  # phase. Values in os-release use shell-compatible quoting, but only ID is
+  # needed here, so parse it without executing the file.
+  while IFS='=' read -r key value; do
+    if [[ "$key" == "ID" ]]; then
+      os_id="${value#\"}"
+      os_id="${os_id%\"}"
+      break
+    fi
+  done <"$os_release_file"
 
   [[ "$os_id" == "fedora" ]] ||
     die "This WSL variant supports the official Fedora distribution only."

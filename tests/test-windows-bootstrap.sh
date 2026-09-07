@@ -9,11 +9,25 @@ theme_helper="$repo_root/platforms/windows/set-noctty-theme.ps1"
 [[ -f "$theme_helper" ]]
 
 grep -Fq -- "wsl.exe @arguments" "$installer"
+grep -Fq -- "& \$FilePath @Arguments | Out-Host" "$installer"
+grep -Fq -- "\$exitCode = \$LASTEXITCODE" "$installer"
 grep -Fq -- "--list', '--online', '--quiet" "$installer"
 grep -Fq -- "'^FedoraLinux(?:-\d+)?$'" "$installer"
+grep -Fq -- 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json' \
+  "$installer"
+grep -Fq -- 'function Get-WebFedoraDistributions' "$installer"
 grep -Fq -- "--set-default-version', '2'" "$installer"
 grep -Fq -- "--install', '--distribution', \$Distribution, '--no-launch'" "$installer"
+grep -Fq -- "\$arguments += '--web-download'" "$installer"
 grep -Fq -- "--set-version', \$Distribution, '2'" "$installer"
+grep -Fq -- "[switch]\$ElevatedWslUpdateOnly" "$installer"
+grep -Fq -- 'function Invoke-ElevatedWslUpdate' "$installer"
+grep -Fq -- "Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update')" \
+  "$installer"
+grep -Fq -- '-AllowUnavailable' "$installer"
+grep -Fq -- 'Would rediscover the newest official FedoraLinux distribution after the WSL update' \
+  "$installer"
+grep -Fq -- 'Dry run stopped at this prerequisite' "$installer"
 
 grep -Fq 'https://get.scoop.sh' "$installer"
 grep -Fq 'https://github.com/amanthanvi/scoop-noctty' "$installer"
