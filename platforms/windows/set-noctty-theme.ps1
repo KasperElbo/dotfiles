@@ -20,7 +20,7 @@ $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
 
 try {
     [IO.File]::WriteAllText($temporaryConfig, $content, $utf8WithoutBom)
-if (Test-Path -LiteralPath $themeConfig) {
+    if (Test-Path -LiteralPath $themeConfig) {
         # Windows PowerShell does not accept a null backup path for
         # File.Replace. Delete the old managed file before moving the new
         # one; user-authored settings are not touched because this file is
@@ -39,34 +39,4 @@ finally {
 }
 
 Write-Host "Noctty: selected Catppuccin $Flavor."
-
-$nocttyCandidates = @(
-    (Join-Path $env:USERPROFILE 'scoop\apps\noctty\current\noctty.exe'),
-    (Join-Path $env:USERPROFILE 'scoop\shims\noctty.ps1'),
-    (Join-Path $env:USERPROFILE 'scoop\shims\noctty.cmd')
-)
-$noctty = $nocttyCandidates |
-    Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
-    Select-Object -First 1
-
-if (-not $noctty) {
-    Write-Host 'Noctty: the new theme will apply on its next launch.'
-    exit 0
-}
-
-# A PowerShell shim may not set $LASTEXITCODE (unlike a native executable).
-# Initialize it so strict mode does not turn a successful invocation into an
-# error while we inspect the reload result.
-$LASTEXITCODE = 0
-& $noctty '+perform-action' '--timeout=1000' 'reload_config' 2>$null
-switch ($LASTEXITCODE) {
-    0 {
-        Write-Host 'Noctty: reloaded the running instance.'
-    }
-    2 {
-        Write-Host 'Noctty: the new theme will apply on its next launch.'
-    }
-    default {
-        Write-Warning 'Noctty could not reload automatically; press Ctrl+Shift+, in Noctty.'
-    }
-}
+Write-Host 'Noctty: press Ctrl+Shift+, to reload, or restart Noctty.'
