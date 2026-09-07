@@ -349,6 +349,7 @@ EOF
 
 Manual configuration still required afterward:
 
+  • If the login shell changed, reboot so Plasma and user services refresh SHELL.
   • Configure ~/.config/git/local with the default Git identity.
   • Configure ~/.config/git/drdk if a separate DR/work identity is required.
   • Configure SSH authentication.
@@ -541,6 +542,8 @@ cat <<'EOF'
 
 Manual configuration may still be required:
 
+  • If this run changed the login shell, reboot before expecting Ghostty to use
+    Zsh. Plasma and user services can retain the previous SHELL value until then.
   • Configure ~/.config/git/local with your default Git identity.
   • Configure ~/.config/git/drdk if you use a separate DR/work identity.
   • Configure SSH authentication (for example 1Password or OpenSSH).

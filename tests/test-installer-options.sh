@@ -71,6 +71,9 @@ run_success "default dry-run" "ASUS hardware:       disabled" \
 run_success "default login shell dry-run" \
   "Set Zsh as the user's default login shell." \
   ./install.sh --dry-run
+run_success "login shell reboot dry-run" \
+  "reboot so Plasma and user services refresh SHELL" \
+  ./install.sh --dry-run
 run_success "optional feature dry-run" "LaTeX toolchain:     true" \
   ./install.sh --dry-run --theme latte --kde --latex
 run_success "OCaml remains opt-in" "OCaml profile:       false" \

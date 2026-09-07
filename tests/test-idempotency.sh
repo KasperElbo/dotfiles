@@ -292,6 +292,7 @@ run_bootstrap() {
 run_bootstrap
 
 grep -Fqx "$mock_bin/zsh" "$shell_state"
+grep -Fq 'reboot before expecting Ghostty to use' "$test_root/bootstrap.log"
 
 bootstrap_identity="$(sha256sum "$bootstrap_config/git/local")"
 bootstrap_notes="$(sha256sum "$bootstrap_home/notes")"
