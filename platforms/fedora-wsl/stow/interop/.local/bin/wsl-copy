@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+windows_root="${WINDOWS_SYSTEM_ROOT:-/mnt/c/Windows}"
+clip="$windows_root/System32/clip.exe"
+
+[[ -x "$clip" ]] || {
+  printf 'Windows clipboard executable not found: %s\n' "$clip" >&2
+  exit 1
+}
+
+exec "$clip"

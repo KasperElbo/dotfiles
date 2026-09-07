@@ -1,12 +1,8 @@
 # Ghostty configuration
 
-# Appearance
-theme = catppuccin-macchiato.conf
+# Portable terminal settings are also consumed by Noctty on Windows.
+config-file = shared.conf
 
 # Machine-local theme override.
 # Relative path resolves to ~/.config/dotfiles/ghostty.conf
 config-file = ?../dotfiles/ghostty.conf
-
-# Shell integration
-shell-integration = zsh
-shell-integration-features = cursor,sudo,title,ssh-env,ssh-terminfo

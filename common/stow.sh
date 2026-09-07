@@ -7,13 +7,24 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 require_command stow
 
-[[ $# -eq 0 ]] || die "Unknown option: $1"
+headless="false"
+
+while (($#)); do
+  case "$1" in
+  --headless)
+    headless="true"
+    ;;
+  *)
+    die "Unknown option: $1"
+    ;;
+  esac
+  shift
+done
 
 packages=(
   bat
   bin
   fzf
-  ghostty
   git
   lazygit
   mise
@@ -22,6 +33,10 @@ packages=(
   tmux
   zsh
 )
+
+if [[ "$headless" == "false" ]]; then
+  packages+=(ghostty)
+fi
 
 info "Stowing portable dotfiles into $HOME"
 

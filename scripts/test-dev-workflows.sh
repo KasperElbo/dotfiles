@@ -7,7 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/test-dev-workflows.sh [--angular | --python | --ocaml | --all]
+Usage: ./scripts/test-dev-workflows.sh [--dotnet | --angular | --python | --ocaml | --all]
 
 Run disposable, network-dependent development workflow smoke tests. The
 default is --all for the default language environments. The optional OCaml
@@ -16,6 +16,7 @@ artifacts exist only below a temporary directory and are removed on exit.
 EOF
 }
 
+run_dotnet=true
 run_angular=true
 run_python=true
 run_ocaml=false
@@ -27,13 +28,20 @@ fi
 
 case "${1:---all}" in
 --all) ;;
+--dotnet)
+  run_angular=false
+  run_python=false
+  ;;
 --angular)
+  run_dotnet=false
   run_python=false
   ;;
 --python)
+  run_dotnet=false
   run_angular=false
   ;;
 --ocaml)
+  run_dotnet=false
   run_angular=false
   run_python=false
   run_ocaml=true
@@ -61,6 +69,26 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+run_dotnet_workflow() {
+  require_command dotnet
+
+  local project="$test_root/dotnet-smoke"
+  local output="$test_root/dotnet-output.txt"
+
+  info "Creating and exercising a disposable .NET project"
+  dotnet new console --output "$project" --no-restore
+  (
+    cd "$project"
+    dotnet restore
+    dotnet build --no-restore
+    dotnet run --no-build >"$output"
+  )
+
+  grep -Fqx 'Hello, World!' "$output" ||
+    die ".NET application returned unexpected output"
+  success ".NET create, restore, build and run checks passed"
+}
 
 run_angular_workflow() {
   require_command node
@@ -181,6 +209,10 @@ run_ocaml_workflow() {
   grep -Fqx '42' "$output" || die "OCaml application returned unexpected output"
   success "OCaml resolve, build, run, test, format and bytecode checks passed"
 }
+
+if [[ "$run_dotnet" == true ]]; then
+  run_dotnet_workflow
+fi
 
 if [[ "$run_angular" == true ]]; then
   run_angular_workflow
