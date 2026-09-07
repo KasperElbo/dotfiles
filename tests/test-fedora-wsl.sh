@@ -288,11 +288,14 @@ done
 rm -- "$bootstrap_bin/zsh"
 cat >"$bootstrap_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
-if [[ "$*" == *'print -r -- "$PATH"'* ]]; then
-  printf '%s\n' "$PATH"
-elif [[ "$*" == *'STARSHIP_CONFIG'* ]]; then
-  printf '%s\n' "$XDG_CONFIG_HOME/starship/catppuccin-macchiato.toml"
+printf '\033[H\033[2J\033[3J'
+if [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then
+  printf '\n__DOTFILES_VERIFY_PATH__%s\n' "$PATH"
+elif [[ "$*" == *'__DOTFILES_VERIFY_STARSHIP__'* ]]; then
+  printf '\n__DOTFILES_VERIFY_STARSHIP__%s\n' \
+    "$XDG_CONFIG_HOME/starship/catppuccin-macchiato.toml"
 fi
+printf '\033[H\033[2J\033[3J\n'
 EOF
 chmod +x "$bootstrap_bin/zsh"
 
