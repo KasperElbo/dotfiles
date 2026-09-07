@@ -26,14 +26,20 @@ packages=(
 )
 for package in "${packages[@]}"; do
   status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)"
-  [[ "$status" == "install ok installed" ]] && pass "$package is APT-owned" ||
+  if [[ "$status" == "install ok installed" ]]; then
+    pass "$package is APT-owned"
+  else
     fail "APT package missing: $package"
+  fi
 done
 
 commands=(bat eza fd fzf gh git jq lazygit nvim pipx python python3 rg sqlite3 starship stow tmux zoxide zsh)
 for command_name in "${commands[@]}"; do
-  command_exists "$command_name" && pass "$command_name is available" ||
+  if command_exists "$command_name"; then
+    pass "$command_name is available"
+  else
     fail "Command missing: $command_name"
+  fi
 done
 
 mise_command="$(command -v mise 2>/dev/null || true)"
@@ -67,7 +73,11 @@ links=(
   "$HOME/.local/bin/fd"
 )
 for link in "${links[@]}"; do
-  [[ -L "$link" ]] && pass "$link is managed by Stow" || fail "Missing Stow link: $link"
+  if [[ -L "$link" ]]; then
+    pass "$link is managed by Stow"
+  else
+    fail "Missing Stow link: $link"
+  fi
 done
 
 state_file="$XDG_CONFIG_HOME/dotfiles/parrot-ctf.conf"
