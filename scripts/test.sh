@@ -17,6 +17,7 @@ tests=(
   tests/test-ocaml-profile.sh
   tests/test-idempotency.sh
   tests/test-asus-preflight.sh
+  tests/test-asus-verification.sh
   tests/test-mocked-installs.sh
   tests/test-vm-host.sh
   tests/test-vm-guest.sh
