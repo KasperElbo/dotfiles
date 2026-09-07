@@ -59,18 +59,32 @@ EOF
 cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 output=""
+url=""
 while (($#)); do
   if [[ "$1" == --output ]]; then
     output="$2"
     shift 2
+  elif [[ "$1" == http* ]]; then
+    url="$1"
+    shift
   else
     shift
   fi
 done
-printf '%s\n' '#!/usr/bin/env sh' \
-  'mkdir -p "$(dirname "$MISE_INSTALL_PATH")"' \
-  'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$MISE_INSTALL_PATH"' \
-  'chmod +x "$MISE_INSTALL_PATH"' >"$output"
+if [[ "$url" == *starship.rs* ]]; then
+  printf '%s\n' '#!/usr/bin/env sh' \
+    'while [ "$#" -gt 0 ]; do' \
+    '  if [ "$1" = "--bin-dir" ]; then bin_dir="$2"; shift 2; else shift; fi' \
+    'done' \
+    'mkdir -p "$bin_dir"' \
+    'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$bin_dir/starship"' \
+    'chmod +x "$bin_dir/starship"' >"$output"
+else
+  printf '%s\n' '#!/usr/bin/env sh' \
+    'mkdir -p "$(dirname "$MISE_INSTALL_PATH")"' \
+    'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$MISE_INSTALL_PATH"' \
+    'chmod +x "$MISE_INSTALL_PATH"' >"$output"
+fi
 EOF
 cat >"$mock_bin/stow" <<'EOF'
 #!/usr/bin/env bash
@@ -91,7 +105,17 @@ test_environment=(
 "${test_environment[@]}" \
   "$repo_root/platforms/fedora-wsl/scripts/install-system.sh" >/dev/null
 [[ -x "$home/.local/bin/mise" ]]
-grep -Fq 'sudo dnf install -y bat bzip2 curl eza' "$command_log"
+[[ -x "$home/.local/bin/starship" ]]
+grep -Fq 'sudo dnf install -y bat bzip2 curl eza fd-find fzf gawk' "$command_log"
+if grep -Fq ' starship' "$command_log"; then
+  printf 'Fedora WSL must not request unavailable Starship from DNF.\n' >&2
+  exit 1
+fi
+
+if grep -Fq 'awk ' "$repo_root/platforms/fedora-wsl/lib/wsl.sh"; then
+  printf 'Fedora WSL preflight must not require awk before prerequisites are installed.\n' >&2
+  exit 1
+fi
 
 first_mise="$(sha256sum "$home/.local/bin/mise")"
 "${test_environment[@]}" \
