@@ -1526,11 +1526,20 @@ by:
 ## Sway desktop
 
 On Fedora, a platform hook makes the portable `theme` command also update Sway,
-Waybar, Fuzzel, Mako, swaylock, and the flavour-matched wallpaper. A running
-Sway session is reloaded automatically; new Fuzzel invocations read the new
-generated configuration. Ghostty is reloaded through its systemd user service
-when active, or directly with Ghostty's `SIGUSR2` reload signal when launched
-from Sway.
+Waybar, Fuzzel, Mako, swaylock, the flavour-matched wallpaper, and the pointer
+cursor theme. A running Sway session is reloaded automatically; new Fuzzel
+invocations read the new generated configuration. Ghostty is reloaded through
+its systemd user service when active, or directly with Ghostty's `SIGUSR2`
+reload signal when launched from Sway. When a Sway session is actually
+running, KDE desktop integration is skipped entirely, since Plasma's DBus
+interface has nothing to talk to under Sway.
+
+The generated Sway configuration sets `seat * xcursor_theme` to the
+flavour-matched Catppuccin cursor theme. Cursor theme files are only
+installed by the optional KDE profile's `install-kde-theme.sh`
+(see [KDE](#kde)); on a Sway-only install (`./install.sh --sway` without
+`--kde`), the directive references a theme that is not present on disk and
+the pointer falls back to the system default.
 
 Pass `--preserve-wallpaper` to keep the current KDE or Sway desktop wallpaper
 while applying those theme changes. KDE's lock screen and Swaylock remain
