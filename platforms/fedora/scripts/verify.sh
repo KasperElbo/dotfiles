@@ -4,6 +4,8 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../lib/secure-boot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/secure-boot.sh"
 
 failures=0
 warnings=0
@@ -87,6 +89,43 @@ commands=(
 for cmd in "${commands[@]}"; do
   check_command "$cmd"
 done
+
+# ---------------------------------------------------------------------------
+# Fedora security baseline (always checked, independent of --hardening)
+# ---------------------------------------------------------------------------
+
+section "Fedora security baseline"
+
+if command_exists getenforce; then
+  case "$(LC_ALL=C getenforce 2>/dev/null | tr '[:upper:]' '[:lower:]')" in
+  enforcing)
+    pass "SELinux is enforcing"
+    ;;
+  *)
+    fail "SELinux is not enforcing"
+    ;;
+  esac
+else
+  fail "getenforce not found; cannot verify SELinux"
+fi
+
+if systemctl is-active --quiet firewalld.service; then
+  pass "firewalld is active"
+else
+  fail "firewalld is not active"
+fi
+
+case "$(secure_boot_state)" in
+enabled)
+  pass "Secure Boot is enabled"
+  ;;
+disabled)
+  warning "Secure Boot is disabled (informational; not required on every machine)"
+  ;;
+*)
+  warning "Secure Boot state could not be determined"
+  ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Login shell
@@ -533,6 +572,22 @@ if [[ -f "$vm_guest_state" ]]; then
     pass "Fedora VM-guest profile verification completed"
   else
     fail "Fedora VM-guest profile verification failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Optional security-hardening profile
+# ---------------------------------------------------------------------------
+
+hardening_state="$XDG_CONFIG_HOME/dotfiles/hardening.conf"
+
+if [[ -f "$hardening_state" ]]; then
+  section "Security hardening"
+
+  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-hardening.sh"; then
+    pass "Fedora hardening profile verification completed"
+  else
+    fail "Fedora hardening profile verification failed"
   fi
 fi
 

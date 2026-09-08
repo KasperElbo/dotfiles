@@ -94,6 +94,13 @@ run_success "VM-guest dry-run" "platforms/fedora/scripts/install-vm-guest.sh" \
   ./install.sh --dry-run --vm-guest
 run_success "VM-guest remains opt-in" "VM-guest profile:    false" \
   ./install.sh --dry-run
+run_success "Hardening dry-run" "platforms/fedora/scripts/install-hardening.sh" \
+  ./install.sh --dry-run --hardening
+run_success "Hardening remains opt-in" "Hardening profile:   false" \
+  ./install.sh --dry-run
+run_success "Standalone hardening dry-run" \
+  "kernel.yama.ptrace_scope=1, kernel.kptr_restrict=2" \
+  ./scripts/install-hardening.sh --dry-run
 run_success "Sway dry-run forwards local setup" \
   "platforms/fedora/scripts/setup-local.sh macchiato --sway" \
   ./install.sh --dry-run --sway
