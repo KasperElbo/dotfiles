@@ -265,6 +265,13 @@ else
 fi
 
 smoke_compose_dir="$(mktemp -d)"
+# No depends_on: podman-compose implements it via 'podman wait --condition=...'
+# on the dependency container, which never resolves once a fast-exiting
+# one-shot job like 'seed' has already finished before the wait starts --
+# it blocks on a state *transition* that will never happen again, hanging
+# 'podman compose up -d' indefinitely. Starting both services concurrently
+# and letting wait_for_content's retry below absorb the brief race (web may
+# 404 for a moment until seed writes its file) avoids that hang entirely.
 cat >"$smoke_compose_dir/compose.yaml" <<EOF
 services:
   web:
@@ -274,8 +281,6 @@ services:
       - "127.0.0.1:$smoke_compose_port:8080"
     volumes:
       - smoke-data:/srv
-    depends_on:
-      - seed
   seed:
     image: $smoke_image
     command: sh -c "echo dotfiles-podman-smoke > /srv/index.html"
