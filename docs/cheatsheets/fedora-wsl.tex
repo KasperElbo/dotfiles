@@ -1,0 +1,37 @@
+% Fedora WSL printable cheat sheet.
+% Source of truth: README.md "# Fedora on WSL" / "## PATH and Windows
+% interoperability", platforms/fedora-wsl/stow/interop/.local/bin/*.
+% Regenerate with docs/cheatsheets/generate.sh after editing either.
+\documentclass[10pt]{extarticle}
+\usepackage{cheatsheet}
+
+\begin{document}
+\cssheettitle{Fedora WSL}{Windows is the desktop/terminal host; Fedora WSL is the Linux development runtime}
+
+\begin{multicols}{2}
+
+\cssection{Windows / Linux boundary}
+\csnote{\texttt{/etc/wsl.conf}'s \texttt{[interop]} block sets \texttt{enabled=true} and \texttt{appendWindowsPath=false}: no Windows directory leaks into \texttt{PATH} (Linux tools stay authoritative), but an explicit full path to a Windows executable still runs. There is no KDE/Sway desktop here --- no keyboard-layout switch either; Windows owns the keyboard.}
+
+\cssection{Windows interop helpers}
+\begin{cskeys}{0.34\linewidth}
+\csrow{wsl-open <url\textbar path>}{Open with the Windows handler (browser, viewer, Explorer)}
+\csrow{wsl-copy}{Send stdin to the Windows clipboard}
+\csrow{wsl-paste}{Write the Windows clipboard to stdout}
+\end{cskeys}
+\csnote{\texttt{BROWSER=wsl-open} is set automatically, so \texttt{gh auth login --web}, \texttt{gx} in LazyVim, and Markdown/LaTeX preview all open Windows's browser/PDF handler. Set \texttt{WINDOWS\_SYSTEM\_ROOT} only if Windows is not at the conventional \texttt{/mnt/c/Windows}.}
+
+\cssection{Noctty (if used as the Windows terminal)}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Ctrl+Shift+,}{Reload Noctty config (e.g.\ after \texttt{theme})}
+\end{cskeys}
+\csnote{Noctty shares Ghostty's \texttt{shared.conf}. Any other Windows terminal works too --- Windows remains the desktop/input host either way.}
+
+\cssection{Repository locations}
+\csnote{Keep repositories under the Linux filesystem (\texttt{\textasciitilde/src}), not \texttt{/mnt/c}: metadata, file-watching, and I/O are noticeably slower and case-insensitive there.}
+
+\input{common-workflow}
+
+\end{multicols}
+\csfoot{Full keybindings reference: docs/keybindings.md. Interop config: README.md \#path-and-windows-interoperability. Regenerate: docs/cheatsheets/generate.sh.}
+\end{document}

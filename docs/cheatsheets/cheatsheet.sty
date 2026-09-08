@@ -1,0 +1,78 @@
+% Shared layout for the dotfiles printable keyboard cheat sheets.
+%
+% Kept deliberately small: a titling command, a compact section heading, and
+% a two-column key/action table environment. Every profile sheet
+% (fedora-kde.tex, fedora-sway.tex, fedora-wsl.tex, macos.tex) loads this file
+% so the four sheets share one visual language instead of four copies of the
+% same layout code.
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{cheatsheet}[2026/09/08 dotfiles printable cheat sheet layout]
+
+\RequirePackage[T1]{fontenc}
+\RequirePackage{lmodern}
+\RequirePackage[a4paper,margin=11mm,top=9mm,bottom=9mm]{geometry}
+\RequirePackage{multicol}
+\RequirePackage{xcolor}
+\RequirePackage{array}
+\RequirePackage{booktabs}
+\RequirePackage{enumitem}
+\RequirePackage{needspace}
+
+\setlength{\parindent}{0pt}
+% A fixed (non-stretchable) paragraph skip. multicol otherwise uses any
+% stretchable interparagraph glue to balance column heights, which spreads
+% single-line sections across a column with large, uneven gaps.
+\setlength{\parskip}{2pt}
+\raggedcolumns
+\pagestyle{empty}
+\sloppy
+
+% Catppuccin Latte "Mauve". Chosen because it prints as a clearly readable
+% dark gray in grayscale while staying on-theme in color.
+\definecolor{cs@accent}{HTML}{8839EF}
+\definecolor{cs@rule}{HTML}{4C4F69}
+
+\newcommand{\cssheettitle}[2]{%
+  \begin{center}
+    {\Large\bfseries\color{cs@accent} #1}\\[1pt]
+    {\small #2}
+  \end{center}
+  \vspace{-4pt}
+}
+
+% One compact task-oriented heading, e.g. \cssection{Workspaces}
+% \needspace keeps the heading from being stranded alone at the bottom of a
+% column, separated from the table that belongs to it.
+\newcommand{\cssection}[1]{%
+  \par\vspace{4pt}%
+  \needspace{4\baselineskip}%
+  \noindent{\bfseries\color{cs@accent}\MakeUppercase{#1}}\par
+  \nobreak\noindent\rule{\linewidth}{0.6pt}\par
+  \nobreak\vspace{2pt}%
+}
+
+% A dense key/action table. Usage:
+%   \begin{cskeys}{0.30\linewidth}
+%   \csrow{Super+Enter}{Open Ghostty}
+%   \end{cskeys}
+\newenvironment{cskeys}[1]{%
+  \begingroup
+  \renewcommand{\arraystretch}{1.0}
+  \begin{tabular}{@{}>{\ttfamily\small\raggedright\arraybackslash}p{#1}@{\hspace{4pt}}>{\raggedright\arraybackslash}p{\dimexpr\linewidth-#1-4pt\relax}@{}}
+}{%
+  \end{tabular}
+  \endgroup
+  \vspace{1pt}
+}
+\newcommand{\csrow}[2]{#1 & \small #2 \\}
+
+% A short note/caveat line, set smaller and not in the accent color, for
+% "upstream default" / "verify with" annotations.
+\newcommand{\csnote}[1]{{\footnotesize\itshape #1}\par\vspace{2pt}}
+
+\newcommand{\cslegend}[1]{{\footnotesize #1}}
+
+\newcommand{\csfoot}[1]{%
+  \vfill
+  {\footnotesize\color{cs@rule}\hrule height 0.4pt\vspace{2pt}#1}
+}

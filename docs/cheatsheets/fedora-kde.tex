@@ -1,0 +1,31 @@
+% Fedora KDE printable cheat sheet.
+% Source of truth for the layout shortcut: README.md, "# Keyboard layouts"
+% (Plasma 6's own Meta+Alt+K default, confirmed enabled by hand -- this
+% repository does not script KDE global shortcuts). Regenerate with
+% docs/cheatsheets/generate.sh after editing the README section or this file.
+\documentclass[10pt]{extarticle}
+\usepackage{cheatsheet}
+
+\begin{document}
+\cssheettitle{Fedora KDE}{Normal KDE Plasma / Wayland workstation reference}
+
+\begin{multicols}{2}
+
+\cssection{Desktop \& keyboard layout}
+\begin{cskeys}{0.30\linewidth}
+\csrow{Meta+Alt+K}{Switch US/Danish keyboard layout}
+\end{cskeys}
+\csnote{This is Plasma 6's own default \emph{Switch to Next Keyboard Layout} shortcut, not a dotfiles binding --- it appears once both layouts are added under System Settings $\to$ Keyboard $\to$ Layouts. The tray keyboard-layout indicator shows the active layout.}
+\csnote{Everything else about the KDE desktop (application launcher, window shortcuts, screenshots, clipboard history) is Plasma's stock configuration and is not modified or tracked by this repository. Discover or change it under System Settings $\to$ Shortcuts.}
+
+\cssection{Theme}
+\begin{cskeys}{0.30\linewidth}
+\csrow{theme <f>}{apply Catppuccin flavour to KDE, Ghostty, terminal tools}
+\end{cskeys}
+\csnote{<f> is latte, frappe, macchiato, or mocha. Changes the Plasma global theme/color scheme/cursor to match.}
+
+\input{common-workflow}
+
+\end{multicols}
+\csfoot{Full keybindings reference: docs/keybindings.md. Layout-switch source: README.md \#keyboard-layouts. Regenerate: docs/cheatsheets/generate.sh.}
+\end{document}

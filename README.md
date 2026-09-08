@@ -64,6 +64,41 @@ for a Sway-like nine-workspace model without disabling SIP. See the complete
 
 ---
 
+# Keyboard-first workflow
+
+The terminal, editor, and (on Sway/AeroSpace) window-manager layers are all
+keyboard-driven, and are meant to be learned through each tool's own
+discovery mechanism rather than a giant memorized table:
+
+| Tool | Discovery |
+|---|---|
+| LazyVim / Neovim | Press `Space` and read WhichKey |
+| Lazygit | Press `?` inside any panel |
+| tmux | `<prefix> ?` (prefix is `Ctrl+B`, unmodified) |
+| Ghostty | `ghostty +list-keybinds --default` |
+| KDE Plasma | System Settings → Shortcuts |
+
+A very small common quick reference (all upstream defaults, unmodified here):
+`Ctrl-R`/`Ctrl-T`/`Alt-C` for fzf history/files/directory search, `z`/`zi` for
+zoxide, and `theme <flavour>` to switch the active Catppuccin flavour.
+
+[`docs/keybindings.md`](docs/keybindings.md) is the full shared reference
+(what each of the above actually does day to day, and which bindings are
+repository-defined versus upstream defaults). Each primary profile also has
+a printable A4 cheat sheet covering what is specific to that profile:
+
+- [Fedora KDE](docs/cheatsheets/fedora-kde.tex)
+- [Fedora Sway](docs/cheatsheets/fedora-sway.tex)
+- [Fedora WSL](docs/cheatsheets/fedora-wsl.tex)
+- [macOS (AeroSpace)](docs/cheatsheets/macos.tex)
+
+Render any of them to PDF with `docs/cheatsheets/generate.sh` (see
+[`docs/cheatsheets/README.md`](docs/cheatsheets/README.md)); the PDFs
+themselves are not committed, so the `.tex` source above is always the
+current version.
+
+---
+
 # Quick start
 
 Clone the repository. `~/src/dotfiles` is the conventional location used during development, but the scripts resolve the repository root dynamically.
@@ -3129,8 +3164,10 @@ shortcuts:
 4. Apply the changes. Plasma's keyboard-layout tray item provides the active
    layout indicator.
 
-These entries are part of the shared KDE/Sway keyboard workflow and should be
-included when the printable profile cheat sheets from issue #72 are generated.
+These entries are part of the shared KDE/Sway keyboard workflow and are
+included in the [Fedora KDE](docs/cheatsheets/fedora-kde.tex) and
+[Fedora Sway](docs/cheatsheets/fedora-sway.tex) printable cheat sheets from
+issue #72.
 
 ---
 

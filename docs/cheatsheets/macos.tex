@@ -1,0 +1,84 @@
+% Apple Silicon macOS (AeroSpace) printable cheat sheet.
+% Source of truth: platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml
+% and docs/macos.md section 6 ("the canonical macOS input for the
+% cross-platform keybinding documentation tracked in issue #72"). Regenerate
+% with docs/cheatsheets/generate.sh after editing either.
+\documentclass[9pt]{extarticle}
+\usepackage{cheatsheet}
+
+\begin{document}
+\cssheettitle{macOS (AeroSpace)}{Apple Silicon workstation --- modifier is Control+Option, matching Sway's \$mod}
+
+\begin{multicols}{2}
+
+\cssection{Launch}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Control+Option+Enter}{Open a new Ghostty window}
+\csrow{Command+Space}{Native Spotlight (macOS default, not AeroSpace)}
+\end{cskeys}
+
+\cssection{Navigate}
+\begin{cskeys}{0.40\linewidth}
+\csrow{Control+Option+H/J/K/L}{Focus left/down/up/right, across displays}
+\end{cskeys}
+
+\cssection{Move}
+\begin{cskeys}{0.40\linewidth}
+\csrow{Ctrl+Opt+Shift+H/J/K/L}{Move/reorder left/down/up/right, across displays}
+\end{cskeys}
+
+\cssection{Workspaces}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Control+Option+1..9}{Switch AeroSpace workspace 1-9}
+\csrow{Ctrl+Opt+Shift+1..9}{Move window to workspace 1-9}
+\csrow{Ctrl+Opt+Cmd+H/J/K/L}{3x3 grid: left/down/up/right, wraps}
+\end{cskeys}
+\csnote{Same wrapped 1-9 grid as Sway (\texttt{aerospace-workspace-grid}); see the Sway sheet's diagram.}
+
+\cssection{Layout}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Control+Option+B/V}{Horizontal / vertical tiles}
+\csrow{Control+Option+S/W}{Vertical / horizontal accordion}
+\csrow{Ctrl+Opt+Shift+Space}{Toggle floating/tiling}
+\csrow{Control+Option+F}{Fullscreen within the current Space}
+\end{cskeys}
+
+\columnbreak
+
+\cssection{Resize}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Control+Option+R}{Enter resize mode}
+\csrow{H/J/K/L}{Shrink/grow width and height}
+\csrow{Enter, Esc}{Exit resize mode}
+\end{cskeys}
+
+\cssection{Displays}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Control+Option+Tab}{Focus next display}
+\csrow{Ctrl+Opt+Shift+Tab}{Move window to next display}
+\csrow{Ctrl+Opt+Cmd+Tab}{Move workspace to next display}
+\end{cskeys}
+
+\cssection{System}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Ctrl+Opt+Shift+C}{Close focused window}
+\csrow{Ctrl+Opt+Shift+R}{Reload AeroSpace config}
+\end{cskeys}
+\csnote{AeroSpace needs only Accessibility permission (System Settings $\to$ Privacy \& Security) and starts at login. SIP and Gatekeeper stay enabled --- see docs/macos.md for the AeroSpace-vs-yabai decision record.}
+
+\cssection{Clipboard \& screenshots}
+\begin{cskeys}{0.34\linewidth}
+\csrow{pbcopy / pbpaste}{Pipe to/from the system clipboard}
+\csrow{Cmd+Shift+3/4/5}{Full/region/toolbar screenshot (macOS default)}
+\end{cskeys}
+\csnote{Screenshot destination is managed to \textasciitilde/Pictures/Screenshots by the installer's deliberate defaults; the shortcuts themselves are unmodified macOS defaults.}
+
+\end{multicols}
+
+\clearpage
+\cssheettitle{macOS (AeroSpace, continued)}{Common terminal / development workflow --- shared with every profile}
+\begin{multicols}{2}
+\input{common-workflow}
+\end{multicols}
+\csfoot{Full keybindings reference: docs/keybindings.md. AeroSpace config: platforms/macos/stow/aerospace, docs/macos.md \#6. Regenerate: docs/cheatsheets/generate.sh.}
+\end{document}
