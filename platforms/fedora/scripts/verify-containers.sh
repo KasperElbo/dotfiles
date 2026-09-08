@@ -162,15 +162,19 @@ cleanup_smoke_test() {
 }
 trap cleanup_smoke_test EXIT
 
-# retry <times> <command...>: retries a possibly-not-yet-ready check (a
-# freshly started container's port or network listener) instead of racing it.
-retry() {
+# wait_for_content <times> <expected> <command...>: retries a possibly-not-
+# yet-ready check (a freshly started container's port or network listener)
+# instead of racing it, and requires the expected body rather than just a
+# response — busybox httpd returns 404 for a directory with no index file,
+# which a bare "did curl succeed" check would misreport as unreachable.
+wait_for_content() {
   local times="$1"
-  shift
+  local expected="$2"
+  shift 2
 
-  local attempt
+  local attempt output
   for ((attempt = 0; attempt < times; attempt++)); do
-    "$@" >/dev/null 2>&1 && return 0
+    output="$("$@" 2>/dev/null)" && [[ "$output" == "$expected" ]] && return 0
     sleep 0.5
   done
   return 1
@@ -226,10 +230,16 @@ else
   fail "named volume test failed"
 fi
 
+# busybox httpd 404s on a directory with no index file, so seed one before
+# serving it -- a bare listener with nothing to serve isn't a meaningful
+# "is this reachable" check anyway.
+serve_smoke_content='mkdir -p /srv && echo dotfiles-podman-smoke > /srv/index.html && httpd -f -p 8080 -h /srv'
+
 if podman run -d --rm --name "$smoke_container" \
   -p "127.0.0.1:$smoke_port:8080" "$smoke_image" \
-  httpd -f -p 8080 -h / >/dev/null 2>&1; then
-  if retry 10 curl -fsS "http://127.0.0.1:$smoke_port/"; then
+  sh -c "$serve_smoke_content" >/dev/null 2>&1; then
+  if wait_for_content 10 "dotfiles-podman-smoke" \
+    curl -fsS "http://127.0.0.1:$smoke_port/"; then
     pass "localhost port publishing: 127.0.0.1:$smoke_port reachable"
   else
     fail "published port 127.0.0.1:$smoke_port never became reachable"
@@ -241,9 +251,10 @@ fi
 
 if podman network create "$smoke_network" >/dev/null 2>&1 &&
   podman run -d --rm --network "$smoke_network" --name "$smoke_server" \
-    "$smoke_image" httpd -f -p 8080 -h / >/dev/null 2>&1; then
-  if retry 10 podman run --rm --network "$smoke_network" "$smoke_image" \
-    wget -q -O /dev/null "http://$smoke_server:8080/"; then
+    "$smoke_image" sh -c "$serve_smoke_content" >/dev/null 2>&1; then
+  if wait_for_content 10 "dotfiles-podman-smoke" \
+    podman run --rm --network "$smoke_network" "$smoke_image" \
+    wget -qO- "http://$smoke_server:8080/"; then
     pass "container networking: name resolution and connectivity via $smoke_network"
   else
     fail "container-to-container networking test failed"
@@ -275,7 +286,8 @@ volumes:
 EOF
 
 if podman compose -f "$smoke_compose_dir/compose.yaml" up -d >/dev/null 2>&1; then
-  if retry 10 curl -fsS "http://127.0.0.1:$smoke_compose_port/"; then
+  if wait_for_content 10 "dotfiles-podman-smoke" \
+    curl -fsS "http://127.0.0.1:$smoke_compose_port/"; then
     pass "compose: multi-service project reachable on 127.0.0.1:$smoke_compose_port"
   else
     fail "compose project never became reachable"
