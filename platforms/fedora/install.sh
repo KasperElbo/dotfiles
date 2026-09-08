@@ -11,6 +11,7 @@ install_ocaml="false"
 install_sway="false"
 install_vm_host="false"
 install_vm_guest="false"
+install_desktop_tools="false"
 hardware_model=""
 hardware_secure_boot="false"
 hardware_charge_limit=""
@@ -40,6 +41,10 @@ Options:
 
   --vm-host          Install the optional KVM/QEMU + libvirt VM-host profile
   --vm-guest         Install KVM/QEMU agents inside an explicit Fedora guest
+
+  --desktop-tools    Install the optional day-to-day desktop application
+                     profile (image editor, PDF tool, media player, scanning)
+  --no-desktop-tools Do not install the desktop-tools profile (default)
 
   --hardware MODEL   Install ASUS hardware support:
                      ga402xz or ga402rk
@@ -109,6 +114,16 @@ while (($#)); do
 
   --vm-guest)
     install_vm_guest="true"
+    shift
+    ;;
+
+  --desktop-tools)
+    install_desktop_tools="true"
+    shift
+    ;;
+
+  --no-desktop-tools)
+    install_desktop_tools="false"
     shift
     ;;
 
@@ -227,6 +242,7 @@ OCaml profile:       $install_ocaml
 Sway session:        $install_sway
 VM-host profile:     $install_vm_host
 VM-guest profile:    $install_vm_guest
+Desktop tools:       $install_desktop_tools
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
@@ -286,6 +302,16 @@ EOF
   $step. Install the explicit Fedora KVM/QEMU VM-guest profile
      platforms/fedora/scripts/install-vm-guest.sh
      qemu-guest-agent, SPICE desktop integration, existing guest networking
+EOF
+    step=$((step + 1))
+  fi
+
+  if [[ "$install_desktop_tools" == "true" ]]; then
+    cat <<EOF
+
+  $step. Install the optional day-to-day desktop application profile
+     platforms/fedora/scripts/install-desktop-tools.sh
+     GIMP, pdfarranger, mpv, Skanpage; reuses Gwenview, Okular, Ark
 EOF
     step=$((step + 1))
   fi
@@ -379,6 +405,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Sway session:       %s\n' "$install_sway"
   printf 'VM-host profile:    %s\n' "$install_vm_host"
   printf 'VM-guest profile:   %s\n' "$install_vm_guest"
+  printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
 
@@ -398,6 +425,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Sway session:       %s\n' "$install_sway"
   printf 'VM-host profile:    %s\n' "$install_vm_host"
   printf 'VM-guest profile:   %s\n' "$install_vm_guest"
+  printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
   if [[ -n "$hardware_model" ]]; then
@@ -471,6 +499,11 @@ fi
 if [[ "$install_vm_guest" == "true" ]]; then
   info "Installing optional Fedora VM-guest profile"
   "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-guest.sh"
+fi
+
+if [[ "$install_desktop_tools" == "true" ]]; then
+  info "Installing optional desktop-tools profile"
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-desktop-tools.sh"
 fi
 
 info "Initializing machine-local configuration"

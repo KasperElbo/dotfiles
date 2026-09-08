@@ -537,6 +537,22 @@ if [[ -f "$vm_guest_state" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Optional desktop tools
+# ---------------------------------------------------------------------------
+
+desktop_tools_state="$XDG_CONFIG_HOME/dotfiles/desktop-tools.conf"
+
+if [[ -f "$desktop_tools_state" ]]; then
+  section "Desktop tools"
+
+  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-desktop-tools.sh"; then
+    pass "Desktop-tools profile verification completed"
+  else
+    fail "Desktop-tools profile verification failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Repository hygiene
 # ---------------------------------------------------------------------------
 

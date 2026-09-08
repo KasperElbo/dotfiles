@@ -94,6 +94,14 @@ run_success "VM-guest dry-run" "platforms/fedora/scripts/install-vm-guest.sh" \
   ./install.sh --dry-run --vm-guest
 run_success "VM-guest remains opt-in" "VM-guest profile:    false" \
   ./install.sh --dry-run
+run_success "Desktop tools remains opt-in" "Desktop tools:       false" \
+  ./install.sh --dry-run
+run_success "Desktop-tools dry-run" \
+  "platforms/fedora/scripts/install-desktop-tools.sh" \
+  ./install.sh --dry-run --desktop-tools
+run_success "Desktop-tools dry-run lists reused KDE baseline apps" \
+  "reuses Gwenview, Okular, Ark" \
+  ./install.sh --dry-run --desktop-tools
 run_success "Sway dry-run forwards local setup" \
   "platforms/fedora/scripts/setup-local.sh macchiato --sway" \
   ./install.sh --dry-run --sway
