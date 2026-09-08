@@ -20,7 +20,8 @@ assert_contains "$dry_run" 'common/install-mise.sh'
 assert_contains "$dry_run" 'common/install-neovim-tools.sh'
 assert_contains "$dry_run" 'common/install-ocaml.sh'
 assert_contains "$dry_run" "Set Zsh as the user's default login shell."
-assert_contains "$dry_run" 'Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, desktop,'
+assert_contains "$dry_run" \
+  'Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, and desktop.'
 
 latex_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
 assert_contains "$latex_off_dry_run" 'LaTeX toolchain:    false'
@@ -51,6 +52,33 @@ if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
 fi
 grep -Fq -- '--containers-api-socket requires --containers' \
   "$test_root/api-socket-without-containers.log"
+
+ai_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ai)"
+assert_contains "$ai_dry_run" 'AI profile:         true'
+assert_contains "$ai_dry_run" 'common/install-ai.sh'
+
+ai_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
+assert_contains "$ai_off_dry_run" 'AI profile:         false'
+
+ai_full_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --ai --codex --firstmate)"
+assert_contains "$ai_full_dry_run" 'AI Codex subcomponent:     true'
+assert_contains "$ai_full_dry_run" 'AI FirstMate subcomponent: true'
+assert_contains "$ai_full_dry_run" 'common/install-ai.sh --codex --firstmate'
+
+if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --codex >"$test_root/codex-without-ai.log" 2>&1; then
+  printf 'fedora-wsl accepted --codex without --ai.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--codex requires --ai' "$test_root/codex-without-ai.log"
+
+if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --firstmate >"$test_root/firstmate-without-ai.log" 2>&1; then
+  printf 'fedora-wsl accepted --firstmate without --ai.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--firstmate requires --ai' "$test_root/firstmate-without-ai.log"
 
 if "$repo_root/install.sh" --platform unknown --dry-run \
   >"$test_root/invalid.log" 2>&1; then

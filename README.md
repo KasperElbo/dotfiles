@@ -214,6 +214,16 @@ The complete OCaml development environment is explicitly opt-in:
                    Podman API socket for Docker-compatible client tooling
                    (default: disabled)
 
+--ai               install the optional AI-assisted development profile:
+                   Claude Code and Herdr (see "AI-assisted development
+                   toolchain" below)
+--no-ai            skip the AI profile (default)
+--codex            with --ai, also install the OpenAI Codex CLI
+--no-codex         skip Codex (default)
+--firstmate        with --ai, also clone the FirstMate multi-agent
+                   coordinator
+--no-firstmate     skip FirstMate (default)
+
 --hardware MODEL   install ASUS hardware support for ga402xz or ga402rk
                    default: disabled
 --secure-boot      require Secure Boot for the selected hardware profile
@@ -226,11 +236,18 @@ The complete OCaml development environment is explicitly opt-in:
 ```
 
 The Fedora WSL installer exposes `--theme`, `--ocaml`, `--latex`,
-`--containers`, `--containers-api-socket`, `--smoke-test`, `--dry-run`, and
-`--non-interactive`. Fedora desktop, Sway, VM and hardware flags are rejected
-rather than silently ignored; see "Podman containers under WSL"
-below for what `--containers` actually requires and changes on this
-platform.
+`--containers`, `--containers-api-socket`, `--ai`, `--codex`, `--firstmate`,
+`--smoke-test`, `--dry-run`, and `--non-interactive`. Fedora desktop, Sway, VM
+and hardware flags are rejected rather than silently ignored; see "Podman
+containers under WSL" below for what `--containers` actually requires and
+changes on this platform, and "AI-assisted development toolchain" for `--ai`.
+
+`--codex` and `--firstmate` require `--ai` on every platform; the installer
+rejects them otherwise instead of silently ignoring them. Running any
+installer without `--ai` installs no Claude Code, Codex, Herdr, or FirstMate
+tooling; `--ai` and its subcomponents are also independently callable and
+safe to rerun through `common/install-ai.sh` (or `./scripts/install-ai.sh`),
+consistent with this repository's other component scripts.
 
 ---
 
@@ -623,9 +640,11 @@ the installed OCaml profile, run:
 ./install.sh --platform fedora-wsl --smoke-test
 ```
 
-The WSL profile does not install AI tooling. A future optional AI profile can
-compose with it; the early PATH policy ensures a Linux-native installation
-takes precedence over any Windows executable.
+The optional AI profile (`--ai`, `--codex`, `--firstmate`; see "AI-assisted
+development toolchain" below) is portable CLI tooling with no GUI or hardware
+dependency, so it is fully supported here. The early PATH policy ensures the
+Linux-native, mise-managed installation always takes precedence over any
+Windows executable of the same name.
 
 ---
 
@@ -947,6 +966,19 @@ Then run:
 ```bash
 ./scripts/verify-asus-hardware.sh
 ```
+
+## 7. AI agent authentication
+
+Only relevant if the optional AI profile (`--ai`) is selected; see
+"AI-assisted development toolchain" below for the full picture. Nothing here
+is stored in this repository, and none of it is requested or configured by
+the installer:
+
+- Claude Code: run `claude`, follow the browser login prompt (or set
+  `ANTHROPIC_API_KEY`).
+- Codex (if installed): run `codex`, choose "Sign in with ChatGPT" (or
+  configure an OpenAI API key).
+- FirstMate (if installed): uses your own `gh auth login`.
 
 ---
 
@@ -1726,6 +1758,263 @@ The saved local state file is:
 
 ---
 
+# AI-assisted development toolchain
+
+AI-assisted development is an entirely optional workstation profile. **The
+default `./install.sh`, with no AI-related flag, installs no Claude Code,
+Codex, Herdr, FirstMate, or related tooling.** Select it explicitly:
+
+```bash
+./install.sh --ai                        # Claude Code + Herdr (core)
+./install.sh --ai --codex                # + OpenAI Codex CLI
+./install.sh --ai --firstmate            # + FirstMate multi-agent coordinator
+./install.sh --ai --codex --firstmate    # all of the above
+```
+
+`--codex` and `--firstmate` require `--ai` and are rejected otherwise. The
+profile is also independently callable and safe to rerun:
+
+```bash
+./scripts/install-ai.sh [--codex] [--firstmate] [--dry-run] [--validate]
+```
+
+`--dry-run` prints exactly which components would be installed and where,
+without touching the filesystem; `--validate` runs verification only. Nothing
+here authenticates any agent, pushes, merges, force-pushes, or deletes Git
+branches, or requests API credentials — see "Authentication" below.
+
+## Core agent: Claude Code
+
+Claude Code (`anthropics/claude-code`) is the preferred/core coding agent.
+Anthropic documents several install methods (native installer, Homebrew,
+apt/dnf/apk, npm); this profile deliberately installs it through **mise's npm
+backend** (`npm:@anthropic-ai/claude-code`), the same ownership model this
+repository already uses for `npm:@mermaid-js/mermaid-cli` and `npm:neovim`.
+This trades the native installer's silent background auto-update for one
+consistent, mise-owned update/uninstall path shared with Codex and Herdr, and
+avoids adding a second, Fedora-only package-management path (the `dnf` Claude
+Code repository) that would not carry over to Fedora WSL or a future macOS
+profile (see #11) unchanged.
+
+Claude Code runs in any Git repository, including one checked out through
+`git worktree`; it has no special worktree requirements of its own. See
+"Worktree isolation for agent/crewmate work" below for how this repository
+gives an agent a safe, isolated worktree rather than pointing it at your
+primary checkout.
+
+## Optional: OpenAI Codex CLI
+
+`--codex` additionally installs the Codex CLI (`npm:@openai/codex`) through
+the same mise ownership as Claude Code, so the two coexist without a second
+install mechanism or a PATH ownership conflict. Codex is otherwise
+independent of Claude Code: install either, both, or neither.
+
+## Agent workspace/runtime: Herdr
+
+[Herdr](https://herdr.dev) is a terminal multiplexer built specifically for
+AI coding agents — persistent panes/tabs/workspaces, detach/reattach, and
+agent-state awareness (working/idle/blocked) for Claude Code, Codex, and
+similar tools. It is installed unconditionally with `--ai` (via `mise use -g
+herdr`, matching mise's own documented install method), not gated behind
+`--firstmate`, because it is useful the moment you have even a single Claude
+Code session and is a single small, mise-owned binary rather than a heavy
+dependency.
+
+Responsibility split, so Ghostty, tmux, and Herdr never become three
+competing layout/session systems:
+
+```text
+Ghostty -> terminal emulator / host window
+tmux    -> lightweight shell/session multiplexing where still useful
+Herdr   -> AI-agent workspace/orchestration (panes aware of agent state,
+           detach/reattach, launching Claude Code/Codex workers)
+```
+
+Ghostty remains the normal terminal; this profile does not install a second
+terminal emulator. Run `herdr` inside Ghostty in a project directory to start
+a workspace, detach, and `herdr` again to reattach — see
+[herdr.dev/docs](https://herdr.dev/docs) for the current pane/workspace
+commands and socket API rather than duplicating fast-moving upstream option
+lists here. Herdr's agent-aware panes make tmux's own session/window
+management redundant for a multi-agent workflow; this repository does not
+add glue code to bridge the two; use tmux (already installed, intentionally
+thin) for ordinary shell multiplexing outside of agent work, and Herdr for
+agent panes.
+
+## Optional: FirstMate multi-agent coordinator
+
+`--firstmate` additionally clones
+[kunchenguid/firstmate](https://github.com/kunchenguid/firstmate) — a
+Claude-Code-compatible coordinator distribution, not a package — to
+`~/.local/share/firstmate`, and updates it in place with `git pull --ff-only`
+on rerun. It has no upstream package manager, so this is the only mechanism
+that installs it; requires `gh` and `tmux` (both already installed by the
+base profile), and can use Herdr as an alternative crew backend to tmux once
+installed above.
+
+FirstMate lets one coordinator session (Claude Code, by default here) talk to
+you while it delegates isolated implementation work to crewmates it spawns
+and supervises, each in FirstMate's own isolated worktree ("Treehouse"),
+reporting plain outcomes back to you. Registering a specific project and
+choosing one of its three project modes (`direct-PR`, `local-only`, or `No
+Mistakes`, which runs full CI validation before merge) is a per-project,
+per-user decision this installer does not and cannot make safely on your
+behalf. After installing:
+
+```bash
+cat ~/.local/share/firstmate/README.md    # follow FirstMate's own setup docs
+gh auth login                             # if you have not already
+```
+
+then launch a coordinator session there and register your project as
+documented in that repository. This installer never runs `gh auth login`,
+registers a project, or starts a session for you.
+
+## Worktree isolation for agent/crewmate work
+
+Multi-agent work defaults to isolated Git worktrees so parallel agent work
+never collides with your primary checkout or with another agent's worktree.
+`--ai` installs `~/.local/bin/agent-worktree` (a symlink into
+`common/assets/agent-worktree`, this repository's own small helper — not a
+FirstMate/Herdr component) for this:
+
+```bash
+agent-worktree new <name> [<base-ref>]   # isolated worktree + branch agents/<name>
+agent-worktree list                      # worktrees created by this tool
+agent-worktree remove <name> [--force]   # remove a worktree; refuses if dirty
+                                          # or unlanded without --force
+agent-worktree prune                     # clear stale worktree metadata
+```
+
+Worktrees live under `~/.local/share/dotfiles/agent-worktrees/<repo>/<name>`.
+`new` refuses to reuse an existing `agents/<name>` branch or worktree path —
+the class of "branch already used by worktree" failure never happens
+silently. `remove` refuses a dirty worktree, and refuses a clean one whose
+commits are neither pushed to an upstream nor merged into another local
+branch, unless `--force` is given; it never deletes the branch itself, only
+the worktree, so discarding a worktree is always recoverable from the branch
+directly. This mirrors FirstMate's own Treehouse model ("dirty worktrees
+refuse, and committed work must be landed before the worktree is returned")
+in a tool usable with or without FirstMate installed.
+
+## Non-destructive defaults
+
+None of this profile's own tooling pushes branches, merges pull requests,
+force-pushes, or deletes branches on its own. `agent-worktree` never deletes
+a branch. FirstMate's own project modes gate publication behind an explicit
+captain decision (`local-only` waits for an approved fast-forward merge;
+`direct-PR` opens a PR for human review; `No Mistakes` additionally runs full
+CI before merge) — this repository does not enable an autonomous push/merge
+mode by default, and installing this profile does not change any existing
+Git signing, authentication, or identity configuration (see "Git, SSH and
+GitHub authentication" and "Choices a user must make" above/below). Prefer
+Claude Code and Codex's own review/PR-oriented workflows, with a human
+decision at the publication/merge boundary, as shown in the normal usage flow
+below.
+
+## Normal usage
+
+```text
+open repository
+  -> start/reattach a Herdr workspace (or a plain tmux/Ghostty session)
+  -> use Claude Code directly, or start a FirstMate coordinator session
+  -> delegate isolated work into an agent-worktree (or a FirstMate/Treehouse
+     worktree)
+  -> review the resulting diff and run tests
+  -> create a PR (gh pr create, or let Claude Code/Codex/FirstMate open one)
+  -> a human decides whether to merge
+```
+
+## Authentication
+
+Never committed to this repository: API keys, OAuth tokens, provider
+credentials, GitHub tokens, or agent session state. Authenticate each tool
+interactively, on the machine, after installing:
+
+- **Claude Code**: run `claude`, follow the browser login prompt (or set
+  `ANTHROPIC_API_KEY` for API-key auth). State lives in `~/.claude/` and
+  `~/.claude.json`, untracked and machine-local.
+- **Codex**: run `codex`, choose "Sign in with ChatGPT" (or configure an
+  OpenAI API key). State lives under `~/.codex/`, untracked and
+  machine-local.
+- **FirstMate**: uses your already-authenticated `gh` (`gh auth login`); it
+  does not manage its own separate credentials.
+
+Revoke access by signing out of each tool, or by deleting its state
+directory above; none of it is readable from this repository.
+
+## Verification
+
+```bash
+./scripts/verify-ai.sh
+```
+
+checks that Claude Code, Herdr, and (if selected) Codex resolve on PATH to
+the mise-managed copy this profile installed rather than a second install
+shadowing it elsewhere on PATH (catching duplicate npm/Homebrew/native-installer
+ownership of the same tool), that `~/.local/bin/agent-worktree` is the
+expected symlink, and, if selected, that FirstMate is cloned with `gh` and
+`tmux` present. `platforms/fedora/scripts/verify.sh` (and the Fedora WSL
+equivalent) run this automatically whenever the AI profile's state file is
+present, and separately confirm that **no** AI-owned file exists when it is
+not.
+
+## Ownership summary
+
+| Component | Owner | Update |
+|---|---|---|
+| Claude Code | mise (`npm:@anthropic-ai/claude-code`) | `mise upgrade` |
+| Codex CLI | mise (`npm:@openai/codex`) | `mise upgrade` |
+| Herdr | mise (registry) | `mise upgrade` |
+| FirstMate | `git clone`/`git pull --ff-only` to `~/.local/share/firstmate` | rerun `--firstmate` |
+| `agent-worktree` | symlink into this repository's `common/assets/` | tracked by this repo |
+
+See "AI agent tooling" under "Package ownership" below for how this avoids
+duplicate installs of the same tool. All three mise-managed tools are
+declared in an **untracked, machine-local** mise config file, not the tracked
+`~/.config/mise/config.toml` this repository always installs:
+
+```text
+~/.config/mise/conf.d/ai.toml
+```
+
+mise merges every `*.toml` file under `~/.config/mise/conf.d/` alongside its
+main global config, so this file adds Claude Code/Codex/Herdr to mise's view
+without the default, always-applied mise config ever gaining an AI-related
+dependency. `install-ai.sh` writes and owns this file; deleting it and
+rerunning the AI profile recreates it.
+
+## Platform scope
+
+- **Fedora**: primary reference path; validated with Ghostty, Zsh, tmux,
+  Git/GitHub CLI, and LazyVim, and compatible with the hardening, Podman,
+  and VM-host profiles and this repository's existing Git signing/auth setup
+  (none of that is touched by `--ai`).
+- **Fedora WSL**: supported with the same `--ai`/`--codex`/`--firstmate`
+  flags. The desktop, hardware, Sway, and VM-host/guest profiles remain out
+  of scope for WSL, but the AI profile has no GUI or hardware dependency.
+  Fedora WSL's existing PATH policy (see "PATH and Windows interoperability"
+  above) already ensures a Windows-installed `claude.exe`/`codex.exe` cannot
+  shadow the Linux-native, mise-managed copy; `verify-ai.sh` additionally
+  checks for exactly that.
+- **macOS** (#11): not implemented here. `common/install-ai.sh` and
+  `common/verify-ai.sh` contain no Fedora-specific commands (checked by
+  `tests/test-platform-boundary.sh`), so a macOS installer can call them
+  directly once mise, `gh`, and `tmux` are provisioned there.
+- **Parrot Security Edition CTF guest**: deliberately excluded, matching this
+  guest's existing "no AI tooling by default" posture (see "Parrot Security
+  Edition CTF VM" above): install or invoke AI tooling there only as a
+  conscious per-lab decision after confirming that challenge data may leave
+  the guest.
+
+The saved local state file is:
+
+```text
+~/.config/dotfiles/ai.conf
+```
+
+---
+
 # Package ownership
 
 Avoid installing the same tool through multiple package managers.
@@ -1841,6 +2130,30 @@ pipx:pynvim
 ```
 
 `mise install` installs what is declared in the tracked config; the install script does not duplicate the tool list.
+
+## AI agent tooling
+
+Optional; installed only by `--ai` (see "AI-assisted development toolchain"
+above for daily usage). Declared in a separate, **untracked**, machine-local
+mise config file so the tracked `~/.config/mise/config.toml` above never
+gains an AI-related dependency:
+
+```text
+~/.config/mise/conf.d/ai.toml
+```
+
+| Component | Owner |
+|---|---|
+| Claude Code | mise, `npm:@anthropic-ai/claude-code` |
+| Codex CLI (optional) | mise, `npm:@openai/codex` |
+| Herdr | mise, registry entry `herdr` |
+| FirstMate (optional) | `git clone`/`git pull --ff-only`, no package manager upstream |
+
+Each tool is installed through exactly one mechanism above; this repository
+does not additionally install any of them through Homebrew, a global `npm
+install -g`, or a native/OS-package installer, so there is never a duplicate,
+competing copy on `PATH`. `verify-ai.sh` checks this by confirming each
+command resolves to the same binary mise itself reports managing.
 
 ## opam
 
@@ -2508,6 +2821,11 @@ Useful LazyVim Git mappings:
 ```
 
 Fugitive and Octo are intentionally not installed at present.
+
+Multi-agent work (see "AI-assisted development toolchain" below) uses its own
+`agents/<name>` branch namespace, created by `agent-worktree new <name>` in an
+isolated worktree rather than your current branch/checkout. It does not
+change the shared Git defaults above.
 
 ---
 
@@ -3193,6 +3511,10 @@ The verifier checks:
 - optional Fedora VM-guest detection, agents, channels, and network route
 - optional Fedora security-hardening profile settings (see "Optional Fedora
   security-hardening profile" above)
+- optional AI-assisted development profile: Claude Code/Codex/Herdr PATH
+  ownership, the `agent-worktree` helper, and FirstMate's clone (see
+  "AI-assisted development toolchain" above) — and confirms none of it is
+  present when the profile was not selected
 - nested Git repositories
 - obvious generated junk files
 
@@ -3368,6 +3690,35 @@ it is not required after rebooting.
 
 Expected. Verify the Python provider through Neovim health checks instead.
 
+## `claude`/`codex`/`herdr` are not found after `--ai`
+
+Confirm the AI profile's untracked mise config exists and mise sees it, then
+reinstall:
+
+```bash
+cat ~/.config/mise/conf.d/ai.toml
+mise install
+```
+
+If the file is missing, rerun `./scripts/install-ai.sh` (add `--codex`
+and/or `--firstmate` as needed) — it is safe to rerun.
+
+## `verify-ai.sh` reports a possible duplicate install
+
+It found the command on `PATH` at a location mise does not report managing —
+typically a native installer, Homebrew, or a global `npm install -g` of the
+same tool installed outside this profile. Remove the other installation (see
+each tool's own uninstall instructions) so only the mise-managed copy remains
+on `PATH`.
+
+## `agent-worktree remove` refuses to remove a worktree
+
+By design: it refuses a worktree with uncommitted changes, or with commits
+that are neither pushed to an upstream nor merged into another local branch,
+so agent work is never silently discarded. Commit/push/merge the work first,
+or pass `--force` once you have confirmed it is safe to discard the working
+copy (the `agents/<name>` branch itself is never deleted).
+
 ---
 
 # Manual post-install checklist
@@ -3403,6 +3754,11 @@ After a fresh install:
    git config --show-origin --get user.email
    ```
 
+10. If the optional AI profile (`--ai`) was selected, authenticate each
+    installed tool interactively: run `claude` (and `codex`, if installed)
+    and follow its login prompt; FirstMate uses the `gh auth login` from
+    step 5. See "AI-assisted development toolchain" above.
+
 11. Confirm GitHub SSH:
 
    ```bash
@@ -3433,6 +3789,7 @@ GitHub CLI:           gh
 Runtime manager:      mise
 Optional OCaml:       opam (`--ocaml`)
 Optional hardening:   conservative security profile (`--hardening`)
+Optional AI profile:  Claude Code + Herdr, Codex/FirstMate optional (`--ai`)
 Theme:                Catppuccin Macchiato
 Accent:               Mauve
 KDE decoration:       Classic

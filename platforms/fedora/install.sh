@@ -16,6 +16,9 @@ install_desktop_tools="false"
 desktop_tools_force_defaults="false"
 install_containers="false"
 containers_api_socket="false"
+install_ai="false"
+ai_codex="false"
+ai_firstmate="false"
 hardware_model=""
 hardware_secure_boot="false"
 hardware_charge_limit=""
@@ -65,6 +68,16 @@ Options:
                      With --containers, enable the rootless, socket-activated
                      Podman API socket for Docker-compatible client tooling
                      (default: disabled)
+
+  --ai               Install the optional AI-assisted development profile:
+                     Claude Code and Herdr (see README.md, "AI-assisted
+                     development toolchain")
+  --no-ai            Do not install the AI profile (default)
+  --codex            With --ai, also install the OpenAI Codex CLI
+  --no-codex         Do not install Codex (default)
+  --firstmate        With --ai, also clone the FirstMate multi-agent
+                     coordinator
+  --no-firstmate     Do not clone FirstMate (default)
 
   --hardware MODEL   Install ASUS hardware support:
                      ga402xz or ga402rk
@@ -177,6 +190,36 @@ while (($#)); do
     shift
     ;;
 
+  --ai)
+    install_ai="true"
+    shift
+    ;;
+
+  --no-ai)
+    install_ai="false"
+    shift
+    ;;
+
+  --codex)
+    ai_codex="true"
+    shift
+    ;;
+
+  --no-codex)
+    ai_codex="false"
+    shift
+    ;;
+
+  --firstmate)
+    ai_firstmate="true"
+    shift
+    ;;
+
+  --no-firstmate)
+    ai_firstmate="false"
+    shift
+    ;;
+
   --hardware)
     [[ $# -ge 2 ]] || die "--hardware requires a value"
     hardware_model="$2"
@@ -244,6 +287,14 @@ if [[ "$containers_api_socket" == "true" && "$install_containers" == "false" ]];
   die "--containers-api-socket requires --containers"
 fi
 
+if [[ "$ai_codex" == "true" && "$install_ai" == "false" ]]; then
+  die "--codex requires --ai"
+fi
+
+if [[ "$ai_firstmate" == "true" && "$install_ai" == "false" ]]; then
+  die "--firstmate requires --ai"
+fi
+
 if [[ "$install_vm_host" == "true" && "$install_vm_guest" == "true" ]]; then
   die "--vm-host and --vm-guest cannot be combined"
 fi
@@ -305,6 +356,9 @@ Desktop tools:       $install_desktop_tools
 Force app defaults:  $desktop_tools_force_defaults
 Containers profile:  $install_containers
 Containers API socket: $containers_api_socket
+AI profile:          $install_ai
+AI Codex subcomponent: $ai_codex
+AI FirstMate subcomponent: $ai_firstmate
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
@@ -437,6 +491,23 @@ EOF
     step=$((step + 1))
   fi
 
+  if [[ "$install_ai" == "true" ]]; then
+    ai_suffix=""
+    if [[ "$ai_codex" == "true" ]]; then
+      ai_suffix+=" --codex"
+    fi
+    if [[ "$ai_firstmate" == "true" ]]; then
+      ai_suffix+=" --firstmate"
+    fi
+    cat <<EOF
+
+  $step. Install the optional AI-assisted development profile
+     common/install-ai.sh$ai_suffix
+     Claude Code and Herdr via mise; Codex: $ai_codex; FirstMate: $ai_firstmate
+EOF
+    step=$((step + 1))
+  fi
+
   if [[ "$install_kde" == "true" ]]; then
     cat <<EOF
 
@@ -498,6 +569,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Hardening profile:  %s\n' "$install_hardening"
   printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   printf 'Containers profile: %s\n' "$install_containers"
+  printf 'AI profile:         %s\n' "$install_ai"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
 
@@ -525,6 +597,11 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Containers profile: %s\n' "$install_containers"
   if [[ "$install_containers" == "true" ]]; then
     printf 'Containers API socket: %s\n' "$containers_api_socket"
+  fi
+  printf 'AI profile:         %s\n' "$install_ai"
+  if [[ "$install_ai" == "true" ]]; then
+    printf 'AI Codex subcomponent:     %s\n' "$ai_codex"
+    printf 'AI FirstMate subcomponent: %s\n' "$ai_firstmate"
   fi
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
@@ -664,6 +741,19 @@ fi
 
 info "Installing Catppuccin tmux"
 "$DOTFILES_ROOT/common/install-tmux-theme.sh"
+
+if [[ "$install_ai" == "true" ]]; then
+  ai_args=()
+  if [[ "$ai_codex" == "true" ]]; then
+    ai_args+=(--codex)
+  fi
+  if [[ "$ai_firstmate" == "true" ]]; then
+    ai_args+=(--firstmate)
+  fi
+
+  info "Installing optional AI-assisted development profile"
+  "$DOTFILES_ROOT/common/install-ai.sh" "${ai_args[@]}"
+fi
 
 if [[ "$install_kde" == "true" ]]; then
   info "Installing Catppuccin KDE themes"

@@ -207,15 +207,39 @@ if [[ "$verify_latex" == "true" ]]; then
   done
 fi
 
-if command -v codex >/dev/null 2>&1; then
-  codex_path="$(command -v codex)"
-  if is_windows_path "$codex_path"; then
-    fail "codex resolves to Windows: $codex_path"
+ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
+
+if [[ -f "$ai_state" ]]; then
+  section "AI-assisted development profile"
+
+  if "$DOTFILES_ROOT/common/verify-ai.sh"; then
+    pass "AI profile verification completed"
   else
-    pass "optional codex is Linux-native: $codex_path"
+    fail "AI profile verification failed"
   fi
+
+  # WSL-specific concern beyond common/verify-ai.sh: a Windows-installed
+  # claude.exe/codex.exe/herdr.exe earlier on PATH would silently shadow the
+  # Linux-native, mise-managed copy this profile installed.
+  for command_name in claude codex herdr; do
+    command_path="$(command -v "$command_name" 2>/dev/null || true)"
+    if [[ -z "$command_path" ]]; then
+      continue
+    elif is_windows_path "$command_path"; then
+      fail "$command_name resolves to a Windows executable: $command_path"
+    else
+      pass "$command_name is Linux-native: $command_path"
+    fi
+  done
 else
-  pass "optional codex is not installed by the WSL profile"
+  section "AI-assisted development profile"
+
+  if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" || -e "$HOME/.local/bin/agent-worktree" ]]; then
+    fail "AI profile is not selected, but AI-owned files remain (run" \
+      "common/install-ai.sh, or remove them by hand)"
+  else
+    pass "AI profile is not installed (not selected)"
+  fi
 fi
 
 section "Representative runtimes"
