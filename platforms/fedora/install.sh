@@ -11,6 +11,7 @@ install_ocaml="false"
 install_sway="false"
 install_vm_host="false"
 install_vm_guest="false"
+install_hardening="false"
 install_desktop_tools="false"
 hardware_model=""
 hardware_secure_boot="false"
@@ -42,6 +43,9 @@ Options:
   --vm-host          Install the optional KVM/QEMU + libvirt VM-host profile
   --vm-guest         Install KVM/QEMU agents inside an explicit Fedora guest
 
+  --hardening        Install the optional conservative security-hardening
+                     profile (see README.md, "Fedora security hardening")
+  --no-hardening     Do not install the hardening profile (default)
   --desktop-tools    Install the optional day-to-day desktop application
                      profile (image editor, PDF tool, media player, scanning)
   --no-desktop-tools Do not install the desktop-tools profile (default)
@@ -114,6 +118,16 @@ while (($#)); do
 
   --vm-guest)
     install_vm_guest="true"
+    shift
+    ;;
+
+  --hardening)
+    install_hardening="true"
+    shift
+    ;;
+
+  --no-hardening)
+    install_hardening="false"
     shift
     ;;
 
@@ -242,6 +256,7 @@ OCaml profile:       $install_ocaml
 Sway session:        $install_sway
 VM-host profile:     $install_vm_host
 VM-guest profile:    $install_vm_guest
+Hardening profile:   $install_hardening
 Desktop tools:       $install_desktop_tools
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
@@ -302,6 +317,16 @@ EOF
   $step. Install the explicit Fedora KVM/QEMU VM-guest profile
      platforms/fedora/scripts/install-vm-guest.sh
      qemu-guest-agent, SPICE desktop integration, existing guest networking
+EOF
+    step=$((step + 1))
+  fi
+
+  if [[ "$install_hardening" == "true" ]]; then
+    cat <<EOF
+
+  $step. Install the optional conservative security-hardening profile
+     platforms/fedora/scripts/install-hardening.sh
+     SELinux/faillock/sudo-audit/auditd/sysctl/conditional-sshd/dnf-automatic
 EOF
     step=$((step + 1))
   fi
@@ -405,6 +430,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Sway session:       %s\n' "$install_sway"
   printf 'VM-host profile:    %s\n' "$install_vm_host"
   printf 'VM-guest profile:   %s\n' "$install_vm_guest"
+  printf 'Hardening profile:  %s\n' "$install_hardening"
   printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
@@ -425,6 +451,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Sway session:       %s\n' "$install_sway"
   printf 'VM-host profile:    %s\n' "$install_vm_host"
   printf 'VM-guest profile:   %s\n' "$install_vm_guest"
+  printf 'Hardening profile:  %s\n' "$install_hardening"
   printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
@@ -499,6 +526,16 @@ fi
 if [[ "$install_vm_guest" == "true" ]]; then
   info "Installing optional Fedora VM-guest profile"
   "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-guest.sh"
+fi
+
+if [[ "$install_hardening" == "true" ]]; then
+  info "Installing optional Fedora security-hardening profile"
+  hardening_args=()
+  if [[ "$interactive" == "false" ]]; then
+    hardening_args+=(--non-interactive)
+  fi
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-hardening.sh" \
+    "${hardening_args[@]}"
 fi
 
 if [[ "$install_desktop_tools" == "true" ]]; then
