@@ -9,11 +9,12 @@ install_firstmate="false"
 dry_run="false"
 validate_only="false"
 
-# Overridable so tests can point FirstMate's clone at a local fixture repo
-# instead of the real network.
+# Overridable so tests can point FirstMate's clone, and Treehouse's install
+# script, at local fixtures instead of the real network.
 firstmate_repo="${FIRSTMATE_REPO_URL:-https://github.com/kunchenguid/firstmate.git}"
 firstmate_dir="$XDG_DATA_HOME/firstmate"
-worktree_helper_target="$HOME/.local/bin/agent-worktree"
+treehouse_install_script="${TREEHOUSE_INSTALL_SCRIPT_URL:-https://kunchenguid.github.io/treehouse/install.sh}"
+treehouse_target="$HOME/.local/bin/treehouse"
 conf_dir="$XDG_CONFIG_HOME/mise/conf.d"
 conf_file="$conf_dir/ai.toml"
 state_file="$XDG_CONFIG_HOME/dotfiles/ai.conf"
@@ -28,7 +29,8 @@ workspace) unconditionally, plus optional subcomponents.
 
 Options:
   --codex            Also install the OpenAI Codex CLI
-  --firstmate        Also clone the FirstMate multi-agent coordinator
+  --firstmate        Also clone the FirstMate multi-agent coordinator and
+                     install Treehouse, its worktree-isolation tool
                      (requires 'gh' and 'tmux'; see README.md, "AI-assisted
                      development toolchain")
   --dry-run          Show the AI installation plan without changing anything
@@ -38,10 +40,12 @@ Options:
 Ownership: Claude Code, Codex, and Herdr are installed and updated through
 mise (npm/registry backends), in an untracked, machine-local mise config
 file (~/.config/mise/conf.d/ai.toml) so the default, always-installed mise
-config in this repository never gains an AI dependency. FirstMate has no
-package manager upstream; it is cloned to ~/.local/share/firstmate and
-updated with 'git pull --ff-only'. Authenticate each tool interactively
-(see README.md); this installer never stores or requests credentials.
+config in this repository never gains an AI dependency. FirstMate and
+Treehouse have no package manager upstream: FirstMate is cloned to
+~/.local/share/firstmate and updated with 'git pull --ff-only'; Treehouse is
+installed to ~/.local/bin/treehouse via its own official install script and
+updated by rerunning --firstmate. Authenticate each tool interactively (see
+README.md); this installer never stores or requests credentials.
 EOF
 }
 
@@ -110,13 +114,9 @@ EOF
 
   cat <<EOF
   2. mise install
-
-  3. Install $worktree_helper_target
-     (symlink to common/assets/agent-worktree: safe, isolated Git worktrees
-     for agent/crewmate work; never pushes, merges, or deletes branches)
 EOF
 
-  step=4
+  step=3
   if [[ "$install_firstmate" == "true" ]]; then
     cat <<EOF
 
@@ -125,8 +125,12 @@ EOF
      Requires 'gh' and 'tmux' (Herdr is available as an alternative crew
      backend once installed above). Does not register any project or
      authenticate GitHub; see README.md for the manual next steps.
+
+  $((step + 1)). Install Treehouse (worktree isolation for FirstMate crewmates)
+     $treehouse_install_script -> $treehouse_target
+     Not mise-managed (no registry entry); rerun --firstmate to update it.
 EOF
-    step=$((step + 1))
+    step=$((step + 2))
   fi
 
   cat <<EOF
@@ -173,15 +177,12 @@ else
 fi
 "$mise_command" --yes install
 
-info "Installing the agent-worktree helper"
-ensure_dir "$(dirname "$worktree_helper_target")"
-ln -sf "$DOTFILES_ROOT/common/assets/agent-worktree" "$worktree_helper_target"
-chmod +x "$DOTFILES_ROOT/common/assets/agent-worktree"
-
 firstmate_state="disabled"
+treehouse_state="disabled"
 if [[ "$install_firstmate" == "true" ]]; then
   require_command gh
   require_command tmux
+  require_command curl
 
   if [[ -d "$firstmate_dir/.git" ]]; then
     info "Updating FirstMate: $firstmate_dir"
@@ -192,6 +193,18 @@ if [[ "$install_firstmate" == "true" ]]; then
     git clone "$firstmate_repo" "$firstmate_dir"
   fi
   firstmate_state="cloned"
+
+  # Treehouse has no mise registry entry and no OS package; its own install
+  # script is the only supported mechanism. It has no destination override,
+  # placing the binary in the first of ~/.local/bin or /usr/local/bin that is
+  # on PATH, escalating to sudo for the latter -- so ensure ~/.local/bin
+  # exists and is searched first here, guaranteeing a user-owned install with
+  # no unexpected privilege escalation.
+  info "Installing Treehouse: $treehouse_target"
+  ensure_dir "$(dirname "$treehouse_target")"
+  PATH="$(dirname "$treehouse_target"):$PATH" \
+    sh -c "curl --fail --show-error --silent --location '$treehouse_install_script' | sh"
+  treehouse_state="installed"
 fi
 
 info "Recording the AI profile in $state_file"
@@ -206,7 +219,7 @@ ensure_dir "$(dirname "$state_file")"
     printf 'codex=disabled\n'
   fi
   printf 'firstmate=%s\n' "$firstmate_state"
-  printf 'worktree_helper=%s\n' "$worktree_helper_target"
+  printf 'treehouse=%s\n' "$treehouse_state"
 } | atomic_write_file "$state_file"
 
 info "Validating the AI profile"
@@ -242,5 +255,7 @@ if [[ "$install_firstmate" == "true" ]]; then
   • FirstMate is cloned but not configured: read $firstmate_dir/README.md,
     run 'gh auth login' if you have not, then register a project and launch
     a coordinator session as documented there.
+  • Treehouse ($treehouse_target) needs no separate configuration; FirstMate
+    uses it automatically. Run 'treehouse --help' to use it directly.
 EOF
 fi

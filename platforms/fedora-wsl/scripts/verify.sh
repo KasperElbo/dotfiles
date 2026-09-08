@@ -219,9 +219,9 @@ if [[ -f "$ai_state" ]]; then
   fi
 
   # WSL-specific concern beyond common/verify-ai.sh: a Windows-installed
-  # claude.exe/codex.exe/herdr.exe earlier on PATH would silently shadow the
-  # Linux-native, mise-managed copy this profile installed.
-  for command_name in claude codex herdr; do
+  # claude.exe/codex.exe/herdr.exe/treehouse.exe earlier on PATH would
+  # silently shadow the Linux-native copy this profile installed.
+  for command_name in claude codex herdr treehouse; do
     command_path="$(command -v "$command_name" 2>/dev/null || true)"
     if [[ -z "$command_path" ]]; then
       continue
@@ -234,7 +234,9 @@ if [[ -f "$ai_state" ]]; then
 else
   section "AI-assisted development profile"
 
-  if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" || -e "$HOME/.local/bin/agent-worktree" ]]; then
+  if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" ||
+    -e "$HOME/.local/bin/treehouse" ||
+    -d "$XDG_DATA_HOME/firstmate" ]]; then
     fail "AI profile is not selected, but AI-owned files remain (run" \
       "common/install-ai.sh, or remove them by hand)"
   else

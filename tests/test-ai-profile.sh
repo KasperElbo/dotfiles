@@ -58,6 +58,27 @@ EOF
   chmod +x "$mock_bin/$command_name"
 done
 
+# Mocks Treehouse's real install.sh closely enough to exercise install-ai.sh
+# without the network: given a URL containing "treehouse", print a tiny
+# installer script to stdout, which install-ai.sh pipes into 'sh' itself
+# (matching the real 'curl ... | sh' invocation).
+cat >"$mock_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+url=""
+for arg in "$@"; do
+  case "$arg" in
+  http*) url="$arg" ;;
+  esac
+done
+if [[ "$url" == *treehouse* ]]; then
+  printf '#!/usr/bin/env sh\n'
+  printf 'mkdir -p "$HOME/.local/bin"\n'
+  printf 'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$HOME/.local/bin/treehouse"\n'
+  printf 'chmod +x "$HOME/.local/bin/treehouse"\n'
+fi
+EOF
+chmod +x "$mock_bin/curl"
+
 # A real local Git repository stands in for kunchenguid/firstmate so the
 # clone/update path exercises real git, not a mock, without touching the
 # network.
@@ -75,7 +96,7 @@ test_environment=(
   "HOME=$home"
   "XDG_CONFIG_HOME=$config"
   "XDG_DATA_HOME=$data"
-  "PATH=$mise_shims:$mock_bin:$PATH"
+  "PATH=$home/.local/bin:$mise_shims:$mock_bin:$PATH"
   "MISE_SHIMS_DIR=$mise_shims"
   "FIRSTMATE_REPO_URL=$firstmate_origin"
 )
@@ -90,7 +111,7 @@ assert_contains() {
 
 conf_file="$config/mise/conf.d/ai.toml"
 state_file="$config/dotfiles/ai.conf"
-worktree_helper="$home/.local/bin/agent-worktree"
+treehouse_target="$home/.local/bin/treehouse"
 
 # --- Core profile: Claude Code + Herdr only -------------------------------
 
@@ -117,13 +138,12 @@ grep -Fqx 'claude_code=mise-npm' "$state_file"
 grep -Fqx 'herdr=mise' "$state_file"
 grep -Fqx 'codex=disabled' "$state_file"
 grep -Fqx 'firstmate=disabled' "$state_file"
+grep -Fqx 'treehouse=disabled' "$state_file"
 
-[[ -L "$worktree_helper" ]] || {
-  printf 'agent-worktree is not a symlink: %s\n' "$worktree_helper" >&2
+[[ ! -e "$treehouse_target" ]] || {
+  printf 'Treehouse was installed without --firstmate: %s\n' "$treehouse_target" >&2
   exit 1
 }
-[[ "$(readlink -f "$worktree_helper")" == "$repo_root/common/assets/agent-worktree" ]]
-[[ -x "$worktree_helper" ]]
 
 if ! verify_core_output="$("${test_environment[@]}" "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf '%s\n' "$verify_core_output" >&2
@@ -134,6 +154,7 @@ assert_contains "$verify_core_output" 'claude is mise-managed'
 assert_contains "$verify_core_output" 'herdr is mise-managed'
 assert_contains "$verify_core_output" 'codex is not installed'
 assert_contains "$verify_core_output" 'FirstMate is not installed'
+assert_contains "$verify_core_output" 'Treehouse is not installed'
 
 # --- Idempotency: rerunning changes nothing --------------------------------
 
@@ -157,8 +178,13 @@ fi
 grep -Fq '"npm:@openai/codex" = "latest"' "$conf_file"
 grep -Fqx 'codex=mise-npm' "$state_file"
 grep -Fqx 'firstmate=cloned' "$state_file"
+grep -Fqx 'treehouse=installed' "$state_file"
 [[ -d "$data/firstmate/.git" ]] || {
   printf 'FirstMate was not cloned to %s\n' "$data/firstmate" >&2
+  exit 1
+}
+[[ -x "$treehouse_target" ]] || {
+  printf 'Treehouse was not installed to %s\n' "$treehouse_target" >&2
   exit 1
 }
 
@@ -169,8 +195,11 @@ if ! verify_full_output="$("${test_environment[@]}" "$repo_root/common/verify-ai
 fi
 assert_contains "$verify_full_output" 'codex is mise-managed'
 assert_contains "$verify_full_output" 'FirstMate cloned'
+assert_contains "$verify_full_output" "treehouse: $treehouse_target"
+assert_contains "$verify_full_output" 'treehouse on PATH resolves to the installed copy'
 
-# Rerunning updates (git pull --ff-only) rather than re-cloning or failing.
+# Rerunning updates (git pull --ff-only, and reruns the Treehouse installer)
+# rather than re-cloning or failing.
 "${test_environment[@]}" "$repo_root/common/install-ai.sh" \
   --codex --firstmate >/dev/null
 
@@ -189,6 +218,7 @@ dry_run_output="$(
 )"
 assert_contains "$dry_run_output" 'Codex CLI:            true'
 assert_contains "$dry_run_output" 'FirstMate crew stack: true'
+assert_contains "$dry_run_output" 'Install Treehouse'
 assert_contains "$dry_run_output" 'No changes were made.'
 
 if find "$dry_home" -mindepth 1 -print -quit | grep -q .; then

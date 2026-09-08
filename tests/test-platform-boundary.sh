@@ -32,8 +32,7 @@ fi
 
 if grep -E -n '\b(dnf|rpm|systemctl|plasmashell|swaymsg|lookandfeeltool)\b' \
   "$repo_root/common/install-ai.sh" \
-  "$repo_root/common/verify-ai.sh" \
-  "$repo_root/common/assets/agent-worktree"; then
+  "$repo_root/common/verify-ai.sh"; then
   printf 'Portable AI profile scripts contain Fedora/desktop-specific integration.\n' >&2
   exit 1
 fi

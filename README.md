@@ -1841,71 +1841,98 @@ add glue code to bridge the two; use tmux (already installed, intentionally
 thin) for ordinary shell multiplexing outside of agent work, and Herdr for
 agent panes.
 
-## Optional: FirstMate multi-agent coordinator
+## Optional: FirstMate multi-agent coordinator, and Treehouse worktree isolation
 
-`--firstmate` additionally clones
-[kunchenguid/firstmate](https://github.com/kunchenguid/firstmate) — a
-Claude-Code-compatible coordinator distribution, not a package — to
-`~/.local/share/firstmate`, and updates it in place with `git pull --ff-only`
-on rerun. It has no upstream package manager, so this is the only mechanism
-that installs it; requires `gh` and `tmux` (both already installed by the
-base profile), and can use Herdr as an alternative crew backend to tmux once
-installed above.
+`--firstmate` additionally installs two independent, standalone tools from
+the same author (Kun Chen), neither of which depends on the other:
+
+- [kunchenguid/firstmate](https://github.com/kunchenguid/firstmate) — a
+  Claude-Code-compatible coordinator distribution, not a package. It has no
+  upstream package manager, so this profile clones it to
+  `~/.local/share/firstmate` and updates it in place with
+  `git pull --ff-only` on rerun. Requires `gh` and `tmux` (both already
+  installed by the base profile); can use Herdr as an alternative crew
+  backend to tmux once installed above.
+- [kunchenguid/treehouse](https://github.com/kunchenguid/treehouse) — a
+  standalone Go CLI that manages a pool of isolated Git worktrees (`get`,
+  `enter`, `status`, `return`, `prune`, `destroy`, `lease`), which FirstMate
+  uses for crewmate isolation ("dirty worktrees refuse, and committed work
+  must be landed before a worktree is returned"). It has no mise registry
+  entry and no OS package, so this profile installs it to
+  `~/.local/bin/treehouse` via its own official install script
+  (`https://kunchenguid.github.io/treehouse/install.sh`) and reruns that
+  script to update it. Treehouse is independently useful for a single Claude
+  Code/Codex session too — it is bundled with `--firstmate` rather than
+  given its own flag specifically to avoid tying the core `--ai` profile
+  (Claude Code + Herdr, no FirstMate) to any Kun Chen tooling; if you want
+  worktree isolation without FirstMate, install Treehouse yourself following
+  its own docs.
 
 FirstMate lets one coordinator session (Claude Code, by default here) talk to
 you while it delegates isolated implementation work to crewmates it spawns
-and supervises, each in FirstMate's own isolated worktree ("Treehouse"),
-reporting plain outcomes back to you. Registering a specific project and
-choosing one of its three project modes (`direct-PR`, `local-only`, or `No
-Mistakes`, which runs full CI validation before merge) is a per-project,
-per-user decision this installer does not and cannot make safely on your
-behalf. After installing:
+and supervises, each in its own Treehouse worktree, reporting plain outcomes
+back to you. Registering a specific project and choosing one of its three
+project modes (`direct-PR`, `local-only`, or `No Mistakes`, which runs full
+CI validation before merge) is a per-project, per-user decision this
+installer does not and cannot make safely on your behalf. After installing:
 
 ```bash
 cat ~/.local/share/firstmate/README.md    # follow FirstMate's own setup docs
 gh auth login                             # if you have not already
+treehouse --help                          # usable directly, with or without FirstMate
 ```
 
 then launch a coordinator session there and register your project as
 documented in that repository. This installer never runs `gh auth login`,
 registers a project, or starts a session for you.
 
-## Worktree isolation for agent/crewmate work
+### Other Kun Chen tools evaluated but not installed
 
-Multi-agent work defaults to isolated Git worktrees so parallel agent work
-never collides with your primary checkout or with another agent's worktree.
-`--ai` installs `~/.local/bin/agent-worktree` (a symlink into
-`common/assets/agent-worktree`, this repository's own small helper — not a
-FirstMate/Herdr component) for this:
+A few more tools from the same ecosystem came up during review. None are
+installed by this profile; they are each their own deliberate, separate
+choice:
 
-```bash
-agent-worktree new <name> [<base-ref>]   # isolated worktree + branch agents/<name>
-agent-worktree list                      # worktrees created by this tool
-agent-worktree remove <name> [--force]   # remove a worktree; refuses if dirty
-                                          # or unlanded without --force
-agent-worktree prune                     # clear stale worktree metadata
-```
-
-Worktrees live under `~/.local/share/dotfiles/agent-worktrees/<repo>/<name>`.
-`new` refuses to reuse an existing `agents/<name>` branch or worktree path —
-the class of "branch already used by worktree" failure never happens
-silently. `remove` refuses a dirty worktree, and refuses a clean one whose
-commits are neither pushed to an upstream nor merged into another local
-branch, unless `--force` is given; it never deletes the branch itself, only
-the worktree, so discarding a worktree is always recoverable from the branch
-directly. This mirrors FirstMate's own Treehouse model ("dirty worktrees
-refuse, and committed work must be landed before the worktree is returned")
-in a tool usable with or without FirstMate installed.
+- **[No Mistakes](https://github.com/kunchenguid/no-mistakes)**
+  (`kunchenguid/no-mistakes`) is a standalone local Git push proxy — the same
+  tool FirstMate's own `No Mistakes` project mode uses. It intercepts
+  `git push no-mistakes <branch>`, runs an AI-driven review/test/lint
+  pipeline in a disposable worktree, auto-fixes mechanical issues, and only
+  then forwards the branch and opens a PR. Used standalone (outside a
+  FirstMate project already configured for that mode), it is more autonomous
+  than this profile's own "review/PR-oriented, human decides at the merge
+  boundary" default — it decides on its own when a branch is clean enough to
+  push and open a PR for. That is a genuinely useful, deliberate choice for
+  some workflows, but not one this installer should make for you silently;
+  install it yourself (`docs/install.sh` in its repo) if you want that level
+  of automation outside of a FirstMate project.
+- **[AXI](https://github.com/kunchenguid/axi)** (`kunchenguid/axi`) is not a
+  tool to install — it is a design specification (10 principles) plus
+  reference implementations (`gh-axi`, `chrome-devtools-axi`, 70+
+  community ones) for building token-efficient, agent-ergonomic CLI
+  wrappers. There is nothing generic for this AI profile to install; if you
+  want an AXI-style wrapper around a specific CLI you use (`gh`, a browser
+  devtools protocol, etc.), install that one reference implementation
+  yourself (for example `npm install -g gh-axi`).
+- **[GNHF](https://github.com/kunchenguid/gnhf)** ("Good Night, Have Fun",
+  `kunchenguid/gnhf`) is a standalone autonomous agent orchestrator that
+  runs unattended, multi-iteration coding loops (optionally committing or
+  pushing on your behalf while you are away). It has no relation to
+  FirstMate, Herdr, or Treehouse. Its whole premise — unattended pushes with
+  no human at the merge boundary — is the opposite of this profile's
+  non-destructive-by-default posture (see below), so it is deliberately not
+  wired into `--ai`/`--codex`/`--firstmate`. Install it yourself
+  (`npm install -g gnhf`) only as a conscious, separate decision.
 
 ## Non-destructive defaults
 
 None of this profile's own tooling pushes branches, merges pull requests,
-force-pushes, or deletes branches on its own. `agent-worktree` never deletes
-a branch. FirstMate's own project modes gate publication behind an explicit
-captain decision (`local-only` waits for an approved fast-forward merge;
-`direct-PR` opens a PR for human review; `No Mistakes` additionally runs full
-CI before merge) — this repository does not enable an autonomous push/merge
-mode by default, and installing this profile does not change any existing
+force-pushes, or deletes branches on its own. FirstMate's own project modes
+gate publication behind an explicit captain decision (`local-only` waits for
+an approved fast-forward merge; `direct-PR` opens a PR for human review; its
+`No Mistakes` mode additionally runs full CI, via the standalone
+[No Mistakes](https://github.com/kunchenguid/no-mistakes) tool, before merge)
+— this repository does not enable an autonomous push/merge mode by default,
+and installing this profile does not change any existing
 Git signing, authentication, or identity configuration (see "Git, SSH and
 GitHub authentication" and "Choices a user must make" above/below). Prefer
 Claude Code and Codex's own review/PR-oriented workflows, with a human
@@ -1918,8 +1945,9 @@ below.
 open repository
   -> start/reattach a Herdr workspace (or a plain tmux/Ghostty session)
   -> use Claude Code directly, or start a FirstMate coordinator session
-  -> delegate isolated work into an agent-worktree (or a FirstMate/Treehouse
-     worktree)
+  -> delegate isolated work into a Treehouse worktree (directly, or through
+     FirstMate's own crewmates), or a plain `git worktree` if Treehouse
+     is not installed
   -> review the resulting diff and run tests
   -> create a PR (gh pr create, or let Claude Code/Codex/FirstMate open one)
   -> a human decides whether to merge
@@ -1952,12 +1980,12 @@ directory above; none of it is readable from this repository.
 checks that Claude Code, Herdr, and (if selected) Codex resolve on PATH to
 the mise-managed copy this profile installed rather than a second install
 shadowing it elsewhere on PATH (catching duplicate npm/Homebrew/native-installer
-ownership of the same tool), that `~/.local/bin/agent-worktree` is the
-expected symlink, and, if selected, that FirstMate is cloned with `gh` and
-`tmux` present. `platforms/fedora/scripts/verify.sh` (and the Fedora WSL
-equivalent) run this automatically whenever the AI profile's state file is
-present, and separately confirm that **no** AI-owned file exists when it is
-not.
+ownership of the same tool), and, if selected, that FirstMate is cloned with
+`gh` and `tmux` present and Treehouse resolves to the copy this profile
+installed at `~/.local/bin/treehouse`. `platforms/fedora/scripts/verify.sh`
+(and the Fedora WSL equivalent) run this automatically whenever the AI
+profile's state file is present, and separately confirm that **no** AI-owned
+file exists when it is not.
 
 ## Ownership summary
 
@@ -1967,7 +1995,7 @@ not.
 | Codex CLI | mise (`npm:@openai/codex`) | `mise upgrade` |
 | Herdr | mise (registry) | `mise upgrade` |
 | FirstMate | `git clone`/`git pull --ff-only` to `~/.local/share/firstmate` | rerun `--firstmate` |
-| `agent-worktree` | symlink into this repository's `common/assets/` | tracked by this repo |
+| Treehouse | own install script, to `~/.local/bin/treehouse` (no mise registry entry) | rerun `--firstmate` |
 
 See "AI agent tooling" under "Package ownership" below for how this avoids
 duplicate installs of the same tool. All three mise-managed tools are
@@ -2147,13 +2175,15 @@ gains an AI-related dependency:
 | Claude Code | mise, `npm:@anthropic-ai/claude-code` |
 | Codex CLI (optional) | mise, `npm:@openai/codex` |
 | Herdr | mise, registry entry `herdr` |
-| FirstMate (optional) | `git clone`/`git pull --ff-only`, no package manager upstream |
+| FirstMate (optional, requires `--firstmate`) | `git clone`/`git pull --ff-only`, no package manager upstream |
+| Treehouse (optional, requires `--firstmate`) | own install script to `~/.local/bin/treehouse`, no mise registry entry or OS package |
 
 Each tool is installed through exactly one mechanism above; this repository
 does not additionally install any of them through Homebrew, a global `npm
 install -g`, or a native/OS-package installer, so there is never a duplicate,
 competing copy on `PATH`. `verify-ai.sh` checks this by confirming each
-command resolves to the same binary mise itself reports managing.
+mise-managed command resolves to the same binary mise itself reports
+managing, and that Treehouse resolves to the copy this profile installed.
 
 ## opam
 
@@ -2822,10 +2852,10 @@ Useful LazyVim Git mappings:
 
 Fugitive and Octo are intentionally not installed at present.
 
-Multi-agent work (see "AI-assisted development toolchain" below) uses its own
-`agents/<name>` branch namespace, created by `agent-worktree new <name>` in an
-isolated worktree rather than your current branch/checkout. It does not
-change the shared Git defaults above.
+Multi-agent work (see "AI-assisted development toolchain" below), when
+Treehouse is installed, uses isolated worktrees managed by `treehouse`
+rather than your current branch/checkout. It does not change the shared Git
+defaults above.
 
 ---
 
@@ -3512,9 +3542,9 @@ The verifier checks:
 - optional Fedora security-hardening profile settings (see "Optional Fedora
   security-hardening profile" above)
 - optional AI-assisted development profile: Claude Code/Codex/Herdr PATH
-  ownership, the `agent-worktree` helper, and FirstMate's clone (see
-  "AI-assisted development toolchain" above) — and confirms none of it is
-  present when the profile was not selected
+  ownership, FirstMate's clone, and Treehouse (see "AI-assisted development
+  toolchain" above) — and confirms none of it is present when the profile
+  was not selected
 - nested Git repositories
 - obvious generated junk files
 
@@ -3711,13 +3741,13 @@ same tool installed outside this profile. Remove the other installation (see
 each tool's own uninstall instructions) so only the mise-managed copy remains
 on `PATH`.
 
-## `agent-worktree remove` refuses to remove a worktree
+## `treehouse` commands fail or a worktree seems stuck
 
-By design: it refuses a worktree with uncommitted changes, or with commits
-that are neither pushed to an upstream nor merged into another local branch,
-so agent work is never silently discarded. Commit/push/merge the work first,
-or pass `--force` once you have confirmed it is safe to discard the working
-copy (the `agents/<name>` branch itself is never deleted).
+Treehouse is not documented in detail here — see its own
+[README](https://github.com/kunchenguid/treehouse) and `treehouse --help` for
+the current command set (`get`/`enter`/`status`/`return`/`prune`/`destroy`/
+`lease`) rather than relying on this document, which does not duplicate
+fast-moving upstream option lists.
 
 ---
 

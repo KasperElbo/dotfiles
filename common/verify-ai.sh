@@ -9,7 +9,7 @@ failures=0
 
 state_file="$XDG_CONFIG_HOME/dotfiles/ai.conf"
 conf_file="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
-worktree_helper="$HOME/.local/bin/agent-worktree"
+treehouse_target="$HOME/.local/bin/treehouse"
 
 pass() {
   printf '\033[1;32m✓\033[0m %s\n' "$*"
@@ -35,6 +35,7 @@ section() {
 
 codex_state="$(awk -F= '$1 == "codex" { print $2 }' "$state_file")"
 firstmate_state="$(awk -F= '$1 == "firstmate" { print $2 }' "$state_file")"
+treehouse_state="$(awk -F= '$1 == "treehouse" { print $2 }' "$state_file")"
 
 mise_command="$(command -v mise 2>/dev/null || true)"
 if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
@@ -116,27 +117,6 @@ else
   pass "codex is not installed (optional subcomponent not selected)"
 fi
 
-section "agent-worktree helper"
-
-if [[ -L "$worktree_helper" ]]; then
-  resolved="$(readlink -f "$worktree_helper" 2>/dev/null || true)"
-  if [[ "$resolved" == "$DOTFILES_ROOT/common/assets/agent-worktree" ]]; then
-    pass "agent-worktree -> $resolved"
-  else
-    fail "agent-worktree resolves outside the dotfiles repo: $resolved"
-  fi
-elif [[ -e "$worktree_helper" ]]; then
-  fail "$worktree_helper exists but is not a symlink"
-else
-  fail "$worktree_helper is missing"
-fi
-
-if [[ -x "$worktree_helper" ]]; then
-  pass "agent-worktree is executable"
-else
-  fail "agent-worktree is not executable"
-fi
-
 section "FirstMate"
 
 if [[ "$firstmate_state" == cloned ]]; then
@@ -161,6 +141,39 @@ else
       "$XDG_DATA_HOME/firstmate exists; remove it manually if unwanted"
   else
     pass "FirstMate is not installed (optional subcomponent not selected)"
+  fi
+fi
+
+section "Treehouse (worktree isolation for FirstMate crewmates)"
+
+if [[ "$treehouse_state" == installed ]]; then
+  if [[ -x "$treehouse_target" ]]; then
+    pass "treehouse: $treehouse_target"
+  else
+    fail "AI profile state says treehouse=installed, but $treehouse_target is" \
+      "missing or not executable"
+  fi
+
+  # Treehouse has no mise registry entry, so it is not checked against mise
+  # ownership like Claude Code/Codex/Herdr above; only that it resolves and
+  # that nothing else on PATH shadows the copy this installer placed.
+  resolved_treehouse="$(command -v treehouse 2>/dev/null || true)"
+  if [[ -n "$resolved_treehouse" ]] &&
+    { [[ "$resolved_treehouse" == "$treehouse_target" ]] ||
+      [[ "$resolved_treehouse" -ef "$treehouse_target" ]]; }; then
+    pass "treehouse on PATH resolves to the installed copy"
+  elif [[ -n "$resolved_treehouse" ]]; then
+    fail "treehouse on PATH ($resolved_treehouse) is not $treehouse_target," \
+      "a possible duplicate install"
+  else
+    warning "$treehouse_target is not on PATH"
+  fi
+else
+  if [[ -e "$treehouse_target" ]]; then
+    warning "FirstMate/Treehouse not selected (treehouse=$treehouse_state)," \
+      "but $treehouse_target exists; remove it manually if unwanted"
+  else
+    pass "Treehouse is not installed (FirstMate subcomponent not selected)"
   fi
 fi
 

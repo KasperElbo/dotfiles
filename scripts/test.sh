@@ -24,7 +24,6 @@ tests=(
   tests/test-asus-verification.sh
   tests/test-mocked-installs.sh
   tests/test-ai-profile.sh
-  tests/test-agent-worktree.sh
   tests/test-vm-host.sh
   tests/test-vm-guest.sh
   tests/test-hardening.sh

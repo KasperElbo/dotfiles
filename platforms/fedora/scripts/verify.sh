@@ -649,7 +649,9 @@ if [[ -f "$ai_state" ]]; then
 else
   section "AI-assisted development profile"
 
-  if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" || -e "$HOME/.local/bin/agent-worktree" ]]; then
+  if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" ||
+    -e "$HOME/.local/bin/treehouse" ||
+    -d "$XDG_DATA_HOME/firstmate" ]]; then
     fail "AI profile is not selected, but AI-owned files remain (run" \
       "common/install-ai.sh, or remove them by hand)"
   else
