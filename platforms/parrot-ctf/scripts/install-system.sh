@@ -39,6 +39,7 @@ packages=(
   stow
   tmux
   unzip
+  xdg-utils
   zoxide
   zsh
   zsh-autosuggestions

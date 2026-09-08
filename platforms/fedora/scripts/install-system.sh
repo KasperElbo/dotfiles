@@ -25,6 +25,7 @@ packages=(
   stow
   tmux
   wl-clipboard
+  xdg-utils
   zoxide
   zsh
   zsh-autosuggestions
