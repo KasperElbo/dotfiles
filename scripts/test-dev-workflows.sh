@@ -189,7 +189,7 @@ run_ocaml_workflow() {
   local switch_name
   local project="$test_root/ocaml-smoke"
   local output="$test_root/ocaml-output.txt"
-  local rules="$test_root/ocaml-rules.json"
+  local rules="$test_root/ocaml-rules.sexp"
 
   switch_name="$(awk -F= '$1 == "switch" { print $2 }' "$state_file")"
   cp -R "$DOTFILES_ROOT/tests/fixtures/ocaml-smoke" "$project"
@@ -199,8 +199,8 @@ run_ocaml_workflow() {
     cd "$project"
     opam install --switch "$switch_name" --yes . --deps-only --with-test
     opam exec --switch "$switch_name" -- \
-      dune describe rules --format=json >"$rules"
-    grep -Fq '"_build/default/bin/main.bc"' "$rules" ||
+      dune describe rules >"$rules"
+    grep -Fq '_build/default/bin/main.bc' "$rules" ||
       die "Dune rule discovery did not expose the fixture bytecode target"
     opam exec --switch "$switch_name" -- \
       dune build _build/default/bin/main.bc

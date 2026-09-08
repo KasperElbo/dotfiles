@@ -44,34 +44,18 @@ function M.project_root(bufnr, finder)
 end
 
 function M.parse_rule_targets(output)
-  local ok, rules = pcall(vim.json.decode, output)
-  if not ok then
-    return nil, "Dune returned invalid JSON while discovering bytecode targets"
-  end
-
   local targets = {}
   local seen = {}
 
-  local function visit(value)
-    if type(value) ~= "table" then
-      return
-    end
-
-    if type(value.targets) == "table" and type(value.targets.files) == "table" then
-      for _, target in ipairs(value.targets.files) do
-        if type(target) == "string" and target:match("%.bc$") and not seen[target] then
-          seen[target] = true
-          table.insert(targets, target)
-        end
+  for files_blob in output:gmatch("%(targets%s*%(%(files%s*%((.-)%)") do
+    for target in files_blob:gmatch("%S+") do
+      if target:match("%.bc$") and not seen[target] then
+        seen[target] = true
+        table.insert(targets, target)
       end
-    end
-
-    for _, child in pairs(value) do
-      visit(child)
     end
   end
 
-  visit(rules)
   table.sort(targets)
   return targets
 end
@@ -85,17 +69,13 @@ function M.discover_targets(root, runner)
     "dune",
     "describe",
     "rules",
-    "--format=json",
   }, { cwd = root })
 
   if result.code ~= 0 then
     return nil, command_error("Could not discover Dune bytecode targets", result)
   end
 
-  local targets, parse_error = M.parse_rule_targets(result.stdout or "")
-  if not targets then
-    return nil, parse_error
-  end
+  local targets = M.parse_rule_targets(result.stdout or "")
   if #targets == 0 then
     return nil, "Dune did not report any .bc targets. Add (modes byte exe) to the executable stanza."
   end
