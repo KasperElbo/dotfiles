@@ -6,7 +6,13 @@ source "$DOTFILES_ROOT/platforms/fedora/lib/theme-state.sh"
 # shellcheck disable=SC2154
 write_fedora_theme_state "$flavour" "$preserve_wallpaper"
 
-if command -v lookandfeeltool >/dev/null 2>&1 \
+sway_session_active="false"
+if command -v swaymsg >/dev/null 2>&1 && swaymsg -t get_version >/dev/null 2>&1; then
+  sway_session_active="true"
+fi
+
+if [[ "$sway_session_active" != "true" ]] \
+  && command -v lookandfeeltool >/dev/null 2>&1 \
   && command -v plasma-apply-colorscheme >/dev/null 2>&1 \
   && command -v plasma-apply-cursortheme >/dev/null 2>&1; then
   kde_theme_args=("$flavour")
@@ -39,7 +45,7 @@ if [[ "$ghostty_reloaded" == "false" ]]; then
   echo "Ghostty: reload with Ctrl-Shift-, if currently running."
 fi
 
-if command -v swaymsg >/dev/null 2>&1 && swaymsg -t get_version >/dev/null 2>&1; then
+if [[ "$sway_session_active" == "true" ]]; then
   if command -v pkill >/dev/null 2>&1; then
     pkill -SIGUSR2 waybar >/dev/null 2>&1 || true
   fi

@@ -45,6 +45,10 @@ printf 'pkill %s\n' "$*" >>"$MOCK_LOG"
 EOF
 cat >"$mock_bin/swaymsg" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$1" == "-t" && "$2" == "get_version" ]]; then
+  [[ "${MOCK_SWAY_ACTIVE:-false}" == "true" ]] || exit 1
+  exit 0
+fi
 printf 'swaymsg %s\n' "$*" >>"$MOCK_LOG"
 EOF
 cat >"$mock_bin/lookandfeeltool" <<'EOF'
@@ -114,9 +118,18 @@ XDG_CONFIG_HOME="$test_root/xdg" \
 XDG_DATA_HOME="$test_root/home/.local/share" \
 PATH="$mock_bin:$sandbox_bin" \
 MOCK_LOG="$mock_log" \
+MOCK_SWAY_ACTIVE="false" \
   "$theme_command" mocha >/dev/null
 
 grep -Fqx -- 'pkill -USR2 -x ghostty' "$mock_log"
+if grep -Fq 'swaymsg reload' "$mock_log"; then
+  printf 'A KDE-only session must not reload a Sway compositor.\n' >&2
+  exit 1
+fi
+if grep -Fqx -- 'pkill -SIGUSR2 waybar' "$mock_log"; then
+  printf 'A KDE-only session must not reload waybar.\n' >&2
+  exit 1
+fi
 grep -Fqx 'theme = catppuccin-mocha.conf' \
   "$test_root/xdg/dotfiles/ghostty.conf"
 grep -Fqx \
@@ -163,6 +176,7 @@ DOTFILES_PROC_ROOT="$proc_root" \
 PATH="$mock_bin:$sandbox_bin" \
 MOCK_LOG="$mock_log" \
 MOCK_SWAYBG_RUNNING="true" \
+MOCK_SWAY_ACTIVE="false" \
   "$theme_command" --preserve-wallpaper frappe >/dev/null
 
 grep -Fqx 'theme = catppuccin-frappe.conf' \
@@ -182,7 +196,10 @@ if [[ -z "$capture_line" || -z "$theme_line" || -z "$restore_line" ]] ||
   exit 1
 fi
 
-grep -Fqx 'swaymsg reload' "$mock_log"
+if grep -Fq 'swaymsg reload' "$mock_log"; then
+  printf 'A KDE-only session must not reload a Sway compositor.\n' >&2
+  exit 1
+fi
 grep -Fq 'file:///home/test/Pictures/custom.jpg' "$mock_log"
 if grep -Fq 'plasma-apply-wallpaperimage ' "$mock_log"; then
   printf 'Preserved KDE wallpaper must not be replaced.\n' >&2
@@ -214,5 +231,25 @@ grep -Fqx \
   "$test_root/xdg/dotfiles/sway-theme.conf"
 grep -Fq 'catppuccin-mocha-lock.webp' \
   "$test_root/xdg/dotfiles/swaylock.conf"
+
+# A machine with both the optional Sway profile and the base KDE tooling
+# installed must not attempt KDE desktop integration while an actual Sway
+# session is running: KDE's DBus-backed commands have nothing to talk to and
+# would otherwise fail or misbehave.
+: >"$mock_log"
+HOME="$test_root/home" \
+XDG_CONFIG_HOME="$test_root/xdg" \
+XDG_DATA_HOME="$test_root/home/.local/share" \
+PATH="$mock_bin:$sandbox_bin" \
+MOCK_LOG="$mock_log" \
+MOCK_SWAY_ACTIVE="true" \
+  "$theme_command" mocha >/dev/null
+
+if grep -Eq 'lookandfeeltool|kwriteconfig6|plasma-apply-|qdbus' "$mock_log"; then
+  printf 'An active Sway session must not trigger KDE desktop integration.\n' >&2
+  exit 1
+fi
+grep -Fqx 'swaymsg reload' "$mock_log"
+grep -Fqx -- 'pkill -SIGUSR2 waybar' "$mock_log"
 
 printf 'Theme parsing and desktop wallpaper preservation tests passed.\n'
