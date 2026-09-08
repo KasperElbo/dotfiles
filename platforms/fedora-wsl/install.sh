@@ -47,7 +47,9 @@ Options:
   -h, --help         Show this help
 
 Desktop, hardware, VM-host/guest and AI profiles are not part of the
-Fedora WSL workstation variant.
+Fedora WSL workstation variant. --tailscale is also unsupported here by
+design: install Tailscale on the Windows host instead (see README.md,
+"Optional Tailscale networking profile" > "Fedora WSL policy").
 EOF
 }
 
@@ -89,6 +91,12 @@ while (($#)); do
   --smoke-test)
     run_smoke_tests="true"
     shift
+    ;;
+  --tailscale | --no-tailscale)
+    die "--tailscale is not supported on Fedora WSL: install Tailscale on" \
+      "the Windows host instead and let this WSL distribution reach it" \
+      "through that tailnet. See README.md, \"Optional Tailscale" \
+      "networking profile\" > \"Fedora WSL policy\"."
     ;;
   --dry-run)
     dry_run="true"
