@@ -53,6 +53,8 @@ trap 'rm -f -- "$nvim_log"' EXIT
 NVIM_LOG_FILE="$nvim_log" nvim --headless -u NONE -i NONE \
   -c 'lua dofile("tests/test-neovim-first-launch.lua")' \
   -c 'quitall!'
+DOTFILES_TEST_ROOT="$repo_root" NVIM_LOG_FILE="$nvim_log" \
+  nvim --headless -u NONE -i NONE -l tests/test-ocaml-dap.lua
 
 formatting_config="$lazyvim_config/lua/plugins/formatting.lua"
 assert_contains "$formatting_config" 'cs = { "csharpier" }'
@@ -71,6 +73,18 @@ assert_contains "$ocaml_config" \
 assert_contains "$ocaml_config" 'dap.adapters.ocamlearlybird'
 assert_contains "$ocaml_config" \
   'args = { "exec", "--", "ocamlearlybird", "debug" }'
+assert_contains "$ocaml_config" 'require("config.ocaml_dune")'
+assert_contains "$ocaml_config" 'OCaml: build and debug Dune executable'
+assert_contains "$ocaml_config" 'OCaml: debug bytecode executable (manual)'
+
+ocaml_dune_config="$lazyvim_config/lua/config/ocaml_dune.lua"
+assert_contains "$ocaml_dune_config" '"dune-workspace", "dune-project"'
+assert_contains "$ocaml_dune_config" '"describe",'
+assert_contains "$ocaml_dune_config" '"rules",'
+assert_contains "$ocaml_dune_config" '"--format=json",'
+assert_contains "$ocaml_dune_config" '"dune", "build", target'
+assert_contains "$ocaml_dune_config" 'last_target_by_root'
+assert_contains "$ocaml_dune_config" 'return require("dap").ABORT'
 
 assert_contains "$repo_root/platforms/fedora/scripts/install-system.sh" '  ShellCheck'
 

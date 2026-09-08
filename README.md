@@ -2153,6 +2153,17 @@ dune utop
 nvim .
 ```
 
+`dune init proj hello` is the easiest starting point for a new application: it
+creates `dune-project` plus `bin`, `lib`, and `test` directories. To make its
+executable debuggable with Earlybird, ensure the executable stanza in
+`bin/dune` includes bytecode mode:
+
+```lisp
+(executable
+ (name main)
+ (modes byte exe))
+```
+
 Use the executable name declared by the project's `dune` files with
 `dune exec`. For an existing repository, begin with
 `opam install . --deps-only --with-test`, then use its committed build, run,
@@ -2192,11 +2203,21 @@ The optional profile installs the opam-owned `earlybird` package. It provides
 the `ocamlearlybird` Debug Adapter Protocol server, and the LazyVim DAP extra
 is configured to launch it through the active opam switch. In an OCaml buffer:
 
-1. Build a bytecode executable with `dune build`.
-2. Set a breakpoint with `:DapToggleBreakpoint`.
-3. Start the `OCaml: debug bytecode executable` configuration with
-   `:DapContinue`.
-4. Select the resulting `_build/default/.../*.bc` executable when prompted.
+1. Set a breakpoint with `<leader>db` (`:DapToggleBreakpoint`).
+2. Press `<leader>dc` (`:DapContinue`) and choose
+   `OCaml: build and debug Dune executable`.
+3. Select the relevant `.bc` target when the project exposes more than one.
+   The most recently selected target is offered first for reuse during the
+   Neovim session.
+4. LazyVim asks Dune to build that exact target and launches Earlybird only
+   after the build succeeds.
+
+Target discovery uses Dune's rule description rather than assuming an
+`_build/default` layout, so alternate Dune build contexts resolve to the
+artifact path reported by Dune. A failed build is shown as an editor error and
+the DAP session is not started. Projects with generated or otherwise unusual
+layouts can choose `OCaml: debug bytecode executable (manual)` and pick an
+existing `.bc` artifact directly.
 
 The adapter supports normal launch, breakpoints, stepping, stack inspection,
 and variables through `nvim-dap`. It is restricted to bytecode executables;
