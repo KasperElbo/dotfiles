@@ -115,6 +115,23 @@ run_success "Desktop-tools force-defaults remains opt-in" \
 run_success "Desktop-tools force-defaults dry-run" \
   "install-desktop-tools.sh --force-defaults" \
   ./install.sh --dry-run --desktop-tools --desktop-tools-force-defaults
+run_success "Containers remains opt-in" "Containers profile:  false" \
+  ./install.sh --dry-run
+run_success "Containers dry-run" \
+  "platforms/fedora/scripts/install-containers.sh" \
+  ./install.sh --dry-run --containers
+run_success "Containers dry-run documents no Docker Engine/alias" \
+  "Docker Engine/alias:   not installed" \
+  ./scripts/install-containers.sh --dry-run
+run_success "Containers API socket remains opt-in" \
+  "Containers API socket: false" \
+  ./install.sh --dry-run --containers
+run_success "Containers API socket dry-run" \
+  "install-containers.sh --api-socket" \
+  ./install.sh --dry-run --containers --containers-api-socket
+run_success "Standalone containers dry-run" \
+  "Rootless API socket:   false" \
+  ./scripts/install-containers.sh --dry-run
 run_success "Sway dry-run forwards local setup" \
   "platforms/fedora/scripts/setup-local.sh macchiato --sway" \
   ./install.sh --dry-run --sway
@@ -140,6 +157,9 @@ run_failure "Secure Boot without hardware" "--secure-boot requires --hardware" \
 run_failure "force-defaults without desktop-tools" \
   "--desktop-tools-force-defaults requires --desktop-tools" \
   ./install.sh --dry-run --desktop-tools-force-defaults
+run_failure "containers API socket without containers" \
+  "--containers-api-socket requires --containers" \
+  ./install.sh --dry-run --containers-api-socket
 run_failure "charge limit without hardware" "--charge-limit requires --hardware" \
   ./install.sh --dry-run --charge-limit 80
 run_failure "invalid charge limit" \

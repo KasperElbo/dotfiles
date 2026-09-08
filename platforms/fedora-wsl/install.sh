@@ -30,8 +30,11 @@ Options:
 
   -h, --help         Show this help
 
-Desktop, hardware, VM-host/guest, LaTeX and AI profiles are not part of the
-Fedora WSL workstation variant.
+Desktop, hardware, VM-host/guest, LaTeX, containers and AI profiles are not
+part of the Fedora WSL workstation variant. WSL's rootless networking and
+systemd behavior differ enough from native Fedora that the containers
+profile needs its own evaluation rather than reuse; see README.md's
+"Optional Podman container development profile" for details.
 EOF
 }
 
