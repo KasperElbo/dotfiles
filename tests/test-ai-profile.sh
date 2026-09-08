@@ -33,6 +33,7 @@ case "${1:-}" in
     grep -Fq 'claude-code' "$conf_file" 2>/dev/null && make_shim claude
     grep -Fq 'herdr' "$conf_file" 2>/dev/null && make_shim herdr
     grep -Fq 'openai/codex' "$conf_file" 2>/dev/null && make_shim codex
+    grep -Fq '"npm:gnhf"' "$conf_file" 2>/dev/null && make_shim gnhf
   fi
   exit 0
   ;;
@@ -139,6 +140,7 @@ grep -Fqx 'herdr=mise' "$state_file"
 grep -Fqx 'codex=disabled' "$state_file"
 grep -Fqx 'firstmate=disabled' "$state_file"
 grep -Fqx 'treehouse=disabled' "$state_file"
+grep -Fqx 'gnhf=disabled' "$state_file"
 
 [[ ! -e "$treehouse_target" ]] || {
   printf 'Treehouse was installed without --firstmate: %s\n' "$treehouse_target" >&2
@@ -155,6 +157,7 @@ assert_contains "$verify_core_output" 'herdr is mise-managed'
 assert_contains "$verify_core_output" 'codex is not installed'
 assert_contains "$verify_core_output" 'FirstMate is not installed'
 assert_contains "$verify_core_output" 'Treehouse is not installed'
+assert_contains "$verify_core_output" 'gnhf is not installed'
 
 # --- Idempotency: rerunning changes nothing --------------------------------
 
@@ -166,19 +169,21 @@ second_sum="$(sha256sum "$conf_file" "$state_file")"
   exit 1
 }
 
-# --- Codex + FirstMate subcomponents ---------------------------------------
+# --- Codex + FirstMate + GNHF subcomponents ---------------------------------
 
 if ! "${test_environment[@]}" "$repo_root/common/install-ai.sh" \
-  --codex --firstmate >"$test_root/install-full.log" 2>&1; then
+  --codex --firstmate --gnhf >"$test_root/install-full.log" 2>&1; then
   cat "$test_root/install-full.log" >&2
-  printf 'install-ai.sh (--codex --firstmate) failed\n' >&2
+  printf 'install-ai.sh (--codex --firstmate --gnhf) failed\n' >&2
   exit 1
 fi
 
 grep -Fq '"npm:@openai/codex" = "latest"' "$conf_file"
+grep -Fq '"npm:gnhf" = "latest"' "$conf_file"
 grep -Fqx 'codex=mise-npm' "$state_file"
 grep -Fqx 'firstmate=cloned' "$state_file"
 grep -Fqx 'treehouse=installed' "$state_file"
+grep -Fqx 'gnhf=mise-npm' "$state_file"
 [[ -d "$data/firstmate/.git" ]] || {
   printf 'FirstMate was not cloned to %s\n' "$data/firstmate" >&2
   exit 1
@@ -190,10 +195,11 @@ grep -Fqx 'treehouse=installed' "$state_file"
 
 if ! verify_full_output="$("${test_environment[@]}" "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf '%s\n' "$verify_full_output" >&2
-  printf 'verify-ai.sh (--codex --firstmate) failed\n' >&2
+  printf 'verify-ai.sh (--codex --firstmate --gnhf) failed\n' >&2
   exit 1
 fi
 assert_contains "$verify_full_output" 'codex is mise-managed'
+assert_contains "$verify_full_output" 'gnhf is mise-managed'
 assert_contains "$verify_full_output" 'FirstMate cloned'
 assert_contains "$verify_full_output" "treehouse: $treehouse_target"
 assert_contains "$verify_full_output" 'treehouse on PATH resolves to the installed copy'
@@ -201,7 +207,7 @@ assert_contains "$verify_full_output" 'treehouse on PATH resolves to the install
 # Rerunning updates (git pull --ff-only, and reruns the Treehouse installer)
 # rather than re-cloning or failing.
 "${test_environment[@]}" "$repo_root/common/install-ai.sh" \
-  --codex --firstmate >/dev/null
+  --codex --firstmate --gnhf >/dev/null
 
 # --- --validate forwards to verify-ai.sh ------------------------------------
 
@@ -214,11 +220,13 @@ mkdir -p "$dry_home"
 dry_run_output="$(
   env HOME="$dry_home" XDG_CONFIG_HOME="$dry_home/.config" \
     XDG_DATA_HOME="$dry_home/.local/share" PATH="$mock_bin:$PATH" \
-    "$repo_root/common/install-ai.sh" --dry-run --codex --firstmate
+    "$repo_root/common/install-ai.sh" --dry-run --codex --firstmate --gnhf
 )"
 assert_contains "$dry_run_output" 'Codex CLI:            true'
 assert_contains "$dry_run_output" 'FirstMate crew stack: true'
+assert_contains "$dry_run_output" 'GNHF (overnight run): true'
 assert_contains "$dry_run_output" 'Install Treehouse'
+assert_contains "$dry_run_output" 'npm:gnhf'
 assert_contains "$dry_run_output" 'No changes were made.'
 
 if find "$dry_home" -mindepth 1 -print -quit | grep -q .; then

@@ -36,6 +36,7 @@ section() {
 codex_state="$(awk -F= '$1 == "codex" { print $2 }' "$state_file")"
 firstmate_state="$(awk -F= '$1 == "firstmate" { print $2 }' "$state_file")"
 treehouse_state="$(awk -F= '$1 == "treehouse" { print $2 }' "$state_file")"
+gnhf_state="$(awk -F= '$1 == "gnhf" { print $2 }' "$state_file")"
 
 mise_command="$(command -v mise 2>/dev/null || true)"
 if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
@@ -104,6 +105,14 @@ if [[ "$codex_state" == mise-npm ]]; then
   fi
 fi
 
+if [[ "$gnhf_state" == mise-npm ]]; then
+  if grep -Fq '"npm:gnhf"' "$conf_file" 2>/dev/null; then
+    pass "GNHF declared in $conf_file"
+  else
+    fail "GNHF not declared in $conf_file despite gnhf=mise-npm in $state_file"
+  fi
+fi
+
 section "Core agents"
 
 check_mise_owned claude
@@ -115,6 +124,16 @@ elif command -v codex >/dev/null 2>&1; then
   warning "codex is installed but the AI profile state says codex=$codex_state"
 else
   pass "codex is not installed (optional subcomponent not selected)"
+fi
+
+section "GNHF (optional, unattended-run agent orchestrator)"
+
+if [[ "$gnhf_state" == mise-npm ]]; then
+  check_mise_owned gnhf
+elif command -v gnhf >/dev/null 2>&1; then
+  warning "gnhf is installed but the AI profile state says gnhf=$gnhf_state"
+else
+  pass "gnhf is not installed (optional subcomponent not selected)"
 fi
 
 section "FirstMate"

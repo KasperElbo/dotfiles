@@ -61,10 +61,11 @@ ai_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
 assert_contains "$ai_off_dry_run" 'AI profile:         false'
 
 ai_full_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run \
-  --ai --codex --firstmate)"
+  --ai --codex --firstmate --gnhf)"
 assert_contains "$ai_full_dry_run" 'AI Codex subcomponent:     true'
 assert_contains "$ai_full_dry_run" 'AI FirstMate subcomponent: true'
-assert_contains "$ai_full_dry_run" 'common/install-ai.sh --codex --firstmate'
+assert_contains "$ai_full_dry_run" 'AI GNHF subcomponent:      true'
+assert_contains "$ai_full_dry_run" 'common/install-ai.sh --codex --firstmate --gnhf'
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   --codex >"$test_root/codex-without-ai.log" 2>&1; then
@@ -79,6 +80,13 @@ if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   exit 1
 fi
 grep -Fq -- '--firstmate requires --ai' "$test_root/firstmate-without-ai.log"
+
+if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --gnhf >"$test_root/gnhf-without-ai.log" 2>&1; then
+  printf 'fedora-wsl accepted --gnhf without --ai.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--gnhf requires --ai' "$test_root/gnhf-without-ai.log"
 
 if "$repo_root/install.sh" --platform unknown --dry-run \
   >"$test_root/invalid.log" 2>&1; then

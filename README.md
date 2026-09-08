@@ -223,6 +223,10 @@ The complete OCaml development environment is explicitly opt-in:
 --firstmate        with --ai, also clone the FirstMate multi-agent
                    coordinator
 --no-firstmate     skip FirstMate (default)
+--gnhf             with --ai, also install GNHF, an unattended overnight
+                   agent orchestrator (read "Optional: GNHF" below before
+                   use; it runs an agent unsupervised)
+--no-gnhf          skip GNHF (default)
 
 --hardware MODEL   install ASUS hardware support for ga402xz or ga402rk
                    default: disabled
@@ -237,17 +241,19 @@ The complete OCaml development environment is explicitly opt-in:
 
 The Fedora WSL installer exposes `--theme`, `--ocaml`, `--latex`,
 `--containers`, `--containers-api-socket`, `--ai`, `--codex`, `--firstmate`,
-`--smoke-test`, `--dry-run`, and `--non-interactive`. Fedora desktop, Sway, VM
-and hardware flags are rejected rather than silently ignored; see "Podman
-containers under WSL" below for what `--containers` actually requires and
-changes on this platform, and "AI-assisted development toolchain" for `--ai`.
+`--gnhf`, `--smoke-test`, `--dry-run`, and `--non-interactive`. Fedora
+desktop, Sway, VM and hardware flags are rejected rather than silently
+ignored; see "Podman containers under WSL" below for what `--containers`
+actually requires and changes on this platform, and "AI-assisted development
+toolchain" for `--ai`.
 
-`--codex` and `--firstmate` require `--ai` on every platform; the installer
-rejects them otherwise instead of silently ignoring them. Running any
-installer without `--ai` installs no Claude Code, Codex, Herdr, or FirstMate
-tooling; `--ai` and its subcomponents are also independently callable and
-safe to rerun through `common/install-ai.sh` (or `./scripts/install-ai.sh`),
-consistent with this repository's other component scripts.
+`--codex`, `--firstmate`, and `--gnhf` require `--ai` on every platform; the
+installer rejects them otherwise instead of silently ignoring them. Running
+any installer without `--ai` installs no Claude Code, Codex, Herdr,
+FirstMate, Treehouse, or GNHF tooling; `--ai` and its subcomponents are also
+independently callable and safe to rerun through `common/install-ai.sh` (or
+`./scripts/install-ai.sh`), consistent with this repository's other
+component scripts.
 
 ---
 
@@ -979,6 +985,9 @@ the installer:
 - Codex (if installed): run `codex`, choose "Sign in with ChatGPT" (or
   configure an OpenAI API key).
 - FirstMate (if installed): uses your own `gh auth login`.
+- GNHF (if installed): no separate auth; shells out to your already-signed-in
+  `claude` (or configured `--agent`). Read its README before your first
+  unattended run.
 
 ---
 
@@ -1762,20 +1771,21 @@ The saved local state file is:
 
 AI-assisted development is an entirely optional workstation profile. **The
 default `./install.sh`, with no AI-related flag, installs no Claude Code,
-Codex, Herdr, FirstMate, or related tooling.** Select it explicitly:
+Codex, Herdr, FirstMate, Treehouse, or GNHF tooling.** Select it explicitly:
 
 ```bash
 ./install.sh --ai                        # Claude Code + Herdr (core)
 ./install.sh --ai --codex                # + OpenAI Codex CLI
-./install.sh --ai --firstmate            # + FirstMate multi-agent coordinator
-./install.sh --ai --codex --firstmate    # all of the above
+./install.sh --ai --firstmate            # + FirstMate coordinator + Treehouse
+./install.sh --ai --gnhf                 # + GNHF unattended overnight runs
+./install.sh --ai --codex --firstmate --gnhf   # all of the above
 ```
 
-`--codex` and `--firstmate` require `--ai` and are rejected otherwise. The
-profile is also independently callable and safe to rerun:
+`--codex`, `--firstmate`, and `--gnhf` require `--ai` and are rejected
+otherwise. The profile is also independently callable and safe to rerun:
 
 ```bash
-./scripts/install-ai.sh [--codex] [--firstmate] [--dry-run] [--validate]
+./scripts/install-ai.sh [--codex] [--firstmate] [--gnhf] [--dry-run] [--validate]
 ```
 
 `--dry-run` prints exactly which components would be installed and where,
@@ -1886,11 +1896,48 @@ then launch a coordinator session there and register your project as
 documented in that repository. This installer never runs `gh auth login`,
 registers a project, or starts a session for you.
 
+## Optional: GNHF unattended overnight agent orchestrator
+
+`--gnhf` additionally installs
+[GNHF](https://github.com/kunchenguid/gnhf) ("Good Night, Have Fun") through
+mise (`npm:gnhf`), the same ownership as Claude Code/Codex. It has no
+relation to FirstMate, Herdr, or Treehouse, and needs no separate account —
+it shells out to whichever already-authenticated agent CLI you point it at
+(`--agent`, default `claude`) in non-interactive mode.
+
+**Read this before your first run.** GNHF runs a coding agent through many
+iterations completely unattended: each iteration gets one objective-directed
+change, and on success it **commits automatically with no human checkpoint**
+— you review the result afterward, not each step. A failed iteration is
+rolled back with `git reset --hard` (scoped to GNHF's own commits). There is
+no sandboxing beyond `--max-iterations`/`--max-tokens` caps and an abort
+after repeated consecutive failures: the agent has the same permissions your
+normal Claude Code/Codex session would.
+
+Two defaults keep this compatible with this profile's non-destructive
+posture despite that:
+
+- By default GNHF works on a new local `gnhf/<slug>` branch in your repo,
+  not your current checkout (an isolated worktree is available via its own
+  `--worktree` flag).
+- By default GNHF **never pushes**. Pushing is strictly opt-in via GNHF's
+  own `--push` flag, which this installer never adds for you and does not
+  wrap or default on in any way.
+
+So the "no autonomous push without explicit action" invariant holds even
+with GNHF installed — but "many unsupervised commits before you look" is a
+real, different trust model from the rest of this profile, and is exactly
+why GNHF is its own opt-in flag rather than bundled with core `--ai`. Treat
+"point GNHF at an objective and let it run overnight" as a deliberate
+choice each time, the same way you would `--hardening` or a raw `sudo`
+command — not something to leave on a machine that other people can queue
+work on. Config lives at `~/.gnhf/config.yml` (created on first run,
+untracked, machine-local).
+
 ### Other Kun Chen tools evaluated but not installed
 
-A few more tools from the same ecosystem came up during review. None are
-installed by this profile; they are each their own deliberate, separate
-choice:
+A few more tools from the same ecosystem came up during review. Neither is
+installed by this profile; each is its own deliberate, separate choice:
 
 - **[No Mistakes](https://github.com/kunchenguid/no-mistakes)**
   (`kunchenguid/no-mistakes`) is a standalone local Git push proxy — the same
@@ -1913,15 +1960,6 @@ choice:
   want an AXI-style wrapper around a specific CLI you use (`gh`, a browser
   devtools protocol, etc.), install that one reference implementation
   yourself (for example `npm install -g gh-axi`).
-- **[GNHF](https://github.com/kunchenguid/gnhf)** ("Good Night, Have Fun",
-  `kunchenguid/gnhf`) is a standalone autonomous agent orchestrator that
-  runs unattended, multi-iteration coding loops (optionally committing or
-  pushing on your behalf while you are away). It has no relation to
-  FirstMate, Herdr, or Treehouse. Its whole premise — unattended pushes with
-  no human at the merge boundary — is the opposite of this profile's
-  non-destructive-by-default posture (see below), so it is deliberately not
-  wired into `--ai`/`--codex`/`--firstmate`. Install it yourself
-  (`npm install -g gnhf`) only as a conscious, separate decision.
 
 ## Non-destructive defaults
 
@@ -1932,12 +1970,16 @@ an approved fast-forward merge; `direct-PR` opens a PR for human review; its
 `No Mistakes` mode additionally runs full CI, via the standalone
 [No Mistakes](https://github.com/kunchenguid/no-mistakes) tool, before merge)
 — this repository does not enable an autonomous push/merge mode by default,
-and installing this profile does not change any existing
-Git signing, authentication, or identity configuration (see "Git, SSH and
-GitHub authentication" and "Choices a user must make" above/below). Prefer
-Claude Code and Codex's own review/PR-oriented workflows, with a human
-decision at the publication/merge boundary, as shown in the normal usage flow
-below.
+and installing this profile does not change any existing Git signing,
+authentication, or identity configuration (see "Git, SSH and GitHub
+authentication" and "Choices a user must make" above/below). GNHF, if
+selected, defaults to committing on its own local `gnhf/<slug>` branch and
+never pushes; pushing is opt-in via GNHF's own `--push` flag, which this
+installer never adds on your behalf (see "Optional: GNHF" above for the
+part of its behavior — unsupervised, per-iteration commits — that this
+invariant does not cover). Prefer Claude Code and Codex's own review/PR-
+oriented workflows, with a human decision at the publication/merge
+boundary, as shown in the normal usage flow below.
 
 ## Normal usage
 
@@ -1967,6 +2009,9 @@ interactively, on the machine, after installing:
   machine-local.
 - **FirstMate**: uses your already-authenticated `gh` (`gh auth login`); it
   does not manage its own separate credentials.
+- **GNHF**: no separate account; it shells out to your already-authenticated
+  `claude` (or another configured `--agent`). Its own config lives at
+  `~/.gnhf/config.yml`, untracked and machine-local.
 
 Revoke access by signing out of each tool, or by deleting its state
 directory above; none of it is readable from this repository.
@@ -1977,8 +2022,8 @@ directory above; none of it is readable from this repository.
 ./scripts/verify-ai.sh
 ```
 
-checks that Claude Code, Herdr, and (if selected) Codex resolve on PATH to
-the mise-managed copy this profile installed rather than a second install
+checks that Claude Code, Herdr, and (if selected) Codex/GNHF resolve on PATH
+to the mise-managed copy this profile installed rather than a second install
 shadowing it elsewhere on PATH (catching duplicate npm/Homebrew/native-installer
 ownership of the same tool), and, if selected, that FirstMate is cloned with
 `gh` and `tmux` present and Treehouse resolves to the copy this profile
@@ -1996,9 +2041,10 @@ file exists when it is not.
 | Herdr | mise (registry) | `mise upgrade` |
 | FirstMate | `git clone`/`git pull --ff-only` to `~/.local/share/firstmate` | rerun `--firstmate` |
 | Treehouse | own install script, to `~/.local/bin/treehouse` (no mise registry entry) | rerun `--firstmate` |
+| GNHF | mise (`npm:gnhf`) | `mise upgrade` |
 
 See "AI agent tooling" under "Package ownership" below for how this avoids
-duplicate installs of the same tool. All three mise-managed tools are
+duplicate installs of the same tool. All four mise-managed tools are
 declared in an **untracked, machine-local** mise config file, not the tracked
 `~/.config/mise/config.toml` this repository always installs:
 
@@ -2177,6 +2223,7 @@ gains an AI-related dependency:
 | Herdr | mise, registry entry `herdr` |
 | FirstMate (optional, requires `--firstmate`) | `git clone`/`git pull --ff-only`, no package manager upstream |
 | Treehouse (optional, requires `--firstmate`) | own install script to `~/.local/bin/treehouse`, no mise registry entry or OS package |
+| GNHF (optional, requires `--gnhf`) | mise, `npm:gnhf` |
 
 Each tool is installed through exactly one mechanism above; this repository
 does not additionally install any of them through Homebrew, a global `npm
@@ -3541,7 +3588,7 @@ The verifier checks:
 - optional Fedora VM-guest detection, agents, channels, and network route
 - optional Fedora security-hardening profile settings (see "Optional Fedora
   security-hardening profile" above)
-- optional AI-assisted development profile: Claude Code/Codex/Herdr PATH
+- optional AI-assisted development profile: Claude Code/Codex/Herdr/GNHF PATH
   ownership, FirstMate's clone, and Treehouse (see "AI-assisted development
   toolchain" above) — and confirms none of it is present when the profile
   was not selected

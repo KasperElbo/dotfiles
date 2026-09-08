@@ -6,6 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 install_codex="false"
 install_firstmate="false"
+install_gnhf="false"
 dry_run="false"
 validate_only="false"
 
@@ -33,19 +34,23 @@ Options:
                      install Treehouse, its worktree-isolation tool
                      (requires 'gh' and 'tmux'; see README.md, "AI-assisted
                      development toolchain")
+  --gnhf             Also install GNHF, an unattended overnight agent
+                     orchestrator (see README.md, "Optional: GNHF" -- read
+                     this before use; it runs an agent unsupervised)
   --dry-run          Show the AI installation plan without changing anything
   --validate         Validate an existing AI profile installation only
   -h, --help         Show this help
 
-Ownership: Claude Code, Codex, and Herdr are installed and updated through
-mise (npm/registry backends), in an untracked, machine-local mise config
-file (~/.config/mise/conf.d/ai.toml) so the default, always-installed mise
-config in this repository never gains an AI dependency. FirstMate and
+Ownership: Claude Code, Codex, Herdr, and GNHF are installed and updated
+through mise (npm/registry backends), in an untracked, machine-local mise
+config file (~/.config/mise/conf.d/ai.toml) so the default, always-installed
+mise config in this repository never gains an AI dependency. FirstMate and
 Treehouse have no package manager upstream: FirstMate is cloned to
 ~/.local/share/firstmate and updated with 'git pull --ff-only'; Treehouse is
 installed to ~/.local/bin/treehouse via its own official install script and
 updated by rerunning --firstmate. Authenticate each tool interactively (see
-README.md); this installer never stores or requests credentials.
+README.md); this installer never stores or requests credentials, and never
+passes GNHF's own --push flag on your behalf.
 EOF
 }
 
@@ -57,6 +62,10 @@ while (($#)); do
     ;;
   --firstmate)
     install_firstmate="true"
+    shift
+    ;;
+  --gnhf)
+    install_gnhf="true"
     shift
     ;;
   --dry-run)
@@ -96,21 +105,13 @@ Herdr:                installed via mise; persistent multi-agent terminal
                       workspace used to run Claude Code (and Codex) panes
 Codex CLI:            $install_codex
 FirstMate crew stack: $install_firstmate
+GNHF (overnight run): $install_gnhf
 
 Steps:
   1. Write $conf_file
      (untracked, machine-local; not part of the always-installed mise config)
+     Declares: npm:@anthropic-ai/claude-code, herdr$([[ "$install_codex" == "true" ]] && printf ', npm:@openai/codex')$([[ "$install_gnhf" == "true" ]] && printf ', npm:gnhf')
 EOF
-
-  if [[ "$install_codex" == "true" ]]; then
-    cat <<EOF
-     Declares: npm:@anthropic-ai/claude-code, herdr, npm:@openai/codex
-EOF
-  else
-    cat <<EOF
-     Declares: npm:@anthropic-ai/claude-code, herdr
-EOF
-  fi
 
   cat <<EOF
   2. mise install
@@ -168,13 +169,19 @@ ensure_dir "$conf_dir"
   if [[ "$install_codex" == "true" ]]; then
     printf '"npm:@openai/codex" = "latest"\n'
   fi
+  if [[ "$install_gnhf" == "true" ]]; then
+    printf '"npm:gnhf" = "latest"\n'
+  fi
 } | atomic_write_file "$conf_file"
 
+mise_tools_msg="Claude Code and Herdr"
 if [[ "$install_codex" == "true" ]]; then
-  info "Installing Claude Code, Herdr, and Codex via mise"
-else
-  info "Installing Claude Code and Herdr via mise"
+  mise_tools_msg+=", Codex"
 fi
+if [[ "$install_gnhf" == "true" ]]; then
+  mise_tools_msg+=", GNHF"
+fi
+info "Installing $mise_tools_msg via mise"
 "$mise_command" --yes install
 
 firstmate_state="disabled"
@@ -220,6 +227,11 @@ ensure_dir "$(dirname "$state_file")"
   fi
   printf 'firstmate=%s\n' "$firstmate_state"
   printf 'treehouse=%s\n' "$treehouse_state"
+  if [[ "$install_gnhf" == "true" ]]; then
+    printf 'gnhf=mise-npm\n'
+  else
+    printf 'gnhf=disabled\n'
+  fi
 } | atomic_write_file "$state_file"
 
 info "Validating the AI profile"
@@ -257,5 +269,15 @@ if [[ "$install_firstmate" == "true" ]]; then
     a coordinator session as documented there.
   • Treehouse ($treehouse_target) needs no separate configuration; FirstMate
     uses it automatically. Run 'treehouse --help' to use it directly.
+EOF
+fi
+
+if [[ "$install_gnhf" == "true" ]]; then
+  cat <<'EOF'
+  • GNHF runs an agent (default: Claude Code) unattended, with no
+    per-iteration human checkpoint. Read its README before your first run:
+    https://github.com/kunchenguid/gnhf. By default it commits to a local
+    'gnhf/<slug>' branch and never pushes; it only pushes if you pass its
+    own --push flag yourself. This installer never adds --push for you.
 EOF
 fi
