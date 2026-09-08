@@ -1502,6 +1502,18 @@ export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/podman/podman.sock"
 - **No `docker` command** unless you deliberately install `podman-docker`
   yourself; scripts hard-coded to shell out to `docker` need either that
   package or a per-project alias, not a global one from this profile.
+- **Plain `depends_on` in a Compose file can hang `podman compose up -d`
+  indefinitely** if the dependency is a fast-exiting one-shot container (a
+  migration/seed/init step). `podman-compose` implements `depends_on` by
+  running `podman wait --condition=...` against the dependency, and that
+  wait blocks on a state *transition* — if the dependency already finished
+  before the wait call starts, the transition it's waiting for will never
+  happen again. This bit the profile's own smoke test during validation
+  (see #89's history); the fix there was dropping `depends_on` and letting
+  both services start concurrently, with the reachability check retrying
+  until the seeded content actually appears. If you hit an unexplained hang
+  on `podman compose up` with your own project, check for exactly this
+  pattern before assuming a networking problem.
 
 ### Verification
 
