@@ -39,6 +39,8 @@ case "${1:-}" in
     grep -Fq '"npm:lavish-axi"' "$conf_file" 2>/dev/null && make_shim lavish-axi
     grep -Fq '"npm:tasks-axi"' "$conf_file" 2>/dev/null && make_shim tasks-axi
     grep -Fq '"npm:quota-axi"' "$conf_file" 2>/dev/null && make_shim quota-axi
+    grep -Fq '"npm:backpass"' "$conf_file" 2>/dev/null && make_shim backpass
+    grep -Fq '"npm:acpx"' "$conf_file" 2>/dev/null && make_shim acpx
   fi
   exit 0
   ;;
@@ -157,6 +159,8 @@ grep -Fqx 'lavish_axi=disabled' "$state_file"
 grep -Fqx 'tasks_axi=disabled' "$state_file"
 grep -Fqx 'quota_axi=disabled' "$state_file"
 grep -Fqx 'gnhf=disabled' "$state_file"
+grep -Fqx 'backpass=disabled' "$state_file"
+grep -Fqx 'acpx=disabled' "$state_file"
 
 [[ ! -e "$treehouse_target" ]] || {
   printf 'Treehouse was installed without --firstmate: %s\n' "$treehouse_target" >&2
@@ -176,6 +180,8 @@ assert_contains "$verify_core_output" 'FirstMate toolchain is not installed'
 assert_contains "$verify_core_output" 'Treehouse is not installed'
 assert_contains "$verify_core_output" 'No Mistakes is not installed'
 assert_contains "$verify_core_output" 'gnhf is not installed'
+assert_contains "$verify_core_output" 'lavish-axi is not installed'
+assert_contains "$verify_core_output" 'backpass is not installed'
 
 # --- Idempotency: rerunning changes nothing --------------------------------
 
@@ -187,20 +193,26 @@ second_sum="$(sha256sum "$conf_file" "$state_file")"
   exit 1
 }
 
-# --- Codex + FirstMate + GNHF subcomponents ---------------------------------
+# --- Codex + FirstMate + GNHF + backpass subcomponents ----------------------
 
 if ! "${test_environment[@]}" "$repo_root/common/install-ai.sh" \
-  --codex --firstmate --gnhf >"$test_root/install-full.log" 2>&1; then
+  --codex --firstmate --gnhf --backpass >"$test_root/install-full.log" 2>&1; then
   cat "$test_root/install-full.log" >&2
-  printf 'install-ai.sh (--codex --firstmate --gnhf) failed\n' >&2
+  printf 'install-ai.sh (--codex --firstmate --gnhf --backpass) failed\n' >&2
   exit 1
 fi
 
 grep -Fq '"npm:@openai/codex" = "latest"' "$conf_file"
 grep -Fq '"npm:gnhf" = "latest"' "$conf_file"
-for tool in gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi; do
+for tool in gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi backpass acpx; do
   grep -Fq "\"npm:$tool\" = \"latest\"" "$conf_file"
 done
+# lavish-axi is wanted by both --firstmate and --backpass; it must appear
+# exactly once in the generated TOML, not as a duplicate key.
+[[ "$(grep -Fc '"npm:lavish-axi"' "$conf_file")" == 1 ]] || {
+  printf 'lavish-axi declared more than once in %s\n' "$conf_file" >&2
+  exit 1
+}
 grep -Fqx 'codex=mise-npm' "$state_file"
 grep -Fqx 'firstmate=cloned' "$state_file"
 grep -Fqx 'treehouse=installed' "$state_file"
@@ -211,6 +223,8 @@ grep -Fqx 'lavish_axi=mise-npm' "$state_file"
 grep -Fqx 'tasks_axi=mise-npm' "$state_file"
 grep -Fqx 'quota_axi=mise-npm' "$state_file"
 grep -Fqx 'gnhf=mise-npm' "$state_file"
+grep -Fqx 'backpass=mise-npm' "$state_file"
+grep -Fqx 'acpx=mise-npm' "$state_file"
 [[ -d "$data/firstmate/.git" ]] || {
   printf 'FirstMate was not cloned to %s\n' "$data/firstmate" >&2
   exit 1
@@ -227,7 +241,7 @@ no_mistakes_target="$home/.local/bin/no-mistakes"
 
 if ! verify_full_output="$("${test_environment[@]}" "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf '%s\n' "$verify_full_output" >&2
-  printf 'verify-ai.sh (--codex --firstmate --gnhf) failed\n' >&2
+  printf 'verify-ai.sh (--codex --firstmate --gnhf --backpass) failed\n' >&2
   exit 1
 fi
 assert_contains "$verify_full_output" 'codex is mise-managed'
@@ -242,11 +256,48 @@ assert_contains "$verify_full_output" 'chrome-devtools-axi is mise-managed'
 assert_contains "$verify_full_output" 'lavish-axi is mise-managed'
 assert_contains "$verify_full_output" 'tasks-axi is mise-managed'
 assert_contains "$verify_full_output" 'quota-axi is mise-managed'
+assert_contains "$verify_full_output" 'backpass is mise-managed'
+assert_contains "$verify_full_output" 'acpx is mise-managed'
 
 # Rerunning updates (git pull --ff-only, and reruns the Treehouse installer)
 # rather than re-cloning or failing.
 "${test_environment[@]}" "$repo_root/common/install-ai.sh" \
-  --codex --firstmate --gnhf >/dev/null
+  --codex --firstmate --gnhf --backpass >/dev/null
+
+# --- backpass alone (no --firstmate) still gets lavish-axi ------------------
+
+backpass_only_home="$test_root/backpass-only-home"
+mkdir -p "$backpass_only_home"
+backpass_only_environment=(
+  env
+  "HOME=$backpass_only_home"
+  "XDG_CONFIG_HOME=$backpass_only_home/.config"
+  "XDG_DATA_HOME=$backpass_only_home/.local/share"
+  "PATH=$backpass_only_home/.local/bin:$mise_shims:$mock_bin:$PATH"
+  "MISE_SHIMS_DIR=$mise_shims"
+)
+if ! "${backpass_only_environment[@]}" "$repo_root/common/install-ai.sh" \
+  --backpass >"$test_root/install-backpass-only.log" 2>&1; then
+  cat "$test_root/install-backpass-only.log" >&2
+  printf 'install-ai.sh (--backpass, no --firstmate) failed\n' >&2
+  exit 1
+fi
+backpass_only_conf="$backpass_only_home/.config/mise/conf.d/ai.toml"
+grep -Fq '"npm:lavish-axi" = "latest"' "$backpass_only_conf"
+grep -Fq '"npm:backpass" = "latest"' "$backpass_only_conf"
+if grep -Fq '"npm:gh-axi"' "$backpass_only_conf"; then
+  printf 'FirstMate-only tools declared without --firstmate\n' >&2
+  exit 1
+fi
+if ! backpass_only_verify="$("${backpass_only_environment[@]}" \
+  "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf '%s\n' "$backpass_only_verify" >&2
+  printf 'verify-ai.sh (--backpass, no --firstmate) failed\n' >&2
+  exit 1
+fi
+assert_contains "$backpass_only_verify" 'lavish-axi is mise-managed'
+assert_contains "$backpass_only_verify" 'backpass is mise-managed'
+assert_contains "$backpass_only_verify" 'FirstMate is not installed'
 
 # --- --validate forwards to verify-ai.sh ------------------------------------
 
@@ -259,15 +310,18 @@ mkdir -p "$dry_home"
 dry_run_output="$(
   env HOME="$dry_home" XDG_CONFIG_HOME="$dry_home/.config" \
     XDG_DATA_HOME="$dry_home/.local/share" PATH="$mock_bin:$PATH" \
-    "$repo_root/common/install-ai.sh" --dry-run --codex --firstmate --gnhf
+    "$repo_root/common/install-ai.sh" --dry-run --codex --firstmate --gnhf --backpass
 )"
 assert_contains "$dry_run_output" 'Codex CLI:            true'
 assert_contains "$dry_run_output" 'FirstMate crew stack: true'
 assert_contains "$dry_run_output" 'GNHF (overnight run): true'
+assert_contains "$dry_run_output" 'backpass:             true'
 assert_contains "$dry_run_output" 'Install Treehouse'
 assert_contains "$dry_run_output" 'Install No Mistakes'
+assert_contains "$dry_run_output" 'backpass and acpx are now on PATH'
 assert_contains "$dry_run_output" 'npm:gnhf'
-assert_contains "$dry_run_output" 'npm:gh-axi, npm:chrome-devtools-axi, npm:lavish-axi, npm:tasks-axi,'
+assert_contains "$dry_run_output" 'npm:gh-axi, npm:chrome-devtools-axi, npm:tasks-axi, npm:quota-axi'
+assert_contains "$dry_run_output" 'npm:backpass, npm:acpx'
 assert_contains "$dry_run_output" 'No changes were made.'
 
 if find "$dry_home" -mindepth 1 -print -quit | grep -q .; then

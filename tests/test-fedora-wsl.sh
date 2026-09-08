@@ -61,11 +61,18 @@ ai_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
 assert_contains "$ai_off_dry_run" 'AI profile:         false'
 
 ai_full_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run \
-  --ai --codex --firstmate --gnhf)"
+  --ai --codex --firstmate --gnhf --backpass)"
 assert_contains "$ai_full_dry_run" 'AI Codex subcomponent:     true'
 assert_contains "$ai_full_dry_run" 'AI FirstMate subcomponent: true'
 assert_contains "$ai_full_dry_run" 'AI GNHF subcomponent:      true'
-assert_contains "$ai_full_dry_run" 'common/install-ai.sh --codex --firstmate --gnhf'
+assert_contains "$ai_full_dry_run" 'AI backpass subcomponent:  true'
+assert_contains "$ai_full_dry_run" 'common/install-ai.sh --codex --firstmate --gnhf --backpass'
+
+ai_backpass_only_dry_run="$("$repo_root/install.sh" --platform fedora-wsl \
+  --dry-run --ai --backpass)"
+assert_contains "$ai_backpass_only_dry_run" 'AI FirstMate subcomponent: false'
+assert_contains "$ai_backpass_only_dry_run" 'AI backpass subcomponent:  true'
+assert_contains "$ai_backpass_only_dry_run" 'common/install-ai.sh --backpass'
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   --codex >"$test_root/codex-without-ai.log" 2>&1; then
@@ -87,6 +94,13 @@ if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   exit 1
 fi
 grep -Fq -- '--gnhf requires --ai' "$test_root/gnhf-without-ai.log"
+
+if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --backpass >"$test_root/backpass-without-ai.log" 2>&1; then
+  printf 'fedora-wsl accepted --backpass without --ai.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--backpass requires --ai' "$test_root/backpass-without-ai.log"
 
 if "$repo_root/install.sh" --platform unknown --dry-run \
   >"$test_root/invalid.log" 2>&1; then

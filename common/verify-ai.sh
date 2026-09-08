@@ -38,7 +38,9 @@ codex_state="$(awk -F= '$1 == "codex" { print $2 }' "$state_file")"
 firstmate_state="$(awk -F= '$1 == "firstmate" { print $2 }' "$state_file")"
 treehouse_state="$(awk -F= '$1 == "treehouse" { print $2 }' "$state_file")"
 no_mistakes_state="$(awk -F= '$1 == "no_mistakes" { print $2 }' "$state_file")"
+lavish_axi_state="$(awk -F= '$1 == "lavish_axi" { print $2 }' "$state_file")"
 gnhf_state="$(awk -F= '$1 == "gnhf" { print $2 }' "$state_file")"
+backpass_state="$(awk -F= '$1 == "backpass" { print $2 }' "$state_file")"
 
 mise_command="$(command -v mise 2>/dev/null || true)"
 if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
@@ -144,7 +146,6 @@ fi
 if [[ "$firstmate_state" == cloned ]]; then
   for entry in 'gh-axi:npm:gh-axi' \
     'chrome-devtools-axi:npm:chrome-devtools-axi' \
-    'lavish-axi:npm:lavish-axi' \
     'tasks-axi:npm:tasks-axi' \
     'quota-axi:npm:quota-axi'; do
     tool_label="${entry%%:*}"
@@ -153,6 +154,26 @@ if [[ "$firstmate_state" == cloned ]]; then
       pass "$tool_label declared in $conf_file"
     else
       fail "$tool_label not declared in $conf_file despite firstmate=cloned in $state_file"
+    fi
+  done
+fi
+
+if [[ "$lavish_axi_state" == mise-npm ]]; then
+  if grep -Fq '"npm:lavish-axi"' "$conf_file" 2>/dev/null; then
+    pass "lavish-axi declared in $conf_file"
+  else
+    fail "lavish-axi not declared in $conf_file despite lavish_axi=mise-npm in $state_file"
+  fi
+fi
+
+if [[ "$backpass_state" == mise-npm ]]; then
+  for entry in 'backpass:npm:backpass' 'acpx:npm:acpx'; do
+    tool_label="${entry%%:*}"
+    tool_decl="${entry#*:}"
+    if grep -Fq "\"$tool_decl\"" "$conf_file" 2>/dev/null; then
+      pass "$tool_label declared in $conf_file"
+    else
+      fail "$tool_label not declared in $conf_file despite backpass=mise-npm in $state_file"
     fi
   done
 fi
@@ -212,11 +233,18 @@ section "FirstMate toolchain (mise-managed)"
 if [[ "$firstmate_state" == cloned ]]; then
   check_mise_owned gh-axi
   check_mise_owned chrome-devtools-axi
-  check_mise_owned lavish-axi
   check_mise_owned tasks-axi
   check_mise_owned quota-axi
 else
   pass "FirstMate toolchain is not installed (FirstMate subcomponent not selected)"
+fi
+
+section "lavish-axi (rich-review UI; shared by FirstMate and backpass)"
+
+if [[ "$lavish_axi_state" == mise-npm ]]; then
+  check_mise_owned lavish-axi
+else
+  pass "lavish-axi is not installed (neither FirstMate nor backpass selected)"
 fi
 
 section "Treehouse (worktree isolation for FirstMate crewmates)"
@@ -243,6 +271,17 @@ else
   else
     pass "No Mistakes is not installed (FirstMate subcomponent not selected)"
   fi
+fi
+
+section "backpass (optional, instructions-file tuning)"
+
+if [[ "$backpass_state" == mise-npm ]]; then
+  check_mise_owned backpass
+  check_mise_owned acpx
+elif command -v backpass >/dev/null 2>&1; then
+  warning "backpass is installed but the AI profile state says backpass=$backpass_state"
+else
+  pass "backpass is not installed (optional subcomponent not selected)"
 fi
 
 printf '\n'

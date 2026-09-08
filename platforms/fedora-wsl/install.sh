@@ -15,6 +15,7 @@ install_ai="false"
 ai_codex="false"
 ai_firstmate="false"
 ai_gnhf="false"
+ai_backpass="false"
 interactive="true"
 dry_run="false"
 run_smoke_tests="false"
@@ -59,6 +60,12 @@ Options:
                      agent orchestrator (read README.md, "Optional: GNHF"
                      before use; it runs an agent unsupervised)
   --no-gnhf          Do not install GNHF (default)
+  --backpass         With --ai, also install backpass, which proposes
+                     evidence-backed AGENTS.md/CLAUDE.md edits from agent
+                     session transcripts, gated behind mandatory human
+                     review (independent of --firstmate; read README.md,
+                     "Optional: backpass")
+  --no-backpass      Do not install backpass (default)
 
   --smoke-test       Run representative development workflow tests after setup
   --dry-run          Show the installation plan without changing anything
@@ -140,6 +147,14 @@ while (($#)); do
     ai_gnhf="false"
     shift
     ;;
+  --backpass)
+    ai_backpass="true"
+    shift
+    ;;
+  --no-backpass)
+    ai_backpass="false"
+    shift
+    ;;
   --smoke-test)
     run_smoke_tests="true"
     shift
@@ -184,6 +199,10 @@ if [[ "$ai_gnhf" == "true" && "$install_ai" == "false" ]]; then
   die "--gnhf requires --ai"
 fi
 
+if [[ "$ai_backpass" == "true" && "$install_ai" == "false" ]]; then
+  die "--backpass requires --ai"
+fi
+
 if [[ "$dry_run" == "true" ]]; then
   cat <<EOF
 
@@ -199,6 +218,7 @@ AI profile:         $install_ai
 AI Codex subcomponent:     $ai_codex
 AI FirstMate subcomponent: $ai_firstmate
 AI GNHF subcomponent:      $ai_gnhf
+AI backpass subcomponent:  $ai_backpass
 Workflow smoke test: $run_smoke_tests
 
 Steps:
@@ -277,12 +297,15 @@ EOF
     if [[ "$ai_gnhf" == "true" ]]; then
       ai_suffix+=" --gnhf"
     fi
+    if [[ "$ai_backpass" == "true" ]]; then
+      ai_suffix+=" --backpass"
+    fi
     cat <<EOF
 
   $step. Install the optional AI-assisted development profile.
      common/install-ai.sh$ai_suffix
      Claude Code and Herdr via mise; Codex: $ai_codex; FirstMate: $ai_firstmate;
-     GNHF: $ai_gnhf
+     GNHF: $ai_gnhf; backpass: $ai_backpass
 EOF
     step=$((step + 1))
   fi
@@ -337,6 +360,7 @@ if [[ "$interactive" == "true" ]]; then
     printf 'AI Codex subcomponent:     %s\n' "$ai_codex"
     printf 'AI FirstMate subcomponent: %s\n' "$ai_firstmate"
     printf 'AI GNHF subcomponent:      %s\n' "$ai_gnhf"
+    printf 'AI backpass subcomponent:  %s\n' "$ai_backpass"
   fi
   printf 'Workflow smoke test: %s\n\n' "$run_smoke_tests"
   confirm "Continue with installation?" "y" || exit 0
@@ -384,6 +408,9 @@ if [[ "$install_ai" == "true" ]]; then
   fi
   if [[ "$ai_gnhf" == "true" ]]; then
     ai_args+=(--gnhf)
+  fi
+  if [[ "$ai_backpass" == "true" ]]; then
+    ai_args+=(--backpass)
   fi
 
   info "Installing optional AI-assisted development profile"

@@ -154,6 +154,16 @@ run_success "AI GNHF dry-run" "common/install-ai.sh --gnhf" \
 run_success "AI Codex, FirstMate and GNHF together dry-run" \
   "common/install-ai.sh --codex --firstmate --gnhf" \
   ./install.sh --dry-run --ai --codex --firstmate --gnhf
+run_success "AI backpass remains opt-in" "AI backpass subcomponent: false" \
+  ./install.sh --dry-run --ai
+run_success "AI backpass dry-run" "common/install-ai.sh --backpass" \
+  ./install.sh --dry-run --ai --backpass
+run_success "AI backpass does not require FirstMate" \
+  "common/install-ai.sh --backpass" \
+  ./install.sh --dry-run --ai --backpass
+run_success "AI everything together dry-run" \
+  "common/install-ai.sh --codex --firstmate --gnhf --backpass" \
+  ./install.sh --dry-run --ai --codex --firstmate --gnhf --backpass
 run_success "Standalone AI dry-run" "Herdr:                installed via mise" \
   ./scripts/install-ai.sh --dry-run
 run_success "Sway dry-run forwards local setup" \
@@ -201,6 +211,8 @@ run_failure "FirstMate requires the AI profile" "--firstmate requires --ai" \
   ./install.sh --dry-run --firstmate
 run_failure "GNHF requires the AI profile" "--gnhf requires --ai" \
   ./install.sh --dry-run --gnhf
+run_failure "backpass requires the AI profile" "--backpass requires --ai" \
+  ./install.sh --dry-run --backpass
 
 if find "$test_root/home" "$test_root/config" "$test_root/data" \
   "$test_root/cache" -mindepth 1 -print -quit | grep -q .; then
