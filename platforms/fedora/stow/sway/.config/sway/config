@@ -1,11 +1,17 @@
 # Keyboard-driven Sway session. Machine-specific outputs belong in local.conf.
 set $mod Mod4
+set $alt Mod1
 set $left h
 set $down j
 set $up k
 set $right l
 
 include ~/.config/dotfiles/sway-theme.conf
+
+# Apply the shared layouts to every current and hot-plugged keyboard.
+input type:keyboard {
+    xkb_layout "us,dk"
+}
 
 font pango:monospace 10
 floating_modifier $mod normal
@@ -38,6 +44,7 @@ bindsym $mod+n exec makoctl dismiss
 bindsym $mod+Shift+n exec makoctl restore
 bindsym $mod+Shift+e exec swaynag -t warning -m 'Exit Sway?' -b 'Exit' 'swaymsg exit'
 bindsym $mod+Shift+r reload
+bindsym $mod+$alt+k input type:keyboard xkb_switch_layout next
 
 # Native Sway container tree
 bindsym $mod+$left focus left

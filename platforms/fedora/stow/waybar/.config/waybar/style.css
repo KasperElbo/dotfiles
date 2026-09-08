@@ -42,6 +42,7 @@ window#waybar {
 
 #tray,
 #custom-power-profile,
+#language,
 #network,
 #bluetooth,
 #pulseaudio,
@@ -53,6 +54,11 @@ window#waybar {
 
 #tray { padding: 0 6px; }
 #custom-power-profile { color: @mauve; }
+#language {
+  min-width: 18px;
+  padding: 0 6px;
+  color: @lavender;
+}
 #network { color: @blue; }
 #bluetooth { color: @teal; }
 #pulseaudio { color: @peach; }

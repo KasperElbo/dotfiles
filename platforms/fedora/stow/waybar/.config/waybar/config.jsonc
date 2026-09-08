@@ -4,7 +4,7 @@
   "height": 26,
   "spacing": 4,
   "modules-left": ["sway/workspaces", "sway/window"],
-  "modules-right": ["tray", "custom/power-profile", "network", "bluetooth", "pulseaudio", "battery", "clock"],
+  "modules-right": ["tray", "custom/power-profile", "sway/language", "network", "bluetooth", "pulseaudio", "battery", "clock"],
   "sway/workspaces": {
     "disable-scroll": true,
     "all-outputs": true,
@@ -26,6 +26,11 @@
     "exec": "power-profile-status",
     "interval": 15,
     "tooltip": false
+  },
+  "sway/language": {
+    "format": "{short}",
+    "tooltip-format": "{long}",
+    "on-click": "swaymsg input type:keyboard xkb_switch_layout next"
   },
   "network": {
     "format-wifi": "Wi-Fi {essid}",
