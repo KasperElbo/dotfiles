@@ -13,6 +13,7 @@ install_vm_host="false"
 install_vm_guest="false"
 install_hardening="false"
 install_desktop_tools="false"
+desktop_tools_force_defaults="false"
 hardware_model=""
 hardware_secure_boot="false"
 hardware_charge_limit=""
@@ -49,6 +50,10 @@ Options:
   --desktop-tools    Install the optional day-to-day desktop application
                      profile (image editor, PDF tool, media player, scanning)
   --no-desktop-tools Do not install the desktop-tools profile (default)
+  --desktop-tools-force-defaults
+                     With --desktop-tools, override existing default
+                     applications for the mimetypes it manages instead of
+                     leaving an existing choice alone (default: leave alone)
 
   --hardware MODEL   Install ASUS hardware support:
                      ga402xz or ga402rk
@@ -141,6 +146,11 @@ while (($#)); do
     shift
     ;;
 
+  --desktop-tools-force-defaults)
+    desktop_tools_force_defaults="true"
+    shift
+    ;;
+
   --hardware)
     [[ $# -ge 2 ]] || die "--hardware requires a value"
     hardware_model="$2"
@@ -198,6 +208,10 @@ esac
 
 if [[ "$hardware_secure_boot" == "true" && -z "$hardware_model" ]]; then
   die "--secure-boot requires --hardware"
+fi
+
+if [[ "$desktop_tools_force_defaults" == "true" && "$install_desktop_tools" == "false" ]]; then
+  die "--desktop-tools-force-defaults requires --desktop-tools"
 fi
 
 if [[ "$install_vm_host" == "true" && "$install_vm_guest" == "true" ]]; then
@@ -258,6 +272,7 @@ VM-host profile:     $install_vm_host
 VM-guest profile:    $install_vm_guest
 Hardening profile:   $install_hardening
 Desktop tools:       $install_desktop_tools
+Force app defaults:  $desktop_tools_force_defaults
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
@@ -332,10 +347,14 @@ EOF
   fi
 
   if [[ "$install_desktop_tools" == "true" ]]; then
+    desktop_tools_suffix=""
+    if [[ "$desktop_tools_force_defaults" == "true" ]]; then
+      desktop_tools_suffix=" --force-defaults"
+    fi
     cat <<EOF
 
   $step. Install the optional day-to-day desktop application profile
-     platforms/fedora/scripts/install-desktop-tools.sh
+     platforms/fedora/scripts/install-desktop-tools.sh$desktop_tools_suffix
      GIMP, pdfarranger, mpv, Skanpage; reuses Gwenview, Okular, Ark
 EOF
     step=$((step + 1))
@@ -453,6 +472,9 @@ if [[ "$interactive" == "true" ]]; then
   printf 'VM-guest profile:   %s\n' "$install_vm_guest"
   printf 'Hardening profile:  %s\n' "$install_hardening"
   printf 'Desktop tools:      %s\n' "$install_desktop_tools"
+  if [[ "$install_desktop_tools" == "true" ]]; then
+    printf 'Force app defaults: %s\n' "$desktop_tools_force_defaults"
+  fi
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
   if [[ -n "$hardware_model" ]]; then
@@ -539,8 +561,14 @@ if [[ "$install_hardening" == "true" ]]; then
 fi
 
 if [[ "$install_desktop_tools" == "true" ]]; then
+  desktop_tools_args=()
+  if [[ "$desktop_tools_force_defaults" == "true" ]]; then
+    desktop_tools_args+=(--force-defaults)
+  fi
+
   info "Installing optional desktop-tools profile"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-desktop-tools.sh"
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-desktop-tools.sh" \
+    "${desktop_tools_args[@]}"
 fi
 
 info "Initializing machine-local configuration"

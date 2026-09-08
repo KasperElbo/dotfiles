@@ -8,6 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 
 dry_run="false"
+force_defaults="false"
 
 # Fedora's KDE baseline already ships these. Only install them if something
 # removed them; never treat an existing install as a duplicate to replace.
@@ -63,14 +64,24 @@ image editor, a PDF page-manipulation tool, a reliable media player, and a
 scanning front end, alongside the Fedora KDE baseline's existing image viewer,
 PDF viewer, and archive manager (reused, not duplicated).
 
+By default, an existing default application for one of this profile's
+mimetypes (yours or another program's) is left alone on every run.
+
 Options:
-  --dry-run   Show the desktop-tools plan without changing anything
-  -h, --help  Show this help
+  --force-defaults  Override existing default applications for the
+                    mimetypes this profile manages, replacing any prior
+                    choice with Gwenview, Okular, Ark, or mpv as appropriate
+  --dry-run         Show the desktop-tools plan without changing anything
+  -h, --help        Show this help
 EOF
 }
 
 while (($#)); do
   case "$1" in
+  --force-defaults)
+    force_defaults="true"
+    shift
+    ;;
   --dry-run)
     dry_run="true"
     shift
@@ -121,6 +132,9 @@ set_default_mime_type() {
 
   if [[ -z "$current" || "$current" == "$desktop_entry" ]]; then
     xdg-mime default "$desktop_entry" "$mime"
+  elif [[ "$force_defaults" == "true" ]]; then
+    info "Overriding existing default for $mime: $current -> $desktop_entry"
+    xdg-mime default "$desktop_entry" "$mime"
   else
     info "Keeping existing user default for $mime: $current"
   fi
@@ -142,6 +156,7 @@ Media:     mpv, backed by RPM Fusion's full ffmpeg for reliable playback
 Scanning:  Skanpage
 
 Fedora KDE baseline packages reused if already installed: ${baseline_packages[*]}
+Force-override existing default applications: $force_defaults
 EOF
 
   if ((${#missing_baseline[@]} > 0)); then
@@ -150,14 +165,22 @@ EOF
     printf 'All already installed; none would be reinstalled.\n'
   fi
 
+  if [[ "$force_defaults" == "true" ]]; then
+    default_step="Set default applications for images, PDFs, archives and media,
+     overriding any existing default (yours or another program's) for those
+     mimetypes."
+  else
+    default_step="Set default applications for images, PDFs, archives and media,
+     without overriding a default you already changed yourself."
+  fi
+
   cat <<EOF
 
 Steps:
   1. Install any missing Fedora KDE baseline apps (${baseline_packages[*]}).
   2. Install the profile's additions: ${added_packages[*]}.
   3. Enable RPM Fusion and install mpv, backed by its full ffmpeg.
-  4. Set default applications for images, PDFs, archives and media, without
-     overriding a default you already changed yourself.
+  4. $default_step
   5. Record the profile in \$XDG_CONFIG_HOME/dotfiles/desktop-tools.conf.
 
 No changes were made.
@@ -186,7 +209,11 @@ ensure_rpm_fusion_repositories
 info "Installing mpv"
 sudo dnf install -y mpv
 
-info "Setting default applications for images, PDFs, archives and media"
+if [[ "$force_defaults" == "true" ]]; then
+  info "Setting default applications for images, PDFs, archives and media (overriding existing choices)"
+else
+  info "Setting default applications for images, PDFs, archives and media"
+fi
 for mapping in "${mime_defaults[@]}"; do
   set_default_mime_type "${mapping%%:*}" "${mapping#*:}"
 done
@@ -202,6 +229,7 @@ ensure_dir "$(dirname "$state_file")"
   printf 'archive_manager=ark\n'
   printf 'media_player=mpv\n'
   printf 'scanner=skanpage\n'
+  printf 'force_defaults=%s\n' "$force_defaults"
 } | atomic_write_file "$state_file"
 
 success "Desktop-tools profile installed"
