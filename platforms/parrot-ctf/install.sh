@@ -21,7 +21,10 @@ Options:
   -h, --help         Show this help
 
 This is a KVM/QEMU lab-guest profile. It does not install workstation desktop,
-Fedora, KDE, ASUS, NVIDIA, VM-host, LaTeX, OCaml, or AI provisioning.
+Fedora, KDE, ASUS, NVIDIA, VM-host, LaTeX, OCaml, containers, or AI
+provisioning. Parrot supplies its own offensive-security tooling; the
+Podman containers profile is Fedora-only for now and must not be layered
+onto this guest.
 EOF
 }
 

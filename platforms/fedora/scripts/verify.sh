@@ -612,6 +612,27 @@ if [[ -f "$desktop_tools_state" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Optional containers (Podman) profile
+# ---------------------------------------------------------------------------
+
+containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
+
+if [[ -f "$containers_state" ]]; then
+  section "Containers (Podman)"
+
+  # The full rootless pull/run/build/network/Compose smoke test is exercised
+  # right after install-containers.sh runs; skip it here so a routine full
+  # verify.sh run (and a routine ./install.sh run, which always ends with
+  # verify.sh) does not repeat a network-dependent smoke test every time.
+  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-containers.sh" \
+    --skip-smoke-test; then
+    pass "Containers profile verification completed"
+  else
+    fail "Containers profile verification failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Repository hygiene
 # ---------------------------------------------------------------------------
 

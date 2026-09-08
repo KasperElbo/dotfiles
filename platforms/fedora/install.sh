@@ -14,6 +14,8 @@ install_vm_guest="false"
 install_hardening="false"
 install_desktop_tools="false"
 desktop_tools_force_defaults="false"
+install_containers="false"
+containers_api_socket="false"
 hardware_model=""
 hardware_secure_boot="false"
 hardware_charge_limit=""
@@ -54,6 +56,15 @@ Options:
                      With --desktop-tools, override existing default
                      applications for the mimetypes it manages instead of
                      leaving an existing choice alone (default: leave alone)
+
+  --containers       Install the optional rootless Podman container
+                     development profile (see README.md, "Optional Podman
+                     container development profile")
+  --no-containers    Do not install the containers profile (default)
+  --containers-api-socket
+                     With --containers, enable the rootless, socket-activated
+                     Podman API socket for Docker-compatible client tooling
+                     (default: disabled)
 
   --hardware MODEL   Install ASUS hardware support:
                      ga402xz or ga402rk
@@ -151,6 +162,21 @@ while (($#)); do
     shift
     ;;
 
+  --containers)
+    install_containers="true"
+    shift
+    ;;
+
+  --no-containers)
+    install_containers="false"
+    shift
+    ;;
+
+  --containers-api-socket)
+    containers_api_socket="true"
+    shift
+    ;;
+
   --hardware)
     [[ $# -ge 2 ]] || die "--hardware requires a value"
     hardware_model="$2"
@@ -214,6 +240,10 @@ if [[ "$desktop_tools_force_defaults" == "true" && "$install_desktop_tools" == "
   die "--desktop-tools-force-defaults requires --desktop-tools"
 fi
 
+if [[ "$containers_api_socket" == "true" && "$install_containers" == "false" ]]; then
+  die "--containers-api-socket requires --containers"
+fi
+
 if [[ "$install_vm_host" == "true" && "$install_vm_guest" == "true" ]]; then
   die "--vm-host and --vm-guest cannot be combined"
 fi
@@ -273,6 +303,8 @@ VM-guest profile:    $install_vm_guest
 Hardening profile:   $install_hardening
 Desktop tools:       $install_desktop_tools
 Force app defaults:  $desktop_tools_force_defaults
+Containers profile:  $install_containers
+Containers API socket: $containers_api_socket
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
@@ -356,6 +388,20 @@ EOF
   $step. Install the optional day-to-day desktop application profile
      platforms/fedora/scripts/install-desktop-tools.sh$desktop_tools_suffix
      GIMP, pdfarranger, mpv, Skanpage; reuses Gwenview, Okular, Ark
+EOF
+    step=$((step + 1))
+  fi
+
+  if [[ "$install_containers" == "true" ]]; then
+    containers_suffix=""
+    if [[ "$containers_api_socket" == "true" ]]; then
+      containers_suffix=" --api-socket"
+    fi
+    cat <<EOF
+
+  $step. Install the optional rootless Podman container development profile
+     platforms/fedora/scripts/install-containers.sh$containers_suffix
+     podman, podman-compose; rootless by default, no Docker Engine/alias
 EOF
     step=$((step + 1))
   fi
@@ -451,6 +497,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'VM-guest profile:   %s\n' "$install_vm_guest"
   printf 'Hardening profile:  %s\n' "$install_hardening"
   printf 'Desktop tools:      %s\n' "$install_desktop_tools"
+  printf 'Containers profile: %s\n' "$install_containers"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
 
@@ -474,6 +521,10 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   if [[ "$install_desktop_tools" == "true" ]]; then
     printf 'Force app defaults: %s\n' "$desktop_tools_force_defaults"
+  fi
+  printf 'Containers profile: %s\n' "$install_containers"
+  if [[ "$install_containers" == "true" ]]; then
+    printf 'Containers API socket: %s\n' "$containers_api_socket"
   fi
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
@@ -569,6 +620,17 @@ if [[ "$install_desktop_tools" == "true" ]]; then
   info "Installing optional desktop-tools profile"
   "$DOTFILES_ROOT/platforms/fedora/scripts/install-desktop-tools.sh" \
     "${desktop_tools_args[@]}"
+fi
+
+if [[ "$install_containers" == "true" ]]; then
+  containers_args=()
+  if [[ "$containers_api_socket" == "true" ]]; then
+    containers_args+=(--api-socket)
+  fi
+
+  info "Installing optional Podman containers profile"
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-containers.sh" \
+    "${containers_args[@]}"
 fi
 
 info "Initializing machine-local configuration"

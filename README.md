@@ -205,6 +205,14 @@ The complete OCaml development environment is explicitly opt-in:
                    applications for the mimetypes it manages instead of
                    leaving an existing choice alone (default: leave alone)
 
+--containers       install the optional rootless Podman container
+                   development profile
+--no-containers    skip the containers profile (default)
+--containers-api-socket
+                   with --containers, enable the rootless, socket-activated
+                   Podman API socket for Docker-compatible client tooling
+                   (default: disabled)
+
 --hardware MODEL   install ASUS hardware support for ga402xz or ga402rk
                    default: disabled
 --secure-boot      require Secure Boot for the selected hardware profile
@@ -218,7 +226,8 @@ The complete OCaml development environment is explicitly opt-in:
 
 The Fedora WSL installer intentionally exposes only `--theme`, `--ocaml`,
 `--smoke-test`, `--dry-run`, and `--non-interactive`. Fedora desktop, LaTeX,
-Sway, VM and hardware flags are rejected rather than silently ignored.
+Sway, VM, hardware, and containers flags are rejected rather than silently
+ignored.
 
 ---
 
@@ -1294,6 +1303,251 @@ The saved local state file is:
 ~/.config/dotfiles/desktop-tools.conf
 ```
 
+## Optional Podman container development profile
+
+`--containers` (issue #89) adds a complete, validated rootless container
+development workflow. It is not part of the default `./install.sh` path,
+appears in `--dry-run`, and can be run and rerun on its own:
+
+```bash
+./scripts/install-containers.sh
+./scripts/install-containers.sh --dry-run
+./scripts/verify-containers.sh
+```
+
+Rootless Podman is treated as the normal, supported mode; nothing here runs
+containers as root, and no setuid/daemon-as-root shortcut is used.
+
+| Concern | Convention |
+|---|---|
+| Runtime | Podman, rootless by default |
+| OCI runtime | `crun`, a podman dependency |
+| Rootless networking | `netavark`/`aardvark-dns` plus `pasta` (or `slirp4netns`), podman dependencies |
+| Compose | `podman-compose`, picked up automatically by `podman compose` |
+| Buildah / Skopeo | Not installed (see below) |
+| Docker Engine / `docker` alias | Not installed |
+| API socket | Rootless user socket, opt-in via `--api-socket`, never over TCP |
+
+This profile touches nothing that #13's KVM/QEMU/libvirt VM-host profile,
+#14's optional hardening profile, LazyVim, or the .NET/JS-TS-Angular/Python/
+OCaml toolchains rely on: it does not change SELinux, firewalld, sudoers,
+sysctl, libvirt, or any mise/opam-managed runtime, so it can be enabled
+alongside any of them in any order. A future optional AI-tooling profile
+(#16) is expected to compose the same way.
+
+### Package ownership
+
+```text
+podman
+podman-compose
+```
+
+Both come from Fedora/DNF, consistent with the rest of the workstation.
+Podman's own RPM dependencies pull in whichever OCI runtime and rootless
+networking stack the current Fedora release ships — `crun`, `netavark`,
+`aardvark-dns`, and `pasta` (from the `passt` package) or `slirp4netns` — so
+this profile does not pin those package names itself. Pinning them would
+drift from whatever Fedora's own podman package actually requires release to
+release; instead, `verify-containers.sh` checks the resulting rootless
+network backend and OCI runtime at runtime, so the check tracks Fedora
+rather than a hard-coded list.
+
+**Buildah and Skopeo are deliberately not installed.** `podman build` already
+uses Buildah's library internally, so a separate Buildah CLI would duplicate
+that path without adding a capability this profile's workflows need. Skopeo's
+distinct value is inspecting or copying images between registries without
+a local container store; none of this profile's pull/run/build/Compose
+workflows need that, so it is left out until a concrete use case asks for it.
+
+**No Docker Engine, no `docker` alias.** This profile never installs Docker
+Engine or Docker Desktop as a second runtime, and it never aliases `docker`
+to `podman` or installs another compatibility shim. If a tool insists on the
+literal `docker` command, install the small `podman-docker` RPM yourself and
+review what it changes; the profile does not do this for you.
+
+### Rootless setup: subuid/subgid
+
+Rootless Podman maps container UIDs/GIDs into a range of extra UIDs/GIDs
+owned by your normal user (`/etc/subuid` and `/etc/subgid`). Fedora's
+`useradd` already assigns a range to every new local user, so on most
+workstations this profile finds an existing entry and changes nothing.
+Only when your user has no entry does the installer allocate one:
+
+- It scans `/etc/subuid`/`/etc/subgid` for the highest range already in use
+  and allocates the next free 65536-wide block at or above Fedora's own
+  `100000` floor, so it never collides with another user's range.
+- It applies the allocation with `usermod --add-subuids`/`--add-subgids`,
+  then runs `podman system migrate` once so any already-initialized
+  rootless storage adopts the new mapping without a logout.
+- A user who already owns both ranges is left untouched on every rerun.
+
+### Common Podman commands
+
+```bash
+podman pull IMAGE                       # fetch an image
+podman run --rm -it IMAGE sh            # run and drop into a shell
+podman build -t NAME .                  # build from a Containerfile
+podman ps                               # list running containers
+podman images                           # list local images
+podman volume ls                        # list named volumes
+podman logs -f CONTAINER                # follow a container's logs
+podman exec -it CONTAINER sh            # shell into a running container
+podman system prune                     # remove unused containers/images/networks
+```
+
+These are the same commands Docker users already know; the differences that
+matter day to day are covered below. See issue #72 for the project's
+consolidated per-profile command cheat sheet, which should list only the
+high-value entries above rather than the full Podman CLI surface.
+
+### Compose
+
+`podman compose` is Podman's own front end for Compose files; it shells out
+to `podman-compose`, which DNF installs and which `podman compose`
+auto-detects on `PATH`. No custom orchestration wrapper is added. A minimal
+multi-service project:
+
+```yaml
+# compose.yaml
+services:
+  web:
+    image: docker.io/library/busybox:stable
+    command: httpd -f -p 8080 -h /srv
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - site-data:/srv
+volumes:
+  site-data:
+```
+
+```bash
+podman compose up -d
+curl http://127.0.0.1:8080/
+podman compose down -v
+```
+
+### SELinux volume labels
+
+SELinux stays enabled and enforcing; this profile never disables or weakens
+it to make a bind mount work. On an SELinux-enforcing host, a bind-mounted
+host directory is denied by default because the host path's SELinux context
+does not match what the container is allowed to read. Podman's `:Z`/`:z`
+mount-flag suffixes ask Podman to relabel the path instead of turning
+enforcement off:
+
+| Suffix | Effect | Use when |
+|---|---|---|
+| `:Z` | Relabels the path for **exclusive** use by this one container | The default: only one container needs the path at a time |
+| `:z` | Relabels the path for **shared** use by multiple containers | Several containers (or a Compose project's services) read/write the same host path concurrently |
+| (none) | No relabeling; denied under enforcing SELinux unless the path already carries a compatible context | A path you have already labeled yourself, e.g. with `chcon` |
+
+```bash
+podman run --rm -v "$PWD:/work:Z" docker.io/library/busybox:stable ls /work
+```
+
+Named volumes (`podman volume create`, then `-v volume-name:/path`) do not
+need a `:Z`/`:z` suffix: Podman manages their SELinux labels itself.
+
+### Rootless API socket (Docker-compatible tooling)
+
+Disabled by default; this profile does not assume you need Docker-compatible
+tooling. Pass `--api-socket` to `install-containers.sh` (or
+`--containers-api-socket` to the top-level `./install.sh`) only if something
+you use expects a Docker-style API socket:
+
+```bash
+./scripts/install-containers.sh --api-socket
+```
+
+This enables `podman.socket` in your own **user** systemd instance
+(`systemctl --user enable --now podman.socket`), never the system-wide
+socket. Being a `.socket` unit rather than a permanently running daemon, it
+is socket-activated: `podman.service` only starts on the first connection
+and can idle back down afterward. The socket is a Unix domain socket at
+`$XDG_RUNTIME_DIR/podman/podman.sock`, reachable only by your user account;
+it is never bound to a TCP port or exposed to the network.
+
+**Security implications:** anything that can write to that socket path can
+control every container your rootless user can — equivalent to shell access
+as that user, though not to root, since the daemon itself still runs
+unprivileged inside your subuid/subgid mapping. Do not add other local users
+to your primary group or otherwise widen access to `$XDG_RUNTIME_DIR` if you
+enable this.
+
+Only export `DOCKER_HOST` if you actually run Docker-CLI-compatible tooling
+against it; this profile does not set it for you:
+
+```bash
+export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/podman/podman.sock"
+```
+
+### Differences from Docker worth knowing day to day
+
+- **No background daemon by default.** Rootless Podman runs each container
+  as a direct child process tree of the command that started it; there is no
+  always-on `dockerd` unless you opt into `--api-socket`, and even then it is
+  socket-activated rather than permanently running.
+- **Rootless by default, not an opt-in flag.** `podman info`'s
+  `Host.Security.Rootless` should read `true`; there is no `sudo podman`
+  needed for the workflows this profile validates.
+- **`podman-compose` and `podman compose` are two different things.**
+  `podman-compose` is the installed Python provider; `podman compose` is
+  Podman's own subcommand that calls it. Prefer `podman compose` so the
+  provider stays swappable.
+- **`:Z`/`:z` matter under SELinux enforcement**; Docker installations
+  typically run without SELinux enforcement engaged the same way, so a
+  Compose file copied from a Docker-only project may need these added to
+  its bind mounts. Named volumes need no such suffix.
+- **No `docker` command** unless you deliberately install `podman-docker`
+  yourself; scripts hard-coded to shell out to `docker` need either that
+  package or a per-project alias, not a global one from this profile.
+
+### Verification
+
+`verify-containers.sh` checks `podman`/`podman-compose` are present,
+`podman version`, rootless status and network backend from `podman info`,
+the subuid/subgid mapping, and the API socket's state, then runs a smoke
+test: pull, run, build, a `:Z`-labeled bind mount, a named volume, localhost
+port publishing, container-to-container networking on a dedicated network,
+and a two-service Compose project. Every smoke-test resource is uniquely
+named per run and removed (containers, the built image, the volume, the
+network, and temporary Compose/build directories) whether the run passes or
+fails, so repeated verification never leaves containers, images, or volumes
+behind. Pass `--skip-smoke-test` for an inspection-only run when you do not
+want to touch the network or local container storage; `verify.sh`'s full
+system check uses this so a routine `./install.sh` run does not repeat the
+smoke test every time. `install-containers.sh` itself always runs the full
+smoke test once, right after installing, so the end-to-end workflow is
+proven immediately.
+
+### Platform scope
+
+This profile currently targets regular Fedora only:
+
+- **Fedora WSL**: not exposed. WSL 2's networking (mirrored vs. NAT mode) and
+  systemd availability differ enough from native Fedora that rootless
+  Podman's default networking path needs separate validation before this
+  profile could be offered there; `--platform fedora-wsl` rejects the
+  containers flags rather than silently behaving differently. Tracked as
+  follow-up work, not implemented here.
+- **macOS**: out of scope for this repository today, and not equivalent to
+  native Fedora Podman even when it exists: Podman on macOS runs containers
+  inside a Linux VM (`podman machine`), which changes networking, bind-mount
+  performance, and rootless semantics enough that it would need its own
+  design rather than reusing this profile's assumptions.
+- **Parrot Security Edition CTF guest**: not installed and not appropriate
+  to layer on automatically. The guest is an intentionally disposable
+  offensive-security lab environment (see "Parrot Security Edition CTF VM"),
+  and container tooling there should stay optional and never interfere with
+  Parrot's own security catalogue.
+
+The saved local state file is:
+
+```text
+~/.config/dotfiles/containers.conf
+```
+
 ---
 
 # Package ownership
@@ -1347,6 +1601,11 @@ The optional desktop-tools profile adds `gimp`, `pdfarranger`, `skanpage`, and
 `xdg-utils`. It reuses the Fedora KDE baseline's Gwenview, Okular, and Ark
 instead of installing alternatives, installing one only if it is genuinely
 missing. See [Optional desktop-tools profile](#optional-desktop-tools-profile).
+
+The optional containers profile adds `podman` and `podman-compose`. It
+deliberately does not add Buildah, Skopeo, Docker Engine, or a `docker`
+alias. See [Optional Podman container development
+profile](#optional-podman-container-development-profile).
 
 ## Terra RPM repository
 
