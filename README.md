@@ -1125,7 +1125,83 @@ Then run:
 ./scripts/verify-asus-hardware.sh
 ```
 
-## 7. AI agent authentication
+## 7. SFTP client
+
+Command-line SFTP is part of the base workstation install; no installer flag
+is required. It comes from Fedora's own `openssh-clients` package — the same
+package that provides `ssh` and `scp` — so there is never a second SSH
+implementation to manage.
+
+```bash
+sftp user@host
+```
+
+Common interactive commands:
+
+```text
+ls
+cd
+lcd
+pwd
+lpwd
+get
+put
+mget
+mput
+mkdir
+rm
+exit
+```
+
+Non-interactive transfers use `scp`:
+
+```bash
+scp file.txt user@host:/remote/path/
+scp -r local-dir/ user@host:/remote/path/
+scp user@host:/remote/path/file.txt .
+```
+
+Both tools use standard SSH authentication: `~/.ssh/config`, SSH keys,
+ssh-agent (including a 1Password-backed agent), and password authentication
+when a server requires it. No credentials, keys, or host-specific bookmarks
+are tracked by this repository; that state stays machine-local.
+
+Verify the baseline with:
+
+```bash
+command -v sftp
+command -v scp
+ssh -V
+```
+
+**KDE**: Dolphin/KIO already provides a native SFTP workflow, reused instead
+of installing a dedicated application. `platforms/fedora/scripts/install-kde-theme.sh`
+explicitly ensures Fedora's `kio-extras` package — which supplies Dolphin's
+`sftp://` support — is installed, rather than assuming it. Open a location
+directly:
+
+```text
+sftp://user@host/path
+```
+
+either by typing it into Dolphin's location bar or from the Network places
+sidebar entry. It authenticates through the same SSH key/agent as the CLI,
+and supports normal drag/drop and recursive folder transfers. This is reused
+as-is; no dedicated SFTP application is installed for KDE.
+
+**Sway**: the optional `--sway` session (see "Optional Sway session") runs on
+top of the same Fedora KDE Plasma base as the rest of this profile, so Dolphin
+and the `kio-extras` sftp:// support ensured above are available there too —
+launch Dolphin from Fuzzel exactly as under Plasma. No dedicated Sway-specific
+GUI SFTP client is added, since Dolphin already solves the same usability gap
+in both sessions.
+
+A standalone GUI client such as FileZilla was evaluated and rejected: Dolphin
+already gives both KDE and Sway a working native SFTP path with SSH key/agent
+support, drag/drop, and recursive transfers, so a second GUI application would
+duplicate functionality rather than close a real gap.
+
+## 8. AI agent authentication
 
 Only relevant if the optional AI profile (`--ai`) is selected; see
 "AI-assisted development toolchain" below for the full picture. Nothing here
@@ -2513,6 +2589,7 @@ git
 git-delta
 libicu
 neovim
+openssh-clients
 ripgrep
 ShellCheck
 sqlite

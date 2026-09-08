@@ -18,6 +18,7 @@ packages=(
   git-delta
   libicu
   neovim
+  openssh-clients
   ripgrep
   ShellCheck
   shadow-utils

@@ -92,7 +92,7 @@ mise_command="$(command -v mise 2>/dev/null || true)"
 if [[ -n "$mise_command" ]]; then
   eval "$("$mise_command" activate bash)"
 fi
-commands=(aerospace ast-grep bat delta dotnet eza fd fzf gh git lazygit mise node npm nvim python rg shellcheck sqlite3 starship stow tmux tree-sitter uv zoxide zsh)
+commands=(aerospace ast-grep bat delta dotnet eza fd fzf gh git lazygit mise node npm nvim python rg scp sftp shellcheck sqlite3 ssh starship stow tmux tree-sitter uv zoxide zsh)
 for name in "${commands[@]}"; do check_command "$name"; done
 
 for name in brew nvim node python dotnet; do

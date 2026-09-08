@@ -8,10 +8,28 @@ trap 'rm -rf -- "$test_root"' EXIT
 mock_bin="$test_root/bin"
 install_log="$test_root/install.log"
 side_effect_log="$test_root/side-effects.log"
+command_log="$test_root/commands.log"
 home="$test_root/home"
 mkdir -p "$mock_bin" "$home/.local/share/wallpapers"
 : >"$install_log"
 : >"$side_effect_log"
+: >"$command_log"
+
+cat >"$mock_bin/rpm" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == -q ]]; then
+  for present in $RPM_PRESENT; do
+    [[ "$2" == "$present" ]] && exit 0
+  done
+  exit 1
+fi
+exit 0
+EOF
+
+cat >"$mock_bin/sudo" <<'EOF'
+#!/usr/bin/env bash
+printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
+EOF
 
 cat >"$mock_bin/git" <<'EOF'
 #!/usr/bin/env bash
@@ -69,15 +87,25 @@ install_environment=(
   "XDG_CACHE_HOME=$test_root/cache"
   "INSTALL_LOG=$install_log"
   "SIDE_EFFECT_LOG=$side_effect_log"
+  "COMMAND_LOG=$command_log"
   "PATH=$mock_bin:$PATH"
 )
 
 install_kde_themes() {
-  "${install_environment[@]}" \
+  RPM_PRESENT="${RPM_PRESENT:-}" "${install_environment[@]}" \
     "$repo_root/platforms/fedora/scripts/install-kde-theme.sh" >/dev/null
 }
-install_kde_themes
-install_kde_themes
+RPM_PRESENT="" install_kde_themes
+grep -Fq 'sudo dnf install -y kio-extras' "$command_log"
+printf 'PASS: missing kio-extras is installed for Dolphin sftp:// support\n'
+
+: >"$command_log"
+RPM_PRESENT="kio-extras" install_kde_themes
+if grep -Fq 'kio-extras' "$command_log"; then
+  printf 'kio-extras was reinstalled even though it was already present.\n' >&2
+  exit 1
+fi
+printf 'PASS: an already-present kio-extras is reused, not reinstalled\n'
 
 for flavour in 1 2 3 4; do
   [[ "$(grep -Fxc "$flavour 4 2 auto" "$install_log")" == 2 ]]
