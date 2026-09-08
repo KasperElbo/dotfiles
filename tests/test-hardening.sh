@@ -322,8 +322,8 @@ SUDO_EOF
 
   assert_in_file 'sudo setenforce 1' "$command_log"
   assert_in_file 'sudo authselect enable-feature with-faillock' "$command_log"
-  assert_in_file 'sudo dnf install -y dnf-automatic' "$command_log"
-  assert_in_file 'systemctl enable --now dnf-automatic-notifyonly.timer' \
+  assert_in_file 'sudo dnf install -y dnf5-plugin-automatic' "$command_log"
+  assert_in_file 'systemctl enable --now dnf5-automatic.timer' \
     "$command_log"
 
   assert_line_in_file 'kernel.yama.ptrace_scope = 1' \

@@ -199,12 +199,30 @@ fi
 
 section "Update notifications"
 
-if systemctl is-enabled --quiet dnf-automatic-notifyonly.timer 2>/dev/null; then
-  pass "dnf-automatic-notifyonly.timer is enabled (reports only, installs nothing)"
-elif systemctl is-active --quiet dnf-automatic-install.timer 2>/dev/null; then
-  note "dnf-automatic-install.timer is active (a different, user-chosen policy)"
+if systemctl is-enabled --quiet dnf5-automatic.timer 2>/dev/null; then
+  pass "dnf5-automatic.timer is enabled"
+
+  automatic_conf=""
+  for candidate in /etc/dnf/automatic.conf /etc/dnf/dnf5-plugins/automatic.conf; do
+    if [[ -f "$candidate" ]]; then
+      automatic_conf="$candidate"
+      break
+    fi
+  done
+
+  if [[ -n "$automatic_conf" ]]; then
+    apply_updates="$(grep -E '^[[:space:]]*apply_updates[[:space:]]*=' \
+      "$automatic_conf" 2>/dev/null | tail -n1 | cut -d= -f2 | xargs || true)"
+    if [[ "$apply_updates" == "yes" ]]; then
+      note "apply_updates=yes in $automatic_conf (this system auto-installs updates, not this profile's default)"
+    else
+      note "apply_updates=${apply_updates:-no} in $automatic_conf (downloads/reports only)"
+    fi
+  else
+    note "no /etc override; using the packaged default (apply_updates=no, download_updates=yes)"
+  fi
 else
-  warning "No dnf-automatic timer is enabled"
+  warning "dnf5-automatic.timer is not enabled"
 fi
 
 # ---------------------------------------------------------------------------

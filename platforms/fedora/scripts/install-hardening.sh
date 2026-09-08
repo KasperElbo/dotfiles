@@ -106,8 +106,8 @@ Apply (each as its own removable drop-in file):
      PermitRootLogin no, MaxAuthTries 3, LoginGraceTime 20
      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
 
-  7. dnf-automatic-notifyonly.timer: reports available updates daily,
-     installs nothing automatically
+  7. dnf5-automatic.timer: downloads and reports available updates daily
+     (apply_updates=no by default), installs nothing automatically
 
 Never done by this profile: disabling SELinux or firewalld, changing
 firewalld zone services, noexec on /tmp, USBGuard, Wi-Fi MAC
