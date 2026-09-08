@@ -22,11 +22,22 @@ grep -Fq -- "\$arguments += '--web-download'" "$installer"
 grep -Fq -- "--set-version', \$Distribution, '2'" "$installer"
 grep -Fq -- "[switch]\$ElevatedWslUpdateOnly" "$installer"
 grep -Fq -- 'function Invoke-ElevatedWslUpdate' "$installer"
-# wsl --update must bypass the Microsoft Store, which corporate/managed
-# networks commonly block for WSL's update package (HTTP 403,
-# Wsl/UpdatePackage/0x80190193), and download it directly instead.
 grep -Fq -- "Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update', '--web-download')" \
   "$installer"
+
+# `wsl --update` always checks api.github.com/repos/Microsoft/WSL/releases
+# before doing anything else, and no flag (--web-download included, verified
+# to be a no-op for this command in current wsl.exe builds) avoids that
+# dependency. That check commonly fails on restricted corporate networks
+# even though the already-installed WSL platform can install the requested
+# distribution just fine, so a failed update must not block the rest of the
+# install.
+install_wsl_distribution_body="$(awk '/^function Install-WslDistribution/,/^}/' "$installer")"
+grep -Fq 'try {' <<<"$install_wsl_distribution_body"
+grep -Fq 'Update-Wsl' <<<"$install_wsl_distribution_body"
+grep -Fq 'catch {' <<<"$install_wsl_distribution_body"
+grep -Fq 'Could not update WSL; continuing with the currently installed WSL platform' \
+  <<<"$install_wsl_distribution_body"
 grep -Fq -- '-AllowUnavailable' "$installer"
 grep -Fq -- 'Would rediscover the newest official FedoraLinux distribution after the WSL update' \
   "$installer"

@@ -171,10 +171,14 @@ function Update-Wsl {
         throw 'Updating WSL requires administrator privileges.'
     }
 
-    # wsl --update normally fetches its package through the Microsoft Store.
-    # On networks that restrict Store traffic (common on managed corporate
-    # machines) that request is denied outright (Wsl/UpdatePackage/0x80190193,
-    # an HTTP 403), so download the update directly instead.
+    # --web-download is a no-op for `wsl --update` in current wsl.exe builds
+    # (kept only for compatibility with older inbox WSL versions where it did
+    # matter); it is harmless to pass and costs nothing to keep. Current
+    # wsl.exe always checks api.github.com/repos/Microsoft/WSL/releases for
+    # the latest version regardless of this flag, and there is no flag that
+    # avoids that dependency -- callers that need this to tolerate a blocked
+    # or rate-limited network (Wsl/UpdatePackage/0x80190193, an HTTP 403) must
+    # catch failures from this function themselves.
     Write-Step 'Updating WSL'
     Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update', '--web-download')
 }
@@ -280,7 +284,21 @@ function Install-WslDistribution {
         throw 'The internal WSL installation phase requires administrator privileges.'
     }
 
-    Update-Wsl
+    # wsl --update always checks api.github.com/repos/Microsoft/WSL/releases
+    # for the current version before doing anything else -- --web-download is
+    # a no-op for this command in current wsl.exe builds, so there is no flag
+    # that avoids this dependency. That check commonly fails on restricted
+    # corporate networks (rate limiting on a shared egress IP, or a proxy
+    # blocking api.github.com outright) even though the already-installed WSL
+    # platform is perfectly capable of installing this distribution. Treat a
+    # failure here as non-fatal rather than blocking an otherwise-working
+    # install on an optional freshness check.
+    try {
+        Update-Wsl
+    }
+    catch {
+        Write-Warning "Could not update WSL; continuing with the currently installed WSL platform: $($_.Exception.Message)"
+    }
 
     Write-Step 'Making WSL 2 the default for new distributions'
     Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--set-default-version', '2')
