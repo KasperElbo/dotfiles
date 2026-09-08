@@ -118,6 +118,9 @@ EOF
   cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 printf 'curl %s\n' "$*" >>"$COMMAND_LOG"
+if [[ "${MOCK_CURL_EXIT:-0}" == 0 ]]; then
+  printf '%s' "${MOCK_CURL_OUTPUT-dotfiles-podman-smoke}"
+fi
 exit "${MOCK_CURL_EXIT:-0}"
 EOF
 
@@ -169,6 +172,10 @@ run)
   for arg in "$@"; do
     if [[ "$arg" == cat ]]; then
       printf '%s\n' "${MOCK_PODMAN_CAT_OUTPUT-dotfiles-podman-smoke}"
+      exit "${MOCK_PODMAN_RUN_EXIT:-0}"
+    fi
+    if [[ "$arg" == wget ]]; then
+      printf '%s' "${MOCK_PODMAN_WGET_OUTPUT-dotfiles-podman-smoke}"
       exit "${MOCK_PODMAN_RUN_EXIT:-0}"
     fi
   done
