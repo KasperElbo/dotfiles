@@ -146,6 +146,17 @@ run_success "Containers API socket dry-run" \
 run_success "Standalone containers dry-run" \
   "Rootless API socket:   false" \
   ./scripts/install-containers.sh --dry-run
+run_success "Tailscale remains opt-in" "Tailscale profile:   false" \
+  ./install.sh --dry-run
+run_success "Tailscale dry-run" \
+  "platforms/fedora/scripts/install-tailscale.sh" \
+  ./install.sh --dry-run --tailscale
+run_success "Tailscale dry-run documents no automated authentication" \
+  "not automated; 'tailscale up' is never run here" \
+  ./scripts/install-tailscale.sh --dry-run
+run_success "Standalone Tailscale dry-run documents no embedded credentials" \
+  "none (no auth key, no OAuth secret, no tailnet policy)" \
+  ./scripts/install-tailscale.sh --dry-run
 run_success "Sway dry-run forwards local setup" \
   "platforms/fedora/scripts/setup-local.sh macchiato --sway" \
   ./install.sh --dry-run --sway

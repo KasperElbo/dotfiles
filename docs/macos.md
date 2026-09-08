@@ -177,6 +177,55 @@ export anything needed before running it.
 The optional AI profile from issue #16 was not present on `main` when this
 profile was added. No independent Codex/Claude installer is added here.
 
+### Optional Tailscale
+
+```bash
+./install.sh --platform macos --tailscale
+```
+
+Coordinated with issue #109 (the cross-platform Tailscale profile) and
+issue #11/this macOS workstation: installs Tailscale as the **Standalone**
+macOS app (`brew install --cask tailscale-app`), the sandboxed
+Network-Extension-based variant Tailscale documents for a normal Mac with a
+display, not the headless `brew install tailscale` daemon formula this repo
+does not use. There is no `launchd`/systemd-style service this profile
+manages directly: the app's own Network Extension process is what
+`tailscaled` is on Fedora, and macOS's sandboxing keeps it running once
+approved. This deliberately does not reuse any Fedora `tailscaled`/systemd
+assumption.
+
+The installer opens the app once (so macOS can prompt for the Network
+Extension permission) and then stops: authentication is interactive by
+design, matching issue #109's requirement and this repository's existing
+"no automated login" stance for every other identity/authentication step
+(Git, SSH, `gh auth login`). Nothing here scripts the permission grant or
+runs `tailscale up`/signs you in.
+
+The Tailscale CLI is optional on macOS and is not installed by this
+profile. Enable it yourself from the app's Settings (CLI section, "Install
+Now"; asks for your admin password once) to get a plain `tailscale` command
+at `/usr/local/bin/tailscale`, or use the app bundle path directly:
+
+```bash
+/Applications/Tailscale.app/Contents/MacOS/Tailscale status
+/Applications/Tailscale.app/Contents/MacOS/Tailscale version
+```
+
+Rollback:
+
+```bash
+tailscale logout   # or use the app's menu; only if you signed in
+brew uninstall --cask tailscale-app
+rm ~/.config/dotfiles/macos-tailscale.conf
+```
+
+See the main [README.md, "Optional Tailscale networking
+profile"](../README.md#optional-tailscale-networking-profile) for package
+ownership, the full list of what is intentionally never automated (ACLs,
+exit nodes, subnet routes, Tailscale SSH, `--accept-routes`/`--accept-dns`),
+and normal day-to-day commands. None of that is Fedora-specific; it applies
+here unchanged.
+
 ## 5. AeroSpace decision record
 
 The mandatory comparison was completed before implementation, and AeroSpace
@@ -340,11 +389,14 @@ platforms/macos/scripts/verify.sh --defaults
 git diff --check
 ```
 
-Add `--containers` to verification when that optional profile is installed.
-The verifier checks arm64, `/opt/homebrew`, the absence of Intel Homebrew, SIP,
-Gatekeeper, shared/macOS Stow links, tools/runtimes, apps, defaults, and the
-Podman machine when selected. An ungranted AeroSpace Accessibility permission
-is reported as a warning with the manual remedy.
+Add `--containers` and/or `--tailscale` to verification when those optional
+profiles are installed. The verifier checks arm64, `/opt/homebrew`, the
+absence of Intel Homebrew, SIP, Gatekeeper, shared/macOS Stow links,
+tools/runtimes, apps, defaults, the Podman machine, and Tailscale (app
+presence, CLI version, and connection state via `tailscale status --json`)
+when selected. An ungranted AeroSpace Accessibility permission and a
+not-yet-installed Tailscale CLI are both reported as warnings with their
+manual remedy, not hard failures, since both are optional interactive steps.
 
 To remove only the Mac desktop layer while leaving common dotfiles intact:
 
@@ -373,3 +425,5 @@ removes local Git identity/authentication files.
 - [AeroSpace commands](https://nikitabobko.github.io/AeroSpace/commands)
 - [Podman macOS installation](https://podman.io/docs/installation)
 - [Podman machine](https://docs.podman.io/en/latest/markdown/podman-machine-init.1.html)
+- [Tailscale on macOS: the three variants](https://tailscale.com/docs/concepts/macos-variants)
+- [Tailscale CLI reference](https://tailscale.com/docs/reference/tailscale-cli)
