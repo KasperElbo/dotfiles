@@ -16,6 +16,7 @@ packages=(
   gh
   git
   git-delta
+  libicu
   neovim
   ripgrep
   ShellCheck

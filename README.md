@@ -1742,6 +1742,7 @@ fzf
 gh
 git
 git-delta
+libicu
 neovim
 ripgrep
 ShellCheck
@@ -3216,6 +3217,24 @@ Expected. Roslyn is owned by `roslyn.nvim`.
 ## EasyDotnet warns about `dotnet ef`
 
 A repository-local `dotnet-ef` tool is preferred when the project requires it.
+
+## `mise` fails to install `dotnet:EasyDotnet` with a missing ICU error
+
+```text
+Couldn't find a valid ICU package installed on the system. Please install
+libicu (or icu-libs) using your package manager and try again.
+```
+
+The .NET runtime needs ICU for globalization support, and `libicu` is part
+of this repository's base Fedora/DNF package list precisely so this
+doesn't happen — if you see this, the install ran before `libicu` was
+added, or `libicu` failed to install for some other reason. Install it and
+rerun:
+
+```bash
+sudo dnf install -y libicu
+mise install
+```
 
 ## Ghostty cannot find packaged themes on Fedora/Terra
 
