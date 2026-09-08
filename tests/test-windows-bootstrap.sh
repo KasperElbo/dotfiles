@@ -22,7 +22,10 @@ grep -Fq -- "\$arguments += '--web-download'" "$installer"
 grep -Fq -- "--set-version', \$Distribution, '2'" "$installer"
 grep -Fq -- "[switch]\$ElevatedWslUpdateOnly" "$installer"
 grep -Fq -- 'function Invoke-ElevatedWslUpdate' "$installer"
-grep -Fq -- "Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update')" \
+# wsl --update must bypass the Microsoft Store, which corporate/managed
+# networks commonly block for WSL's update package (HTTP 403,
+# Wsl/UpdatePackage/0x80190193), and download it directly instead.
+grep -Fq -- "Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update', '--web-download')" \
   "$installer"
 grep -Fq -- '-AllowUnavailable' "$installer"
 grep -Fq -- 'Would rediscover the newest official FedoraLinux distribution after the WSL update' \

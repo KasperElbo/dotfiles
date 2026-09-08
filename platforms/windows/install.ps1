@@ -171,8 +171,12 @@ function Update-Wsl {
         throw 'Updating WSL requires administrator privileges.'
     }
 
+    # wsl --update normally fetches its package through the Microsoft Store.
+    # On networks that restrict Store traffic (common on managed corporate
+    # machines) that request is denied outright (Wsl/UpdatePackage/0x80190193,
+    # an HTTP 403), so download the update directly instead.
     Write-Step 'Updating WSL'
-    Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update')
+    Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update', '--web-download')
 }
 
 function Invoke-ElevatedPhase {
