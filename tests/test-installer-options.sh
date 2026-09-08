@@ -66,6 +66,20 @@ run_failure() {
   printf 'PASS: %s\n' "$name"
 }
 
+run_success "--help documents --platform" "--platform NAME    Target platform:" \
+  ./install.sh --help
+run_success "--help still shows the selected platform's own options" \
+  "--kde              Install Catppuccin KDE integration" \
+  ./install.sh --help
+run_success "--platform fedora-wsl --help documents --platform and forwards" \
+  "--platform NAME    Target platform:" \
+  ./install.sh --platform fedora-wsl --help
+run_success "--platform fedora-wsl --help shows fedora-wsl's own options" \
+  "Requires systemd as" \
+  ./install.sh --platform fedora-wsl --help
+run_success "-h documents --platform" "--platform NAME    Target platform:" \
+  ./install.sh -h
+
 run_success "default dry-run" "ASUS hardware:       disabled" \
   ./install.sh --dry-run
 run_success "default login shell dry-run" \
