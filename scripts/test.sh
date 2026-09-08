@@ -33,6 +33,7 @@ tests=(
   tests/test-fedora-wsl.sh
   tests/test-parrot-ctf.sh
   tests/test-windows-bootstrap.sh
+  tests/test-macos.sh
 )
 
 for test_script in "${tests[@]}"; do

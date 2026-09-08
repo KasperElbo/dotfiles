@@ -24,10 +24,10 @@ while (($#)); do
 done
 
 case "$platform" in
-fedora | fedora-wsl | parrot-ctf)
+fedora | fedora-wsl | macos | parrot-ctf)
   ;;
 *)
-  printf 'ERROR: Unsupported platform: %s (expected fedora, fedora-wsl, or parrot-ctf)\n' \
+  printf 'ERROR: Unsupported platform: %s (expected fedora, fedora-wsl, macos, or parrot-ctf)\n' \
     "$platform" >&2
   exit 1
   ;;
@@ -36,10 +36,10 @@ esac
 for forwarded_arg in "${forwarded_args[@]}"; do
   if [[ "$forwarded_arg" == "-h" || "$forwarded_arg" == "--help" ]]; then
     cat <<EOF
-Usage: ./install.sh [--platform fedora|fedora-wsl|parrot-ctf] [options]
+Usage: ./install.sh [--platform fedora|fedora-wsl|macos|parrot-ctf] [options]
 
-  --platform NAME    Target platform: fedora (default), fedora-wsl, or
-                     parrot-ctf. Selects which platforms/NAME/install.sh
+  --platform NAME    Target platform: fedora (default), fedora-wsl, macos,
+                     or parrot-ctf. Selects which platforms/NAME/install.sh
                      runs; all other options below are that platform's own
                      and are simply forwarded to it.
 

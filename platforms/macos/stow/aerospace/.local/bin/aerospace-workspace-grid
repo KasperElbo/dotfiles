@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+direction="${1:-}"
+case "$direction" in
+left | right | up | down) ;;
+*)
+  printf 'Usage: aerospace-workspace-grid left|right|up|down\n' >&2
+  exit 2
+  ;;
+esac
+
+current="$(aerospace list-workspaces --focused)"
+[[ "$current" =~ ^[1-9]$ ]] || {
+  printf 'Focused workspace is not in the 1-9 grid: %s\n' "$current" >&2
+  exit 1
+}
+
+workspace=$((10#$current))
+row=$(((workspace - 1) / 3))
+column=$(((workspace - 1) % 3))
+
+case "$direction" in
+left) column=$(((column + 2) % 3)) ;;
+right) column=$(((column + 1) % 3)) ;;
+up) row=$(((row + 2) % 3)) ;;
+down) row=$(((row + 1) % 3)) ;;
+esac
+
+aerospace workspace "$((row * 3 + column + 1))"

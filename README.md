@@ -4,6 +4,7 @@ Opinionated, reproducible dotfiles for a keyboard-driven development workstation
 
 - Fedora
 - Fedora on WSL, with Windows as the desktop and terminal host
+- Apple Silicon macOS with an AeroSpace keyboard-first desktop
 - Parrot Security Edition in a disposable KVM/QEMU CTF guest
 - KDE Plasma / Wayland, with an optional Sway session
 - Ghostty
@@ -21,8 +22,9 @@ The current default Catppuccin flavor is **Macchiato** with the **Mauve** accent
 
 ## Design principles
 
-1. **Use the native package manager for machine-level tools.** Fedora/DNF or
-   Parrot/APT owns operating-system and integrated tools.
+1. **Use the native package manager for machine-level tools.** Fedora/DNF,
+   Parrot/APT, or native Apple Silicon Homebrew owns operating-system and
+   integrated tools.
 2. **Use mise for general language runtimes and portable developer CLIs.**
    Ecosystems with their own switch model, such as OCaml/opam, remain with
    their native manager.
@@ -39,6 +41,7 @@ The current default Catppuccin flavor is **Macchiato** with the **Mauve** accent
 The workstation configuration has been developed and tested on:
 
 - Fedora 44
+- macOS Tahoe 26 on Apple Silicon (`arm64`)
 - KDE Plasma on Wayland
 - Sway on Wayland when installed with `--sway`
 - Zsh
@@ -54,6 +57,10 @@ The supported bootstraps are a normal Fedora workstation and the official
 Fedora distribution running under WSL 2. The WSL variant is a Linux development
 runtime: it deliberately does not reproduce the Fedora desktop, laptop, GPU or
 virtualization-host setup inside WSL.
+
+The macOS bootstrap targets `/opt/homebrew` on Apple Silicon and uses AeroSpace
+for a Sway-like nine-workspace model without disabling SIP. See the complete
+[Apple Silicon macOS workstation guide](docs/macos.md).
 
 ---
 
@@ -78,6 +85,19 @@ Install using the defaults:
 ```bash
 ./install.sh
 ```
+
+On a fresh Apple Silicon Mac, install Apple's Command Line Tools first, then
+select the dedicated profile:
+
+```bash
+xcode-select --install
+./install.sh --platform macos --dry-run
+./install.sh --platform macos
+```
+
+The [macOS guide](docs/macos.md) covers permissions, AeroSpace keys,
+multi-monitor behavior, deliberate defaults, development smoke tests, optional
+OCaml/Podman profiles, security, and rollback.
 
 The installer makes Zsh the invoking user's default login shell. Reboot after
 the first installation so Plasma, the systemd user manager, and D-Bus discard
@@ -176,7 +196,7 @@ The complete OCaml development environment is explicitly opt-in:
 ## Installer options
 
 ```text
---platform PLATFORM fedora (default) | fedora-wsl | parrot-ctf
+--platform PLATFORM fedora (default) | fedora-wsl | macos | parrot-ctf
 
 --theme FLAVOUR    latte | frappe | macchiato | mocha
                    default: macchiato
@@ -1058,13 +1078,14 @@ Then run:
 
 # Installation architecture
 
-The repository has three ownership layers:
+The repository has platform-specific ownership layers around one portable core:
 
 | Layer | Owns | Must not own |
 |---|---|---|
 | Portable common | Shared Stow packages, user-local Git/theme state, mise tools, opam switch/tool setup, and the tmux theme | Native package-manager installation, services, hardware, desktop integration, or OS-specific paths |
 | `platforms/fedora` | DNF/Terra packages, including the opam binary and OCaml build prerequisites; KDE and Sway integration; system services; SELinux/system paths; Secure Boot; and ASUS hardware | Copies of shared Zsh/Git/Neovim/tmux/mise configuration or OCaml packages inside opam switches |
 | `platforms/fedora-wsl` | WSL detection, CLI prerequisites, early Windows PATH isolation, explicit clipboard/browser interop and WSL verification | Fedora desktop, Ghostty, hardware, GPU, VM host/guest, invasive host networking changes, credentials or copies of portable configuration |
+| `platforms/macos` | Native `/opt/homebrew` packages, AeroSpace, Mac shell paths, deliberate defaults, Podman machine integration, and arm64/security verification | Copies of shared configuration, Rosetta, Intel Homebrew, weakened SIP/Gatekeeper, identities, credentials, or Fedora service assumptions |
 | `platforms/parrot-ctf` | Parrot/APT prerequisites, KVM/SPICE guest agents, Debian command shims, a narrow uv-only mise manifest, and lab-boundary verification | Fedora/Terra/KDE/ASUS provisioning, host virtualization, credentials, shared folders, or a duplicate Parrot security-tool catalogue |
 
 The shared Stow package directories remain at the repository root to preserve
@@ -1075,6 +1096,9 @@ scripts directly and then adds only its own integration layer.
 composition without changing the normal Fedora manifest.
 `common/stow.sh --headless --without-mise` lets the Parrot profile substitute
 its narrow lab manifest without inheriting general-workstation runtimes.
+
+macOS reuses the full common workstation manifest. Its only Stow packages are
+AeroSpace and the Homebrew-specific Zsh path/plugin hooks.
 
 Fedora-specific shell paths and theme behavior are injected through tracked
 platform files under `platforms/fedora/stow`; the portable Zsh and `theme`
@@ -1813,11 +1837,10 @@ This profile targets regular Fedora and Fedora WSL:
   `DOCKER_HOST` scope) documented rather than assumed equivalent to native
   Fedora. See "Podman containers under WSL" in the Fedora on WSL section
   above, including that section's validation-status note.
-- **macOS**: out of scope for this repository today, and not equivalent to
-  native Fedora Podman even when it exists: Podman on macOS runs containers
-  inside a Linux VM (`podman machine`), which changes networking, bind-mount
-  performance, and rootless semantics enough that it would need its own
-  design rather than reusing this profile's assumptions.
+- **macOS**: supported only through the explicit `--platform macos
+  --containers` profile. It uses a rootless Linux VM (`podman machine`) and a
+  dedicated smoke test; it does not reuse Fedora systemd, SELinux, subuid, or
+  host-networking assumptions. See [the macOS guide](docs/macos.md#optional-containers).
 - **Parrot Security Edition CTF guest**: not installed and not appropriate
   to layer on automatically. The guest is an intentionally disposable
   offensive-security lab environment (see "Parrot Security Edition CTF VM"),
@@ -1835,6 +1858,15 @@ The saved local state file is:
 # Package ownership
 
 Avoid installing the same tool through multiple package managers.
+
+## macOS / Homebrew
+
+The Apple Silicon profile uses Homebrew only at `/opt/homebrew` for native
+machine tools, shell plugins, Ghostty, and AeroSpace. mise continues to own the
+portable language runtimes and CLIs. OCaml remains split between a
+Homebrew-owned `opam` binary/build prerequisites and an opam-owned compiler
+switch. The exact inventory and duplicate-architecture policy are documented
+in the [macOS package-ownership table](docs/macos.md#3-package-ownership).
 
 ## Fedora / DNF
 
@@ -3078,7 +3110,8 @@ tooling in temporary directories:
 ./scripts/test-dev-workflows.sh --latex
 ```
 
-The .NET check creates, restores, builds and runs a disposable console project.
+The .NET check creates a disposable console and xUnit project, then restores,
+builds, tests, and runs them.
 The Angular check installs only fixture-local dependencies, formats, lints,
 tests, exercises both the modern and debug builds with source maps, starts the
 debug server, and probes it.
@@ -3335,17 +3368,21 @@ The guest harness additionally proves that bare metal and unsupported
 hypervisors fail before package mutation, no ASUS/NVIDIA, power, bridge, or
 NetworkManager command is issued, and repeated guest setup preserves stable
 local state.
+The macOS harness validates the root-platform route, dry-run options, Homebrew
+versus mise ownership, AeroSpace/Sway-equivalent bindings, the wrapped 3×3
+workspace helper, reversible defaults, and the absence of yabai/skhd.
 
 Every integration-style test uses temporary home, XDG, OS-release, and DMI
 state. Package managers, firmware tooling, and service commands are either
 blocked or mocked, so the harness never installs packages, enrolls keys,
 changes real services, or writes to the user's configuration.
 
-GitHub Actions runs these commands in a Fedora 44 container for every pull
-request and every push to `main`. The workflow installs validation dependencies
-inside the ephemeral container, but it never performs a workstation install or
-changes firmware, Secure Boot, MOK enrollment, GPU/MUX settings, services, or
-battery limits.
+GitHub Actions runs the full repository suite in a Fedora 44 container and the
+focused macOS profile/lint checks on a macOS 26 arm64 runner for every pull
+request and every push to `main`; Windows helpers run on a Windows runner. The
+workflows install validation dependencies in their ephemeral environments, but
+never perform a workstation install or change firmware, Secure Boot, MOK
+enrollment, GPU/MUX settings, macOS preferences, services, or battery limits.
 
 ---
 
