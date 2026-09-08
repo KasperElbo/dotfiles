@@ -2210,7 +2210,9 @@ The saved local state file is:
 
 AI-assisted development is an entirely optional workstation profile. **The
 default `./install.sh`, with no AI-related flag, installs no Claude Code,
-Codex, Herdr, GNHF, backpass, FirstMate, or any tool FirstMate requires.**
+Codex, Herdr, GNHF, backpass, FirstMate, or any tool FirstMate requires, and
+creates none of `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or
+`~/.config/opencode/AGENTS.md`.**
 Select it explicitly:
 
 ```bash
@@ -2254,6 +2256,33 @@ Claude Code runs in any Git repository, including one checked out through
 "Worktree isolation for agent/crewmate work" below for how this repository
 gives an agent a safe, isolated worktree rather than pointing it at your
 primary checkout.
+
+## Shared agent instructions: AGENTS.md
+
+`--ai` unconditionally links a single instructions file to every installed
+harness's global-instructions path, so editing one file changes what every
+agent sees, rather than maintaining a separate copy per tool. The file is
+`common/assets/AGENTS.md`, a tracked copy of the same personal instructions
+used on this user's NixOS/home-manager machines
+([`KasperElbo/dotfiles-nix`](https://github.com/KasperElbo/dotfiles-nix),
+`home/AGENTS.md`) — mirrored here manually, not fetched at install time, so
+this profile stays usable offline and has no runtime dependency on that
+repository. Re-sync it by hand if the upstream copy changes.
+
+It is symlinked, unconditionally, to:
+
+| Harness | Path |
+|---|---|
+| Claude Code | `~/.claude/CLAUDE.md` |
+| Codex CLI | `~/.codex/AGENTS.md` (`$CODEX_HOME/AGENTS.md` if set) |
+| OpenCode | `~/.config/opencode/AGENTS.md` |
+
+Non-destructive: if any of those three paths already holds a real file, or a
+symlink pointing somewhere else, `install-ai.sh` leaves it untouched and
+prints a warning rather than overwriting a harness-specific file you put
+there yourself. Edit `common/assets/AGENTS.md` in this repository to change
+it for every harness at once; `common/verify-ai.sh` confirms all three links
+still resolve to it.
 
 ## Optional: OpenAI Codex CLI
 
@@ -2530,7 +2559,10 @@ install shadowing it elsewhere on PATH (catching duplicate
 npm/Homebrew/native-installer ownership of the same tool), and, if
 selected, that FirstMate is cloned with `gh`, `tmux`, and `jq` present, and
 that Treehouse/No Mistakes resolve to the copies this profile installed at
-`~/.local/bin/treehouse` and `~/.local/bin/no-mistakes`.
+`~/.local/bin/treehouse` and `~/.local/bin/no-mistakes`, and that
+`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and
+`~/.config/opencode/AGENTS.md` are still symlinked to
+`common/assets/AGENTS.md` (see "Shared agent instructions" above).
 `platforms/fedora/scripts/verify.sh` (and the Fedora WSL equivalent) run
 this automatically whenever the AI profile's state file is present, and
 separately confirm that **no** AI-owned file exists when it is not.
@@ -2549,6 +2581,7 @@ separately confirm that **no** AI-owned file exists when it is not.
 | No Mistakes | own install script, to `~/.local/bin/no-mistakes` (no mise registry entry) | rerun `--firstmate` |
 | gh-axi, chrome-devtools-axi, tasks-axi, quota-axi | mise (`npm:<name>`), all with `--firstmate` | `mise upgrade` |
 | lavish-axi | mise (`npm:lavish-axi`), with `--firstmate` and/or `--backpass` (declared once either way) | `mise upgrade` |
+| `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.config/opencode/AGENTS.md` | symlinks to `common/assets/AGENTS.md`, unconditionally with `--ai` | edit `common/assets/AGENTS.md` |
 
 See "AI agent tooling" under "Package ownership" below for how this avoids
 duplicate installs of the same tool. Every mise-managed tool above is
@@ -4331,6 +4364,16 @@ typically a native installer, Homebrew, or a global `npm install -g` of the
 same tool installed outside this profile. Remove the other installation (see
 each tool's own uninstall instructions) so only the mise-managed copy remains
 on `PATH`.
+
+## Editing `common/assets/AGENTS.md` doesn't change what an agent sees
+
+`common/verify-ai.sh` reports whether `~/.claude/CLAUDE.md`,
+`~/.codex/AGENTS.md`, and `~/.config/opencode/AGENTS.md` are actually
+symlinked to it. If one reports a plain file or a symlink pointing
+elsewhere instead, that path already had its own file before `--ai` was
+first run, and `install-ai.sh` left it alone rather than overwriting it —
+move that file aside (or edit it directly) if you want it to follow the
+shared instructions instead.
 
 ## `treehouse` commands fail or a worktree seems stuck
 
