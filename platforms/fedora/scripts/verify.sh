@@ -703,9 +703,19 @@ if [[ -f "$ai_state" ]]; then
 else
   section "AI-assisted development profile"
 
+  agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
+  codex_home="${CODEX_HOME:-$HOME/.codex}"
+  is_agents_symlink() {
+    [[ -L "$1" ]] &&
+      [[ "$(resolve_symlink_target "$1" 2>/dev/null || true)" == "$agents_source" ]]
+  }
+
   if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" ||
     -e "$HOME/.local/bin/treehouse" ||
-    -d "$XDG_DATA_HOME/firstmate" ]]; then
+    -d "$XDG_DATA_HOME/firstmate" ]] ||
+    is_agents_symlink "$HOME/.claude/CLAUDE.md" ||
+    is_agents_symlink "$codex_home/AGENTS.md" ||
+    is_agents_symlink "$XDG_CONFIG_HOME/opencode/AGENTS.md"; then
     fail "AI profile is not selected, but AI-owned files remain (run" \
       "common/install-ai.sh, or remove them by hand)"
   else

@@ -11,6 +11,11 @@ state_file="$XDG_CONFIG_HOME/dotfiles/ai.conf"
 conf_file="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
 treehouse_target="$HOME/.local/bin/treehouse"
 no_mistakes_target="$HOME/.local/bin/no-mistakes"
+agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+claude_md_target="$HOME/.claude/CLAUDE.md"
+codex_agents_target="$codex_home/AGENTS.md"
+opencode_agents_target="$XDG_CONFIG_HOME/opencode/AGENTS.md"
 
 pass() {
   printf '\033[1;32m✓\033[0m %s\n' "$*"
@@ -107,6 +112,32 @@ check_own_script_owned() {
   fi
 }
 
+# check_symlink_owned <label> <target>: confirms <target> is a symlink
+# resolving to the shared common/assets/AGENTS.md this profile links, rather
+# than missing, a plain file, or a symlink some other tool/config pointed
+# elsewhere -- either of which means this profile did not link it (by
+# design: an existing file or symlink there always takes precedence).
+check_symlink_owned() {
+  local label="$1"
+  local target="$2"
+
+  if [[ ! -e "$target" && ! -L "$target" ]]; then
+    fail "$label is missing: $target"
+    return
+  fi
+
+  if [[ ! -L "$target" ]]; then
+    warning "$label ($target) is a plain file, not a symlink to $agents_source"
+    return
+  fi
+
+  if [[ "$(resolve_symlink_target "$target" 2>/dev/null || true)" == "$agents_source" ]]; then
+    pass "$label: $target -> $agents_source"
+  else
+    warning "$label ($target) is a symlink pointing elsewhere, not $agents_source"
+  fi
+}
+
 section "AI profile ownership (mise conf.d)"
 
 if [[ -f "$conf_file" ]]; then
@@ -190,6 +221,12 @@ elif command -v codex >/dev/null 2>&1; then
 else
   pass "codex is not installed (optional subcomponent not selected)"
 fi
+
+section "Shared agent instructions (common/assets/AGENTS.md)"
+
+check_symlink_owned "Claude Code (CLAUDE.md)" "$claude_md_target"
+check_symlink_owned "Codex (AGENTS.md)" "$codex_agents_target"
+check_symlink_owned "OpenCode (AGENTS.md)" "$opencode_agents_target"
 
 section "GNHF (optional, unattended-run agent orchestrator)"
 

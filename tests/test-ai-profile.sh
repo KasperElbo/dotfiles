@@ -125,6 +125,10 @@ assert_contains() {
 conf_file="$config/mise/conf.d/ai.toml"
 state_file="$config/dotfiles/ai.conf"
 treehouse_target="$home/.local/bin/treehouse"
+agents_source="$repo_root/common/assets/AGENTS.md"
+claude_md_target="$home/.claude/CLAUDE.md"
+codex_agents_target="$home/.codex/AGENTS.md"
+opencode_agents_target="$config/opencode/AGENTS.md"
 
 # --- Core profile: Claude Code + Herdr only -------------------------------
 
@@ -167,6 +171,17 @@ grep -Fqx 'acpx=disabled' "$state_file"
   exit 1
 }
 
+for target in "$claude_md_target" "$codex_agents_target" "$opencode_agents_target"; do
+  [[ -L "$target" ]] || {
+    printf 'Expected a symlink at %s\n' "$target" >&2
+    exit 1
+  }
+  [[ "$(readlink "$target")" == "$agents_source" ]] || {
+    printf '%s does not link to %s\n' "$target" "$agents_source" >&2
+    exit 1
+  }
+done
+
 if ! verify_core_output="$("${test_environment[@]}" "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf '%s\n' "$verify_core_output" >&2
   printf 'verify-ai.sh (core) failed\n' >&2
@@ -182,6 +197,12 @@ assert_contains "$verify_core_output" 'No Mistakes is not installed'
 assert_contains "$verify_core_output" 'gnhf is not installed'
 assert_contains "$verify_core_output" 'lavish-axi is not installed'
 assert_contains "$verify_core_output" 'backpass is not installed'
+assert_contains "$verify_core_output" \
+  "Claude Code (CLAUDE.md): $claude_md_target -> $agents_source"
+assert_contains "$verify_core_output" \
+  "Codex (AGENTS.md): $codex_agents_target -> $agents_source"
+assert_contains "$verify_core_output" \
+  "OpenCode (AGENTS.md): $opencode_agents_target -> $agents_source"
 
 # --- Idempotency: rerunning changes nothing --------------------------------
 
@@ -192,6 +213,13 @@ second_sum="$(sha256sum "$conf_file" "$state_file")"
   printf 'Rerunning install-ai.sh (core) changed tracked state\n' >&2
   exit 1
 }
+
+for target in "$claude_md_target" "$codex_agents_target" "$opencode_agents_target"; do
+  [[ "$(readlink "$target")" == "$agents_source" ]] || {
+    printf 'Rerunning install-ai.sh (core) changed the %s symlink\n' "$target" >&2
+    exit 1
+  }
+done
 
 # --- Codex + FirstMate + GNHF + backpass subcomponents ----------------------
 
@@ -299,6 +327,50 @@ assert_contains "$backpass_only_verify" 'lavish-axi is mise-managed'
 assert_contains "$backpass_only_verify" 'backpass is mise-managed'
 assert_contains "$backpass_only_verify" 'FirstMate is not installed'
 
+# --- Shared agent instructions never overwrite an existing file/symlink ----
+
+preexisting_home="$test_root/preexisting-home"
+mkdir -p "$preexisting_home/.claude"
+printf 'my own Claude instructions\n' >"$preexisting_home/.claude/CLAUDE.md"
+preexisting_environment=(
+  env
+  "HOME=$preexisting_home"
+  "XDG_CONFIG_HOME=$preexisting_home/.config"
+  "XDG_DATA_HOME=$preexisting_home/.local/share"
+  "PATH=$preexisting_home/.local/bin:$mise_shims:$mock_bin:$PATH"
+  "MISE_SHIMS_DIR=$mise_shims"
+)
+if ! "${preexisting_environment[@]}" "$repo_root/common/install-ai.sh" \
+  >"$test_root/install-preexisting.log" 2>&1; then
+  cat "$test_root/install-preexisting.log" >&2
+  printf 'install-ai.sh (pre-existing CLAUDE.md) failed\n' >&2
+  exit 1
+fi
+
+[[ "$(cat "$preexisting_home/.claude/CLAUDE.md")" == 'my own Claude instructions' ]] || {
+  printf 'install-ai.sh overwrote a pre-existing ~/.claude/CLAUDE.md\n' >&2
+  exit 1
+}
+[[ ! -L "$preexisting_home/.claude/CLAUDE.md" ]] || {
+  printf 'install-ai.sh replaced a pre-existing CLAUDE.md file with a symlink\n' >&2
+  exit 1
+}
+[[ "$(readlink "$preexisting_home/.codex/AGENTS.md")" == "$agents_source" ]] || {
+  printf 'install-ai.sh did not link Codex AGENTS.md when only CLAUDE.md pre-existed\n' >&2
+  exit 1
+}
+
+if ! preexisting_verify="$("${preexisting_environment[@]}" \
+  "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf '%s\n' "$preexisting_verify" >&2
+  printf 'verify-ai.sh (pre-existing CLAUDE.md) failed\n' >&2
+  exit 1
+fi
+assert_contains "$preexisting_verify" \
+  "Claude Code (CLAUDE.md) ($preexisting_home/.claude/CLAUDE.md) is a plain file"
+assert_contains "$preexisting_verify" \
+  "Codex (AGENTS.md): $preexisting_home/.codex/AGENTS.md -> $agents_source"
+
 # --- --validate forwards to verify-ai.sh ------------------------------------
 
 "${test_environment[@]}" "$repo_root/common/install-ai.sh" --validate >/dev/null
@@ -322,6 +394,10 @@ assert_contains "$dry_run_output" 'backpass and acpx are now on PATH'
 assert_contains "$dry_run_output" 'npm:gnhf'
 assert_contains "$dry_run_output" 'npm:gh-axi, npm:chrome-devtools-axi, npm:tasks-axi, npm:quota-axi'
 assert_contains "$dry_run_output" 'npm:backpass, npm:acpx'
+assert_contains "$dry_run_output" 'Link the shared agent-instructions file'
+assert_contains "$dry_run_output" "$dry_home/.claude/CLAUDE.md"
+assert_contains "$dry_run_output" "$dry_home/.codex/AGENTS.md"
+assert_contains "$dry_run_output" "$dry_home/.config/opencode/AGENTS.md"
 assert_contains "$dry_run_output" 'No changes were made.'
 
 if find "$dry_home" -mindepth 1 -print -quit | grep -q .; then

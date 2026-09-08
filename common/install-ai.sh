@@ -19,6 +19,11 @@ treehouse_install_script="${TREEHOUSE_INSTALL_SCRIPT_URL:-https://kunchenguid.gi
 treehouse_target="$HOME/.local/bin/treehouse"
 no_mistakes_install_script="${NO_MISTAKES_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh}"
 no_mistakes_target="$HOME/.local/bin/no-mistakes"
+agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+claude_md_target="$HOME/.claude/CLAUDE.md"
+codex_agents_target="$codex_home/AGENTS.md"
+opencode_agents_target="$XDG_CONFIG_HOME/opencode/AGENTS.md"
 conf_dir="$XDG_CONFIG_HOME/mise/conf.d"
 conf_file="$conf_dir/ai.toml"
 state_file="$XDG_CONFIG_HOME/dotfiles/ai.conf"
@@ -30,6 +35,12 @@ Usage: ./common/install-ai.sh [options]
 Install the optional AI-assisted development toolchain: Claude Code (the
 preferred/core coding agent) and Herdr (the persistent multi-agent terminal
 workspace) unconditionally, plus optional subcomponents.
+
+Also unconditionally links a single shared agent-instructions file
+(common/assets/AGENTS.md, mirrored from KasperElbo/dotfiles-nix's
+home/AGENTS.md) to Claude Code's, Codex's, and OpenCode's global instructions
+paths, so one edit updates every harness. See "Shared agent instructions"
+in README.md.
 
 Options:
   --codex            Also install the OpenAI Codex CLI
@@ -139,7 +150,19 @@ EOF
   2. mise install
 EOF
 
-  step=3
+  cat <<EOF
+
+  3. Link the shared agent-instructions file (common/assets/AGENTS.md,
+     mirrored from KasperElbo/dotfiles-nix's home/AGENTS.md) into every
+     harness's global instructions path:
+     $claude_md_target
+     $codex_agents_target
+     $opencode_agents_target
+     An existing file or symlink pointing elsewhere at any of these paths
+     is left untouched, never overwritten.
+EOF
+
+  step=4
   if [[ "$install_firstmate" == "true" ]]; then
     cat <<EOF
 
@@ -247,6 +270,39 @@ if [[ "$install_backpass" == "true" ]]; then
 fi
 info "Installing $mise_tools_msg via mise"
 "$mise_command" --yes install
+
+# link_agent_instructions <target>: points a harness's global instructions
+# path at this repository's tracked common/assets/AGENTS.md, so editing one
+# file updates Claude Code, Codex, and OpenCode together. Never overwrites an
+# existing file or a symlink already pointing elsewhere -- an explicit,
+# harness-specific instructions file a user put there themselves always wins.
+link_agent_instructions() {
+  local target="$1"
+
+  ensure_dir "$(dirname "$target")"
+
+  if [[ -L "$target" ]]; then
+    if [[ "$(resolve_symlink_target "$target" 2>/dev/null || true)" == "$agents_source" ]]; then
+      info "Already linked: $target -> $agents_source"
+    else
+      warn "Keeping existing symlink (points elsewhere), not linking: $target"
+    fi
+    return
+  fi
+
+  if [[ -e "$target" ]]; then
+    warn "Keeping existing file, not linking: $target"
+    return
+  fi
+
+  ln -s "$agents_source" "$target"
+  info "Linked $target -> $agents_source"
+}
+
+info "Linking shared agent instructions (common/assets/AGENTS.md)"
+link_agent_instructions "$claude_md_target"
+link_agent_instructions "$codex_agents_target"
+link_agent_instructions "$opencode_agents_target"
 
 # install_via_own_script <name> <script_url> <target>: installs a tool with
 # no mise registry entry and no OS package via its official curl|sh script.
@@ -359,6 +415,14 @@ fi
 cat <<'EOF'
   • Start or reattach a Herdr workspace: run 'herdr' in a project directory;
     detach and 'herdr' again to reattach. See https://herdr.dev/docs.
+EOF
+
+cat <<EOF
+  • Shared agent instructions: edit common/assets/AGENTS.md in this
+    repository to change what Claude Code, Codex, and OpenCode all see;
+    it is linked to $claude_md_target, $codex_agents_target, and
+    $opencode_agents_target (any of these left untouched above already
+    had its own file or symlink, which takes precedence).
 EOF
 
 if [[ "$install_firstmate" == "true" ]]; then
