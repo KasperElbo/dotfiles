@@ -22,9 +22,11 @@ inside Fedora WSL. This is a thin WSL preflight wrapper around Fedora's own
 platforms/fedora/scripts/install-containers.sh, which does the actual
 package install, subuid/subgid, API socket, and verification work: none of
 that logic is WSL-specific. What differs under WSL is the preconditions --
-this profile requires systemd as PID 1 (unlike the rest of the Fedora WSL
-profile, where systemd is optional), cgroup v2, and unprivileged user
-namespaces, and checks all three before making any change.
+this profile requires systemd as PID 1 AND a reachable systemd --user
+session (unlike the rest of the Fedora WSL profile, where systemd is
+optional -- and PID 1 alone is not enough, see README.md's "Podman
+containers under WSL"), cgroup v2, and unprivileged user namespaces, and
+checks all four before making any change.
 
 Options:
   --api-socket       Enable the rootless Podman API socket (socket-activated,
@@ -76,6 +78,10 @@ below since none of them install or configure anything):
   - systemd as PID 1 (podman.socket and rootless cgroup v2 delegation both
     need a real systemd --user instance; unlike the rest of this WSL
     profile, this is a hard requirement here)
+  - a reachable systemd --user session (D-Bus bus). PID 1 alone is not
+    enough: WSL does not open a full login/PAM session by default, so
+    enable it once with 'sudo loginctl enable-linger "$(id -un)"' and
+    restart this WSL distribution if this check fails.
   - cgroup v2 unified hierarchy
   - unprivileged user namespaces enabled
 

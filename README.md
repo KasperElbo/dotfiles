@@ -431,14 +431,31 @@ those scripts are allowed to assume, so a thin WSL wrapper
 `platforms/fedora-wsl/lib/containers.sh`) checks those explicitly instead of
 silently reusing or silently branching:
 
-- **systemd is a hard requirement for this profile only.** Unlike the rest
-  of the Fedora WSL variant (where systemd is optional, see "systemd"
-  above), `podman.socket` is a systemd `--user` unit and rootless Podman's
-  default cgroup manager needs a real systemd `--user` instance to delegate
-  cgroup v2 controllers, even with the API socket disabled. If systemd is
-  not PID 1, both `install-containers.sh` and `verify-containers.sh` refuse
-  to continue with a message pointing at the `[boot] systemd=true` change
-  above, before making any change.
+- **systemd as PID 1 is a hard requirement for this profile only** — unlike
+  the rest of the Fedora WSL variant, where systemd is optional (see
+  "systemd" above) — but PID 1 alone is not sufficient, confirmed against a
+  real Fedora WSL run: WSL does not open a full login/PAM session by
+  default, so nothing starts a `systemd --user` instance for your account
+  even with `systemd=true` set, and `podman.socket` and rootless Podman's
+  cgroup v2 delegation both need that instance's D-Bus session bus
+  (`$XDG_RUNTIME_DIR/bus`). Without it, Podman falls back to
+  `--cgroup-manager=cgroupfs` and cannot track the pause process it keeps
+  to hold a rootless container network namespace alive — `podman version`/
+  `info`, pulls, plain runs, bind mounts, and named volumes all keep
+  working, but `podman network create`, a build that runs the built image,
+  and Compose all fail. Fix it once with:
+
+  ```bash
+  sudo loginctl enable-linger "$(id -un)"
+  ```
+
+  then restart the WSL distribution (`wsl --terminate <DistroName>` from
+  Windows PowerShell, then reopen it) so the linger setting takes effect.
+  Both `install-containers.sh` and `verify-containers.sh` check for
+  systemd as PID 1 *and* this reachable user session, and refuse to
+  continue (or report a failure) with this exact remediation before making
+  any change or running the smoke test, rather than only checking PID 1
+  and leaving a partially-broken install to fail confusingly mid-smoke-test.
 - **cgroup v2 and unprivileged user namespaces are checked directly**, by
   testing for `/sys/fs/cgroup/cgroup.controllers` and a positive
   `/proc/sys/user/max_user_namespaces`, rather than by guessing from a
@@ -521,17 +538,25 @@ identically inside WSL.
 ### Validation status
 
 This support was implemented and regression-tested against this
-repository's existing methodology: mocked `dnf`/`podman`/`systemctl`/`ps`
-bash-script tests exercising the actual install/verify scripts end to end
-(see `tests/test-containers-wsl.sh`), the same approach the native Fedora
-profile itself uses. It has not been exercised against a real Windows +
-WSL2 + Fedora machine with real hardware, a real WSL2 kernel, or a real
-Podman runtime — this repository's own development environment does not
-have one available. Run the full smoke test
+repository's own test methodology (mocked `dnf`/`podman`/`systemctl`/`ps`
+bash-script tests exercising the actual install/verify scripts end to end,
+see `tests/test-containers-wsl.sh`) in an environment with no real Windows
++ WSL2 + Fedora machine available.
+
+It has since been run once on a real Fedora WSL machine
+(`./install.sh --platform fedora-wsl --containers`), which surfaced exactly
+the kind of gap that mock-only testing cannot catch: the original
+`systemd_is_running` check (PID 1 only) passed, but no `systemd --user`
+session was reachable, so `podman network create`, the build step's
+run-the-built-image check, and Compose all failed while everything else
+passed — see the "systemd" bullet above for the failure signature and fix.
+That fix (checking for the reachable `systemd --user` session bus, not just
+PID 1) is included here, but has not itself been re-confirmed against real
+hardware yet. Run the full smoke test
 (`platforms/fedora-wsl/scripts/verify-containers.sh`, or
 `./install.sh --platform fedora-wsl --containers`, which always runs it once
-right after installing) on real Fedora WSL before depending on this, and
-report anything that does not match issue #93.
+right after installing) before depending on this, and report anything that
+does not match issue #93.
 
 ## Git, SSH and GitHub authentication
 

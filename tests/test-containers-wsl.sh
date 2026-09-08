@@ -16,6 +16,7 @@ new_test_root() {
   : >"$test_root/commands.log"
   : >"$test_root/cgroup/cgroup.controllers"
   printf '65536\n' >"$test_root/max-user-namespaces"
+  : >"$test_root/systemd-user-bus"
 
   cat >"$mock_bin/dnf" <<'EOF'
 #!/usr/bin/env bash
@@ -232,6 +233,7 @@ base_environment() {
     "USER_ACTIVE_UNITS=$test_root/user-active-units" \
     "CGROUP_ROOT=$test_root/cgroup" \
     "MAX_USER_NAMESPACES_FILE=$test_root/max-user-namespaces" \
+    "SYSTEMD_USER_BUS_SOCKET=$test_root/systemd-user-bus" \
     "WSL_DISTRO_NAME=FedoraLinux" \
     "USER=tester"
 }
@@ -289,7 +291,26 @@ if env "${test_environment[@]}" bash -c '
   fail_with_context 'user_namespaces_available must fail when the count is 0'
 fi
 
-printf 'PASS: cgroup v2 and user-namespace capability checks reflect the filesystem\n'
+if ! env "${test_environment[@]}" bash -c '
+  source "'"$repo_root"'/common/lib/common.sh"
+  source "'"$repo_root"'/platforms/fedora-wsl/lib/wsl.sh"
+  source "'"$repo_root"'/platforms/fedora-wsl/lib/containers.sh"
+  systemd_user_session_available
+'; then
+  fail_with_context 'systemd_user_session_available must succeed when the bus socket exists'
+fi
+
+if env "${test_environment[@]}" SYSTEMD_USER_BUS_SOCKET="$test_root/no-such-bus" bash -c '
+  source "'"$repo_root"'/common/lib/common.sh"
+  source "'"$repo_root"'/platforms/fedora-wsl/lib/wsl.sh"
+  source "'"$repo_root"'/platforms/fedora-wsl/lib/containers.sh"
+  systemd_user_session_available
+'; then
+  fail_with_context \
+    'systemd_user_session_available must fail without a reachable bus socket'
+fi
+
+printf 'PASS: cgroup v2, user-namespace, and systemd --user session capability checks reflect the filesystem\n'
 rm -rf -- "$test_root"
 
 # --- require_wsl_containers_prereqs fails closed, before any mutation ------
@@ -311,6 +332,30 @@ if [[ -s "$test_root/commands.log" ]]; then
     "$test_root/commands.log"
 fi
 printf 'PASS: install-containers.sh refuses to install without systemd\n'
+rm -rf -- "$test_root"
+
+# --- systemd as PID 1 alone is not enough: a reachable --user session is ---
+# --- also required (confirmed against a real Fedora WSL run) ---------------
+
+test_root="$(new_test_root)"
+mapfile -t test_environment < <(base_environment "$test_root")
+rm -f "$test_root/systemd-user-bus"
+
+if env "${test_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/install-containers.sh" \
+  >"$test_root/no-user-session.log" 2>&1; then
+  fail_with_context \
+    'install-containers.sh must fail closed without a systemd --user session, even with systemd as PID 1' \
+    "$test_root/no-user-session.log"
+fi
+grep -Fq 'no systemd --user session' "$test_root/no-user-session.log"
+grep -Fq 'loginctl enable-linger' "$test_root/no-user-session.log"
+if [[ -s "$test_root/commands.log" ]]; then
+  fail_with_context \
+    'A missing-user-session failure must not run any mutating command' \
+    "$test_root/commands.log"
+fi
+printf 'PASS: install-containers.sh refuses to install without a reachable systemd --user session\n'
 rm -rf -- "$test_root"
 
 test_root="$(new_test_root)"
@@ -416,6 +461,24 @@ if grep -Fq 'podman ' "$test_root/commands.log"; then
     "$test_root/commands.log"
 fi
 printf 'PASS: verify-containers.sh fails closed before touching podman\n'
+rm -rf -- "$test_root"
+
+# --- verify-containers.sh also reports a missing systemd --user session ----
+
+test_root="$(new_test_root)"
+mapfile -t test_environment < <(base_environment "$test_root")
+rm -f "$test_root/systemd-user-bus"
+
+if env "${test_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify-containers.sh" --skip-smoke-test \
+  >"$test_root/verify-no-user-session.log" 2>&1; then
+  fail_with_context \
+    'verify-containers.sh must fail without a systemd --user session, even with systemd as PID 1' \
+    "$test_root/verify-no-user-session.log"
+fi
+grep -Fq 'no systemd --user session' "$test_root/verify-no-user-session.log"
+grep -Fq 'loginctl enable-linger' "$test_root/verify-no-user-session.log"
+printf 'PASS: verify-containers.sh reports a missing systemd --user session\n'
 rm -rf -- "$test_root"
 
 # --- verify-containers.sh reports a networking-mode hint and passes through

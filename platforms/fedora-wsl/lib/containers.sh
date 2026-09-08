@@ -34,6 +34,23 @@ user_namespaces_available() {
   [[ "$value" =~ ^[0-9]+$ ]] && ((value > 0))
 }
 
+# systemd_user_session_available: true if a systemd --user D-Bus session
+# bus is reachable for the invoking user. Confirmed against real Fedora
+# WSL: systemd as PID 1 (systemd_is_running) is necessary but NOT
+# sufficient -- WSL does not open a full login/PAM session by default, so
+# no systemd --user instance attaches to the UID, and $XDG_RUNTIME_DIR/bus
+# never appears, unless lingering is enabled (loginctl enable-linger) or a
+# real login session was started. Without this bus, rootless Podman falls
+# back to --cgroup-manager=cgroupfs and fails to track the pause process it
+# uses to keep a rootless container network namespace alive, which breaks
+# `podman network create`, builds that run the built image, and Compose,
+# even though `podman version`/`info` and non-networked operations (pull,
+# a plain run, bind mounts, named volumes) keep working.
+systemd_user_session_available() {
+  local bus_socket="${SYSTEMD_USER_BUS_SOCKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}"
+  [[ -e "$bus_socket" ]]
+}
+
 # require_wsl_containers_prereqs: hard-fails with an actionable message if
 # this Fedora WSL instance cannot support the containers profile. Unlike the
 # rest of the Fedora WSL profile (which treats systemd as optional, see
@@ -57,6 +74,31 @@ this WSL distribution, then retry:
        systemd=true
   2. From Windows PowerShell: wsl --shutdown
   3. Reopen this Fedora WSL distribution.
+EOF
+  )"
+
+  systemd_user_session_available || die "$(
+    cat <<'EOF'
+systemd is PID 1, but no systemd --user session (D-Bus bus) is reachable
+for this account.
+
+WSL does not open a full login/PAM session by default, so nothing starts
+your systemd --user instance even with systemd=true set. Without it,
+rootless Podman falls back to a cgroupfs cgroup manager and cannot track
+the pause process it uses to keep a rootless container network namespace
+alive -- builds that run the built image, `podman network create`, and
+Compose all fail this way, even though `podman version`/`info`, pulls,
+plain runs, bind mounts, and named volumes keep working. Fix it with
+either:
+
+  - Enable lingering once (starts your user instance at boot,
+    independent of logging in):
+      sudo loginctl enable-linger "$(id -un)"
+    then from Windows PowerShell: wsl --terminate <DistroName>, and
+    reopen the distribution.
+  - Or open a real login session (not just a WSL shell attach) so PAM
+    starts the user instance, e.g. via `wsl.exe` from a fresh terminal
+    rather than an already-attached one.
 EOF
   )"
 

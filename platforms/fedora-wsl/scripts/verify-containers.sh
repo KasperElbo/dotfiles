@@ -40,6 +40,12 @@ else
   fail "systemd is not PID 1; the containers profile requires it, see --help"
 fi
 
+if systemd_user_session_available; then
+  pass "a systemd --user session (D-Bus bus) is reachable"
+else
+  fail "no systemd --user session is reachable; rootless networking (network create, builds that run the built image, Compose) needs it -- run: sudo loginctl enable-linger \"\$(id -un)\", then restart this WSL distribution"
+fi
+
 if cgroup_v2_available; then
   pass "cgroup v2 unified hierarchy is mounted"
 else
