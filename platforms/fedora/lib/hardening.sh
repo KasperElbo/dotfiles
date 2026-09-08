@@ -241,24 +241,24 @@ apply_ssh_hardening() {
   success "Applied conservative sshd posture"
 }
 
+# apply_dnf_automatic_notify: enables dnf5's single automatic-update timer.
+# Unlike dnf4's dnf-automatic package (separate -notifyonly/-download/-install
+# timer units), dnf5-plugin-automatic ships one timer, dnf5-automatic.timer,
+# whose behavior is controlled by /etc/dnf/automatic.conf. Its packaged
+# default (apply_updates = no, download_updates = yes) already matches the
+# "report and download, never auto-install" policy this profile wants, so no
+# config override is written here; only the timer is enabled.
 apply_dnf_automatic_notify() {
   command_exists dnf-automatic || {
-    info "Installing dnf-automatic"
-    sudo dnf install -y dnf-automatic
+    info "Installing dnf5-plugin-automatic"
+    sudo dnf install -y dnf5-plugin-automatic
   }
 
-  for competing in dnf-automatic-install.timer dnf-automatic-download.timer; do
-    if systemctl is-active --quiet "$competing" 2>/dev/null; then
-      warn "$competing is already active; leaving your existing dnf-automatic" \
-        "policy alone instead of enabling notify-only"
-      return 1
-    fi
-  done
-
-  if systemctl is-enabled --quiet dnf-automatic-notifyonly.timer 2>/dev/null; then
-    info "dnf-automatic-notifyonly.timer already enabled"
+  if systemctl is-enabled --quiet dnf5-automatic.timer 2>/dev/null; then
+    info "dnf5-automatic.timer already enabled"
   else
-    info "Enabling dnf-automatic-notifyonly.timer (reports updates, installs nothing)"
-    sudo systemctl enable --now dnf-automatic-notifyonly.timer
+    info "Enabling dnf5-automatic.timer (downloads and reports updates;" \
+      "apply_updates=no by default installs nothing automatically)"
+    sudo systemctl enable --now dnf5-automatic.timer
   fi
 }
