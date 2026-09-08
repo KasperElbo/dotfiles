@@ -7,6 +7,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 
 require_command git
 
+# kio-extras provides Dolphin's sftp:// support (the KDE SFTP workflow this
+# baseline relies on). Installed explicitly rather than assumed, since it is
+# not guaranteed to be pulled in as a dependency of every KDE package set.
+if rpm -q kio-extras >/dev/null 2>&1; then
+  info "kio-extras is already installed"
+else
+  info "Installing kio-extras for Dolphin sftp:// support"
+  sudo dnf install -y kio-extras
+fi
+
 version="v0.2.7"
 repo="https://github.com/catppuccin/kde.git"
 workdir="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/catppuccin-kde"

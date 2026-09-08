@@ -444,6 +444,7 @@ EOF
      Mauve accent
      Classic window decoration
      Catppuccin cursors
+     Ensure kio-extras (Dolphin sftp:// support) is installed
      platforms/fedora/scripts/install-kde-theme.sh
 EOF
     step=$((step + 1))

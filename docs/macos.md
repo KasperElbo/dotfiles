@@ -331,6 +331,37 @@ default browser/application, and `gh repo view --web` should use the browser
 after authentication. These actions are manual because an installer should not
 overwrite the clipboard or launch arbitrary UI during verification.
 
+### SFTP client
+
+Command-line SFTP needs no Homebrew package: `ssh`, `scp`, and `sftp` are part
+of Apple's own OpenSSH build under `/usr/bin`, present on every clean macOS
+install.
+
+```bash
+sftp user@host
+```
+
+Common interactive commands (`ls`, `cd`, `lcd`, `pwd`, `lpwd`, `get`, `put`,
+`mget`, `mput`, `mkdir`, `rm`, `exit`) and non-interactive `scp` transfers work
+exactly as documented in the main [README's SFTP client
+section](../README.md#7-sftp-client). Authentication reuses `~/.ssh/config`,
+SSH keys, ssh-agent (including a 1Password-backed agent), and password
+authentication when a server requires it.
+
+Finder has no built-in `sftp://` location support (unlike Dolphin/KIO on the
+Fedora KDE profile), but no dedicated GUI SFTP client is installed here
+either: the CLI `sftp`/`scp` workflow above is the supported path, and adding
+a GUI client such as FileZilla for this alone was not judged a large enough
+gap to justify a second application.
+
+Verify with:
+
+```bash
+command -v sftp
+command -v scp
+ssh -V
+```
+
 ## 9. Verification and rollback
 
 ```bash

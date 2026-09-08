@@ -77,8 +77,11 @@ commands=(
   mise
   nvim
   rg
+  scp
+  sftp
   shellcheck
   sqlite3
+  ssh
   starship
   stow
   tmux
@@ -91,6 +94,41 @@ commands=(
 for cmd in "${commands[@]}"; do
   check_command "$cmd"
 done
+
+# ---------------------------------------------------------------------------
+# SFTP client baseline (always checked; command-line SFTP is a base
+# capability, not an optional profile)
+# ---------------------------------------------------------------------------
+
+section "SFTP client baseline"
+
+if rpm -q openssh-clients >/dev/null 2>&1; then
+  pass "openssh-clients: $(rpm -q openssh-clients)"
+else
+  fail "openssh-clients package is not installed"
+fi
+
+ssh_version="$(ssh -V 2>&1 || true)"
+if [[ "$ssh_version" == *OpenSSH* ]]; then
+  pass "ssh -V: $ssh_version"
+else
+  fail "ssh -V did not report an OpenSSH client: ${ssh_version:-no output}"
+fi
+
+# Dolphin/KIO already provides a native sftp:// workflow on Fedora's KDE
+# Plasma spin, which this baseline reuses instead of installing a dedicated
+# GUI SFTP client. Only checked when KDE Plasma is actually installed.
+if command_exists plasmashell; then
+  section "KDE Dolphin/KIO SFTP integration"
+
+  check_command dolphin
+
+  if rpm -q kio-extras >/dev/null 2>&1; then
+    pass "kio-extras: $(rpm -q kio-extras)"
+  else
+    fail "kio-extras package is not installed; sftp:// locations will not open in Dolphin"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Fedora security baseline (always checked, independent of --hardening)

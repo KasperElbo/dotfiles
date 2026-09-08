@@ -23,6 +23,7 @@ tests=(
   tests/test-asus-preflight.sh
   tests/test-asus-verification.sh
   tests/test-mocked-installs.sh
+  tests/test-sftp-baseline.sh
   tests/test-vm-host.sh
   tests/test-vm-guest.sh
   tests/test-hardening.sh
