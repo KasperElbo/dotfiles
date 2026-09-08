@@ -107,7 +107,9 @@ expected_zsh_path="$(PATH="$mock_bin:$PATH" command -v zsh)"
 grep -Fq "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log"
 grep -Fqx "$expected_zsh_path" "$shell_state"
 [[ "$(grep -Fc 'sudo usermod --shell ' "$command_log")" == 1 ]]
-grep -Fq 'sudo dnf install -y ghostty mise starship' "$command_log"
+grep -Fq \
+  'sudo dnf install -y --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise ghostty mise starship' \
+  "$command_log"
 grep -Fq \
   'sudo dnf install -y bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config unzip' \
   "$command_log"
