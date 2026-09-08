@@ -84,7 +84,7 @@ test_environment=(
 
 run_install() {
   RPM_PRESENT="${RPM_PRESENT:-}" "${test_environment[@]}" \
-    "$repo_root/scripts/install-desktop-tools.sh" "$@" >/dev/null
+    "$repo_root/scripts/install-desktop-tools.sh" >/dev/null
 }
 
 # --- dry-run makes no changes and reports missing baseline packages -------
