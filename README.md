@@ -543,20 +543,21 @@ bash-script tests exercising the actual install/verify scripts end to end,
 see `tests/test-containers-wsl.sh`) in an environment with no real Windows
 + WSL2 + Fedora machine available.
 
-It has since been run once on a real Fedora WSL machine
+It has since been run on a real Fedora WSL machine
 (`./install.sh --platform fedora-wsl --containers`), which surfaced exactly
 the kind of gap that mock-only testing cannot catch: the original
 `systemd_is_running` check (PID 1 only) passed, but no `systemd --user`
 session was reachable, so `podman network create`, the build step's
 run-the-built-image check, and Compose all failed while everything else
 passed — see the "systemd" bullet above for the failure signature and fix.
-That fix (checking for the reachable `systemd --user` session bus, not just
-PID 1) is included here, but has not itself been re-confirmed against real
-hardware yet. Run the full smoke test
-(`platforms/fedora-wsl/scripts/verify-containers.sh`, or
-`./install.sh --platform fedora-wsl --containers`, which always runs it once
-right after installing) before depending on this, and report anything that
-does not match issue #93.
+After applying that fix (checking for the reachable `systemd --user`
+session bus, not just PID 1) and running `sudo loginctl enable-linger
+"$(id -un)"` followed by a WSL restart, the same machine completed
+`./install.sh --platform fedora-wsl --containers` end to end, including the
+full pull/run/build/bind-mount/named-volume/localhost-port/
+container-network/Compose smoke test that `install-containers.sh` always
+runs immediately after installing. This is now confirmed working on real
+Fedora WSL, not just against this repository's mocked test suite.
 
 ## Git, SSH and GitHub authentication
 
