@@ -56,6 +56,19 @@ fi
 grep -Fq -- '--containers-api-socket requires --containers' \
   "$test_root/api-socket-without-containers.log"
 
+# Tailscale is intentionally unsupported on Fedora WSL (host-only Tailscale
+# on Windows is the recommended architecture); the flag must be explicitly
+# rejected with a clear pointer, not silently ignored or accepted.
+if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --tailscale >"$test_root/tailscale-rejected.log" 2>&1; then
+  printf 'fedora-wsl unexpectedly accepted --tailscale.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--tailscale is not supported on Fedora WSL' \
+  "$test_root/tailscale-rejected.log"
+grep -Fq 'install Tailscale on the Windows host instead' \
+  "$test_root/tailscale-rejected.log"
+
 ai_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ai)"
 assert_contains "$ai_dry_run" 'AI profile:         true'
 assert_contains "$ai_dry_run" 'common/install-ai.sh'

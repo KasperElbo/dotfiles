@@ -4,6 +4,7 @@ Opinionated, reproducible dotfiles for a keyboard-driven development workstation
 
 - Fedora
 - Fedora on WSL, with Windows as the desktop and terminal host
+- Apple Silicon macOS with an AeroSpace keyboard-first desktop
 - Parrot Security Edition in a disposable KVM/QEMU CTF guest
 - KDE Plasma / Wayland, with an optional Sway session
 - Ghostty
@@ -21,8 +22,9 @@ The current default Catppuccin flavor is **Macchiato** with the **Mauve** accent
 
 ## Design principles
 
-1. **Use the native package manager for machine-level tools.** Fedora/DNF or
-   Parrot/APT owns operating-system and integrated tools.
+1. **Use the native package manager for machine-level tools.** Fedora/DNF,
+   Parrot/APT, or native Apple Silicon Homebrew owns operating-system and
+   integrated tools.
 2. **Use mise for general language runtimes and portable developer CLIs.**
    Ecosystems with their own switch model, such as OCaml/opam, remain with
    their native manager.
@@ -39,6 +41,7 @@ The current default Catppuccin flavor is **Macchiato** with the **Mauve** accent
 The workstation configuration has been developed and tested on:
 
 - Fedora 44
+- macOS Tahoe 26 on Apple Silicon (`arm64`)
 - KDE Plasma on Wayland
 - Sway on Wayland when installed with `--sway`
 - Zsh
@@ -54,6 +57,10 @@ The supported bootstraps are a normal Fedora workstation and the official
 Fedora distribution running under WSL 2. The WSL variant is a Linux development
 runtime: it deliberately does not reproduce the Fedora desktop, laptop, GPU or
 virtualization-host setup inside WSL.
+
+The macOS bootstrap targets `/opt/homebrew` on Apple Silicon and uses AeroSpace
+for a Sway-like nine-workspace model without disabling SIP. See the complete
+[Apple Silicon macOS workstation guide](docs/macos.md).
 
 ---
 
@@ -78,6 +85,19 @@ Install using the defaults:
 ```bash
 ./install.sh
 ```
+
+On a fresh Apple Silicon Mac, install Apple's Command Line Tools first, then
+select the dedicated profile:
+
+```bash
+xcode-select --install
+./install.sh --platform macos --dry-run
+./install.sh --platform macos
+```
+
+The [macOS guide](docs/macos.md) covers permissions, AeroSpace keys,
+multi-monitor behavior, deliberate defaults, development smoke tests, optional
+OCaml/Podman profiles, security, and rollback.
 
 The installer makes Zsh the invoking user's default login shell. Reboot after
 the first installation so Plasma, the systemd user manager, and D-Bus discard
@@ -176,7 +196,7 @@ The complete OCaml development environment is explicitly opt-in:
 ## Installer options
 
 ```text
---platform PLATFORM fedora (default) | fedora-wsl | parrot-ctf
+--platform PLATFORM fedora (default) | fedora-wsl | macos | parrot-ctf
 
 --theme FLAVOUR    latte | frappe | macchiato | mocha
                    default: macchiato
@@ -213,6 +233,11 @@ The complete OCaml development environment is explicitly opt-in:
                    with --containers, enable the rootless, socket-activated
                    Podman API socket for Docker-compatible client tooling
                    (default: disabled)
+
+--tailscale        install the optional Tailscale networking profile
+                   (tailscale CLI + tailscaled); never runs 'tailscale up'
+                   or embeds credentials/tailnet policy
+--no-tailscale     skip the Tailscale profile (default)
 
 --ai               install the optional AI-assisted development profile:
                    Claude Code and Herdr (see "AI-assisted development
@@ -254,7 +279,10 @@ The Fedora WSL installer exposes `--theme`, `--ocaml`, `--latex`,
 Fedora desktop, Sway, VM and hardware flags are rejected rather than
 silently ignored; see "Podman containers under WSL" below for what
 `--containers` actually requires and changes on this platform, and
-"AI-assisted development toolchain" for `--ai`.
+"AI-assisted development toolchain" for `--ai`. `--tailscale` gets its own
+explicit, dedicated rejection message rather than the generic "unknown
+option" one; see "Optional Tailscale networking profile" > "Fedora WSL
+policy" for why.
 
 `--codex`, `--firstmate`, `--gnhf`, and `--backpass` require `--ai` on every
 platform; the installer rejects them otherwise instead of silently ignoring
@@ -753,6 +781,12 @@ Apply changes with `wsl --shutdown`. Corporate VPN and endpoint policy may
 override them, so this repository documents the choice but does not rewrite
 `resolv.conf`, routes, Windows firewall rules, proxy policy or VPN settings.
 
+The same reasoning applies to Tailscale: `--tailscale` is intentionally not
+offered under `--platform fedora-wsl` at all. See "Optional Tailscale
+networking profile" > "Fedora WSL policy" for the host-vs-WSL-node
+comparison and why Windows-host-only Tailscale is the recommended
+architecture here.
+
 ## Validation
 
 The normal installer verifies `command -v` ownership and starts representative
@@ -1113,13 +1147,14 @@ the installer:
 
 # Installation architecture
 
-The repository has three ownership layers:
+The repository has platform-specific ownership layers around one portable core:
 
 | Layer | Owns | Must not own |
 |---|---|---|
 | Portable common | Shared Stow packages, user-local Git/theme state, mise tools, opam switch/tool setup, and the tmux theme | Native package-manager installation, services, hardware, desktop integration, or OS-specific paths |
 | `platforms/fedora` | DNF/Terra packages, including the opam binary and OCaml build prerequisites; KDE and Sway integration; system services; SELinux/system paths; Secure Boot; and ASUS hardware | Copies of shared Zsh/Git/Neovim/tmux/mise configuration or OCaml packages inside opam switches |
 | `platforms/fedora-wsl` | WSL detection, CLI prerequisites, early Windows PATH isolation, explicit clipboard/browser interop and WSL verification | Fedora desktop, Ghostty, hardware, GPU, VM host/guest, invasive host networking changes, credentials or copies of portable configuration |
+| `platforms/macos` | Native `/opt/homebrew` packages, AeroSpace, Mac shell paths, deliberate defaults, Podman machine integration, and arm64/security verification | Copies of shared configuration, Rosetta, Intel Homebrew, weakened SIP/Gatekeeper, identities, credentials, or Fedora service assumptions |
 | `platforms/parrot-ctf` | Parrot/APT prerequisites, KVM/SPICE guest agents, Debian command shims, a narrow uv-only mise manifest, and lab-boundary verification | Fedora/Terra/KDE/ASUS provisioning, host virtualization, credentials, shared folders, or a duplicate Parrot security-tool catalogue |
 
 The shared Stow package directories remain at the repository root to preserve
@@ -1130,6 +1165,10 @@ scripts directly and then adds only its own integration layer.
 composition without changing the normal Fedora manifest.
 `common/stow.sh --headless --without-mise` lets the Parrot profile substitute
 its narrow lab manifest without inheriting general-workstation runtimes.
+
+macOS reuses the full common workstation manifest. Its own Stow packages are
+AeroSpace, the Homebrew-specific Zsh path/plugin hooks, and a small VimTeX
+PDF-viewer override for the shared Neovim/LazyVim configuration.
 
 Fedora-specific shell paths and theme behavior are injected through tracked
 platform files under `platforms/fedora/stow`; the portable Zsh and `theme`
@@ -1868,11 +1907,10 @@ This profile targets regular Fedora and Fedora WSL:
   `DOCKER_HOST` scope) documented rather than assumed equivalent to native
   Fedora. See "Podman containers under WSL" in the Fedora on WSL section
   above, including that section's validation-status note.
-- **macOS**: out of scope for this repository today, and not equivalent to
-  native Fedora Podman even when it exists: Podman on macOS runs containers
-  inside a Linux VM (`podman machine`), which changes networking, bind-mount
-  performance, and rootless semantics enough that it would need its own
-  design rather than reusing this profile's assumptions.
+- **macOS**: supported only through the explicit `--platform macos
+  --containers` profile. It uses a rootless Linux VM (`podman machine`) and a
+  dedicated smoke test; it does not reuse Fedora systemd, SELinux, subuid, or
+  host-networking assumptions. See [the macOS guide](docs/macos.md#optional-containers).
 - **Parrot Security Edition CTF guest**: not installed and not appropriate
   to layer on automatically. The guest is an intentionally disposable
   offensive-security lab environment (see "Parrot Security Edition CTF VM"),
@@ -1883,6 +1921,176 @@ The saved local state file is:
 
 ```text
 ~/.config/dotfiles/containers.conf
+```
+
+## Optional Tailscale networking profile
+
+`--tailscale` (issue #109) installs the Tailscale client (the `tailscale`
+CLI and the `tailscaled` service) as an optional networking profile. It is
+not part of the default `./install.sh` path, appears in `--dry-run`, and can
+be installed and reverified independently of the rest of the workstation:
+
+```bash
+./install.sh --tailscale
+./scripts/install-tailscale.sh
+./scripts/install-tailscale.sh --dry-run   # show the plan first
+./scripts/verify-tailscale.sh              # re-run verification any time
+```
+
+This profile installs and enables the local client only. Everything
+account/tailnet-specific — logging in, ACLs, exit nodes, subnet routes,
+device tags, Tailscale SSH — is deliberately left to you, interactively,
+outside this repository. Nothing here embeds a reusable auth key, an OAuth
+client secret, a node key, or any tailnet policy.
+
+### Package ownership
+
+```text
+tailscale       # tailscale CLI + tailscaled service
+```
+
+Fedora's own repositories do not carry Tailscale, so this profile adds
+Tailscale's own DNF repository — `pkgs.tailscale.com/stable/fedora`, the
+repository Tailscale's own install script uses for Fedora — via dnf5's
+`config-manager addrepo` (installing the small `dnf5-plugins` package first
+if `config-manager` isn't already available), rather than downloading a
+standalone binary. Re-running the installer is a no-op once the repository
+file exists: it is never re-added, and `dnf install`/`systemctl enable
+--now` are naturally idempotent on their own.
+
+### Service behavior
+
+`tailscaled` is enabled and started with `systemctl enable --now tailscaled`,
+the same as any other system service in this repository. **`tailscale up`
+is never run automatically**, with no flags of any kind — not even an
+unopinionated bare invocation — because that is the one command that
+actually joins a tailnet, and this repository has no business choosing your
+tailnet, your account, or your policy for you. Installing the profile always
+leaves the machine in an installed-but-unauthenticated state.
+
+### First interactive login
+
+```bash
+sudo tailscale up
+```
+
+This prints an interactive login link the first time; open it and
+authenticate with your own identity provider/tailnet. Nothing here scripts
+or automates that step. Once logged in, the machine stays connected across
+reboots (`tailscaled` is enabled), and you never need to run `tailscale up`
+again unless you explicitly log out or the node's key expires.
+
+### Normal status commands
+
+```bash
+tailscale status     # this machine and its tailnet peers
+tailscale ip -4       # this machine's Tailscale IPv4 address
+tailscale ip -6       # this machine's Tailscale IPv6 address
+tailscale version
+```
+
+### Disconnecting / logging out
+
+```bash
+tailscale down        # drop the tailnet connection; keep the node's identity
+tailscale logout       # log out entirely; the node is removed from the tailnet
+```
+
+`down` is the everyday "stop routing traffic" toggle; `logout` is the
+stronger action for retiring a machine from your tailnet. Neither is run by
+this profile's installer or verifier.
+
+### What is intentionally not automated
+
+Per issue #109's own boundary, none of the following are set, enabled, or
+even offered as a flag by this profile — they are account/tailnet policy,
+not local-machine setup, and this repository has no cross-machine policy for
+any of them yet:
+
+- Authentication itself (`tailscale up` and the login it triggers)
+- Reusable auth keys, OAuth client secrets, or node keys of any kind
+- Tailnet ACLs, device tags, or any other admin-console policy
+- Tailscale SSH
+- Exit-node use or exit-node advertisement (`--exit-node`,
+  `--advertise-exit-node`)
+- Subnet routing (`--advertise-routes`)
+- `--accept-routes` / `--accept-dns`
+- MagicDNS-dependent behavior
+
+If you want any of these, run the relevant `tailscale up`/`tailscale set`
+command yourself and document the choice for your own tailnet; see
+[Tailscale's firewall integration guide](https://tailscale.com/docs/integrations/firewalls)
+for the additional `firewalld`/`iptables` configuration that subnet routing
+and exit nodes need, which is out of scope for a basic client and therefore
+not handled here.
+
+### firewalld and SELinux
+
+Nothing here touches `firewalld` or SELinux, and this profile does not
+require it to. A plain Tailscale client only opens *outbound* HTTPS to
+Tailscale's coordination server and then negotiates its own WireGuard
+peer-to-peer/DERP-relayed traffic; Fedora's default firewalld zone already
+permits outbound traffic and only blocks unsolicited inbound connections, so
+a basic client needs no firewalld rule changes. (Exit nodes and subnet
+routers do need `firewalld` masquerade/forwarding configuration — see the
+link above — which is exactly the kind of tailnet-specific policy this
+profile leaves to you.)
+
+**Do not enable Tailscale SSH on a machine that keeps SELinux enforcing (the
+default and the baseline this repository verifies on every `verify.sh`
+run).** Tailscale SSH runs its SSH server logic inside `tailscaled` itself
+rather than through the system's `sshd`/PAM stack, and SELinux's targeted
+policy has no rule allowing that; the well-documented result is Tailscale SSH
+sessions failing to open a shell under SELinux enforcement (see the
+[upstream SELinux/Tailscale SSH
+issue](https://github.com/tailscale/tailscale/issues/4914)) unless you
+install a custom SELinux policy module or drop to permissive mode — neither
+of which this profile will ever do for you. This is exactly the kind of
+"clear repository-wide policy" gap the issue asks to leave alone rather than
+paper over, so Tailscale SSH stays off by default and undocumented as a
+one-line fix.
+
+### Fedora WSL policy
+
+`--tailscale` is intentionally **not** exposed under `--platform fedora-wsl`
+(passing it fails fast with a clear error). The two realistic architectures
+were weighed explicitly:
+
+| | Tailscale on the Windows host only | Tailscale inside Fedora WSL as its own node |
+|---|---|---|
+| Tailnet identity | One node (the Windows machine) | A second, independent node sharing the same physical hardware |
+| WSL networking | WSL2's NAT/mirrored networking already reaches anything the Windows host can reach, Tailscale peers included | Needs its own working outbound path through WSL2's virtualized network, duplicating what the host already has |
+| systemd/service requirements | None inside WSL | Requires systemd as PID 1 in the distribution (same precondition as this repo's WSL containers profile) plus its own `tailscaled` |
+| Duplicate identity | None | Two tailnet devices for one laptop, both needing their own approval/tags/eventual offboarding in the admin console |
+| Operational value | Every WSL process already rides the host's tailnet membership for free | Only matters if WSL specifically needs a *different* tailnet identity than the host, e.g. exposing a WSL-only service under its own name |
+
+For the common case — a developer wanting their traffic to reach tailnet
+peers — Windows-host-only Tailscale already covers Fedora WSL for free,
+with no second node to approve, tag, or eventually decommission. Running
+Tailscale a second time inside the WSL distribution would only be
+justified by a concrete need for WSL to present as an independent tailnet
+device, which is a deliberate, tailnet-specific decision this repository
+will not make for you. If you have that need, install Tailscale in Fedora
+WSL the same way the native Fedora profile does (WSL2 with systemd support
+can run `tailscaled` as a normal systemd service), but do so by hand; this
+flag stays unsupported there until a concrete, documented use case argues
+otherwise.
+
+### macOS
+
+Coordinated with issue #11/macOS workstation support: `--platform macos
+--tailscale` installs Tailscale as the supported **Standalone** macOS app
+(Homebrew cask `tailscale-app`, a sandboxed Network Extension app, not a
+`tailscaled` systemd-style service — macOS has no systemd). Authentication
+stays interactive by opening the app; nothing here scripts macOS's Network
+Extension permission grant or the tailnet login. See [the macOS
+guide](docs/macos.md#optional-tailscale) for the full command-line/CLI
+integration notes and verification details.
+
+The saved local state file is:
+
+```text
+~/.config/dotfiles/tailscale.conf
 ```
 
 ---
@@ -2281,6 +2489,15 @@ The saved local state file is:
 
 Avoid installing the same tool through multiple package managers.
 
+## macOS / Homebrew
+
+The Apple Silicon profile uses Homebrew only at `/opt/homebrew` for native
+machine tools, shell plugins, Ghostty, and AeroSpace. mise continues to own the
+portable language runtimes and CLIs. OCaml remains split between a
+Homebrew-owned `opam` binary/build prerequisites and an opam-owned compiler
+switch. The exact inventory and duplicate-architecture policy are documented
+in the [macOS package-ownership table](docs/macos.md#3-package-ownership).
+
 ## Fedora / DNF
 
 Machine-level and OS-integrated tools:
@@ -2335,6 +2552,11 @@ deliberately does not add Buildah, Skopeo, Docker Engine, or a `docker`
 alias. See [Optional Podman container development
 profile](#optional-podman-container-development-profile).
 
+The optional Tailscale profile adds `tailscale` (the CLI and `tailscaled`)
+from Tailscale's own DNF repository, not Fedora's. See [Optional Tailscale
+networking profile](#optional-tailscale-networking-profile) and "Tailscale
+package repository" below.
+
 ## Terra RPM repository
 
 The reference setup uses Terra packages for:
@@ -2346,6 +2568,15 @@ starship
 ```
 
 These remain RPM-owned. mise itself is **not** installed by mise.
+
+## Tailscale package repository
+
+The optional `--tailscale` profile enables Tailscale's own DNF repository
+(`pkgs.tailscale.com/stable/fedora`), added via dnf5's `config-manager
+addrepo`, and installs only `tailscale` from it. This is Tailscale's
+currently supported Fedora installation path, the same one its own install
+script uses, rather than a standalone downloaded binary. See [Optional
+Tailscale networking profile](#optional-tailscale-networking-profile).
 
 ## RPM Fusion repositories
 
@@ -3559,7 +3790,8 @@ tooling in temporary directories:
 ./scripts/test-dev-workflows.sh --latex
 ```
 
-The .NET check creates, restores, builds and runs a disposable console project.
+The .NET check creates a disposable console and xUnit project, then restores,
+builds, tests, and runs them.
 The Angular check installs only fixture-local dependencies, formats, lints,
 tests, exercises both the modern and debug builds with source maps, starts the
 debug server, and probes it.
@@ -3821,17 +4053,22 @@ The guest harness additionally proves that bare metal and unsupported
 hypervisors fail before package mutation, no ASUS/NVIDIA, power, bridge, or
 NetworkManager command is issued, and repeated guest setup preserves stable
 local state.
+The macOS harness validates the root-platform route, dry-run options, Homebrew
+versus mise ownership, AeroSpace/Sway-equivalent bindings, the wrapped 3×3
+workspace helper, reversible defaults, the macOS-native VimTeX PDF-viewer
+override, and the absence of yabai/skhd.
 
 Every integration-style test uses temporary home, XDG, OS-release, and DMI
 state. Package managers, firmware tooling, and service commands are either
 blocked or mocked, so the harness never installs packages, enrolls keys,
 changes real services, or writes to the user's configuration.
 
-GitHub Actions runs these commands in a Fedora 44 container for every pull
-request and every push to `main`. The workflow installs validation dependencies
-inside the ephemeral container, but it never performs a workstation install or
-changes firmware, Secure Boot, MOK enrollment, GPU/MUX settings, services, or
-battery limits.
+GitHub Actions runs the full repository suite in a Fedora 44 container and the
+focused macOS profile/lint checks on a macOS 26 arm64 runner for every pull
+request and every push to `main`; Windows helpers run on a Windows runner. The
+workflows install validation dependencies in their ephemeral environments, but
+never perform a workstation install or change firmware, Secure Boot, MOK
+enrollment, GPU/MUX settings, macOS preferences, services, or battery limits.
 
 ---
 

@@ -16,6 +16,7 @@ install_desktop_tools="false"
 desktop_tools_force_defaults="false"
 install_containers="false"
 containers_api_socket="false"
+install_tailscale="false"
 install_ai="false"
 ai_codex="false"
 ai_firstmate="false"
@@ -70,6 +71,13 @@ Options:
                      With --containers, enable the rootless, socket-activated
                      Podman API socket for Docker-compatible client tooling
                      (default: disabled)
+
+  --tailscale        Install the optional Tailscale networking profile: the
+                     tailscale CLI and tailscaled service, from Tailscale's
+                     own Fedora/DNF repository (see README.md, "Optional
+                     Tailscale networking profile"). Never runs 'tailscale
+                     up' and never embeds credentials or tailnet policy.
+  --no-tailscale     Do not install the Tailscale profile (default)
 
   --ai               Install the optional AI-assisted development profile:
                      Claude Code and Herdr (see README.md, "AI-assisted
@@ -201,6 +209,16 @@ while (($#)); do
 
   --containers-api-socket)
     containers_api_socket="true"
+    shift
+    ;;
+
+  --tailscale)
+    install_tailscale="true"
+    shift
+    ;;
+
+  --no-tailscale)
+    install_tailscale="false"
     shift
     ;;
 
@@ -398,6 +416,7 @@ Desktop tools:       $install_desktop_tools
 Force app defaults:  $desktop_tools_force_defaults
 Containers profile:  $install_containers
 Containers API socket: $containers_api_socket
+Tailscale profile:   $install_tailscale
 AI profile:          $install_ai
 AI Codex subcomponent: $ai_codex
 AI FirstMate subcomponent: $ai_firstmate
@@ -500,6 +519,17 @@ EOF
   $step. Install the optional rootless Podman container development profile
      platforms/fedora/scripts/install-containers.sh$containers_suffix
      podman, podman-compose; rootless by default, no Docker Engine/alias
+EOF
+    step=$((step + 1))
+  fi
+
+  if [[ "$install_tailscale" == "true" ]]; then
+    cat <<EOF
+
+  $step. Install the optional Tailscale networking profile
+     platforms/fedora/scripts/install-tailscale.sh
+     tailscale CLI + tailscaled from pkgs.tailscale.com; no 'tailscale up',
+     no embedded credentials or tailnet policy
 EOF
     step=$((step + 1))
   fi
@@ -620,6 +650,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Hardening profile:  %s\n' "$install_hardening"
   printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   printf 'Containers profile: %s\n' "$install_containers"
+  printf 'Tailscale profile:  %s\n' "$install_tailscale"
   printf 'AI profile:         %s\n' "$install_ai"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
@@ -649,6 +680,7 @@ if [[ "$interactive" == "true" ]]; then
   if [[ "$install_containers" == "true" ]]; then
     printf 'Containers API socket: %s\n' "$containers_api_socket"
   fi
+  printf 'Tailscale profile:  %s\n' "$install_tailscale"
   printf 'AI profile:         %s\n' "$install_ai"
   if [[ "$install_ai" == "true" ]]; then
     printf 'AI Codex subcomponent:     %s\n' "$ai_codex"
@@ -761,6 +793,11 @@ if [[ "$install_containers" == "true" ]]; then
   info "Installing optional Podman containers profile"
   "$DOTFILES_ROOT/platforms/fedora/scripts/install-containers.sh" \
     "${containers_args[@]}"
+fi
+
+if [[ "$install_tailscale" == "true" ]]; then
+  info "Installing optional Tailscale networking profile"
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-tailscale.sh"
 fi
 
 info "Initializing machine-local configuration"

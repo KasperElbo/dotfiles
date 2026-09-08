@@ -83,19 +83,26 @@ run_dotnet_workflow() {
 
   local project="$test_root/dotnet-smoke"
   local output="$test_root/dotnet-output.txt"
+  local tests="$test_root/dotnet-tests"
 
   info "Creating and exercising a disposable .NET project"
   dotnet new console --output "$project" --no-restore
+  dotnet new xunit --output "$tests" --no-restore
   (
     cd "$project"
     dotnet restore
     dotnet build --no-restore
     dotnet run --no-build >"$output"
   )
+  (
+    cd "$tests"
+    dotnet restore
+    dotnet test --no-restore
+  )
 
   grep -Fqx 'Hello, World!' "$output" ||
     die ".NET application returned unexpected output"
-  success ".NET create, restore, build and run checks passed"
+  success ".NET create, restore, build, test and run checks passed"
 }
 
 run_angular_workflow() {

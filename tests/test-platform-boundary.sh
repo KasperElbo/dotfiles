@@ -41,6 +41,8 @@ grep -Fq 'zsh/platform.zsh' \
   "$repo_root/zsh/.config/zsh/.zshrc"
 grep -Fq '/usr/share/zsh-autosuggestions' \
   "$repo_root/platforms/fedora/stow/zsh-platform/.config/zsh/platform.zsh"
+grep -Fq '/opt/homebrew/share/zsh-autosuggestions' \
+  "$repo_root/platforms/macos/stow/zsh-platform/.config/zsh/platform.zsh"
 
 mock_bin="$test_root/bin"
 stow_log="$test_root/stow.log"
@@ -92,4 +94,15 @@ for package in \
   grep -Fqx "$package" "$stow_log"
 done
 
-printf 'Portable and Fedora ownership boundaries passed.\n'
+: >"$stow_log"
+run_stow "$repo_root/platforms/macos/scripts/stow.sh"
+
+for package in "${portable_packages[@]}" zsh-platform aerospace nvim-macos; do
+  grep -Fqx "$package" "$stow_log"
+done
+if grep -Eq '^(sway|waybar|theme-hooks|theme-assets|nvim-wsl|interop)$' "$stow_log"; then
+  printf 'macOS Stow entry point deployed a Fedora or WSL package.\n' >&2
+  exit 1
+fi
+
+printf 'Portable, Fedora, and macOS ownership boundaries passed.\n'
