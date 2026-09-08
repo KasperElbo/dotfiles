@@ -33,4 +33,22 @@ fedora | fedora-wsl | parrot-ctf)
   ;;
 esac
 
+for forwarded_arg in "${forwarded_args[@]}"; do
+  if [[ "$forwarded_arg" == "-h" || "$forwarded_arg" == "--help" ]]; then
+    cat <<EOF
+Usage: ./install.sh [--platform fedora|fedora-wsl|parrot-ctf] [options]
+
+  --platform NAME    Target platform: fedora (default), fedora-wsl, or
+                     parrot-ctf. Selects which platforms/NAME/install.sh
+                     runs; all other options below are that platform's own
+                     and are simply forwarded to it.
+
+Options for platform '$platform' (pass --platform to see another
+platform's options):
+
+EOF
+    break
+  fi
+done
+
 exec "$repo_root/platforms/$platform/install.sh" "${forwarded_args[@]}"
