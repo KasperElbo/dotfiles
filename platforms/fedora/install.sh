@@ -17,6 +17,11 @@ desktop_tools_force_defaults="false"
 install_containers="false"
 containers_api_socket="false"
 install_tailscale="false"
+install_ai="false"
+ai_codex="false"
+ai_firstmate="false"
+ai_gnhf="false"
+ai_backpass="false"
 hardware_model=""
 hardware_secure_boot="false"
 hardware_charge_limit=""
@@ -73,6 +78,28 @@ Options:
                      Tailscale networking profile"). Never runs 'tailscale
                      up' and never embeds credentials or tailnet policy.
   --no-tailscale     Do not install the Tailscale profile (default)
+
+  --ai               Install the optional AI-assisted development profile:
+                     Claude Code and Herdr (see README.md, "AI-assisted
+                     development toolchain")
+  --no-ai            Do not install the AI profile (default)
+  --codex            With --ai, also install the OpenAI Codex CLI
+  --no-codex         Do not install Codex (default)
+  --firstmate        With --ai, also install FirstMate and every tool its
+                     own docs list as required (Treehouse, No Mistakes,
+                     gh-axi, chrome-devtools-axi, lavish-axi, tasks-axi,
+                     quota-axi)
+  --no-firstmate     Do not install FirstMate (default)
+  --gnhf             With --ai, also install GNHF, an unattended overnight
+                     agent orchestrator (read README.md, "Optional: GNHF"
+                     before use; it runs an agent unsupervised)
+  --no-gnhf          Do not install GNHF (default)
+  --backpass         With --ai, also install backpass, which proposes
+                     evidence-backed AGENTS.md/CLAUDE.md edits from agent
+                     session transcripts, gated behind mandatory human
+                     review (independent of --firstmate; read README.md,
+                     "Optional: backpass")
+  --no-backpass      Do not install backpass (default)
 
   --hardware MODEL   Install ASUS hardware support:
                      ga402xz or ga402rk
@@ -195,6 +222,56 @@ while (($#)); do
     shift
     ;;
 
+  --ai)
+    install_ai="true"
+    shift
+    ;;
+
+  --no-ai)
+    install_ai="false"
+    shift
+    ;;
+
+  --codex)
+    ai_codex="true"
+    shift
+    ;;
+
+  --no-codex)
+    ai_codex="false"
+    shift
+    ;;
+
+  --firstmate)
+    ai_firstmate="true"
+    shift
+    ;;
+
+  --no-firstmate)
+    ai_firstmate="false"
+    shift
+    ;;
+
+  --gnhf)
+    ai_gnhf="true"
+    shift
+    ;;
+
+  --no-gnhf)
+    ai_gnhf="false"
+    shift
+    ;;
+
+  --backpass)
+    ai_backpass="true"
+    shift
+    ;;
+
+  --no-backpass)
+    ai_backpass="false"
+    shift
+    ;;
+
   --hardware)
     [[ $# -ge 2 ]] || die "--hardware requires a value"
     hardware_model="$2"
@@ -262,6 +339,22 @@ if [[ "$containers_api_socket" == "true" && "$install_containers" == "false" ]];
   die "--containers-api-socket requires --containers"
 fi
 
+if [[ "$ai_codex" == "true" && "$install_ai" == "false" ]]; then
+  die "--codex requires --ai"
+fi
+
+if [[ "$ai_firstmate" == "true" && "$install_ai" == "false" ]]; then
+  die "--firstmate requires --ai"
+fi
+
+if [[ "$ai_gnhf" == "true" && "$install_ai" == "false" ]]; then
+  die "--gnhf requires --ai"
+fi
+
+if [[ "$ai_backpass" == "true" && "$install_ai" == "false" ]]; then
+  die "--backpass requires --ai"
+fi
+
 if [[ "$install_vm_host" == "true" && "$install_vm_guest" == "true" ]]; then
   die "--vm-host and --vm-guest cannot be combined"
 fi
@@ -324,6 +417,11 @@ Force app defaults:  $desktop_tools_force_defaults
 Containers profile:  $install_containers
 Containers API socket: $containers_api_socket
 Tailscale profile:   $install_tailscale
+AI profile:          $install_ai
+AI Codex subcomponent: $ai_codex
+AI FirstMate subcomponent: $ai_firstmate
+AI GNHF subcomponent: $ai_gnhf
+AI backpass subcomponent: $ai_backpass
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
@@ -467,6 +565,30 @@ EOF
     step=$((step + 1))
   fi
 
+  if [[ "$install_ai" == "true" ]]; then
+    ai_suffix=""
+    if [[ "$ai_codex" == "true" ]]; then
+      ai_suffix+=" --codex"
+    fi
+    if [[ "$ai_firstmate" == "true" ]]; then
+      ai_suffix+=" --firstmate"
+    fi
+    if [[ "$ai_gnhf" == "true" ]]; then
+      ai_suffix+=" --gnhf"
+    fi
+    if [[ "$ai_backpass" == "true" ]]; then
+      ai_suffix+=" --backpass"
+    fi
+    cat <<EOF
+
+  $step. Install the optional AI-assisted development profile
+     common/install-ai.sh$ai_suffix
+     Claude Code and Herdr via mise; Codex: $ai_codex; FirstMate: $ai_firstmate;
+     GNHF: $ai_gnhf; backpass: $ai_backpass
+EOF
+    step=$((step + 1))
+  fi
+
   if [[ "$install_kde" == "true" ]]; then
     cat <<EOF
 
@@ -529,6 +651,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   printf 'Containers profile: %s\n' "$install_containers"
   printf 'Tailscale profile:  %s\n' "$install_tailscale"
+  printf 'AI profile:         %s\n' "$install_ai"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
 
@@ -558,6 +681,13 @@ if [[ "$interactive" == "true" ]]; then
     printf 'Containers API socket: %s\n' "$containers_api_socket"
   fi
   printf 'Tailscale profile:  %s\n' "$install_tailscale"
+  printf 'AI profile:         %s\n' "$install_ai"
+  if [[ "$install_ai" == "true" ]]; then
+    printf 'AI Codex subcomponent:     %s\n' "$ai_codex"
+    printf 'AI FirstMate subcomponent: %s\n' "$ai_firstmate"
+    printf 'AI GNHF subcomponent:      %s\n' "$ai_gnhf"
+    printf 'AI backpass subcomponent:  %s\n' "$ai_backpass"
+  fi
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
   if [[ -n "$hardware_model" ]]; then
@@ -701,6 +831,25 @@ fi
 
 info "Installing Catppuccin tmux"
 "$DOTFILES_ROOT/common/install-tmux-theme.sh"
+
+if [[ "$install_ai" == "true" ]]; then
+  ai_args=()
+  if [[ "$ai_codex" == "true" ]]; then
+    ai_args+=(--codex)
+  fi
+  if [[ "$ai_firstmate" == "true" ]]; then
+    ai_args+=(--firstmate)
+  fi
+  if [[ "$ai_gnhf" == "true" ]]; then
+    ai_args+=(--gnhf)
+  fi
+  if [[ "$ai_backpass" == "true" ]]; then
+    ai_args+=(--backpass)
+  fi
+
+  info "Installing optional AI-assisted development profile"
+  "$DOTFILES_ROOT/common/install-ai.sh" "${ai_args[@]}"
+fi
 
 if [[ "$install_kde" == "true" ]]; then
   info "Installing Catppuccin KDE themes"

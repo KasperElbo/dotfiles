@@ -11,6 +11,11 @@ install_ocaml="false"
 install_latex="false"
 install_containers="false"
 containers_api_socket="false"
+install_ai="false"
+ai_codex="false"
+ai_firstmate="false"
+ai_gnhf="false"
+ai_backpass="false"
 interactive="true"
 dry_run="false"
 run_smoke_tests="false"
@@ -40,16 +45,40 @@ Options:
                      Podman API socket for Docker-compatible client tooling
                      (default: disabled)
 
+  --ai               Install the optional AI-assisted development profile:
+                     Claude Code and Herdr (see README.md, "AI-assisted
+                     development toolchain")
+  --no-ai            Do not install the AI profile (default)
+  --codex            With --ai, also install the OpenAI Codex CLI
+  --no-codex         Do not install Codex (default)
+  --firstmate        With --ai, also install FirstMate and every tool its
+                     own docs list as required (Treehouse, No Mistakes,
+                     gh-axi, chrome-devtools-axi, lavish-axi, tasks-axi,
+                     quota-axi)
+  --no-firstmate     Do not install FirstMate (default)
+  --gnhf             With --ai, also install GNHF, an unattended overnight
+                     agent orchestrator (read README.md, "Optional: GNHF"
+                     before use; it runs an agent unsupervised)
+  --no-gnhf          Do not install GNHF (default)
+  --backpass         With --ai, also install backpass, which proposes
+                     evidence-backed AGENTS.md/CLAUDE.md edits from agent
+                     session transcripts, gated behind mandatory human
+                     review (independent of --firstmate; read README.md,
+                     "Optional: backpass")
+  --no-backpass      Do not install backpass (default)
+
   --smoke-test       Run representative development workflow tests after setup
   --dry-run          Show the installation plan without changing anything
   --non-interactive  Use defaults without prompting
 
   -h, --help         Show this help
 
-Desktop, hardware, VM-host/guest and AI profiles are not part of the
-Fedora WSL workstation variant. --tailscale is also unsupported here by
-design: install Tailscale on the Windows host instead (see README.md,
-"Optional Tailscale networking profile" > "Fedora WSL policy").
+Desktop, hardware, and VM-host/guest profiles are not part of the Fedora WSL
+workstation variant. The AI profile is portable CLI tooling with no GUI or
+hardware dependency, so it is fully supported here; see README.md, "Fedora
+on WSL". --tailscale is unsupported here by design: install Tailscale on
+the Windows host instead (see README.md, "Optional Tailscale networking
+profile" > "Fedora WSL policy").
 EOF
 }
 
@@ -86,6 +115,46 @@ while (($#)); do
     ;;
   --containers-api-socket)
     containers_api_socket="true"
+    shift
+    ;;
+  --ai)
+    install_ai="true"
+    shift
+    ;;
+  --no-ai)
+    install_ai="false"
+    shift
+    ;;
+  --codex)
+    ai_codex="true"
+    shift
+    ;;
+  --no-codex)
+    ai_codex="false"
+    shift
+    ;;
+  --firstmate)
+    ai_firstmate="true"
+    shift
+    ;;
+  --no-firstmate)
+    ai_firstmate="false"
+    shift
+    ;;
+  --gnhf)
+    ai_gnhf="true"
+    shift
+    ;;
+  --no-gnhf)
+    ai_gnhf="false"
+    shift
+    ;;
+  --backpass)
+    ai_backpass="true"
+    shift
+    ;;
+  --no-backpass)
+    ai_backpass="false"
     shift
     ;;
   --smoke-test)
@@ -126,6 +195,22 @@ if [[ "$containers_api_socket" == "true" && "$install_containers" == "false" ]];
   die "--containers-api-socket requires --containers"
 fi
 
+if [[ "$ai_codex" == "true" && "$install_ai" == "false" ]]; then
+  die "--codex requires --ai"
+fi
+
+if [[ "$ai_firstmate" == "true" && "$install_ai" == "false" ]]; then
+  die "--firstmate requires --ai"
+fi
+
+if [[ "$ai_gnhf" == "true" && "$install_ai" == "false" ]]; then
+  die "--gnhf requires --ai"
+fi
+
+if [[ "$ai_backpass" == "true" && "$install_ai" == "false" ]]; then
+  die "--backpass requires --ai"
+fi
+
 if [[ "$dry_run" == "true" ]]; then
   cat <<EOF
 
@@ -137,6 +222,11 @@ OCaml profile:      $install_ocaml
 LaTeX toolchain:    $install_latex
 Containers profile: $install_containers
 Containers API socket: $containers_api_socket
+AI profile:         $install_ai
+AI Codex subcomponent:     $ai_codex
+AI FirstMate subcomponent: $ai_firstmate
+AI GNHF subcomponent:      $ai_gnhf
+AI backpass subcomponent:  $ai_backpass
 Workflow smoke test: $run_smoke_tests
 
 Steps:
@@ -203,6 +293,37 @@ EOF
     step=$((step + 1))
   fi
 
+  cat <<EOF
+
+  $step. Install the pinned Catppuccin tmux theme.
+     common/install-tmux-theme.sh
+EOF
+  step=$((step + 1))
+
+  if [[ "$install_ai" == "true" ]]; then
+    ai_suffix=""
+    if [[ "$ai_codex" == "true" ]]; then
+      ai_suffix+=" --codex"
+    fi
+    if [[ "$ai_firstmate" == "true" ]]; then
+      ai_suffix+=" --firstmate"
+    fi
+    if [[ "$ai_gnhf" == "true" ]]; then
+      ai_suffix+=" --gnhf"
+    fi
+    if [[ "$ai_backpass" == "true" ]]; then
+      ai_suffix+=" --backpass"
+    fi
+    cat <<EOF
+
+  $step. Install the optional AI-assisted development profile.
+     common/install-ai.sh$ai_suffix
+     Claude Code and Herdr via mise; Codex: $ai_codex; FirstMate: $ai_firstmate;
+     GNHF: $ai_gnhf; backpass: $ai_backpass
+EOF
+    step=$((step + 1))
+  fi
+
   verify_suffix=""
   if [[ "$run_smoke_tests" == "true" ]]; then
     verify_suffix+=" --smoke-test"
@@ -213,14 +334,12 @@ EOF
 
   cat <<EOF
 
-  $step. Install the pinned Catppuccin tmux theme.
-     common/install-tmux-theme.sh
-
-  $((step + 1)). Verify WSL detection, Linux command ownership and runtime startup.
+  $step. Verify WSL detection, Linux command ownership and runtime startup.
      platforms/fedora-wsl/scripts/verify.sh$verify_suffix
 
-Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, desktop,
-and AI tooling.
+Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, and desktop.
+The AI profile has no GUI or hardware dependency, so --ai/--codex/--firstmate
+are supported here.
 
 No changes were made.
 
@@ -249,6 +368,13 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Containers profile: %s\n' "$install_containers"
   if [[ "$install_containers" == "true" ]]; then
     printf 'Containers API socket: %s\n' "$containers_api_socket"
+  fi
+  printf 'AI profile:         %s\n' "$install_ai"
+  if [[ "$install_ai" == "true" ]]; then
+    printf 'AI Codex subcomponent:     %s\n' "$ai_codex"
+    printf 'AI FirstMate subcomponent: %s\n' "$ai_firstmate"
+    printf 'AI GNHF subcomponent:      %s\n' "$ai_gnhf"
+    printf 'AI backpass subcomponent:  %s\n' "$ai_backpass"
   fi
   printf 'Workflow smoke test: %s\n\n' "$run_smoke_tests"
   confirm "Continue with installation?" "y" || exit 0
@@ -288,6 +414,25 @@ if [[ "$install_containers" == "true" ]]; then
 fi
 
 "$DOTFILES_ROOT/common/install-tmux-theme.sh"
+
+if [[ "$install_ai" == "true" ]]; then
+  ai_args=()
+  if [[ "$ai_codex" == "true" ]]; then
+    ai_args+=(--codex)
+  fi
+  if [[ "$ai_firstmate" == "true" ]]; then
+    ai_args+=(--firstmate)
+  fi
+  if [[ "$ai_gnhf" == "true" ]]; then
+    ai_args+=(--gnhf)
+  fi
+  if [[ "$ai_backpass" == "true" ]]; then
+    ai_args+=(--backpass)
+  fi
+
+  info "Installing optional AI-assisted development profile"
+  "$DOTFILES_ROOT/common/install-ai.sh" "${ai_args[@]}"
+fi
 
 theme_command="$HOME/.local/bin/theme"
 if [[ -x "$theme_command" ]]; then

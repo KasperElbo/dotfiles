@@ -649,6 +649,33 @@ if [[ -f "$tailscale_state" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Optional AI-assisted development profile
+# ---------------------------------------------------------------------------
+
+ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
+
+if [[ -f "$ai_state" ]]; then
+  section "AI-assisted development profile"
+
+  if "$DOTFILES_ROOT/common/verify-ai.sh"; then
+    pass "AI profile verification completed"
+  else
+    fail "AI profile verification failed"
+  fi
+else
+  section "AI-assisted development profile"
+
+  if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" ||
+    -e "$HOME/.local/bin/treehouse" ||
+    -d "$XDG_DATA_HOME/firstmate" ]]; then
+    fail "AI profile is not selected, but AI-owned files remain (run" \
+      "common/install-ai.sh, or remove them by hand)"
+  else
+    pass "AI profile is not installed (not selected)"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Repository hygiene
 # ---------------------------------------------------------------------------
 
