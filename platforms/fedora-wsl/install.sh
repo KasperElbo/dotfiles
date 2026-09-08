@@ -139,21 +139,27 @@ Steps:
      Set Zsh as the user's default login shell.
      platforms/fedora-wsl/scripts/install-system.sh
 
-  3. Initialize machine-local Git and theme state.
+  3. Ensure /etc/wsl.conf keeps explicit Windows executable interop
+     available (enabled=true) while keeping Windows directories out of
+     PATH (appendWindowsPath=false); other sections/keys, e.g. an
+     existing [boot] systemd=true, are preserved unchanged.
+     platforms/fedora-wsl/scripts/configure-interop.sh
+
+  4. Initialize machine-local Git and theme state.
      common/setup-local.sh $theme
 
-  4. Deploy portable configuration without Linux GUI/terminal files, then add
+  5. Deploy portable configuration without Linux GUI/terminal files, then add
      the Fedora WSL PATH, clipboard, URL-opening and Neovim integration.
      platforms/fedora-wsl/scripts/stow.sh
 
-  5. Install mise-managed Linux runtimes and developer CLIs.
+  6. Install mise-managed Linux runtimes and developer CLIs.
      common/install-mise.sh
 
-  6. Restore LazyVim and install the intended Mason inventory.
+  7. Restore LazyVim and install the intended Mason inventory.
      common/install-neovim-tools.sh
 EOF
 
-  step=7
+  step=8
   if [[ "$install_ocaml" == "true" ]]; then
     cat <<EOF
 
@@ -241,6 +247,9 @@ if [[ "$interactive" == "true" ]]; then
 fi
 
 "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/install-system.sh"
+
+info "Ensuring explicit Windows executable interop stays available"
+"$DOTFILES_ROOT/platforms/fedora-wsl/scripts/configure-interop.sh"
 
 if [[ "$install_ocaml" == "true" ]]; then
   "$DOTFILES_ROOT/platforms/fedora/scripts/install-ocaml.sh"
