@@ -76,9 +76,11 @@ Options:
   --no-ai            Do not install the AI profile (default)
   --codex            With --ai, also install the OpenAI Codex CLI
   --no-codex         Do not install Codex (default)
-  --firstmate        With --ai, also clone the FirstMate multi-agent
-                     coordinator
-  --no-firstmate     Do not clone FirstMate (default)
+  --firstmate        With --ai, also install FirstMate and every tool its
+                     own docs list as required (Treehouse, No Mistakes,
+                     gh-axi, chrome-devtools-axi, lavish-axi, tasks-axi,
+                     quota-axi)
+  --no-firstmate     Do not install FirstMate (default)
   --gnhf             With --ai, also install GNHF, an unattended overnight
                      agent orchestrator (read README.md, "Optional: GNHF"
                      before use; it runs an agent unsupervised)

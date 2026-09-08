@@ -34,6 +34,11 @@ case "${1:-}" in
     grep -Fq 'herdr' "$conf_file" 2>/dev/null && make_shim herdr
     grep -Fq 'openai/codex' "$conf_file" 2>/dev/null && make_shim codex
     grep -Fq '"npm:gnhf"' "$conf_file" 2>/dev/null && make_shim gnhf
+    grep -Fq '"npm:gh-axi"' "$conf_file" 2>/dev/null && make_shim gh-axi
+    grep -Fq '"npm:chrome-devtools-axi"' "$conf_file" 2>/dev/null && make_shim chrome-devtools-axi
+    grep -Fq '"npm:lavish-axi"' "$conf_file" 2>/dev/null && make_shim lavish-axi
+    grep -Fq '"npm:tasks-axi"' "$conf_file" 2>/dev/null && make_shim tasks-axi
+    grep -Fq '"npm:quota-axi"' "$conf_file" 2>/dev/null && make_shim quota-axi
   fi
   exit 0
   ;;
@@ -51,7 +56,7 @@ exit 0
 EOF
 chmod +x "$mock_bin/mise"
 
-for command_name in gh tmux; do
+for command_name in gh tmux jq; do
   cat >"$mock_bin/$command_name" <<'EOF'
 #!/usr/bin/env bash
 exit 0
@@ -59,10 +64,10 @@ EOF
   chmod +x "$mock_bin/$command_name"
 done
 
-# Mocks Treehouse's real install.sh closely enough to exercise install-ai.sh
-# without the network: given a URL containing "treehouse", print a tiny
-# installer script to stdout, which install-ai.sh pipes into 'sh' itself
-# (matching the real 'curl ... | sh' invocation).
+# Mocks Treehouse's and No Mistakes' real install scripts closely enough to
+# exercise install-ai.sh without the network: given a URL containing the
+# tool's name, print a tiny installer script to stdout, which install-ai.sh
+# pipes into 'sh' itself (matching the real 'curl ... | sh' invocation).
 cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 url=""
@@ -71,11 +76,16 @@ for arg in "$@"; do
   http*) url="$arg" ;;
   esac
 done
-if [[ "$url" == *treehouse* ]]; then
+emit_installer() {
   printf '#!/usr/bin/env sh\n'
   printf 'mkdir -p "$HOME/.local/bin"\n'
-  printf 'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$HOME/.local/bin/treehouse"\n'
-  printf 'chmod +x "$HOME/.local/bin/treehouse"\n'
+  printf 'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$HOME/.local/bin/%s"\n' "$1"
+  printf 'chmod +x "$HOME/.local/bin/%s"\n' "$1"
+}
+if [[ "$url" == *treehouse* ]]; then
+  emit_installer treehouse
+elif [[ "$url" == *no-mistakes* ]]; then
+  emit_installer no-mistakes
 fi
 EOF
 chmod +x "$mock_bin/curl"
@@ -140,6 +150,12 @@ grep -Fqx 'herdr=mise' "$state_file"
 grep -Fqx 'codex=disabled' "$state_file"
 grep -Fqx 'firstmate=disabled' "$state_file"
 grep -Fqx 'treehouse=disabled' "$state_file"
+grep -Fqx 'no_mistakes=disabled' "$state_file"
+grep -Fqx 'gh_axi=disabled' "$state_file"
+grep -Fqx 'chrome_devtools_axi=disabled' "$state_file"
+grep -Fqx 'lavish_axi=disabled' "$state_file"
+grep -Fqx 'tasks_axi=disabled' "$state_file"
+grep -Fqx 'quota_axi=disabled' "$state_file"
 grep -Fqx 'gnhf=disabled' "$state_file"
 
 [[ ! -e "$treehouse_target" ]] || {
@@ -156,7 +172,9 @@ assert_contains "$verify_core_output" 'claude is mise-managed'
 assert_contains "$verify_core_output" 'herdr is mise-managed'
 assert_contains "$verify_core_output" 'codex is not installed'
 assert_contains "$verify_core_output" 'FirstMate is not installed'
+assert_contains "$verify_core_output" 'FirstMate toolchain is not installed'
 assert_contains "$verify_core_output" 'Treehouse is not installed'
+assert_contains "$verify_core_output" 'No Mistakes is not installed'
 assert_contains "$verify_core_output" 'gnhf is not installed'
 
 # --- Idempotency: rerunning changes nothing --------------------------------
@@ -180,9 +198,18 @@ fi
 
 grep -Fq '"npm:@openai/codex" = "latest"' "$conf_file"
 grep -Fq '"npm:gnhf" = "latest"' "$conf_file"
+for tool in gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi; do
+  grep -Fq "\"npm:$tool\" = \"latest\"" "$conf_file"
+done
 grep -Fqx 'codex=mise-npm' "$state_file"
 grep -Fqx 'firstmate=cloned' "$state_file"
 grep -Fqx 'treehouse=installed' "$state_file"
+grep -Fqx 'no_mistakes=installed' "$state_file"
+grep -Fqx 'gh_axi=mise-npm' "$state_file"
+grep -Fqx 'chrome_devtools_axi=mise-npm' "$state_file"
+grep -Fqx 'lavish_axi=mise-npm' "$state_file"
+grep -Fqx 'tasks_axi=mise-npm' "$state_file"
+grep -Fqx 'quota_axi=mise-npm' "$state_file"
 grep -Fqx 'gnhf=mise-npm' "$state_file"
 [[ -d "$data/firstmate/.git" ]] || {
   printf 'FirstMate was not cloned to %s\n' "$data/firstmate" >&2
@@ -190,6 +217,11 @@ grep -Fqx 'gnhf=mise-npm' "$state_file"
 }
 [[ -x "$treehouse_target" ]] || {
   printf 'Treehouse was not installed to %s\n' "$treehouse_target" >&2
+  exit 1
+}
+no_mistakes_target="$home/.local/bin/no-mistakes"
+[[ -x "$no_mistakes_target" ]] || {
+  printf 'No Mistakes was not installed to %s\n' "$no_mistakes_target" >&2
   exit 1
 }
 
@@ -203,6 +235,13 @@ assert_contains "$verify_full_output" 'gnhf is mise-managed'
 assert_contains "$verify_full_output" 'FirstMate cloned'
 assert_contains "$verify_full_output" "treehouse: $treehouse_target"
 assert_contains "$verify_full_output" 'treehouse on PATH resolves to the installed copy'
+assert_contains "$verify_full_output" "no-mistakes: $no_mistakes_target"
+assert_contains "$verify_full_output" 'no-mistakes on PATH resolves to the installed copy'
+assert_contains "$verify_full_output" 'gh-axi is mise-managed'
+assert_contains "$verify_full_output" 'chrome-devtools-axi is mise-managed'
+assert_contains "$verify_full_output" 'lavish-axi is mise-managed'
+assert_contains "$verify_full_output" 'tasks-axi is mise-managed'
+assert_contains "$verify_full_output" 'quota-axi is mise-managed'
 
 # Rerunning updates (git pull --ff-only, and reruns the Treehouse installer)
 # rather than re-cloning or failing.
@@ -226,7 +265,9 @@ assert_contains "$dry_run_output" 'Codex CLI:            true'
 assert_contains "$dry_run_output" 'FirstMate crew stack: true'
 assert_contains "$dry_run_output" 'GNHF (overnight run): true'
 assert_contains "$dry_run_output" 'Install Treehouse'
+assert_contains "$dry_run_output" 'Install No Mistakes'
 assert_contains "$dry_run_output" 'npm:gnhf'
+assert_contains "$dry_run_output" 'npm:gh-axi, npm:chrome-devtools-axi, npm:lavish-axi, npm:tasks-axi,'
 assert_contains "$dry_run_output" 'No changes were made.'
 
 if find "$dry_home" -mindepth 1 -print -quit | grep -q .; then

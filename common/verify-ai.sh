@@ -10,6 +10,7 @@ failures=0
 state_file="$XDG_CONFIG_HOME/dotfiles/ai.conf"
 conf_file="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
 treehouse_target="$HOME/.local/bin/treehouse"
+no_mistakes_target="$HOME/.local/bin/no-mistakes"
 
 pass() {
   printf '\033[1;32m✓\033[0m %s\n' "$*"
@@ -36,6 +37,7 @@ section() {
 codex_state="$(awk -F= '$1 == "codex" { print $2 }' "$state_file")"
 firstmate_state="$(awk -F= '$1 == "firstmate" { print $2 }' "$state_file")"
 treehouse_state="$(awk -F= '$1 == "treehouse" { print $2 }' "$state_file")"
+no_mistakes_state="$(awk -F= '$1 == "no_mistakes" { print $2 }' "$state_file")"
 gnhf_state="$(awk -F= '$1 == "gnhf" { print $2 }' "$state_file")"
 
 mise_command="$(command -v mise 2>/dev/null || true)"
@@ -77,6 +79,32 @@ check_mise_owned() {
   fi
 }
 
+# check_own_script_owned <command> <target>: for a tool with no mise
+# registry entry, confirms <target> exists and is executable, and that
+# nothing else on PATH shadows it with a duplicate install.
+check_own_script_owned() {
+  local name="$1"
+  local target="$2"
+  local resolved
+
+  if [[ -x "$target" ]]; then
+    pass "$name: $target"
+  else
+    fail "$name is missing or not executable: $target"
+    return
+  fi
+
+  resolved="$(command -v "$name" 2>/dev/null || true)"
+  if [[ -n "$resolved" ]] &&
+    { [[ "$resolved" == "$target" ]] || [[ "$resolved" -ef "$target" ]]; }; then
+    pass "$name on PATH resolves to the installed copy"
+  elif [[ -n "$resolved" ]]; then
+    fail "$name on PATH ($resolved) is not $target, a possible duplicate install"
+  else
+    warning "$target is not on PATH"
+  fi
+}
+
 section "AI profile ownership (mise conf.d)"
 
 if [[ -f "$conf_file" ]]; then
@@ -113,6 +141,22 @@ if [[ "$gnhf_state" == mise-npm ]]; then
   fi
 fi
 
+if [[ "$firstmate_state" == cloned ]]; then
+  for entry in 'gh-axi:npm:gh-axi' \
+    'chrome-devtools-axi:npm:chrome-devtools-axi' \
+    'lavish-axi:npm:lavish-axi' \
+    'tasks-axi:npm:tasks-axi' \
+    'quota-axi:npm:quota-axi'; do
+    tool_label="${entry%%:*}"
+    tool_decl="${entry#*:}"
+    if grep -Fq "\"$tool_decl\"" "$conf_file" 2>/dev/null; then
+      pass "$tool_label declared in $conf_file"
+    else
+      fail "$tool_label not declared in $conf_file despite firstmate=cloned in $state_file"
+    fi
+  done
+fi
+
 section "Core agents"
 
 check_mise_owned claude
@@ -147,7 +191,7 @@ if [[ "$firstmate_state" == cloned ]]; then
     fail "FirstMate state says cloned, but $firstmate_dir/.git is missing"
   fi
 
-  for command_name in gh tmux; do
+  for command_name in gh tmux jq; do
     if command -v "$command_name" >/dev/null 2>&1; then
       pass "$command_name: $(command -v "$command_name")"
     else
@@ -163,36 +207,41 @@ else
   fi
 fi
 
+section "FirstMate toolchain (mise-managed)"
+
+if [[ "$firstmate_state" == cloned ]]; then
+  check_mise_owned gh-axi
+  check_mise_owned chrome-devtools-axi
+  check_mise_owned lavish-axi
+  check_mise_owned tasks-axi
+  check_mise_owned quota-axi
+else
+  pass "FirstMate toolchain is not installed (FirstMate subcomponent not selected)"
+fi
+
 section "Treehouse (worktree isolation for FirstMate crewmates)"
 
 if [[ "$treehouse_state" == installed ]]; then
-  if [[ -x "$treehouse_target" ]]; then
-    pass "treehouse: $treehouse_target"
-  else
-    fail "AI profile state says treehouse=installed, but $treehouse_target is" \
-      "missing or not executable"
-  fi
-
-  # Treehouse has no mise registry entry, so it is not checked against mise
-  # ownership like Claude Code/Codex/Herdr above; only that it resolves and
-  # that nothing else on PATH shadows the copy this installer placed.
-  resolved_treehouse="$(command -v treehouse 2>/dev/null || true)"
-  if [[ -n "$resolved_treehouse" ]] &&
-    { [[ "$resolved_treehouse" == "$treehouse_target" ]] ||
-      [[ "$resolved_treehouse" -ef "$treehouse_target" ]]; }; then
-    pass "treehouse on PATH resolves to the installed copy"
-  elif [[ -n "$resolved_treehouse" ]]; then
-    fail "treehouse on PATH ($resolved_treehouse) is not $treehouse_target," \
-      "a possible duplicate install"
-  else
-    warning "$treehouse_target is not on PATH"
-  fi
+  check_own_script_owned treehouse "$treehouse_target"
 else
   if [[ -e "$treehouse_target" ]]; then
     warning "FirstMate/Treehouse not selected (treehouse=$treehouse_state)," \
       "but $treehouse_target exists; remove it manually if unwanted"
   else
     pass "Treehouse is not installed (FirstMate subcomponent not selected)"
+  fi
+fi
+
+section "No Mistakes (local push validation gate)"
+
+if [[ "$no_mistakes_state" == installed ]]; then
+  check_own_script_owned no-mistakes "$no_mistakes_target"
+else
+  if [[ -e "$no_mistakes_target" ]]; then
+    warning "FirstMate/No Mistakes not selected (no_mistakes=$no_mistakes_state)," \
+      "but $no_mistakes_target exists; remove it manually if unwanted"
+  else
+    pass "No Mistakes is not installed (FirstMate subcomponent not selected)"
   fi
 fi
 

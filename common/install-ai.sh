@@ -10,12 +10,14 @@ install_gnhf="false"
 dry_run="false"
 validate_only="false"
 
-# Overridable so tests can point FirstMate's clone, and Treehouse's install
-# script, at local fixtures instead of the real network.
+# Overridable so tests can point FirstMate's clone, and Treehouse's/No
+# Mistakes' install scripts, at local fixtures instead of the real network.
 firstmate_repo="${FIRSTMATE_REPO_URL:-https://github.com/kunchenguid/firstmate.git}"
 firstmate_dir="$XDG_DATA_HOME/firstmate"
 treehouse_install_script="${TREEHOUSE_INSTALL_SCRIPT_URL:-https://kunchenguid.github.io/treehouse/install.sh}"
 treehouse_target="$HOME/.local/bin/treehouse"
+no_mistakes_install_script="${NO_MISTAKES_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh}"
+no_mistakes_target="$HOME/.local/bin/no-mistakes"
 conf_dir="$XDG_CONFIG_HOME/mise/conf.d"
 conf_file="$conf_dir/ai.toml"
 state_file="$XDG_CONFIG_HOME/dotfiles/ai.conf"
@@ -30,10 +32,11 @@ workspace) unconditionally, plus optional subcomponents.
 
 Options:
   --codex            Also install the OpenAI Codex CLI
-  --firstmate        Also clone the FirstMate multi-agent coordinator and
-                     install Treehouse, its worktree-isolation tool
-                     (requires 'gh' and 'tmux'; see README.md, "AI-assisted
-                     development toolchain")
+  --firstmate        Also install FirstMate and every tool its own docs
+                     list as required: Treehouse, No Mistakes, gh-axi,
+                     chrome-devtools-axi, lavish-axi, tasks-axi, and
+                     quota-axi (requires 'gh', 'tmux', and 'jq'; see
+                     README.md, "AI-assisted development toolchain")
   --gnhf             Also install GNHF, an unattended overnight agent
                      orchestrator (see README.md, "Optional: GNHF" -- read
                      this before use; it runs an agent unsupervised)
@@ -41,14 +44,19 @@ Options:
   --validate         Validate an existing AI profile installation only
   -h, --help         Show this help
 
-Ownership: Claude Code, Codex, Herdr, and GNHF are installed and updated
-through mise (npm/registry backends), in an untracked, machine-local mise
-config file (~/.config/mise/conf.d/ai.toml) so the default, always-installed
-mise config in this repository never gains an AI dependency. FirstMate and
-Treehouse have no package manager upstream: FirstMate is cloned to
-~/.local/share/firstmate and updated with 'git pull --ff-only'; Treehouse is
-installed to ~/.local/bin/treehouse via its own official install script and
-updated by rerunning --firstmate. Authenticate each tool interactively (see
+Ownership: Claude Code, Codex, Herdr, GNHF, and (with --firstmate) gh-axi,
+chrome-devtools-axi, lavish-axi, tasks-axi, and quota-axi are installed and
+updated through mise (npm/registry backends), in an untracked,
+machine-local mise config file (~/.config/mise/conf.d/ai.toml) so the
+default, always-installed mise config in this repository never gains an AI
+dependency. FirstMate, Treehouse, and No Mistakes have no package manager
+upstream: FirstMate is cloned to ~/.local/share/firstmate and updated with
+'git pull --ff-only'; Treehouse and No Mistakes are installed to
+~/.local/bin via their own official install scripts and updated by
+rerunning --firstmate. This installer never runs 'gh-axi setup hooks' or
+'lavish-axi setup hooks' (optional agent session-start hooks) or
+'no-mistakes init' (per-repository) on your behalf -- see README.md for
+those manual, deliberate steps. Authenticate each tool interactively (see
 README.md); this installer never stores or requests credentials, and never
 passes GNHF's own --push flag on your behalf.
 EOF
@@ -110,7 +118,7 @@ GNHF (overnight run): $install_gnhf
 Steps:
   1. Write $conf_file
      (untracked, machine-local; not part of the always-installed mise config)
-     Declares: npm:@anthropic-ai/claude-code, herdr$([[ "$install_codex" == "true" ]] && printf ', npm:@openai/codex')$([[ "$install_gnhf" == "true" ]] && printf ', npm:gnhf')
+     Declares: npm:@anthropic-ai/claude-code, herdr$([[ "$install_codex" == "true" ]] && printf ', npm:@openai/codex')$([[ "$install_gnhf" == "true" ]] && printf ', npm:gnhf')$([[ "$install_firstmate" == "true" ]] && printf ',\n     npm:gh-axi, npm:chrome-devtools-axi, npm:lavish-axi, npm:tasks-axi,\n     npm:quota-axi')
 EOF
 
   cat <<EOF
@@ -123,15 +131,20 @@ EOF
 
   $step. Clone or update FirstMate
      $firstmate_repo -> $firstmate_dir
-     Requires 'gh' and 'tmux' (Herdr is available as an alternative crew
-     backend once installed above). Does not register any project or
+     Requires 'gh', 'tmux', and 'jq' (Herdr is available as an alternative
+     crew backend once installed above). Does not register any project or
      authenticate GitHub; see README.md for the manual next steps.
 
   $((step + 1)). Install Treehouse (worktree isolation for FirstMate crewmates)
      $treehouse_install_script -> $treehouse_target
      Not mise-managed (no registry entry); rerun --firstmate to update it.
+
+  $((step + 2)). Install No Mistakes (local validation gate before a push)
+     $no_mistakes_install_script -> $no_mistakes_target
+     Not mise-managed (no registry entry); rerun --firstmate to update it.
+     Does not run 'no-mistakes init' in any repository for you.
 EOF
-    step=$((step + 2))
+    step=$((step + 3))
   fi
 
   cat <<EOF
@@ -172,6 +185,13 @@ ensure_dir "$conf_dir"
   if [[ "$install_gnhf" == "true" ]]; then
     printf '"npm:gnhf" = "latest"\n'
   fi
+  if [[ "$install_firstmate" == "true" ]]; then
+    printf '"npm:gh-axi" = "latest"\n'
+    printf '"npm:chrome-devtools-axi" = "latest"\n'
+    printf '"npm:lavish-axi" = "latest"\n'
+    printf '"npm:tasks-axi" = "latest"\n'
+    printf '"npm:quota-axi" = "latest"\n'
+  fi
 } | atomic_write_file "$conf_file"
 
 mise_tools_msg="Claude Code and Herdr"
@@ -181,14 +201,34 @@ fi
 if [[ "$install_gnhf" == "true" ]]; then
   mise_tools_msg+=", GNHF"
 fi
+if [[ "$install_firstmate" == "true" ]]; then
+  mise_tools_msg+=", gh-axi, chrome-devtools-axi, lavish-axi, tasks-axi, and quota-axi"
+fi
 info "Installing $mise_tools_msg via mise"
 "$mise_command" --yes install
 
+# install_via_own_script <name> <script_url> <target>: installs a tool with
+# no mise registry entry and no OS package via its official curl|sh script.
+# Every such script this profile uses picks the first of ~/.local/bin or
+# /usr/local/bin that is on PATH, silently escalating to sudo for the
+# latter -- so this ensures ~/.local/bin exists and is searched first,
+# guaranteeing a user-owned install with no unexpected privilege escalation.
+install_via_own_script() {
+  local name="$1" script_url="$2" target="$3"
+
+  info "Installing $name: $target"
+  ensure_dir "$(dirname "$target")"
+  PATH="$(dirname "$target"):$PATH" \
+    sh -c "curl --fail --show-error --silent --location '$script_url' | sh"
+}
+
 firstmate_state="disabled"
 treehouse_state="disabled"
+no_mistakes_state="disabled"
 if [[ "$install_firstmate" == "true" ]]; then
   require_command gh
   require_command tmux
+  require_command jq
   require_command curl
 
   if [[ -d "$firstmate_dir/.git" ]]; then
@@ -201,17 +241,11 @@ if [[ "$install_firstmate" == "true" ]]; then
   fi
   firstmate_state="cloned"
 
-  # Treehouse has no mise registry entry and no OS package; its own install
-  # script is the only supported mechanism. It has no destination override,
-  # placing the binary in the first of ~/.local/bin or /usr/local/bin that is
-  # on PATH, escalating to sudo for the latter -- so ensure ~/.local/bin
-  # exists and is searched first here, guaranteeing a user-owned install with
-  # no unexpected privilege escalation.
-  info "Installing Treehouse: $treehouse_target"
-  ensure_dir "$(dirname "$treehouse_target")"
-  PATH="$(dirname "$treehouse_target"):$PATH" \
-    sh -c "curl --fail --show-error --silent --location '$treehouse_install_script' | sh"
+  install_via_own_script Treehouse "$treehouse_install_script" "$treehouse_target"
   treehouse_state="installed"
+
+  install_via_own_script "No Mistakes" "$no_mistakes_install_script" "$no_mistakes_target"
+  no_mistakes_state="installed"
 fi
 
 info "Recording the AI profile in $state_file"
@@ -227,6 +261,20 @@ ensure_dir "$(dirname "$state_file")"
   fi
   printf 'firstmate=%s\n' "$firstmate_state"
   printf 'treehouse=%s\n' "$treehouse_state"
+  printf 'no_mistakes=%s\n' "$no_mistakes_state"
+  if [[ "$install_firstmate" == "true" ]]; then
+    printf 'gh_axi=mise-npm\n'
+    printf 'chrome_devtools_axi=mise-npm\n'
+    printf 'lavish_axi=mise-npm\n'
+    printf 'tasks_axi=mise-npm\n'
+    printf 'quota_axi=mise-npm\n'
+  else
+    printf 'gh_axi=disabled\n'
+    printf 'chrome_devtools_axi=disabled\n'
+    printf 'lavish_axi=disabled\n'
+    printf 'tasks_axi=disabled\n'
+    printf 'quota_axi=disabled\n'
+  fi
   if [[ "$install_gnhf" == "true" ]]; then
     printf 'gnhf=mise-npm\n'
   else
@@ -267,8 +315,15 @@ if [[ "$install_firstmate" == "true" ]]; then
   • FirstMate is cloned but not configured: read $firstmate_dir/README.md,
     run 'gh auth login' if you have not, then register a project and launch
     a coordinator session as documented there.
-  • Treehouse ($treehouse_target) needs no separate configuration; FirstMate
-    uses it automatically. Run 'treehouse --help' to use it directly.
+  • Treehouse, tasks-axi, and quota-axi need no separate configuration;
+    FirstMate uses them automatically.
+  • No Mistakes ($no_mistakes_target) gates pushes per-repository, not
+    automatically: run 'no-mistakes init' inside a repository to set it up,
+    then push to it with 'git push no-mistakes <branch>' instead of your
+    normal remote. Until you do that, it changes nothing about how you push.
+  • gh-axi and lavish-axi can optionally add a Claude Code/Codex/OpenCode
+    SessionStart hook for ambient context ('gh-axi setup hooks',
+    'lavish-axi setup hooks'). This installer does not run either for you.
 EOF
 fi
 
