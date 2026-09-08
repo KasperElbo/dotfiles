@@ -47,7 +47,7 @@ selinux_mode() {
   # containers (including the Fedora container CI runs in) have no
   # /sys/fs/selinux and often no getenforce at all. Report that distinctly
   # from a real Fedora install where SELinux support is missing/misconfigured.
-  [[ -d /sys/fs/selinux ]] || {
+  [[ -d "${SELINUX_FS_ROOT:-/sys/fs/selinux}" ]] || {
     printf 'unavailable\n'
     return
   }

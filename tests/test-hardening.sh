@@ -18,8 +18,10 @@ run_scenario() {
   local enabled_units="$test_root/state/enabled-units"
   local sysctl_kv="$test_root/state/sysctl.kv"
 
+  local selinux_fs_root="$test_root/selinux-fs"
+
   mkdir -p "$mock_bin" "$test_root/home" "$test_root/xdg" \
-    "$fake_root/etc/selinux" "$(dirname "$selinux_state")"
+    "$fake_root/etc/selinux" "$(dirname "$selinux_state")" "$selinux_fs_root"
   : >"$command_log"
   : >"$active_units"
   : >"$enabled_units"
@@ -241,6 +243,7 @@ SUDO_EOF
     "COMMAND_LOG=$command_log"
     "OS_RELEASE_FILE=$test_root/os-release"
     "FAKE_ROOT=$fake_root"
+    "SELINUX_FS_ROOT=$selinux_fs_root"
     "SELINUX_STATE=$selinux_state"
     "ACTIVE_UNITS=$active_units"
     "ENABLED_UNITS=$enabled_units"
@@ -280,67 +283,96 @@ SUDO_EOF
     exit 1
   }
 
-  grep -Fqx 'profile=hardening' "$state_file"
-  grep -Fqx 'selinux_mode=enforcing' "$state_file"
-  grep -Fqx 'faillock=true' "$state_file"
-  grep -Fqx 'sysctl_ptrace_scope=1' "$state_file"
-  grep -Fqx 'sysctl_kptr_restrict=2' "$state_file"
-  grep -Fqx 'sysctl_dmesg_restrict=1' "$state_file"
-  grep -Fqx 'dnf_automatic=notifyonly' "$state_file"
+  fail_with_context() {
+    local message="$1"
+    local file="${2:-}"
+    printf '[%s] %s\n' "$scenario_name" "$message" >&2
+    if [[ -n "$file" ]]; then
+      printf -- '--- %s ---\n' "$file" >&2
+      cat "$file" >&2 2>/dev/null || printf '(missing or unreadable)\n' >&2
+    fi
+    exit 1
+  }
 
-  grep -Fq 'sudo setenforce 1' "$command_log"
-  grep -Fq 'sudo authselect enable-feature with-faillock' "$command_log"
-  grep -Fq 'sudo dnf install -y dnf-automatic' "$command_log"
-  grep -Fq 'systemctl enable --now dnf-automatic-notifyonly.timer' "$command_log"
+  assert_line_in_file() {
+    local pattern="$1" file="$2"
+    grep -Fqx -- "$pattern" "$file" 2>/dev/null ||
+      fail_with_context "expected exact line '$pattern' in $file" "$file"
+  }
 
-  grep -Fqx 'kernel.yama.ptrace_scope = 1' \
+  assert_in_file() {
+    local pattern="$1" file="$2"
+    grep -Fq -- "$pattern" "$file" 2>/dev/null ||
+      fail_with_context "expected '$pattern' in $file" "$file"
+  }
+
+  assert_in_string() {
+    local pattern="$1" haystack="$2" label="$3"
+    grep -Fq -- "$pattern" <<<"$haystack" ||
+      fail_with_context "expected '$pattern' in $label:\n$haystack"
+  }
+
+  assert_line_in_file 'profile=hardening' "$state_file"
+  assert_line_in_file 'selinux_mode=enforcing' "$state_file"
+  assert_line_in_file 'faillock=true' "$state_file"
+  assert_line_in_file 'sysctl_ptrace_scope=1' "$state_file"
+  assert_line_in_file 'sysctl_kptr_restrict=2' "$state_file"
+  assert_line_in_file 'sysctl_dmesg_restrict=1' "$state_file"
+  assert_line_in_file 'dnf_automatic=notifyonly' "$state_file"
+
+  assert_in_file 'sudo setenforce 1' "$command_log"
+  assert_in_file 'sudo authselect enable-feature with-faillock' "$command_log"
+  assert_in_file 'sudo dnf install -y dnf-automatic' "$command_log"
+  assert_in_file 'systemctl enable --now dnf-automatic-notifyonly.timer' \
+    "$command_log"
+
+  assert_line_in_file 'kernel.yama.ptrace_scope = 1' \
     "$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf"
-  grep -Fqx 'kernel.kptr_restrict = 2' \
+  assert_line_in_file 'kernel.kptr_restrict = 2' \
     "$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf"
-  grep -Fqx 'kernel.dmesg_restrict = 1' \
+  assert_line_in_file 'kernel.dmesg_restrict = 1' \
     "$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf"
-  grep -Fqx 'deny = 5' \
+  assert_line_in_file 'deny = 5' \
     "$fake_root/etc/security/faillock.conf.d/90-dotfiles-hardening.conf"
-  grep -Fq 'Defaults logfile="/var/log/sudo.log"' \
+  assert_in_file 'Defaults logfile="/var/log/sudo.log"' \
     "$fake_root/etc/sudoers.d/90-dotfiles-hardening"
-  grep -Fq 'dotfiles-identity' \
+  assert_in_file 'dotfiles-identity' \
     "$fake_root/etc/audit/rules.d/90-dotfiles-hardening.rules"
-  grep -Fqx 'SELINUX=enforcing' "$fake_root/etc/selinux/config"
+  assert_line_in_file 'SELINUX=enforcing' "$fake_root/etc/selinux/config"
 
   if [[ "$seed_sshd" == "true" ]]; then
-    grep -Fqx 'PermitRootLogin no' \
+    assert_line_in_file 'PermitRootLogin no' \
       "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
-    grep -Fqx 'MaxAuthTries 3' \
+    assert_line_in_file 'MaxAuthTries 3' \
       "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
-    grep -Fq 'sudo systemctl reload sshd.service' "$command_log"
-    grep -Fqx 'ssh=hardened' "$state_file"
+    assert_in_file 'sudo systemctl reload sshd.service' "$command_log"
+    assert_line_in_file 'ssh=hardened' "$state_file"
   else
-    [[ -f "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf" ]] && {
-      printf '[%s] sshd drop-in written although sshd was never present\n' \
-        "$scenario_name" >&2
-      exit 1
-    }
-    grep -Fqx 'ssh=not-present' "$state_file"
+    [[ -f "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf" ]] &&
+      fail_with_context \
+        "sshd drop-in written although sshd was never present"
+    assert_line_in_file 'ssh=not-present' "$state_file"
   fi
 
   verify_output="$("${test_environment[@]}" \
     "$repo_root/platforms/fedora/scripts/verify-hardening.sh" 2>&1)" ||
-    {
-      printf '[%s] verify-hardening.sh reported failures:\n%s\n' \
-        "$scenario_name" "$verify_output" >&2
-      exit 1
-    }
+    fail_with_context \
+      "verify-hardening.sh reported failures:\n$verify_output"
 
-  grep -Fq 'SELinux is enforcing' <<<"$verify_output"
-  grep -Fq 'firewalld is active' <<<"$verify_output"
-  grep -Fq 'kernel.yama.ptrace_scope = 1' <<<"$verify_output"
-  grep -Fq 'kernel.kptr_restrict = 2' <<<"$verify_output"
-  grep -Fq 'kernel.dmesg_restrict = 1' <<<"$verify_output"
+  assert_in_string 'SELinux is enforcing' "$verify_output" 'verify output'
+  assert_in_string 'firewalld is active' "$verify_output" 'verify output'
+  assert_in_string 'kernel.yama.ptrace_scope = 1' "$verify_output" \
+    'verify output'
+  assert_in_string 'kernel.kptr_restrict = 2' "$verify_output" 'verify output'
+  assert_in_string 'kernel.dmesg_restrict = 1' "$verify_output" \
+    'verify output'
 
   if [[ "$seed_sshd" == "true" ]]; then
-    grep -Fq 'sshd hardening drop-in applied' <<<"$verify_output"
+    assert_in_string 'sshd hardening drop-in applied' "$verify_output" \
+      'verify output'
   else
-    grep -Fq 'SSH posture is not applicable' <<<"$verify_output"
+    assert_in_string 'SSH posture is not applicable' "$verify_output" \
+      'verify output'
   fi
 
   rm -rf -- "$test_root"
