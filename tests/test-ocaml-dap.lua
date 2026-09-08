@@ -24,34 +24,36 @@ local root = dune.project_root(0, function(markers, options)
 end)
 assert(root == "/tmp/example", "Dune root should be the marker's directory")
 
-local targets = assert(dune.parse_rule_targets(vim.json.encode({
-  {
-    targets = {
-      files = {
-        "_build/default/bin/main.bc",
-        "_build/default/bin/main.exe",
-        "_build/default/web/main.bc.js",
-      },
-    },
-  },
-  {
-    nested = {
-      targets = {
-        files = {
-          "_build/dev/tools/admin.bc",
-          "_build/default/bin/main.bc",
-        },
-      },
-    },
-  },
-})))
+local targets = dune.parse_rule_targets(table.concat({
+  "((deps ())",
+  " (targets ((files (_build/default/bin/main.bc)) (directories ())))",
+  " (context default)",
+  " (action (chdir _build/default (run ocamlc.opt -o bin/main.bc ...))))",
+  "",
+  "((deps ())",
+  " (targets ((files (_build/default/bin/main.exe)) (directories ())))",
+  " (context default)",
+  " (action (chdir _build/default (run ocamlopt.opt -o bin/main.exe ...))))",
+  "",
+  "((deps ())",
+  " (targets ((files (_build/default/web/main.bc.js)) (directories ())))",
+  " (context default)",
+  " (action (run js_of_ocaml main.bc)))",
+  "",
+  "((deps ())",
+  " (targets ((files (_build/dev/tools/admin.bc)) (directories ())))",
+  " (context dev)",
+  " (action (run ocamlc.opt -o admin.bc ...)))",
+  "",
+  "((deps ())",
+  " (targets ((files (_build/default/bin/main.bc)) (directories ())))",
+  " (context default)",
+  " (action (copy bin/main.bc _build/default/bin/main.bc)))",
+}, "\n"))
 assert(vim.deep_equal(targets, {
   "_build/default/bin/main.bc",
   "_build/dev/tools/admin.bc",
-}), "only unique Earlybird-compatible .bc targets should be discovered")
-
-local invalid_targets, invalid_error = dune.parse_rule_targets("not json")
-assert(invalid_targets == nil and invalid_error:match("invalid JSON"))
+}), "only unique Earlybird-compatible .bc targets should be discovered, ignoring .exe/.bc.js and action arguments")
 
 local discovered = assert(dune.discover_targets("/tmp/example", function(args, options)
   assert(vim.deep_equal(args, {
@@ -61,19 +63,22 @@ local discovered = assert(dune.discover_targets("/tmp/example", function(args, o
     "dune",
     "describe",
     "rules",
-    "--format=json",
   }))
   assert(options.cwd == "/tmp/example")
   return {
     code = 0,
-    stdout = vim.json.encode({ { targets = { files = { "_build/default/bin/main.bc" } } } }),
+    stdout = "((deps ()) (targets ((files (_build/default/bin/main.bc)) (directories ()))) (context default) (action (progn)))",
     stderr = "",
   }
 end))
 assert(discovered[1] == "_build/default/bin/main.bc")
 
 local no_targets, no_targets_error = dune.discover_targets("/tmp/example", function()
-  return { code = 0, stdout = "[]", stderr = "" }
+  return {
+    code = 0,
+    stdout = "((deps ()) (targets ((files (_build/default/bin/main.exe)) (directories ()))) (context default) (action (progn)))",
+    stderr = "",
+  }
 end)
 assert(no_targets == nil and no_targets_error:match("%(modes byte exe%)"))
 

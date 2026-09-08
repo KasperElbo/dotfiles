@@ -81,7 +81,7 @@ ocaml_dune_config="$lazyvim_config/lua/config/ocaml_dune.lua"
 assert_contains "$ocaml_dune_config" '"dune-workspace", "dune-project"'
 assert_contains "$ocaml_dune_config" '"describe",'
 assert_contains "$ocaml_dune_config" '"rules",'
-assert_contains "$ocaml_dune_config" '"--format=json",'
+assert_contains "$ocaml_dune_config" '%(targets%s*%(%(files%s*%('
 assert_contains "$ocaml_dune_config" '"dune", "build", target'
 assert_contains "$ocaml_dune_config" 'last_target_by_root'
 assert_contains "$ocaml_dune_config" 'return require("dap").ABORT'
