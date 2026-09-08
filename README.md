@@ -224,10 +224,12 @@ The complete OCaml development environment is explicitly opt-in:
 -h, --help         show help
 ```
 
-The Fedora WSL installer intentionally exposes only `--theme`, `--ocaml`,
-`--smoke-test`, `--dry-run`, and `--non-interactive`. Fedora desktop, LaTeX,
-Sway, VM, hardware, and containers flags are rejected rather than silently
-ignored.
+The Fedora WSL installer exposes `--theme`, `--ocaml`, `--containers`,
+`--containers-api-socket`, `--smoke-test`, `--dry-run`, and
+`--non-interactive`. Fedora desktop, LaTeX, Sway, VM and hardware flags are
+rejected rather than silently ignored; see "Podman containers under WSL"
+below for what `--containers` actually requires and changes on this
+platform.
 
 ---
 
@@ -395,7 +397,167 @@ If the first command is not `systemd`, merge the following into
 systemd=true
 ```
 
-Do not enable it merely to satisfy this dotfiles profile.
+Do not enable it merely to satisfy this dotfiles profile. The optional
+containers profile below is the one profile in this WSL variant that does
+require it.
+
+## Podman containers under WSL
+
+`--containers` (issue #93, building on #89's native Fedora profile) is
+supported on Fedora WSL, with WSL-specific preconditions checked explicitly
+before anything is installed:
+
+```bash
+./install.sh --platform fedora-wsl --containers
+./install.sh --platform fedora-wsl --containers --containers-api-socket
+```
+
+or standalone, after the base WSL profile is installed:
+
+```bash
+platforms/fedora-wsl/scripts/install-containers.sh
+platforms/fedora-wsl/scripts/install-containers.sh --dry-run
+platforms/fedora-wsl/scripts/verify-containers.sh
+```
+
+All of the actual work — installing `podman`/`podman-compose`, allocating a
+subuid/subgid range, the rootless API socket, and the pull/run/build/bind
+mount/named volume/localhost port/container-network/Compose verification —
+is Fedora's own `platforms/fedora/scripts/install-containers.sh` and
+`verify-containers.sh`, reused completely unchanged: none of that logic is
+actually WSL-specific. What WSL genuinely changes is the *preconditions*
+those scripts are allowed to assume, so a thin WSL wrapper
+(`platforms/fedora-wsl/scripts/install-containers.sh`,
+`platforms/fedora-wsl/lib/containers.sh`) checks those explicitly instead of
+silently reusing or silently branching:
+
+- **systemd as PID 1 is a hard requirement for this profile only** — unlike
+  the rest of the Fedora WSL variant, where systemd is optional (see
+  "systemd" above) — but PID 1 alone is not sufficient, confirmed against a
+  real Fedora WSL run: WSL does not open a full login/PAM session by
+  default, so nothing starts a `systemd --user` instance for your account
+  even with `systemd=true` set, and `podman.socket` and rootless Podman's
+  cgroup v2 delegation both need that instance's D-Bus session bus
+  (`$XDG_RUNTIME_DIR/bus`). Without it, Podman falls back to
+  `--cgroup-manager=cgroupfs` and cannot track the pause process it keeps
+  to hold a rootless container network namespace alive — `podman version`/
+  `info`, pulls, plain runs, bind mounts, and named volumes all keep
+  working, but `podman network create`, a build that runs the built image,
+  and Compose all fail. Fix it once with:
+
+  ```bash
+  sudo loginctl enable-linger "$(id -un)"
+  ```
+
+  then restart the WSL distribution (`wsl --terminate <DistroName>` from
+  Windows PowerShell, then reopen it) so the linger setting takes effect.
+  Both `install-containers.sh` and `verify-containers.sh` check for
+  systemd as PID 1 *and* this reachable user session, and refuse to
+  continue (or report a failure) with this exact remediation before making
+  any change or running the smoke test, rather than only checking PID 1
+  and leaving a partially-broken install to fail confusingly mid-smoke-test.
+- **cgroup v2 and unprivileged user namespaces are checked directly**, by
+  testing for `/sys/fs/cgroup/cgroup.controllers` and a positive
+  `/proc/sys/user/max_user_namespaces`, rather than by guessing from a
+  kernel version string. Both have shipped by default in Microsoft's WSL2
+  kernel for years; if either check fails, update the kernel from Windows
+  PowerShell with `wsl --update` and retry.
+- **`--dry-run` stays mutation-free regardless of whether the preconditions
+  above are currently met** (consistent with every other profile in this
+  repository): it prints the WSL preflight requirements and Fedora's own
+  containers plan without checking or changing anything.
+
+### Networking mode
+
+WSL2's default NAT networking and the newer mirrored networking mode (see
+"DNS, VPN and networking" above) only change how Windows reaches a port
+published inside WSL; they do not change Podman's own rootless container
+network. netavark/aardvark-dns, pasta/slirp4netns, and container-to-container
+DNS resolution on a `podman network create`d network are entirely internal
+to this WSL instance's Linux network namespace in both modes.
+`verify-containers.sh` reports which pattern it observed (a single
+non-loopback interface, consistent with NAT, versus more than one,
+consistent with mirrored) as an informational hint, not a gate — it cannot
+reliably tell the two apart, and does not need to, since neither one blocks
+the profile.
+
+**Localhost port publishing** (`-p 127.0.0.1:PORT:...`) is reachable from
+Windows at `http://localhost:PORT/` through WSL2's built-in
+Windows-to-Linux localhost forwarding, the same mechanism any other WSL
+service on a loopback or wildcard bind already relies on. This is expected
+to work under both NAT and mirrored networking; if it does not on a given
+Windows build, treat it as a WSL networking-mode issue to diagnose with the
+guidance in "DNS, VPN and networking" above, not a Podman problem.
+
+### Bind mounts
+
+Run containers and bind-mount from repositories in the WSL Linux filesystem
+(`~/src`, matching this repository's general WSL guidance), the same way
+`verify-containers.sh` itself does. A bind mount from `/mnt/c/...` still
+works, but crosses the Windows-drive filesystem boundary (`DrvFs`): expect
+materially slower metadata-heavy operations and file-watching, and treat any
+Linux ownership/permission bits on files there as Windows-synthesized rather
+than authoritative. `verify-containers.sh` warns, rather than fails, when
+run from under `/mnt`, consistent with the rest of this WSL profile.
+
+### SELinux
+
+Native Fedora enforces SELinux and relies on it for the `:Z`/`:z`
+bind-mount relabeling documented in the main Podman section below.
+Microsoft's WSL2 kernel is not generally built with the SELinux LSM enabled,
+so SELinux is typically not enforcing inside Fedora WSL even though the
+Fedora userland tools (`restorecon`, `semanage`, `:Z`/`:z` themselves) are
+still present — check with `getenforce` on your own instance rather than
+assuming either way, since this can change with future WSL2 kernel builds.
+Passing `:Z`/`:z` remains harmless either way: Podman only relabels when
+SELinux is actually enabled. If SELinux is not enforcing, do not read that
+as parity with native Fedora's access control — it means a bind mount that
+would be denied on native Fedora may simply work here, with an ordinary
+Linux file-permission check as the only remaining gate. This profile does
+not attempt to change that; it is a genuine platform difference, documented
+rather than hidden.
+
+### Rootless API socket
+
+Identical rootless-user-socket behavior to native Fedora (see "Rootless API
+socket" below): `--containers-api-socket` enables `podman.socket` in your
+own systemd `--user` instance only, socket-activated, never bound to TCP.
+`DOCKER_HOST` is only relevant to a Docker-CLI-compatible client running
+*inside this same WSL instance*; there is no bridging to a Windows-side
+Docker client or named pipe, and none is planned — a Windows-side consumer
+that needs a Docker-compatible endpoint is out of scope for this profile,
+consistent with not installing Docker Engine or Docker Desktop inside WSL as
+a parallel runtime.
+
+### Compose and everyday commands
+
+Unchanged from native Fedora: `podman compose`, the SELinux-label table, the
+common command list, and the `depends_on` hang caveat below all apply
+identically inside WSL.
+
+### Validation status
+
+This support was implemented and regression-tested against this
+repository's own test methodology (mocked `dnf`/`podman`/`systemctl`/`ps`
+bash-script tests exercising the actual install/verify scripts end to end,
+see `tests/test-containers-wsl.sh`) in an environment with no real Windows
++ WSL2 + Fedora machine available.
+
+It has since been run on a real Fedora WSL machine
+(`./install.sh --platform fedora-wsl --containers`), which surfaced exactly
+the kind of gap that mock-only testing cannot catch: the original
+`systemd_is_running` check (PID 1 only) passed, but no `systemd --user`
+session was reachable, so `podman network create`, the build step's
+run-the-built-image check, and Compose all failed while everything else
+passed — see the "systemd" bullet above for the failure signature and fix.
+After applying that fix (checking for the reachable `systemd --user`
+session bus, not just PID 1) and running `sudo loginctl enable-linger
+"$(id -un)"` followed by a WSL restart, the same machine completed
+`./install.sh --platform fedora-wsl --containers` end to end, including the
+full pull/run/build/bind-mount/named-volume/localhost-port/
+container-network/Compose smoke test that `install-containers.sh` always
+runs immediately after installing. This is now confirmed working on real
+Fedora WSL, not just against this repository's mocked test suite.
 
 ## Git, SSH and GitHub authentication
 
@@ -1535,14 +1697,15 @@ proven immediately.
 
 ### Platform scope
 
-This profile currently targets regular Fedora only:
+This profile targets regular Fedora and Fedora WSL:
 
-- **Fedora WSL**: not exposed. WSL 2's networking (mirrored vs. NAT mode) and
-  systemd availability differ enough from native Fedora that rootless
-  Podman's default networking path needs separate validation before this
-  profile could be offered there; `--platform fedora-wsl` rejects the
-  containers flags rather than silently behaving differently. Tracked as
-  follow-up work, not implemented here.
+- **Fedora WSL**: supported (issue #93), with WSL-specific preconditions
+  (systemd required, cgroup v2, unprivileged user namespaces) checked
+  explicitly before installing, and WSL-specific differences (SELinux
+  enforcement, networking-mode expectations, bind-mount guidance,
+  `DOCKER_HOST` scope) documented rather than assumed equivalent to native
+  Fedora. See "Podman containers under WSL" in the Fedora on WSL section
+  above, including that section's validation-status note.
 - **macOS**: out of scope for this repository today, and not equivalent to
   native Fedora Podman even when it exists: Podman on macOS runs containers
   inside a Linux VM (`podman machine`), which changes networking, bind-mount
