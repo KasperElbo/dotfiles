@@ -148,6 +148,7 @@ check_link "$HOME/.local/bin/aerospace-workspace-grid" "$DOTFILES_ROOT/platforms
 check_link "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git/"
 check_link "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise/"
 check_link "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim/"
+check_link "$XDG_CONFIG_HOME/nvim/lua/plugins/macos.lua" "$DOTFILES_ROOT/platforms/macos/stow/nvim-macos/"
 
 if [[ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]]; then pass "Ghostty application is installed"; else fail "Ghostty application is missing"; fi
 if [[ -d /Applications/AeroSpace.app ]]; then pass "AeroSpace application is installed"; else fail "AeroSpace application is missing"; fi

@@ -111,6 +111,7 @@ Or run them separately:
 ./scripts/test-dev-workflows.sh --dotnet
 ./scripts/test-dev-workflows.sh --angular
 ./scripts/test-dev-workflows.sh --python
+./scripts/test-dev-workflows.sh --latex
 ```
 
 - .NET creates a console and xUnit project, then restores, builds, tests, and
@@ -121,6 +122,13 @@ Or run them separately:
 - Python resolves an isolated uv environment, runs, tests with pytest, lints,
   formats, and builds a wheel. LazyVim's shared Pyright/Ruff/debugpy setup is
   used; Python packages are not installed globally.
+- LaTeX uses the shared VimTeX/texlab setup. The shared editor configuration
+  only falls back to Okular or `xdg-open` for the PDF viewer, neither of which
+  exists on macOS, so a small `platforms/macos/stow/nvim-macos` package
+  overrides `vimtex_view_general_viewer` to macOS's native `open` before that
+  fallback runs, the same pattern `platforms/fedora-wsl/stow/nvim-wsl` uses for
+  `wsl-open`. `open` has no SyncTeX forward-search support of its own, matching
+  the same trade-off already accepted for Fedora WSL.
 
 Interactive breakpoints and editor navigation still require a real Neovim UI:
 open each fixture or a normal project, run `:checkhealth`, use definition and
@@ -343,7 +351,7 @@ To remove only the Mac desktop layer while leaving common dotfiles intact:
 ```bash
 pkill AeroSpace || true
 brew uninstall --cask nikitabobko/tap/aerospace ghostty
-stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace zsh-platform
+stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace zsh-platform nvim-macos
 platforms/macos/scripts/apply-defaults.sh --restore
 ```
 

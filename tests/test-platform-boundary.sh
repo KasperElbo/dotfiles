@@ -90,11 +90,11 @@ done
 : >"$stow_log"
 run_stow "$repo_root/platforms/macos/scripts/stow.sh"
 
-for package in "${portable_packages[@]}" zsh-platform aerospace; do
+for package in "${portable_packages[@]}" zsh-platform aerospace nvim-macos; do
   grep -Fqx "$package" "$stow_log"
 done
-if grep -Eq '^(sway|waybar|theme-hooks|theme-assets)$' "$stow_log"; then
-  printf 'macOS Stow entry point deployed a Fedora package.\n' >&2
+if grep -Eq '^(sway|waybar|theme-hooks|theme-assets|nvim-wsl|interop)$' "$stow_log"; then
+  printf 'macOS Stow entry point deployed a Fedora or WSL package.\n' >&2
   exit 1
 fi
 

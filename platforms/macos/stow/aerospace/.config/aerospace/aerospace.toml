@@ -5,7 +5,6 @@ config-version = 2
 start-at-login = true
 auto-reload-config = true
 after-startup-command = []
-after-login-command = []
 enable-normalization-flatten-containers = true
 enable-normalization-opposite-orientation-for-nested-containers = true
 automatically-unhide-macos-hidden-apps = true

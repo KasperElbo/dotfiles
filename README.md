@@ -1097,8 +1097,9 @@ composition without changing the normal Fedora manifest.
 `common/stow.sh --headless --without-mise` lets the Parrot profile substitute
 its narrow lab manifest without inheriting general-workstation runtimes.
 
-macOS reuses the full common workstation manifest. Its only Stow packages are
-AeroSpace and the Homebrew-specific Zsh path/plugin hooks.
+macOS reuses the full common workstation manifest. Its own Stow packages are
+AeroSpace, the Homebrew-specific Zsh path/plugin hooks, and a small VimTeX
+PDF-viewer override for the shared Neovim/LazyVim configuration.
 
 Fedora-specific shell paths and theme behavior are injected through tracked
 platform files under `platforms/fedora/stow`; the portable Zsh and `theme`
@@ -3370,7 +3371,8 @@ NetworkManager command is issued, and repeated guest setup preserves stable
 local state.
 The macOS harness validates the root-platform route, dry-run options, Homebrew
 versus mise ownership, AeroSpace/Sway-equivalent bindings, the wrapped 3×3
-workspace helper, reversible defaults, and the absence of yabai/skhd.
+workspace helper, reversible defaults, the macOS-native VimTeX PDF-viewer
+override, and the absence of yabai/skhd.
 
 Every integration-style test uses temporary home, XDG, OS-release, and DMI
 state. Package managers, firmware tooling, and service commands are either

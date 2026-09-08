@@ -60,6 +60,14 @@ grep -Fq 'config-version = 2' "$config"
 grep -Fq 'start-at-login = true' "$config"
 grep -Fq 'auto-reload-config = true' "$config"
 grep -Fq "persistent-workspaces = ['1', '2', '3', '4', '5', '6', '7', '8', '9']" "$config"
+
+# after-login-command is not a real AeroSpace config key; only
+# after-startup-command is. An unknown key fails `reload-config
+# --warnings-as-errors` in verify.sh, so guard against reintroducing it.
+if grep -Fq 'after-login-command' "$config"; then
+  printf 'aerospace.toml sets the non-existent after-login-command key.\n' >&2
+  exit 1
+fi
 python3 - "$config" <<'PY'
 import pathlib
 import sys
@@ -132,5 +140,22 @@ grep -Fq 'SIP and Gatekeeper remain enabled' "$repo_root/docs/macos.md"
 grep -Fq 'Command+Space' "$repo_root/docs/macos.md"
 grep -Fq 'Displays have separate Spaces' "$repo_root/docs/macos.md"
 grep -Fq 'platforms/macos/scripts/apply-defaults.sh --restore' "$repo_root/docs/macos.md"
+
+# The shared VimTeX fallback only reaches Okular or xdg-open, neither of
+# which exists on macOS; a platform override is mandatory, matching the
+# established platforms/fedora-wsl/stow/nvim-wsl pattern.
+nvim_macos_plugin="$macos_root/stow/nvim-macos/.config/nvim/lua/plugins/macos.lua"
+[[ -f "$nvim_macos_plugin" ]] || {
+  printf 'Missing macOS VimTeX viewer override: %s\n' "$nvim_macos_plugin" >&2
+  exit 1
+}
+grep -Fq 'vim.g.vimtex_view_general_viewer = "open"' "$nvim_macos_plugin"
+if rg -l 'xdg-open' "$macos_root" | grep -q .; then
+  printf 'macOS implementation references the Linux-only xdg-open.\n' >&2
+  exit 1
+fi
+grep -Fq 'nvim-macos' "$macos_root/scripts/stow.sh"
+grep -Fq 'nvim-macos' "$macos_root/scripts/verify.sh"
+grep -Fq './scripts/test-dev-workflows.sh --latex' "$repo_root/docs/macos.md"
 
 printf 'macOS profile configuration checks passed.\n'
