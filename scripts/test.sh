@@ -24,6 +24,7 @@ tests=(
   tests/test-vm-host.sh
   tests/test-vm-guest.sh
   tests/test-hardening.sh
+  tests/test-desktop-tools.sh
   tests/test-fedora-wsl.sh
   tests/test-parrot-ctf.sh
   tests/test-windows-bootstrap.sh

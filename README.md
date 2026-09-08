@@ -198,6 +198,8 @@ The complete OCaml development environment is explicitly opt-in:
 
 --hardening        install the optional conservative security-hardening profile
 --no-hardening     skip the hardening profile (default)
+--desktop-tools    install the optional day-to-day desktop application profile
+--no-desktop-tools skip the desktop-tools profile (default)
 
 --hardware MODEL   install ASUS hardware support for ga402xz or ga402rk
                    default: disabled
@@ -1189,6 +1191,94 @@ profile rather than a lab/appliance policy:
 | Disabling `systemd-coredump` / capping core dumps | Crash dumps can contain sensitive memory (decrypted secrets, private keys), but this repo explicitly supports native/OCaml debugging workflows that rely on post-mortem crash inspection via `coredumpctl`; kept at Fedora's default, documented as a trade-off instead |
 | Rewriting `firewalld`'s default zone services (dropping mDNS/samba-client) | Would break local network discovery, printing, and KDE integration on a workstation for a negligible security gain on a single-user laptop; reported, not changed |
 | A single opaque "harden everything" script | Every change here is its own small, named, independently reversible drop-in instead, per the issue's own guidance to prefer small explicit changes |
+## Optional desktop-tools profile
+
+`--desktop-tools` adds a small, deliberate set of day-to-day desktop
+applications for a general-purpose Fedora KDE workstation. It is not part of
+the default `./install.sh` path, appears in `--dry-run`, and can be run and
+rerun on its own:
+
+```bash
+./scripts/install-desktop-tools.sh
+./scripts/install-desktop-tools.sh --dry-run
+./scripts/verify-desktop-tools.sh
+```
+
+The Fedora KDE baseline was inspected first so the profile reuses what is
+already an adequate default instead of installing a duplicate:
+
+| Category | Reused from the KDE baseline | Added by this profile | Why |
+|---|---|---|---|
+| Images | Gwenview (fast viewer, EXIF-aware rotation) | GIMP | The baseline has no general-purpose raster editor |
+| PDF | Okular (viewer, annotation) | pdfarranger | Okular views and annotates but does not merge, split, reorder, or extract pages |
+| Archives | Ark (integrated with Dolphin) | — | Already covers common formats graphically |
+| Media | — | mpv | The baseline has no reliable general-purpose audio/video player for files it does not already handle |
+| Scanning | — | Skanpage | The baseline has no scanning/document-capture front end |
+
+The installer checks with `rpm -q` before touching Gwenview, Okular, or Ark,
+and only installs one if it is genuinely missing; a normal Fedora KDE
+workstation triggers no baseline installs at all.
+
+Rejected alternatives:
+
+- **Krita** and **Pinta** for the image editor: Krita is a digital-painting
+  application, heavier than needed for crop/resize/retouch tasks; Pinta is
+  lighter but has seen little maintenance. GIMP remains the maintained,
+  general-purpose choice.
+- **Xournal++** for PDF annotation: Okular already annotates PDFs well, so
+  adding a second annotation tool would duplicate a responsibility the
+  baseline already covers. pdfarranger is deliberately a page-manipulation
+  tool, not another viewer or annotator.
+- **LibreOffice Draw** for PDF manipulation: it is a full office suite; the
+  issue this profile implements explicitly asks not to conflate a PDF
+  workflow with an office suite unless one is genuinely needed.
+- **Haruna** or **Dragon Player** for media: both are Plasma-integrated but
+  pull in additional Plasma/QML runtime dependencies for a single-purpose
+  player; mpv is a smaller, Wayland-native binary with broader format support
+  through ffmpeg and works identically under Sway.
+
+### Package ownership
+
+All additions are Fedora/DNF-owned, consistent with the rest of the
+workstation:
+
+```text
+gimp
+pdfarranger
+skanpage
+xdg-utils
+```
+
+`mpv` also comes from DNF, but requires the RPM Fusion repositories (enabled
+automatically, the same way `install-asus-hardware.sh` already can) because
+Fedora's own repositories ship only `ffmpeg-free`, a patent-conservative
+build that omits codecs several common media files use. RPM Fusion's `mpv`
+package pulls in its full `ffmpeg` as an ordinary DNF dependency instead.
+No Flatpak is used anywhere in this profile: every selected application is
+actively maintained, Wayland/KDE-friendly, and already well packaged for
+Fedora, so Flatpak's extra sandboxing and duplicated runtime would add
+overhead without a concrete advantage. See the [Fedora multimedia
+guidance](https://rpmfusion.org/Configuration) for the underlying RPM Fusion
+setup this profile automates.
+
+### File associations
+
+The installer sets default applications with `xdg-mime` for the mimetypes
+each new or reused tool owns (common image formats to Gwenview, PDF to
+Okular, common archive formats to Ark, common audio/video formats to mpv).
+Each mimetype is only claimed if it currently has no default or is already
+set to the profile's choice; an existing, different default you or another
+application configured is left untouched and logged, on both the first run
+and every rerun. GIMP, pdfarranger, and Skanpage do not claim any file
+associations: they are opened explicitly (from Dolphin's "Open With" menu,
+`gimp`/`pdfarranger`, or the applications menu), not made the default handler
+for a mimetype another tool already owns.
+
+The saved local state file is:
+
+```text
+~/.config/dotfiles/desktop-tools.conf
+```
 
 ---
 
@@ -1239,6 +1329,11 @@ The optional OCaml profile adds the `opam` binary plus `bzip2`,`gcc`, `gcc-c++`,
 package/build prerequisites only; DNF does not own the selected OCaml compiler
 or the OCaml Platform tools.
 
+The optional desktop-tools profile adds `gimp`, `pdfarranger`, `skanpage`, and
+`xdg-utils`. It reuses the Fedora KDE baseline's Gwenview, Okular, and Ark
+instead of installing alternatives, installing one only if it is genuinely
+missing. See [Optional desktop-tools profile](#optional-desktop-tools-profile).
+
 ## Terra RPM repository
 
 The reference setup uses Terra packages for:
@@ -1250,6 +1345,14 @@ starship
 ```
 
 These remain RPM-owned. mise itself is **not** installed by mise.
+
+## RPM Fusion repositories
+
+The optional desktop-tools profile enables RPM Fusion's free and nonfree
+repositories, reusing the same `ensure_rpm_fusion_repositories` helper the
+ASUS hardware profile already uses for firmware packages, and installs `mpv`
+from there. This is the standard Fedora community path to full multimedia
+codec support and remains RPM/DNF-owned; no other profile depends on it.
 
 ## Parrot / APT
 

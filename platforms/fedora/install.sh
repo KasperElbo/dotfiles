@@ -12,6 +12,7 @@ install_sway="false"
 install_vm_host="false"
 install_vm_guest="false"
 install_hardening="false"
+install_desktop_tools="false"
 hardware_model=""
 hardware_secure_boot="false"
 hardware_charge_limit=""
@@ -45,6 +46,9 @@ Options:
   --hardening        Install the optional conservative security-hardening
                      profile (see README.md, "Fedora security hardening")
   --no-hardening     Do not install the hardening profile (default)
+  --desktop-tools    Install the optional day-to-day desktop application
+                     profile (image editor, PDF tool, media player, scanning)
+  --no-desktop-tools Do not install the desktop-tools profile (default)
 
   --hardware MODEL   Install ASUS hardware support:
                      ga402xz or ga402rk
@@ -124,6 +128,16 @@ while (($#)); do
 
   --no-hardening)
     install_hardening="false"
+    shift
+    ;;
+
+  --desktop-tools)
+    install_desktop_tools="true"
+    shift
+    ;;
+
+  --no-desktop-tools)
+    install_desktop_tools="false"
     shift
     ;;
 
@@ -243,6 +257,7 @@ Sway session:        $install_sway
 VM-host profile:     $install_vm_host
 VM-guest profile:    $install_vm_guest
 Hardening profile:   $install_hardening
+Desktop tools:       $install_desktop_tools
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
@@ -312,6 +327,16 @@ EOF
   $step. Install the optional conservative security-hardening profile
      platforms/fedora/scripts/install-hardening.sh
      SELinux/faillock/sudo-audit/auditd/sysctl/conditional-sshd/dnf-automatic
+EOF
+    step=$((step + 1))
+  fi
+
+  if [[ "$install_desktop_tools" == "true" ]]; then
+    cat <<EOF
+
+  $step. Install the optional day-to-day desktop application profile
+     platforms/fedora/scripts/install-desktop-tools.sh
+     GIMP, pdfarranger, mpv, Skanpage; reuses Gwenview, Okular, Ark
 EOF
     step=$((step + 1))
   fi
@@ -406,6 +431,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'VM-host profile:    %s\n' "$install_vm_host"
   printf 'VM-guest profile:   %s\n' "$install_vm_guest"
   printf 'Hardening profile:  %s\n' "$install_hardening"
+  printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
 
@@ -426,6 +452,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'VM-host profile:    %s\n' "$install_vm_host"
   printf 'VM-guest profile:   %s\n' "$install_vm_guest"
   printf 'Hardening profile:  %s\n' "$install_hardening"
+  printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
   if [[ -n "$hardware_model" ]]; then
@@ -509,6 +536,11 @@ if [[ "$install_hardening" == "true" ]]; then
   fi
   "$DOTFILES_ROOT/platforms/fedora/scripts/install-hardening.sh" \
     "${hardening_args[@]}"
+fi
+
+if [[ "$install_desktop_tools" == "true" ]]; then
+  info "Installing optional desktop-tools profile"
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-desktop-tools.sh"
 fi
 
 info "Initializing machine-local configuration"

@@ -101,6 +101,14 @@ run_success "Hardening remains opt-in" "Hardening profile:   false" \
 run_success "Standalone hardening dry-run" \
   "kernel.yama.ptrace_scope=1, kernel.kptr_restrict=2" \
   ./scripts/install-hardening.sh --dry-run
+run_success "Desktop tools remains opt-in" "Desktop tools:       false" \
+  ./install.sh --dry-run
+run_success "Desktop-tools dry-run" \
+  "platforms/fedora/scripts/install-desktop-tools.sh" \
+  ./install.sh --dry-run --desktop-tools
+run_success "Desktop-tools dry-run lists reused KDE baseline apps" \
+  "reuses Gwenview, Okular, Ark" \
+  ./install.sh --dry-run --desktop-tools
 run_success "Sway dry-run forwards local setup" \
   "platforms/fedora/scripts/setup-local.sh macchiato --sway" \
   ./install.sh --dry-run --sway
