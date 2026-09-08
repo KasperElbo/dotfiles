@@ -20,7 +20,8 @@ assert_contains "$dry_run" 'common/install-mise.sh'
 assert_contains "$dry_run" 'common/install-neovim-tools.sh'
 assert_contains "$dry_run" 'common/install-ocaml.sh'
 assert_contains "$dry_run" "Set Zsh as the user's default login shell."
-assert_contains "$dry_run" 'Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, desktop,'
+assert_contains "$dry_run" \
+  'Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, and desktop.'
 assert_contains "$dry_run" 'platforms/fedora-wsl/scripts/configure-interop.sh'
 assert_contains "$dry_run" 'enabled=true'
 assert_contains "$dry_run" 'appendWindowsPath=false'
@@ -54,6 +55,55 @@ if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
 fi
 grep -Fq -- '--containers-api-socket requires --containers' \
   "$test_root/api-socket-without-containers.log"
+
+ai_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ai)"
+assert_contains "$ai_dry_run" 'AI profile:         true'
+assert_contains "$ai_dry_run" 'common/install-ai.sh'
+
+ai_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
+assert_contains "$ai_off_dry_run" 'AI profile:         false'
+
+ai_full_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --ai --codex --firstmate --gnhf --backpass)"
+assert_contains "$ai_full_dry_run" 'AI Codex subcomponent:     true'
+assert_contains "$ai_full_dry_run" 'AI FirstMate subcomponent: true'
+assert_contains "$ai_full_dry_run" 'AI GNHF subcomponent:      true'
+assert_contains "$ai_full_dry_run" 'AI backpass subcomponent:  true'
+assert_contains "$ai_full_dry_run" 'common/install-ai.sh --codex --firstmate --gnhf --backpass'
+
+ai_backpass_only_dry_run="$("$repo_root/install.sh" --platform fedora-wsl \
+  --dry-run --ai --backpass)"
+assert_contains "$ai_backpass_only_dry_run" 'AI FirstMate subcomponent: false'
+assert_contains "$ai_backpass_only_dry_run" 'AI backpass subcomponent:  true'
+assert_contains "$ai_backpass_only_dry_run" 'common/install-ai.sh --backpass'
+
+if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --codex >"$test_root/codex-without-ai.log" 2>&1; then
+  printf 'fedora-wsl accepted --codex without --ai.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--codex requires --ai' "$test_root/codex-without-ai.log"
+
+if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --firstmate >"$test_root/firstmate-without-ai.log" 2>&1; then
+  printf 'fedora-wsl accepted --firstmate without --ai.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--firstmate requires --ai' "$test_root/firstmate-without-ai.log"
+
+if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --gnhf >"$test_root/gnhf-without-ai.log" 2>&1; then
+  printf 'fedora-wsl accepted --gnhf without --ai.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--gnhf requires --ai' "$test_root/gnhf-without-ai.log"
+
+if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --backpass >"$test_root/backpass-without-ai.log" 2>&1; then
+  printf 'fedora-wsl accepted --backpass without --ai.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--backpass requires --ai' "$test_root/backpass-without-ai.log"
 
 if "$repo_root/install.sh" --platform unknown --dry-run \
   >"$test_root/invalid.log" 2>&1; then

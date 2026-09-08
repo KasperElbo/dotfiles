@@ -214,6 +214,29 @@ The complete OCaml development environment is explicitly opt-in:
                    Podman API socket for Docker-compatible client tooling
                    (default: disabled)
 
+--ai               install the optional AI-assisted development profile:
+                   Claude Code and Herdr (see "AI-assisted development
+                   toolchain" below)
+--no-ai            skip the AI profile (default)
+--codex            with --ai, also install the OpenAI Codex CLI
+--no-codex         skip Codex (default)
+--firstmate        with --ai, also install FirstMate and every tool its own
+                   docs list as required: Treehouse, No Mistakes, gh-axi,
+                   chrome-devtools-axi, lavish-axi, tasks-axi, quota-axi
+                   (see "Optional: FirstMate and its required toolchain"
+                   below)
+--no-firstmate     skip FirstMate and its toolchain (default)
+--gnhf             with --ai, also install GNHF, an unattended overnight
+                   agent orchestrator (read "Optional: GNHF" below before
+                   use; it runs an agent unsupervised)
+--no-gnhf          skip GNHF (default)
+--backpass         with --ai, also install backpass, which proposes
+                   evidence-backed AGENTS.md/CLAUDE.md edits from agent
+                   session transcripts, gated behind mandatory human
+                   review (independent of --firstmate; see "Optional:
+                   backpass" below)
+--no-backpass      skip backpass (default)
+
 --hardware MODEL   install ASUS hardware support for ga402xz or ga402rk
                    default: disabled
 --secure-boot      require Secure Boot for the selected hardware profile
@@ -226,11 +249,23 @@ The complete OCaml development environment is explicitly opt-in:
 ```
 
 The Fedora WSL installer exposes `--theme`, `--ocaml`, `--latex`,
-`--containers`, `--containers-api-socket`, `--smoke-test`, `--dry-run`, and
-`--non-interactive`. Fedora desktop, Sway, VM and hardware flags are rejected
-rather than silently ignored; see "Podman containers under WSL"
-below for what `--containers` actually requires and changes on this
-platform.
+`--containers`, `--containers-api-socket`, `--ai`, `--codex`, `--firstmate`,
+`--gnhf`, `--backpass`, `--smoke-test`, `--dry-run`, and `--non-interactive`.
+Fedora desktop, Sway, VM and hardware flags are rejected rather than
+silently ignored; see "Podman containers under WSL" below for what
+`--containers` actually requires and changes on this platform, and
+"AI-assisted development toolchain" for `--ai`.
+
+`--codex`, `--firstmate`, `--gnhf`, and `--backpass` require `--ai` on every
+platform; the installer rejects them otherwise instead of silently ignoring
+them (`--backpass` does not additionally require `--firstmate`). Running
+any installer without `--ai` installs no Claude Code, Codex, Herdr, GNHF,
+backpass, FirstMate, or any of the tools `--firstmate` bundles (Treehouse,
+No Mistakes, gh-axi, chrome-devtools-axi, lavish-axi, tasks-axi, quota-axi);
+`--ai` and its subcomponents are also independently callable and safe to
+rerun through `common/install-ai.sh` (or `./scripts/install-ai.sh`),
+consistent with this repository's other
+component scripts.
 
 ---
 
@@ -729,9 +764,11 @@ the installed OCaml profile, run:
 ./install.sh --platform fedora-wsl --smoke-test
 ```
 
-The WSL profile does not install AI tooling. A future optional AI profile can
-compose with it; the early PATH policy ensures a Linux-native installation
-takes precedence over any Windows executable.
+The optional AI profile (`--ai`, `--codex`, `--firstmate`; see "AI-assisted
+development toolchain" below) is portable CLI tooling with no GUI or hardware
+dependency, so it is fully supported here. The early PATH policy ensures the
+Linux-native, mise-managed installation always takes precedence over any
+Windows executable of the same name.
 
 ---
 
@@ -1053,6 +1090,24 @@ Then run:
 ```bash
 ./scripts/verify-asus-hardware.sh
 ```
+
+## 7. AI agent authentication
+
+Only relevant if the optional AI profile (`--ai`) is selected; see
+"AI-assisted development toolchain" below for the full picture. Nothing here
+is stored in this repository, and none of it is requested or configured by
+the installer:
+
+- Claude Code: run `claude`, follow the browser login prompt (or set
+  `ANTHROPIC_API_KEY`).
+- Codex (if installed): run `codex`, choose "Sign in with ChatGPT" (or
+  configure an OpenAI API key).
+- FirstMate (if installed): uses your own `gh auth login`.
+- GNHF (if installed): no separate auth; shells out to your already-signed-in
+  `claude` (or configured `--agent`). Read its README before your first
+  unattended run.
+- backpass (if installed): no separate auth; every model call goes through
+  `acpx` to a harness you have already authenticated.
 
 ---
 
@@ -1832,6 +1887,396 @@ The saved local state file is:
 
 ---
 
+# AI-assisted development toolchain
+
+AI-assisted development is an entirely optional workstation profile. **The
+default `./install.sh`, with no AI-related flag, installs no Claude Code,
+Codex, Herdr, GNHF, backpass, FirstMate, or any tool FirstMate requires.**
+Select it explicitly:
+
+```bash
+./install.sh --ai                        # Claude Code + Herdr (core)
+./install.sh --ai --codex                # + OpenAI Codex CLI
+./install.sh --ai --firstmate            # + FirstMate and its required toolchain
+./install.sh --ai --gnhf                 # + GNHF unattended overnight runs
+./install.sh --ai --backpass             # + backpass instructions-file tuning
+./install.sh --ai --codex --firstmate --gnhf --backpass   # all of the above
+```
+
+`--codex`, `--firstmate`, `--gnhf`, and `--backpass` require `--ai` and are
+rejected otherwise (`--backpass` does not require `--firstmate` — the two
+are independent). The profile is also independently callable and safe to
+rerun:
+
+```bash
+./scripts/install-ai.sh [--codex] [--firstmate] [--gnhf] [--backpass] [--dry-run] [--validate]
+```
+
+`--dry-run` prints exactly which components would be installed and where,
+without touching the filesystem; `--validate` runs verification only. Nothing
+here authenticates any agent, pushes, merges, force-pushes, or deletes Git
+branches, or requests API credentials — see "Authentication" below.
+
+## Core agent: Claude Code
+
+Claude Code (`anthropics/claude-code`) is the preferred/core coding agent.
+Anthropic documents several install methods (native installer, Homebrew,
+apt/dnf/apk, npm); this profile deliberately installs it through **mise's npm
+backend** (`npm:@anthropic-ai/claude-code`), the same ownership model this
+repository already uses for `npm:@mermaid-js/mermaid-cli` and `npm:neovim`.
+This trades the native installer's silent background auto-update for one
+consistent, mise-owned update/uninstall path shared with Codex and Herdr, and
+avoids adding a second, Fedora-only package-management path (the `dnf` Claude
+Code repository) that would not carry over to Fedora WSL or a future macOS
+profile (see #11) unchanged.
+
+Claude Code runs in any Git repository, including one checked out through
+`git worktree`; it has no special worktree requirements of its own. See
+"Worktree isolation for agent/crewmate work" below for how this repository
+gives an agent a safe, isolated worktree rather than pointing it at your
+primary checkout.
+
+## Optional: OpenAI Codex CLI
+
+`--codex` additionally installs the Codex CLI (`npm:@openai/codex`) through
+the same mise ownership as Claude Code, so the two coexist without a second
+install mechanism or a PATH ownership conflict. Codex is otherwise
+independent of Claude Code: install either, both, or neither.
+
+## Agent workspace/runtime: Herdr
+
+[Herdr](https://herdr.dev) is a terminal multiplexer built specifically for
+AI coding agents — persistent panes/tabs/workspaces, detach/reattach, and
+agent-state awareness (working/idle/blocked) for Claude Code, Codex, and
+similar tools. It is installed unconditionally with `--ai` (via `mise use -g
+herdr`, matching mise's own documented install method), not gated behind
+`--firstmate`, because it is useful the moment you have even a single Claude
+Code session and is a single small, mise-owned binary rather than a heavy
+dependency.
+
+Responsibility split, so Ghostty, tmux, and Herdr never become three
+competing layout/session systems:
+
+```text
+Ghostty -> terminal emulator / host window
+tmux    -> lightweight shell/session multiplexing where still useful
+Herdr   -> AI-agent workspace/orchestration (panes aware of agent state,
+           detach/reattach, launching Claude Code/Codex workers)
+```
+
+Ghostty remains the normal terminal; this profile does not install a second
+terminal emulator. Run `herdr` inside Ghostty in a project directory to start
+a workspace, detach, and `herdr` again to reattach — see
+[herdr.dev/docs](https://herdr.dev/docs) for the current pane/workspace
+commands and socket API rather than duplicating fast-moving upstream option
+lists here. Herdr's agent-aware panes make tmux's own session/window
+management redundant for a multi-agent workflow; this repository does not
+add glue code to bridge the two; use tmux (already installed, intentionally
+thin) for ordinary shell multiplexing outside of agent work, and Herdr for
+agent panes.
+
+## Optional: FirstMate and its required toolchain
+
+`--firstmate` installs [kunchenguid/firstmate](https://github.com/kunchenguid/firstmate)
+itself, plus every tool its own `docs/configuration.md` lists as required
+(not merely nice-to-have) — all from the same author (Kun Chen), each
+independently installable and independently useful on its own:
+
+| Tool | What it's for | Owner |
+|---|---|---|
+| [firstmate](https://github.com/kunchenguid/firstmate) | the coordinator itself — a Claude-Code-compatible distribution, not a package | `git clone`/`git pull --ff-only` to `~/.local/share/firstmate` |
+| [Treehouse](https://github.com/kunchenguid/treehouse) | pools isolated Git worktrees for crewmates (`get`/`enter`/`status`/`return`/`prune`/`destroy`/`lease`) | own install script, to `~/.local/bin/treehouse` |
+| [No Mistakes](https://github.com/kunchenguid/no-mistakes) | local push-validation gate (see below) | own install script, to `~/.local/bin/no-mistakes` |
+| [gh-axi](https://github.com/kunchenguid/gh-axi) | agent-ergonomic wrapper around the already-installed, already-authenticated `gh` CLI | mise, `npm:gh-axi` |
+| [chrome-devtools-axi](https://github.com/kunchenguid/chrome-devtools-axi) | agent-ergonomic browser automation (launches its own headless Chrome; no separate browser install needed) | mise, `npm:chrome-devtools-axi` |
+| [lavish-axi](https://github.com/kunchenguid/lavish-axi) | serves FirstMate's "rich-review" surfaces for HTML artifacts, locally | mise, `npm:lavish-axi` |
+| [tasks-axi](https://github.com/kunchenguid/tasks-axi) | backlog/task manager FirstMate uses for crewmate handoff (edits a local `backlog.md`) | mise, `npm:tasks-axi` |
+| [quota-axi](https://github.com/kunchenguid/quota-axi) | reports local LLM subscription quota windows so FirstMate's dispatch can decide whether to start/parallelize work; read-only, never mints/rotates credentials | mise, `npm:quota-axi` |
+
+Requires `gh`, `tmux`, and `jq` (all already installed by the base profile);
+can use Herdr as an alternative crew backend to tmux once installed above.
+None of these need a separate account: `gh-axi`/`quota-axi` read your
+already-authenticated `gh`/agent-CLI credentials, and the rest need no auth
+at all.
+
+FirstMate lets one coordinator session (Claude Code, by default here) talk to
+you while it delegates isolated implementation work to crewmates it spawns
+and supervises, each in its own Treehouse worktree, reporting plain outcomes
+back to you. Registering a specific project and choosing one of its three
+project modes (`direct-PR`, `local-only`, or `No Mistakes`, which runs full
+CI validation before merge — very likely via the standalone No Mistakes tool
+above, though FirstMate's docs don't explicitly confirm that link) is a
+per-project, per-user decision this installer does not and cannot make
+safely on your behalf. After installing:
+
+```bash
+cat ~/.local/share/firstmate/README.md    # follow FirstMate's own setup docs
+gh auth login                             # if you have not already
+treehouse --help                          # usable directly, with or without FirstMate
+```
+
+then launch a coordinator session there and register your project as
+documented in that repository. This installer never runs `gh auth login`,
+registers a project, `no-mistakes init` in any repository, or
+`gh-axi`/`lavish-axi setup hooks` (their optional agent SessionStart hooks)
+for you — all deliberate, manual, per-repository or per-preference steps.
+
+### No Mistakes, in more detail
+
+[No Mistakes](https://github.com/kunchenguid/no-mistakes) is a local Git
+push-validation gate: instead of `git push origin <branch>`, you run
+`git push no-mistakes <branch>`. That spins up a disposable worktree, runs
+a validation pipeline, auto-applies safe mechanical fixes, escalates
+anything that touches your intent for you to approve/fix/skip, and only
+forwards to your real remote (opening a PR) once everything passes. It is
+**strictly per-invocation** — nothing happens to a normal `git push`, and it
+never intercepts one. Setup (`no-mistakes init`, which creates a local bare
+repo under `~/.no-mistakes/repos/` and adds the `no-mistakes` remote) is
+per-repository and always manual; installing this profile only puts the
+`no-mistakes` binary on `PATH`.
+
+Each tool above is installed through exactly one mechanism: mise for the
+five `*-axi` npm packages (same ownership as Claude Code/Codex/GNHF), and an
+official install script for Treehouse/No Mistakes (neither has a mise
+registry entry or an OS package). `verify-ai.sh` checks all seven the same
+way it checks everything else in this profile — mise ownership for the
+mise-managed ones, PATH-resolution-to-the-installed-copy for the other two.
+
+## Optional: GNHF unattended overnight agent orchestrator
+
+`--gnhf` additionally installs
+[GNHF](https://github.com/kunchenguid/gnhf) ("Good Night, Have Fun") through
+mise (`npm:gnhf`), the same ownership as Claude Code/Codex. It has no
+relation to FirstMate, Herdr, or Treehouse, and needs no separate account —
+it shells out to whichever already-authenticated agent CLI you point it at
+(`--agent`, default `claude`) in non-interactive mode.
+
+**Read this before your first run.** GNHF runs a coding agent through many
+iterations completely unattended: each iteration gets one objective-directed
+change, and on success it **commits automatically with no human checkpoint**
+— you review the result afterward, not each step. A failed iteration is
+rolled back with `git reset --hard` (scoped to GNHF's own commits). There is
+no sandboxing beyond `--max-iterations`/`--max-tokens` caps and an abort
+after repeated consecutive failures: the agent has the same permissions your
+normal Claude Code/Codex session would.
+
+Two defaults keep this compatible with this profile's non-destructive
+posture despite that:
+
+- By default GNHF works on a new local `gnhf/<slug>` branch in your repo,
+  not your current checkout (an isolated worktree is available via its own
+  `--worktree` flag).
+- By default GNHF **never pushes**. Pushing is strictly opt-in via GNHF's
+  own `--push` flag, which this installer never adds for you and does not
+  wrap or default on in any way.
+
+So the "no autonomous push without explicit action" invariant holds even
+with GNHF installed — but "many unsupervised commits before you look" is a
+real, different trust model from the rest of this profile, and is exactly
+why GNHF is its own opt-in flag rather than bundled with core `--ai`. Treat
+"point GNHF at an objective and let it run overnight" as a deliberate
+choice each time, the same way you would `--hardening` or a raw `sudo`
+command — not something to leave on a machine that other people can queue
+work on. Config lives at `~/.gnhf/config.yml` (created on first run,
+untracked, machine-local).
+
+## Optional: backpass instructions-file tuning
+
+`--backpass` additionally installs
+[backpass](https://github.com/kunchenguid/backpass) and
+[acpx](https://github.com/openclaw/acpx) through mise (`npm:backpass`,
+`npm:acpx`), plus `lavish-axi` if it isn't already installed (it's shared
+with `--firstmate`; declared once either way, never twice). Unlike every
+other subcomponent above, **it is independent of `--firstmate`** — no real
+integration between them exists beyond a shared dependency on `lavish-axi`
+for review UIs, so `--ai --backpass` alone works fine.
+
+backpass reads agent session transcripts (Claude, Codex, Pi, OpenCode,
+Grok, Cursor CLI, Hermes) directly off disk, distills them (96–99% token
+reduction) locally, and proposes evidence-backed edits to your
+`AGENTS.md`/`CLAUDE.md` — one card per edit, with the diff, the evidence
+quotes, and their sources, served through `lavish-axi`. **`backpass apply`
+is the only command that writes anything**, and only for edits you
+individually ACCEPT; rejections are remembered and not re-proposed unless
+new evidence appears.
+
+What to know before your first run:
+
+- It is not purely offline: the distilled (secret-redacted) trace still
+  travels over the network, through `acpx`, to whichever model you
+  configure. Same trust boundary as the agent CLI you already use, not a
+  new one — but not zero-exposure either.
+- Its default model routing can call a **non-Claude model** for analysis
+  and/or synthesis (with a Claude fallback). Pin one provider explicitly
+  with `--analysis-agent`/`--synthesis-agent` if that matters to you; this
+  installer does not change backpass's own defaults.
+- It edits the single file that steers every future agent session in a
+  repository. The mandatory review gate is real, but it's still worth
+  reading each diff carefully rather than rubber-stamping — that's on you,
+  not the tool.
+- Setup (`backpass init`) is per-repository and always manual; installing
+  this profile only puts `backpass`/`acpx` on `PATH`.
+
+### Other Kun Chen tools evaluated but not installed
+
+One more tool from the same ecosystem came up during review and is not
+installed by this profile:
+
+- **[AXI](https://github.com/kunchenguid/axi)** (`kunchenguid/axi`) itself
+  is not a tool to install — it is a design specification (10 principles)
+  plus a catalog of 70+ community reference implementations (Jujutsu,
+  npm/PyPI/Cargo, cloud platforms, Slack/Notion/Jira, and more) for
+  building token-efficient, agent-ergonomic CLI wrappers. `gh-axi`,
+  `chrome-devtools-axi`, `lavish-axi`, `tasks-axi`, and `quota-axi` above
+  are the reference implementations this profile actually uses (because
+  FirstMate requires them, or because `--backpass` needs `lavish-axi`); the
+  rest of the catalog is not — install one yourself only if you personally
+  use that specific tool a lot with an agent (for example
+  `npm install -g gh-axi` standalone, without `--firstmate`, works fine
+  against your existing `gh`).
+
+## Non-destructive defaults
+
+None of this profile's own tooling pushes branches, merges pull requests,
+force-pushes, or deletes branches on its own. No Mistakes (installed with
+`--firstmate`) only ever acts when you explicitly run
+`git push no-mistakes <branch>` instead of your normal push — it never
+intercepts a plain `git push`, and its own setup (`no-mistakes init`) is
+per-repository and manual, never run by this installer. FirstMate's own
+project modes gate publication behind an explicit captain decision
+(`local-only` waits for an approved fast-forward merge; `direct-PR` opens a
+PR for human review; its `No Mistakes` mode additionally runs full CI, very
+likely via that same tool, before merge) — this repository does not enable
+an autonomous push/merge mode by default, and installing this profile does
+not change any existing Git signing,
+authentication, or identity configuration (see "Git, SSH and GitHub
+authentication" and "Choices a user must make" above/below). GNHF, if
+selected, defaults to committing on its own local `gnhf/<slug>` branch and
+never pushes; pushing is opt-in via GNHF's own `--push` flag, which this
+installer never adds on your behalf (see "Optional: GNHF" above for the
+part of its behavior — unsupervised, per-iteration commits — that this
+invariant does not cover). Prefer Claude Code and Codex's own review/PR-
+oriented workflows, with a human decision at the publication/merge
+boundary, as shown in the normal usage flow below.
+
+## Normal usage
+
+```text
+open repository
+  -> start/reattach a Herdr workspace (or a plain tmux/Ghostty session)
+  -> use Claude Code directly, or start a FirstMate coordinator session
+  -> delegate isolated work into a Treehouse worktree (directly, or through
+     FirstMate's own crewmates), or a plain `git worktree` if Treehouse
+     is not installed
+  -> review the resulting diff and run tests
+  -> create a PR (gh pr create, or let Claude Code/Codex/FirstMate open one)
+  -> a human decides whether to merge
+```
+
+## Authentication
+
+Never committed to this repository: API keys, OAuth tokens, provider
+credentials, GitHub tokens, or agent session state. Authenticate each tool
+interactively, on the machine, after installing:
+
+- **Claude Code**: run `claude`, follow the browser login prompt (or set
+  `ANTHROPIC_API_KEY` for API-key auth). State lives in `~/.claude/` and
+  `~/.claude.json`, untracked and machine-local.
+- **Codex**: run `codex`, choose "Sign in with ChatGPT" (or configure an
+  OpenAI API key). State lives under `~/.codex/`, untracked and
+  machine-local.
+- **FirstMate**: uses your already-authenticated `gh` (`gh auth login`); it
+  does not manage its own separate credentials.
+- **GNHF**: no separate account; it shells out to your already-authenticated
+  `claude` (or another configured `--agent`). Its own config lives at
+  `~/.gnhf/config.yml`, untracked and machine-local.
+- **backpass**: no separate account; every model call goes through `acpx`
+  to a harness you have already authenticated. Per-repository state lives
+  under a git-excluded `.backpass/` directory (see `.git/info/exclude`),
+  untracked and machine-local.
+
+Revoke access by signing out of each tool, or by deleting its state
+directory above; none of it is readable from this repository.
+
+## Verification
+
+```bash
+./scripts/verify-ai.sh
+```
+
+checks that Claude Code, Herdr, and (if selected) Codex/GNHF/gh-axi/
+chrome-devtools-axi/lavish-axi/tasks-axi/quota-axi/backpass/acpx resolve on
+PATH to the mise-managed copy this profile installed rather than a second
+install shadowing it elsewhere on PATH (catching duplicate
+npm/Homebrew/native-installer ownership of the same tool), and, if
+selected, that FirstMate is cloned with `gh`, `tmux`, and `jq` present, and
+that Treehouse/No Mistakes resolve to the copies this profile installed at
+`~/.local/bin/treehouse` and `~/.local/bin/no-mistakes`.
+`platforms/fedora/scripts/verify.sh` (and the Fedora WSL equivalent) run
+this automatically whenever the AI profile's state file is present, and
+separately confirm that **no** AI-owned file exists when it is not.
+
+## Ownership summary
+
+| Component | Owner | Update |
+|---|---|---|
+| Claude Code | mise (`npm:@anthropic-ai/claude-code`) | `mise upgrade` |
+| Codex CLI | mise (`npm:@openai/codex`) | `mise upgrade` |
+| Herdr | mise (registry) | `mise upgrade` |
+| GNHF | mise (`npm:gnhf`) | `mise upgrade` |
+| backpass, acpx | mise (`npm:backpass`, `npm:acpx`) | `mise upgrade` |
+| FirstMate | `git clone`/`git pull --ff-only` to `~/.local/share/firstmate` | rerun `--firstmate` |
+| Treehouse | own install script, to `~/.local/bin/treehouse` (no mise registry entry) | rerun `--firstmate` |
+| No Mistakes | own install script, to `~/.local/bin/no-mistakes` (no mise registry entry) | rerun `--firstmate` |
+| gh-axi, chrome-devtools-axi, tasks-axi, quota-axi | mise (`npm:<name>`), all with `--firstmate` | `mise upgrade` |
+| lavish-axi | mise (`npm:lavish-axi`), with `--firstmate` and/or `--backpass` (declared once either way) | `mise upgrade` |
+
+See "AI agent tooling" under "Package ownership" below for how this avoids
+duplicate installs of the same tool. Every mise-managed tool above is
+declared in an **untracked, machine-local** mise config file, not the tracked
+`~/.config/mise/config.toml` this repository always installs:
+
+```text
+~/.config/mise/conf.d/ai.toml
+```
+
+mise merges every `*.toml` file under `~/.config/mise/conf.d/` alongside its
+main global config, so this file adds Claude Code/Codex/Herdr to mise's view
+without the default, always-applied mise config ever gaining an AI-related
+dependency. `install-ai.sh` writes and owns this file; deleting it and
+rerunning the AI profile recreates it.
+
+## Platform scope
+
+- **Fedora**: primary reference path; validated with Ghostty, Zsh, tmux,
+  Git/GitHub CLI, and LazyVim, and compatible with the hardening, Podman,
+  and VM-host profiles and this repository's existing Git signing/auth setup
+  (none of that is touched by `--ai`).
+- **Fedora WSL**: supported with the same `--ai`/`--codex`/`--firstmate`
+  flags. The desktop, hardware, Sway, and VM-host/guest profiles remain out
+  of scope for WSL, but the AI profile has no GUI or hardware dependency.
+  Fedora WSL's existing PATH policy (see "PATH and Windows interoperability"
+  above) already ensures a Windows-installed `claude.exe`/`codex.exe` cannot
+  shadow the Linux-native, mise-managed copy; `verify-ai.sh` additionally
+  checks for exactly that.
+- **macOS** (#11): not implemented here. `common/install-ai.sh` and
+  `common/verify-ai.sh` contain no Fedora-specific commands (checked by
+  `tests/test-platform-boundary.sh`), so a macOS installer can call them
+  directly once mise, `gh`, and `tmux` are provisioned there.
+- **Parrot Security Edition CTF guest**: deliberately excluded, matching this
+  guest's existing "no AI tooling by default" posture (see "Parrot Security
+  Edition CTF VM" above): install or invoke AI tooling there only as a
+  conscious per-lab decision after confirming that challenge data may leave
+  the guest.
+
+The saved local state file is:
+
+```text
+~/.config/dotfiles/ai.conf
+```
+
+---
+
 # Package ownership
 
 Avoid installing the same tool through multiple package managers.
@@ -1947,6 +2392,37 @@ pipx:pynvim
 ```
 
 `mise install` installs what is declared in the tracked config; the install script does not duplicate the tool list.
+
+## AI agent tooling
+
+Optional; installed only by `--ai` (see "AI-assisted development toolchain"
+above for daily usage). Declared in a separate, **untracked**, machine-local
+mise config file so the tracked `~/.config/mise/config.toml` above never
+gains an AI-related dependency:
+
+```text
+~/.config/mise/conf.d/ai.toml
+```
+
+| Component | Owner |
+|---|---|
+| Claude Code | mise, `npm:@anthropic-ai/claude-code` |
+| Codex CLI (optional) | mise, `npm:@openai/codex` |
+| Herdr | mise, registry entry `herdr` |
+| GNHF (optional, requires `--gnhf`) | mise, `npm:gnhf` |
+| backpass, acpx (optional, requires `--backpass`) | mise, `npm:backpass`, `npm:acpx` |
+| FirstMate (optional, requires `--firstmate`) | `git clone`/`git pull --ff-only`, no package manager upstream |
+| Treehouse (optional, requires `--firstmate`) | own install script to `~/.local/bin/treehouse`, no mise registry entry or OS package |
+| No Mistakes (optional, requires `--firstmate`) | own install script to `~/.local/bin/no-mistakes`, no mise registry entry or OS package |
+| gh-axi, chrome-devtools-axi, tasks-axi, quota-axi (optional, require `--firstmate`) | mise, `npm:<name>` each |
+| lavish-axi (optional, requires `--firstmate` and/or `--backpass`) | mise, `npm:lavish-axi` (declared once regardless of which flag(s) select it) |
+
+Each tool is installed through exactly one mechanism above; this repository
+does not additionally install any of them through Homebrew, a global `npm
+install -g`, or a native/OS-package installer, so there is never a duplicate,
+competing copy on `PATH`. `verify-ai.sh` checks this by confirming each
+mise-managed command resolves to the same binary mise itself reports
+managing, and that Treehouse resolves to the copy this profile installed.
 
 ## opam
 
@@ -2614,6 +3090,11 @@ Useful LazyVim Git mappings:
 ```
 
 Fugitive and Octo are intentionally not installed at present.
+
+Multi-agent work (see "AI-assisted development toolchain" below), when
+Treehouse is installed, uses isolated worktrees managed by `treehouse`
+rather than your current branch/checkout. It does not change the shared Git
+defaults above.
 
 ---
 
@@ -3299,6 +3780,11 @@ The verifier checks:
 - optional Fedora VM-guest detection, agents, channels, and network route
 - optional Fedora security-hardening profile settings (see "Optional Fedora
   security-hardening profile" above)
+- optional AI-assisted development profile: Claude Code/Codex/Herdr/GNHF/
+  backpass PATH ownership, FirstMate's clone, and Treehouse/No Mistakes
+  (see "AI-assisted development toolchain" above) — and confirms none of
+  it is present when the profile
+  was not selected
 - nested Git repositories
 - obvious generated junk files
 
@@ -3474,6 +3960,35 @@ it is not required after rebooting.
 
 Expected. Verify the Python provider through Neovim health checks instead.
 
+## `claude`/`codex`/`herdr` are not found after `--ai`
+
+Confirm the AI profile's untracked mise config exists and mise sees it, then
+reinstall:
+
+```bash
+cat ~/.config/mise/conf.d/ai.toml
+mise install
+```
+
+If the file is missing, rerun `./scripts/install-ai.sh` (add `--codex`
+and/or `--firstmate` as needed) — it is safe to rerun.
+
+## `verify-ai.sh` reports a possible duplicate install
+
+It found the command on `PATH` at a location mise does not report managing —
+typically a native installer, Homebrew, or a global `npm install -g` of the
+same tool installed outside this profile. Remove the other installation (see
+each tool's own uninstall instructions) so only the mise-managed copy remains
+on `PATH`.
+
+## `treehouse` commands fail or a worktree seems stuck
+
+Treehouse is not documented in detail here — see its own
+[README](https://github.com/kunchenguid/treehouse) and `treehouse --help` for
+the current command set (`get`/`enter`/`status`/`return`/`prune`/`destroy`/
+`lease`) rather than relying on this document, which does not duplicate
+fast-moving upstream option lists.
+
 ---
 
 # Manual post-install checklist
@@ -3509,6 +4024,11 @@ After a fresh install:
    git config --show-origin --get user.email
    ```
 
+10. If the optional AI profile (`--ai`) was selected, authenticate each
+    installed tool interactively: run `claude` (and `codex`, if installed)
+    and follow its login prompt; FirstMate uses the `gh auth login` from
+    step 5. See "AI-assisted development toolchain" above.
+
 11. Confirm GitHub SSH:
 
    ```bash
@@ -3539,6 +4059,7 @@ GitHub CLI:           gh
 Runtime manager:      mise
 Optional OCaml:       opam (`--ocaml`)
 Optional hardening:   conservative security profile (`--hardening`)
+Optional AI profile:  Claude Code + Herdr, Codex/FirstMate optional (`--ai`)
 Theme:                Catppuccin Macchiato
 Accent:               Mauve
 KDE decoration:       Classic

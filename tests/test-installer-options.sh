@@ -146,6 +146,40 @@ run_success "Containers API socket dry-run" \
 run_success "Standalone containers dry-run" \
   "Rootless API socket:   false" \
   ./scripts/install-containers.sh --dry-run
+run_success "AI remains opt-in" "AI profile:          false" \
+  ./install.sh --dry-run
+run_success "AI dry-run" "common/install-ai.sh" \
+  ./install.sh --dry-run --ai
+run_success "AI Codex remains opt-in" "AI Codex subcomponent: false" \
+  ./install.sh --dry-run --ai
+run_success "AI Codex dry-run" "common/install-ai.sh --codex" \
+  ./install.sh --dry-run --ai --codex
+run_success "AI FirstMate remains opt-in" "AI FirstMate subcomponent: false" \
+  ./install.sh --dry-run --ai
+run_success "AI FirstMate dry-run" "common/install-ai.sh --firstmate" \
+  ./install.sh --dry-run --ai --firstmate
+run_success "AI Codex and FirstMate together dry-run" \
+  "common/install-ai.sh --codex --firstmate" \
+  ./install.sh --dry-run --ai --codex --firstmate
+run_success "AI GNHF remains opt-in" "AI GNHF subcomponent: false" \
+  ./install.sh --dry-run --ai
+run_success "AI GNHF dry-run" "common/install-ai.sh --gnhf" \
+  ./install.sh --dry-run --ai --gnhf
+run_success "AI Codex, FirstMate and GNHF together dry-run" \
+  "common/install-ai.sh --codex --firstmate --gnhf" \
+  ./install.sh --dry-run --ai --codex --firstmate --gnhf
+run_success "AI backpass remains opt-in" "AI backpass subcomponent: false" \
+  ./install.sh --dry-run --ai
+run_success "AI backpass dry-run" "common/install-ai.sh --backpass" \
+  ./install.sh --dry-run --ai --backpass
+run_success "AI backpass does not require FirstMate" \
+  "common/install-ai.sh --backpass" \
+  ./install.sh --dry-run --ai --backpass
+run_success "AI everything together dry-run" \
+  "common/install-ai.sh --codex --firstmate --gnhf --backpass" \
+  ./install.sh --dry-run --ai --codex --firstmate --gnhf --backpass
+run_success "Standalone AI dry-run" "Herdr:                installed via mise" \
+  ./scripts/install-ai.sh --dry-run
 run_success "Sway dry-run forwards local setup" \
   "platforms/fedora/scripts/setup-local.sh macchiato --sway" \
   ./install.sh --dry-run --sway
@@ -185,6 +219,14 @@ run_failure "VM host and guest are mutually exclusive" \
 run_failure "VM guest excludes laptop hardware" \
   "--vm-guest and --hardware cannot be combined" \
   ./install.sh --dry-run --vm-guest --hardware ga402xz
+run_failure "Codex requires the AI profile" "--codex requires --ai" \
+  ./install.sh --dry-run --codex
+run_failure "FirstMate requires the AI profile" "--firstmate requires --ai" \
+  ./install.sh --dry-run --firstmate
+run_failure "GNHF requires the AI profile" "--gnhf requires --ai" \
+  ./install.sh --dry-run --gnhf
+run_failure "backpass requires the AI profile" "--backpass requires --ai" \
+  ./install.sh --dry-run --backpass
 
 if find "$test_root/home" "$test_root/config" "$test_root/data" \
   "$test_root/cache" -mindepth 1 -print -quit | grep -q .; then
