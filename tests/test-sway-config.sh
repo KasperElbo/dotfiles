@@ -20,14 +20,34 @@ command -v stow >/dev/null 2>&1 || {
 
 # The dollar-prefixed strings below are literal Sway variables.
 # shellcheck disable=SC2016
+grep -Fq 'set $alt Mod1' "$config"
+# shellcheck disable=SC2016
 for shortcut in \
   'bindsym $mod+Return exec ghostty' \
   'bindsym $mod+p exec fuzzel' \
   'bindsym $mod+Shift+c kill' \
   'bindsym $mod+f fullscreen toggle' \
+  'bindsym $mod+$alt+k input type:keyboard xkb_switch_layout next' \
   'bindsym $mod+Shift+s exec sway-screenshot region' \
   'bindsym $mod+Ctrl+$left exec sway-workspace-grid left'; do
   grep -Fq "$shortcut" "$config"
+done
+
+grep -Fq 'input type:keyboard {' "$config"
+grep -Fq 'xkb_layout "us,dk"' "$config"
+
+# Keep hardware controls intact when adding keyboard input configuration.
+for binding in \
+  'bindsym XF86AudioRaiseVolume exec wpctl set-volume' \
+  'bindsym XF86AudioLowerVolume exec wpctl set-volume' \
+  'bindsym XF86AudioMute exec wpctl set-mute' \
+  'bindsym XF86AudioMicMute exec wpctl set-mute' \
+  'bindsym XF86MonBrightnessUp exec brightnessctl' \
+  'bindsym XF86MonBrightnessDown exec brightnessctl' \
+  'bindsym XF86AudioPlay exec playerctl play-pause' \
+  'bindsym XF86AudioNext exec playerctl next' \
+  'bindsym XF86AudioPrev exec playerctl previous'; do
+  grep -Fq "$binding" "$config"
 done
 
 grep -Fq 'exec /usr/libexec/lxqt-policykit-agent' "$config"
@@ -42,10 +62,22 @@ if grep -Ev '^[[:space:]]*#' "$config" | grep -Eq 'suspend|hibernate'; then
 fi
 
 for module in \
-  sway/workspaces sway/window tray custom/power-profile network bluetooth \
+  sway/workspaces sway/window tray custom/power-profile sway/language network bluetooth \
   pulseaudio battery clock; do
   grep -Fq "\"$module\"" "$waybar"
 done
+
+grep -Fq '"format": "{short}"' "$waybar"
+grep -Fq \
+  '"on-click": "swaymsg input type:keyboard xkb_switch_layout next"' \
+  "$waybar"
+grep -Fq '#language' \
+  "$fedora_stow/waybar/.config/waybar/style.css"
+
+# Backticks are literal Markdown delimiters.
+# shellcheck disable=SC2016
+grep -Fq '| `Super+Alt+K` | Switch between US and Danish keyboard layouts |' \
+  "$repo_root/README.md"
 
 stow_home="$test_root/home"
 mkdir -p \

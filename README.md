@@ -1659,6 +1659,38 @@ the assets and in `LICENSES/Catppuccin.txt`.
 
 ---
 
+# Keyboard layouts
+
+Fedora KDE and Sway use the same two-layout workflow:
+
+| Shortcut | Action |
+|---|---|
+| `Super+Alt+K` | Switch between US and Danish keyboard layouts |
+
+The Sway profile tracks `us,dk` for `input type:keyboard`, so the setting also
+applies to external keyboards connected after login. Waybar's native
+`sway/language` module shows the active XKB layout as the compact code `us` or
+`dk`, updates from Sway input events immediately, and can also be clicked to
+switch layouts.
+
+Plasma 6 already uses `Meta+Alt+K` as the default shortcut for **Switch to Next
+Keyboard Layout**. Layout selection remains a one-time desktop preference so
+the dotfiles do not overwrite other settings in `kxkbrc` or the user's global
+shortcuts:
+
+1. Open **System Settings → Keyboard → Layouts** and enable layout management.
+2. Add **English (US)** followed by **Danish**, with no layout variants unless
+   intentionally needed.
+3. Open **Configure Switching…**, keep **Switching layout affects** set to
+   **All windows**, and confirm **Change layout** is `Meta+Alt+K`.
+4. Apply the changes. Plasma's keyboard-layout tray item provides the active
+   layout indicator.
+
+These entries are part of the shared KDE/Sway keyboard workflow and should be
+included when the printable profile cheat sheets from issue #72 are generated.
+
+---
+
 # Optional Sway session
 
 `./install.sh --sway` produces a complete daily-driver session while leaving
@@ -1690,15 +1722,17 @@ from workspace 1 selects 3, and moving up from workspace 1 selects 7.
 | `Super+F` | Toggle fullscreen |
 | `Super+Shift+C` | Close the focused window |
 | `Super+Shift+X` | Lock the session |
+| `Super+Alt+K` | Switch between US and Danish keyboard layouts |
 | `Super+N` / `Super+Shift+N` | Dismiss / restore a Mako notification |
 | `Super+Shift+V` | Open clipboard history |
 | ASUS screenshot key / `Print` | Select and annotate a screenshot region |
 | `Shift+Print` | Save the current output to `~/Pictures/Screenshots` |
 
 Waybar remains visible and shows workspaces, the focused title, a compact system
-tray, power profile, network, Bluetooth, audio, battery, and clock. Clicking
-network, Bluetooth, or audio opens `nm-connection-editor`, `blueman-manager`,
-or `pavucontrol`. Notifications use Mako. The Xwayland Video Bridge remains
+tray, power profile, active keyboard layout, network, Bluetooth, audio, battery,
+and clock. Clicking the layout code switches layouts; clicking network,
+Bluetooth, or audio opens `nm-connection-editor`, `blueman-manager`, or
+`pavucontrol`. Notifications use Mako. The Xwayland Video Bridge remains
 available for legacy application screen sharing, but its helper window is kept
 in Sway's hidden scratchpad instead of occupying a tile.
 
