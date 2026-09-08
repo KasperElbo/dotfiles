@@ -22,6 +22,7 @@ packages=(
   gh
   git
   git-delta
+  libicu
   make
   neovim
   openssh-clients
