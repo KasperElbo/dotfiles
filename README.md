@@ -2155,14 +2155,37 @@ nvim .
 
 `dune init proj hello` is the easiest starting point for a new application: it
 creates `dune-project` plus `bin`, `lib`, and `test` directories. To make its
-executable debuggable with Earlybird, ensure the executable stanza in
-`bin/dune` includes bytecode mode:
+executable debuggable with Earlybird, two changes are required.
+
+First, ensure the executable stanza in `bin/dune` includes bytecode mode:
 
 ```lisp
 (executable
  (name main)
  (modes byte exe))
 ```
+
+Second, add `(map_workspace_root false)` to `dune-project`. Dune 3.0 and above
+remaps build-tree paths in a way that prevents Earlybird from resolving
+breakpoints back to source files; `dune init proj` does not add this line, so
+it must be added by hand:
+
+```lisp
+(lang dune 3.14)
+
+(map_workspace_root false)
+
+(name hello)
+```
+
+Without this, breakpoints will silently never verify and the debug session
+will run to completion without stopping, even though the build and launch
+otherwise succeed. Note also that OCaml's bytecode debug info only attaches
+to actual sub-expressions: a bare one-line `let () = print_endline "..."` (the
+`dune init proj` default) has no breakpointable location on its single line.
+Use a program with at least one real intermediate expression (for example a
+`let` binding on its own line before the final call) if you want to test that
+breakpoints are hit.
 
 Use the executable name declared by the project's `dune` files with
 `dune exec`. For an existing repository, begin with
@@ -2223,11 +2246,14 @@ The adapter supports normal launch, breakpoints, stepping, stack inspection,
 and variables through `nvim-dap`. It is restricted to bytecode executables;
 native binaries are not supported. It is also a launch configuration, not a
 general attach-to-an-already-running-native-process workflow. Earlybird has
-known limitations, including Dune workspace-root handling, so projects should
-use Dune 3.7 or newer and include `(map_workspace_root false)` when source
-breakpoints do not resolve correctly. The repository's smoke fixture exercises
-the required bytecode build shape; the interactive breakpoint itself must be
-checked in Neovim because it depends on the editor session.
+known limitations around Dune's workspace-root handling (see
+[Project workflow](#project-workflow) for the required `dune-project`
+setting); `OCaml: build and debug Dune executable` checks for
+`(map_workspace_root false)` before launching and aborts with an explicit
+error if it is missing, rather than starting a session that can never stop at
+a breakpoint. The repository's smoke fixture exercises the required bytecode
+build shape; the interactive breakpoint itself must be checked in Neovim
+because it depends on the editor session.
 
 ---
 
