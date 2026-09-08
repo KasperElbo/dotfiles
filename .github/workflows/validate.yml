@@ -33,7 +33,7 @@ jobs:
       - name: Install validation dependencies
         run: >-
           dnf --assumeyes --setopt=install_weak_deps=False
-          install git jq neovim ShellCheck stow
+          install git jq neovim python3 ripgrep ShellCheck stow
 
       - name: Check out repository
         uses: actions/checkout@v7
