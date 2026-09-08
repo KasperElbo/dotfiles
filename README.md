@@ -1423,6 +1423,7 @@ canonical package names live in `nvim-lazyvim/.config/nvim/mason-packages.txt`:
 | `js-debug-adapter` | LazyVim TypeScript extra when DAP is enabled | JavaScript and TypeScript debugging |
 | `json-lsp` | LazyVim JSON extra | JSON language support |
 | `lua-language-server` | LazyVim core | Lua language support for Neovim configuration |
+| `marksman` | LazyVim Markdown extra | Markdown links, references and document navigation |
 | `netcoredbg` | `lua/plugins/dotnet.lua` | Debug adapter binary used by EasyDotnet |
 | `pyright` | LazyVim Python extra | Python language server and type checking |
 | `roslyn` | `lua/plugins/dotnet.lua` | C# language server used by `roslyn.nvim` |
@@ -1761,6 +1762,38 @@ the assets and in `LICENSES/Catppuccin.txt`.
 
 ---
 
+# Keyboard layouts
+
+Fedora KDE and Sway use the same two-layout workflow:
+
+| Shortcut | Action |
+|---|---|
+| `Super+Alt+K` | Switch between US and Danish keyboard layouts |
+
+The Sway profile tracks `us,dk` for `input type:keyboard`, so the setting also
+applies to external keyboards connected after login. Waybar's native
+`sway/language` module shows the active XKB layout as the compact code `us` or
+`dk`, updates from Sway input events immediately, and can also be clicked to
+switch layouts.
+
+Plasma 6 already uses `Meta+Alt+K` as the default shortcut for **Switch to Next
+Keyboard Layout**. Layout selection remains a one-time desktop preference so
+the dotfiles do not overwrite other settings in `kxkbrc` or the user's global
+shortcuts:
+
+1. Open **System Settings → Keyboard → Layouts** and enable layout management.
+2. Add **English (US)** followed by **Danish**, with no layout variants unless
+   intentionally needed.
+3. Open **Configure Switching…**, keep **Switching layout affects** set to
+   **All windows**, and confirm **Change layout** is `Meta+Alt+K`.
+4. Apply the changes. Plasma's keyboard-layout tray item provides the active
+   layout indicator.
+
+These entries are part of the shared KDE/Sway keyboard workflow and should be
+included when the printable profile cheat sheets from issue #72 are generated.
+
+---
+
 # Optional Sway session
 
 `./install.sh --sway` produces a complete daily-driver session while leaving
@@ -1792,15 +1825,17 @@ from workspace 1 selects 3, and moving up from workspace 1 selects 7.
 | `Super+F` | Toggle fullscreen |
 | `Super+Shift+C` | Close the focused window |
 | `Super+Shift+X` | Lock the session |
+| `Super+Alt+K` | Switch between US and Danish keyboard layouts |
 | `Super+N` / `Super+Shift+N` | Dismiss / restore a Mako notification |
 | `Super+Shift+V` | Open clipboard history |
 | ASUS screenshot key / `Print` | Select and annotate a screenshot region |
 | `Shift+Print` | Save the current output to `~/Pictures/Screenshots` |
 
 Waybar remains visible and shows workspaces, the focused title, a compact system
-tray, power profile, network, Bluetooth, audio, battery, and clock. Clicking
-network, Bluetooth, or audio opens `nm-connection-editor`, `blueman-manager`,
-or `pavucontrol`. Notifications use Mako. The Xwayland Video Bridge remains
+tray, power profile, active keyboard layout, network, Bluetooth, audio, battery,
+and clock. Clicking the layout code switches layouts; clicking network,
+Bluetooth, or audio opens `nm-connection-editor`, `blueman-manager`, or
+`pavucontrol`. Notifications use Mako. The Xwayland Video Bridge remains
 available for legacy application screen sharing, but its helper window is kept
 in Sway's hidden scratchpad instead of occupying a tile.
 
@@ -2497,6 +2532,53 @@ test, format, and bytecode targets using the configured profile switch. These la
 download-based checks are intentionally separate from `scripts/test.sh`; the
 normal repository suite validates their configuration without fetching
 language ecosystems.
+
+---
+
+# Markdown
+
+Markdown authoring is part of the default shared LazyVim profile. LazyVim owns
+the Markdown extra and its plugins; Mason owns the editor-facing Marksman
+binary. A repository's Prettier, Markdown linter and table-of-contents tooling
+remain project-local.
+
+LazyVim core already provides the `markdown` and `markdown_inline` Tree-sitter
+parsers, including injected highlighting for installed fenced-code languages,
+plus wrapped, spellchecked Markdown buffers. The Markdown extra adds GFM-aware
+rendering, link intelligence, link/document diagnostics and browser preview.
+Catppuccin colours the in-editor rendered headings, code blocks, links and
+tables.
+
+The extra's global markdownlint-cli2 and markdown-toc integrations are
+deliberately disabled. Their default style policy is too noisy for a common
+profile and can overlap project formatting. Projects that require them should
+declare and configure them locally; Conform already uses a project's local
+Prettier when it is available.
+
+Useful Markdown bindings:
+
+```text
+gd            follow an internal file or heading link through Marksman
+Ctrl-o        return after following a link
+gx            open the URL under the cursor
+<leader>cp    toggle the live browser preview
+<leader>um    toggle rendered Markdown inside Neovim
+
+<leader>mt    insert a GFM table
+Alt-l / Alt-h move to the next/previous table cell
+<leader>mr    insert a table row below
+<leader>mc    insert a table column to the right
+```
+
+The remaining row and column operations are discoverable under `<leader>m`
+through WhichKey. Tables are real Markdown source and are aligned on leaving
+insert mode; the browser preview remains the final check for GitHub rendering.
+
+On Fedora and Parrot, the preview opens through the distro-owned `xdg-open`.
+On Fedora WSL, the platform adapter routes both `gx` and preview URLs through
+the existing `wsl-open` helper to the Windows browser even though Windows PATH
+inheritance is disabled. macOS can use the preview plugin's native `open`
+support without a common-config change.
 
 ---
 
