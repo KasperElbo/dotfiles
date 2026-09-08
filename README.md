@@ -1320,6 +1320,7 @@ canonical package names live in `nvim-lazyvim/.config/nvim/mason-packages.txt`:
 | `js-debug-adapter` | LazyVim TypeScript extra when DAP is enabled | JavaScript and TypeScript debugging |
 | `json-lsp` | LazyVim JSON extra | JSON language support |
 | `lua-language-server` | LazyVim core | Lua language support for Neovim configuration |
+| `marksman` | LazyVim Markdown extra | Markdown links, references and document navigation |
 | `netcoredbg` | `lua/plugins/dotnet.lua` | Debug adapter binary used by EasyDotnet |
 | `pyright` | LazyVim Python extra | Python language server and type checking |
 | `roslyn` | `lua/plugins/dotnet.lua` | C# language server used by `roslyn.nvim` |
@@ -2394,6 +2395,53 @@ test, format, and bytecode targets using the configured profile switch. These la
 download-based checks are intentionally separate from `scripts/test.sh`; the
 normal repository suite validates their configuration without fetching
 language ecosystems.
+
+---
+
+# Markdown
+
+Markdown authoring is part of the default shared LazyVim profile. LazyVim owns
+the Markdown extra and its plugins; Mason owns the editor-facing Marksman
+binary. A repository's Prettier, Markdown linter and table-of-contents tooling
+remain project-local.
+
+LazyVim core already provides the `markdown` and `markdown_inline` Tree-sitter
+parsers, including injected highlighting for installed fenced-code languages,
+plus wrapped, spellchecked Markdown buffers. The Markdown extra adds GFM-aware
+rendering, link intelligence, link/document diagnostics and browser preview.
+Catppuccin colours the in-editor rendered headings, code blocks, links and
+tables.
+
+The extra's global markdownlint-cli2 and markdown-toc integrations are
+deliberately disabled. Their default style policy is too noisy for a common
+profile and can overlap project formatting. Projects that require them should
+declare and configure them locally; Conform already uses a project's local
+Prettier when it is available.
+
+Useful Markdown bindings:
+
+```text
+gd            follow an internal file or heading link through Marksman
+Ctrl-o        return after following a link
+gx            open the URL under the cursor
+<leader>cp    toggle the live browser preview
+<leader>um    toggle rendered Markdown inside Neovim
+
+<leader>mt    insert a GFM table
+Alt-l / Alt-h move to the next/previous table cell
+<leader>mr    insert a table row below
+<leader>mc    insert a table column to the right
+```
+
+The remaining row and column operations are discoverable under `<leader>m`
+through WhichKey. Tables are real Markdown source and are aligned on leaving
+insert mode; the browser preview remains the final check for GitHub rendering.
+
+On Fedora and Parrot, the preview opens through the distro-owned `xdg-open`.
+On Fedora WSL, the platform adapter routes both `gx` and preview URLs through
+the existing `wsl-open` helper to the Windows browser even though Windows PATH
+inheritance is disabled. macOS can use the preview plugin's native `open`
+support without a common-config change.
 
 ---
 

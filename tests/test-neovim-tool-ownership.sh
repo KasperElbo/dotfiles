@@ -24,6 +24,7 @@ lazyvim_extras=(
   lazyvim.plugins.extras.dap.core
   lazyvim.plugins.extras.lang.angular
   lazyvim.plugins.extras.lang.json
+  lazyvim.plugins.extras.lang.markdown
   lazyvim.plugins.extras.lang.python
   lazyvim.plugins.extras.lang.tex
   lazyvim.plugins.extras.lang.yaml
@@ -100,6 +101,7 @@ expected_mason_packages=(
   js-debug-adapter
   json-lsp
   lua-language-server
+  marksman
   netcoredbg
   pyright
   roslyn
@@ -156,6 +158,8 @@ project_tools=(
   ocaml-lsp-server
   ocamlformat
   utop
+  markdown-toc
+  markdownlint-cli2
 )
 
 for tool in "${project_tools[@]}"; do

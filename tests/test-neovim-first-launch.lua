@@ -27,10 +27,36 @@ assert(easy_dotnet.opts.debugger.bin_path == "/not-installed-yet/libexec/netcore
 local inventory_path = "nvim-lazyvim/.config/nvim/mason-packages.txt"
 local mason_config = dofile("nvim-lazyvim/.config/nvim/lua/config/mason.lua")
 local packages = mason_config.packages(inventory_path)
-assert(#packages == 15, "expected the complete Mason package inventory")
+assert(#packages == 16, "expected the complete Mason package inventory")
 assert(vim.tbl_contains(packages, "debugpy"), "debugpy is missing from the Mason inventory")
+assert(vim.tbl_contains(packages, "marksman"), "marksman is missing from the Mason inventory")
 assert(vim.tbl_contains(packages, "roslyn"), "roslyn is missing from the Mason inventory")
 assert(not vim.tbl_contains(packages, "ocaml-lsp"), "OCaml LSP must remain opam-owned")
+
+local markdown_plugins = dofile("nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua")
+local markdown_mason
+local markdown_lint
+local markdown_table
+for _, plugin in ipairs(markdown_plugins) do
+  if plugin[1] == "mason-org/mason.nvim" then
+    markdown_mason = plugin
+  elseif plugin[1] == "mfussenegger/nvim-lint" then
+    markdown_lint = plugin
+  elseif plugin[1] == "SCJangra/table-nvim" then
+    markdown_table = plugin
+  end
+end
+
+assert(markdown_mason and markdown_lint and markdown_table, "Markdown plugin ownership specs are incomplete")
+local markdown_mason_opts = { ensure_installed = { "markdown-toc", "marksman", "markdownlint-cli2" } }
+markdown_mason.opts(nil, markdown_mason_opts)
+assert(vim.deep_equal(markdown_mason_opts.ensure_installed, { "marksman" }), "project Markdown tools leaked into Mason")
+
+local markdown_lint_opts = { linters_by_ft = { markdown = { "markdownlint-cli2" }, yaml = { "yamllint" } } }
+markdown_lint.opts(nil, markdown_lint_opts)
+assert(markdown_lint_opts.linters_by_ft.markdown == nil, "global Markdown style linting remains enabled")
+assert(markdown_lint_opts.linters_by_ft.yaml[1] == "yamllint", "unrelated lint configuration was changed")
+assert(markdown_table.opts.mappings.next ~= "<Tab>", "table navigation overrides LazyVim Tab completion")
 
 local previous_mason_module = package.loaded["config.mason"]
 local previous_bootstrap = vim.env.DOTFILES_MASON_BOOTSTRAP

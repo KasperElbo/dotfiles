@@ -16,6 +16,7 @@ tests=(
   tests/test-sway-config.sh
   tests/test-neovim-tool-ownership.sh
   tests/test-neovim-bootstrap.sh
+  tests/test-markdown-workflow.sh
   tests/test-ocaml-profile.sh
   tests/test-idempotency.sh
   tests/test-asus-preflight.sh
