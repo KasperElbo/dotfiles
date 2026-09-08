@@ -57,6 +57,19 @@ grep -Fq -- 'Elevated console output' "$installer"
 grep -Fq -- 'See the elevated console output above for the actual error' \
   "$installer"
 
+# Start-Process -Verb RunAs is known to intermittently fail to launch or
+# track the elevated process with a generic error, unrelated to the elevated
+# phase itself; requesting elevation must be retried rather than failing the
+# whole install on a transient Windows/UAC hiccup.
+invoke_elevated_phase_body="$(awk '/^function Invoke-ElevatedPhase/,/^}/' "$installer")"
+grep -Fq 'maxAttempts' <<<"$invoke_elevated_phase_body"
+grep -Fq 'Retrying' <<<"$invoke_elevated_phase_body"
+start_process_call="Start-Process -FilePath \$powerShellPath -ArgumentList \$arguments -Verb RunAs -Wait -PassThru"
+if [[ "$(grep -Fc -- "$start_process_call" <<<"$invoke_elevated_phase_body")" -ne 1 ]]; then
+  printf 'Invoke-ElevatedPhase must call Start-Process -Verb RunAs from a single call site.\n' >&2
+  exit 1
+fi
+
 grep -Fq 'https://get.scoop.sh' "$installer"
 grep -Fq 'https://github.com/amanthanvi/scoop-noctty' "$installer"
 grep -Fq "'install', 'noctty/noctty'" "$installer"

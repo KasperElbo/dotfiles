@@ -212,8 +212,28 @@ function Invoke-ElevatedPhase {
         '-ElevatedLogPath', ('"{0}"' -f $logPath)
     ) + $ExtraArguments
 
+    # Start-Process -Verb RunAs is known to intermittently fail to launch or
+    # track the elevated process with a generic "the system cannot find all
+    # the information required" error -- a transient Windows UAC/ShellExecute
+    # quirk, not a problem with the elevated phase itself. Retrying is safe
+    # because the elevated phase is idempotent (it checks what is already
+    # installed before doing anything).
+    $maxAttempts = 3
+    $process = $null
     try {
-        $process = Start-Process -FilePath $powerShellPath -ArgumentList $arguments -Verb RunAs -Wait -PassThru
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            try {
+                $process = Start-Process -FilePath $powerShellPath -ArgumentList $arguments -Verb RunAs -Wait -PassThru
+                break
+            }
+            catch {
+                if ($attempt -ge $maxAttempts) {
+                    throw
+                }
+                Write-Warning "Requesting administrator approval failed (attempt $attempt of ${maxAttempts}): $($_.Exception.Message). Retrying..."
+                Start-Sleep -Seconds 2
+            }
+        }
     }
     finally {
         if (Test-Path -LiteralPath $logPath) {
