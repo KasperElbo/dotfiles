@@ -60,6 +60,30 @@ function M.parse_rule_targets(output)
   return targets
 end
 
+function M.check_workspace_root(dune_project_content)
+  local lang_major = dune_project_content:match("%(lang%s+dune%s+(%d+)%.")
+  if not lang_major or tonumber(lang_major) < 3 then
+    return nil
+  end
+
+  if dune_project_content:match("%(map_workspace_root%s+false%)") then
+    return nil
+  end
+
+  return "Add (map_workspace_root false) to dune-project: Earlybird cannot resolve "
+    .. "breakpoints under Dune 3.0+ without it."
+end
+
+function M.check_dune_project(root, read_file)
+  local read = read_file or vim.fn.readfile
+  local ok, lines = pcall(read, root .. "/dune-project")
+  if not ok or not lines then
+    return nil
+  end
+
+  return M.check_workspace_root(table.concat(lines, "\n"))
+end
+
 function M.discover_targets(root, runner)
   local run = runner or run_command
   local result = run({
@@ -160,6 +184,11 @@ function M.dune_program()
   local root = M.project_root(0)
   if not root then
     return abort("No dune-project or dune-workspace was found above the current OCaml file")
+  end
+
+  local workspace_root_error = M.check_dune_project(root)
+  if workspace_root_error then
+    return abort(workspace_root_error)
   end
 
   local targets, discovery_error = M.discover_targets(root)

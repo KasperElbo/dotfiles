@@ -55,6 +55,22 @@ assert(vim.deep_equal(targets, {
   "_build/dev/tools/admin.bc",
 }), "only unique Earlybird-compatible .bc targets should be discovered, ignoring .exe/.bc.js and action arguments")
 
+assert(dune.check_workspace_root("(lang dune 2.9)\n(name hello)\n") == nil,
+  "pre-3.0 dune-project files do not need map_workspace_root")
+assert(dune.check_workspace_root("(lang dune 3.14)\n(map_workspace_root false)\n(name hello)\n") == nil,
+  "map_workspace_root false satisfies the check")
+local missing_root_error = dune.check_workspace_root("(lang dune 3.14)\n(name hello)\n")
+assert(missing_root_error and missing_root_error:match("map_workspace_root false"),
+  "dune lang 3.0+ without map_workspace_root false should be flagged")
+
+assert(dune.check_dune_project("/tmp/example", function()
+  error("dune-project not found")
+end) == nil, "a missing dune-project must not block debugging")
+assert(dune.check_dune_project("/tmp/example", function(path)
+  assert(path == "/tmp/example/dune-project")
+  return { "(lang dune 3.14)", "(name hello)" }
+end):match("map_workspace_root false"))
+
 local discovered = assert(dune.discover_targets("/tmp/example", function(args, options)
   assert(vim.deep_equal(args, {
     "opam",
@@ -144,6 +160,24 @@ assert(dune.dune_program() == abort_token, "missing Dune roots should abort DAP 
 assert(notification.message:match("No dune%-project or dune%-workspace"))
 assert(notification.level == vim.log.levels.ERROR)
 dune.project_root = original_project_root
+vim.notify = original_notify
+
+local original_check_dune_project = dune.check_dune_project
+dune.project_root = function()
+  return "/tmp/example"
+end
+dune.check_dune_project = function()
+  return "Add (map_workspace_root false) to dune-project: Earlybird cannot resolve "
+    .. "breakpoints under Dune 3.0+ without it."
+end
+vim.notify = function(message, level, options)
+  notification = { message = message, level = level, options = options }
+end
+assert(dune.dune_program() == abort_token, "a missing map_workspace_root setting should abort DAP cleanly")
+assert(notification.message:match("map_workspace_root false"))
+assert(notification.level == vim.log.levels.ERROR)
+dune.project_root = original_project_root
+dune.check_dune_project = original_check_dune_project
 vim.notify = original_notify
 
 print("OCaml Dune DAP checks passed.")

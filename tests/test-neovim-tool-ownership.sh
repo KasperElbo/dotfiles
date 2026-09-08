@@ -85,6 +85,8 @@ assert_contains "$ocaml_dune_config" '%(targets%s*%(%(files%s*%('
 assert_contains "$ocaml_dune_config" '"dune", "build", target'
 assert_contains "$ocaml_dune_config" 'last_target_by_root'
 assert_contains "$ocaml_dune_config" 'return require("dap").ABORT'
+assert_contains "$ocaml_dune_config" '%(map_workspace_root%s+false%)'
+assert_contains "$ocaml_dune_config" 'check_dune_project(root)'
 
 assert_contains "$repo_root/platforms/fedora/scripts/install-system.sh" '  ShellCheck'
 
