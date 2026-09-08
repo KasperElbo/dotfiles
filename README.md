@@ -535,6 +535,28 @@ Unchanged from native Fedora: `podman compose`, the SELinux-label table, the
 common command list, and the `depends_on` hang caveat below all apply
 identically inside WSL.
 
+**Docker Desktop's WSL integration can shadow `podman-compose`.** If Docker
+Desktop is installed on the Windows host with WSL integration enabled for
+this distribution, `podman compose` may pick its external compose provider
+search and run Docker Desktop's own `docker-compose` (typically
+`/mnt/c/Program Files/Docker/Docker/resources/bin/docker-compose`) instead
+of the DNF-installed `podman-compose` — confirmed on real Fedora WSL, where
+it produced a fast, unambiguous failure (`Executing external compose
+provider ".../docker-compose"`, then `The command 'docker-compose' could
+not be found in this WSL 2 distro`) rather than a silent wrong-provider run.
+This is Windows-PATH leakage into the distro, the same category of issue
+this repository's "PATH and Windows interoperability" section addresses
+generally, just via `podman compose`'s own provider search rather than an
+interactive shell's `$PATH`. It is not a bug in this profile's scripts, and
+the fix is on the Windows/Docker Desktop side, not something to work around
+here: in Docker Desktop, Settings → Resources → WSL Integration, disable
+integration for this distribution (or uninstall Docker Desktop's WSL
+integration entirely if you don't use it), then reopen the distribution and
+retry. This is also a concrete, real example of why this profile never
+installs Docker Engine or Docker Desktop as a parallel runtime inside
+WSL — the point is to avoid exactly this kind of provider ambiguity, not
+just the redundant daemon.
+
 ### Validation status
 
 This support was implemented and regression-tested against this
@@ -543,21 +565,31 @@ bash-script tests exercising the actual install/verify scripts end to end,
 see `tests/test-containers-wsl.sh`) in an environment with no real Windows
 + WSL2 + Fedora machine available.
 
-It has since been run on a real Fedora WSL machine
-(`./install.sh --platform fedora-wsl --containers`), which surfaced exactly
-the kind of gap that mock-only testing cannot catch: the original
-`systemd_is_running` check (PID 1 only) passed, but no `systemd --user`
-session was reachable, so `podman network create`, the build step's
-run-the-built-image check, and Compose all failed while everything else
-passed — see the "systemd" bullet above for the failure signature and fix.
-After applying that fix (checking for the reachable `systemd --user`
-session bus, not just PID 1) and running `sudo loginctl enable-linger
-"$(id -un)"` followed by a WSL restart, the same machine completed
-`./install.sh --platform fedora-wsl --containers` end to end, including the
-full pull/run/build/bind-mount/named-volume/localhost-port/
-container-network/Compose smoke test that `install-containers.sh` always
-runs immediately after installing. This is now confirmed working on real
-Fedora WSL, not just against this repository's mocked test suite.
+It has since been run repeatedly on a real Fedora WSL machine
+(`./install.sh --platform fedora-wsl --containers`), which surfaced two
+issues mock-only testing cannot catch, both now resolved:
+
+1. The original `systemd_is_running` check (PID 1 only) passed, but no
+   `systemd --user` session was reachable, so `podman network create`, the
+   build step's run-the-built-image check, and Compose all failed while
+   everything else passed — see the "systemd" bullet above for the failure
+   signature and fix (checking the reachable `systemd --user` session bus,
+   not just PID 1, plus `sudo loginctl enable-linger "$(id -un)"` and a WSL
+   restart).
+2. After that fix, a subsequent run got further — pull, run, build, the
+   `:Z`-labeled bind mount, the named volume, localhost port publishing,
+   and container-to-container networking all passed — but Compose still
+   failed, this time because of Docker Desktop's WSL integration shadowing
+   `podman-compose` (see "Compose and everyday commands" above). That is
+   an environment issue on the Windows/Docker Desktop side, not a bug in
+   this profile's scripts, and was resolved by disabling Docker Desktop's
+   WSL integration for the distribution.
+
+With both resolved, every step this profile validates — `podman version`,
+rootless status, pull, run, build, bind mount, named volume, localhost
+port publishing, container networking, and Compose — has been confirmed
+working on real Fedora WSL, not just against this repository's mocked test
+suite.
 
 ## Git, SSH and GitHub authentication
 
