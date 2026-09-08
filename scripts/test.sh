@@ -14,6 +14,7 @@ tests=(
   tests/test-theme.sh
   tests/test-kde-theme.sh
   tests/test-sway-config.sh
+  tests/test-cheatsheet-bindings.sh
   tests/test-neovim-tool-ownership.sh
   tests/test-neovim-bootstrap.sh
   tests/test-markdown-workflow.sh

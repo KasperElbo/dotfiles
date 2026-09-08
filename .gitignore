@@ -4,3 +4,12 @@
 # OCaml/Dune build artifacts
 _build/
 *.install
+
+# Cheat sheet LaTeX build output (docs/cheatsheets/generate.sh); the tracked
+# .tex source is the source of truth, not these regenerable derived files.
+docs/cheatsheets/*.pdf
+docs/cheatsheets/*.aux
+docs/cheatsheets/*.log
+docs/cheatsheets/*.fls
+docs/cheatsheets/*.fdb_latexmk
+docs/cheatsheets/*.synctex.gz

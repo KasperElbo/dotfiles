@@ -1,0 +1,67 @@
+% Shared terminal/development workflow block, \input by every profile sheet.
+% Keep this in sync with docs/keybindings.md; regenerate all sheets together
+% (see docs/cheatsheets/README.md) after editing either file.
+\cssection{Ghostty}
+\csnote{No \texttt{keybind =} is set anywhere in this config --- every shortcut is an unmodified upstream default (varies by platform/version).}
+Ghostty owns tabs/splits/zoom locally; tmux does not duplicate this. Copy/paste use the platform's normal clipboard shortcut (\texttt{Ctrl+Shift+C/V} on Linux/Wayland, \texttt{Cmd+C/V} on macOS).\par
+\cslegend{\texttt{ghostty +list-keybinds --default} $\to$ exact tab/split/zoom/reload keys.}
+
+\cssection{Shell (Zsh)}
+\begin{cskeys}{0.30\linewidth}
+\csrow{ls / ll / la}{eza short / long+git / all}
+\csrow{tree}{eza --tree}
+\csrow{cat}{bat (syntax highlight)}
+\csrow{theme <f>}{switch Catppuccin flavour}
+\end{cskeys}
+\csnote{<f> is one of latte, frappe, macchiato, mocha; add --preserve-wallpaper to keep the current desktop background.}
+
+\cssection{fzf (upstream defaults)}
+\begin{cskeys}{0.20\linewidth}
+\csrow{Ctrl+R}{fuzzy history search}
+\csrow{Ctrl+T}{fuzzy file selection}
+\csrow{Alt+C}{fuzzy cd into a directory}
+\end{cskeys}
+
+\cssection{zoxide}
+\begin{cskeys}{0.20\linewidth}
+\csrow{z name}{jump to a ranked directory}
+\csrow{zi}{interactive directory picker}
+\end{cskeys}
+
+\cssection{tmux (prefix Ctrl+B, unmodified)}
+\begin{cskeys}{0.30\linewidth}
+\csrow{tmux new -As X}{create/attach session X}
+\csrow{Prefix d}{detach}
+\csrow{Prefix s}{choose session}
+\csrow{Prefix [}{scroll/copy mode}
+\csrow{Prefix ?}{list all key bindings}
+\end{cskeys}
+\csnote{Thin by design: persistence/remote sessions only; Ghostty stays the local tab/split manager.}
+
+\cssection{LazyVim / Neovim}
+\begin{cskeys}{0.20\linewidth}
+\csrow{Space}{WhichKey menu (discover everything)}
+\csrow{<lead>ff}{find files}
+\csrow{<lead>/}{live grep}
+\csrow{<lead>,}{buffers}
+\csrow{S-h/S-l}{prev/next buffer}
+\csrow{gd / gr}{go to definition / references}
+\csrow{K}{hover docs}
+\csrow{<lead>ca}{code action}
+\csrow{<lead>cr}{rename symbol}
+\csrow{<lead>cf}{format buffer}
+\csrow{]d / [d}{next/prev diagnostic}
+\csrow{<lead>xx}{diagnostics list (Trouble)}
+\csrow{<lead>db}{toggle breakpoint (DAP)}
+\csrow{<lead>dc}{start/continue debugging}
+\csrow{<lead>du}{toggle debug UI}
+\csrow{<lead>ft}{floating terminal}
+\csrow{<lead>gg}{Lazygit}
+\end{cskeys}
+\csnote{<lead> is the leader key (Space). Full keymap: press Space and read WhichKey.}
+
+\cssection{Lazygit}
+\begin{cskeys}{0.20\linewidth}
+\csrow{lazygit}{open from any Git repo, or <lead>gg in LazyVim}
+\csrow{?}{contextual key-binding help for the current panel}
+\end{cskeys}

@@ -1,0 +1,111 @@
+% Fedora Sway printable cheat sheet.
+% Source of truth: platforms/fedora/stow/sway/.config/sway/config and
+% platforms/fedora/stow/waybar/.config/waybar/config.jsonc. Regenerate with
+% docs/cheatsheets/generate.sh after editing either the Sway config or this
+% file. tests/test-cheatsheet-bindings.sh fails CI if this file drifts from
+% the tracked Sway/Waybar config.
+\documentclass[9pt]{extarticle}
+\usepackage{cheatsheet}
+
+\begin{document}
+\cssheettitle{Fedora Sway}{Keyboard-first workspace reference --- \$mod is Super (Mod4), \$alt is Alt (Mod1)}
+
+\begin{multicols}{2}
+
+\cssection{Launch}
+\begin{cskeys}{0.30\linewidth}
+\csrow{Super+Enter}{Open Ghostty}
+\csrow{Super+P}{Open Fuzzel (application launcher)}
+\end{cskeys}
+
+\cssection{Navigate}
+\begin{cskeys}{0.30\linewidth}
+\csrow{Super+H/J/K/L}{Focus left/down/up/right}
+\csrow{Super+A}{Focus parent container}
+\csrow{Super+Space}{Toggle focus between tiling/floating}
+\end{cskeys}
+
+\cssection{Move}
+\begin{cskeys}{0.38\linewidth}
+\csrow{Super+Shift+H/J/K/L}{Move focused container left/down/up/right}
+\end{cskeys}
+
+\cssection{Workspaces}
+\begin{cskeys}{0.30\linewidth}
+\csrow{Super+1..9}{Switch to workspace 1-9}
+\csrow{Super+Shift+1..9}{Move container to workspace 1-9}
+\csrow{Super+Ctrl+H/J/K/L}{3x3 grid: left/down/up/right, wraps}
+\end{cskeys}
+\csnote{Grid layout (wraps at every edge):}
+\begin{tabular}{@{}ccc@{}}
+\toprule
+1 & 2 & 3\\
+4 & 5 & 6\\
+7 & 8 & 9\\
+\bottomrule
+\end{tabular}\\[2pt]
+\csnote{e.g. Ctrl+Left from 1 goes to 3; Ctrl+Up from 1 goes to 7 (\texttt{sway-workspace-grid}).}
+
+\cssection{Layout}
+\begin{cskeys}{0.30\linewidth}
+\csrow{Super+B / Super+V}{Split horizontal / vertical}
+\csrow{Super+S / Super+W}{Stacking / tabbed layout}
+\csrow{Super+E}{Toggle split layout}
+\csrow{Super+Shift+Space}{Toggle floating}
+\csrow{Super+F}{Toggle fullscreen}
+\end{cskeys}
+
+\cssection{Resize}
+\begin{cskeys}{0.30\linewidth}
+\csrow{Super+R}{Enter resize mode}
+\csrow{H/J/K/L}{Shrink width / grow height / shrink height / grow width}
+\csrow{Enter, Esc}{Exit resize mode}
+\end{cskeys}
+
+\columnbreak
+
+\cssection{System}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Super+Shift+C}{Kill focused window}
+\csrow{Super+Shift+X}{Lock session (swaylock)}
+\csrow{Super+Shift+R}{Reload Sway config}
+\csrow{Super+Shift+E}{Exit-session confirmation}
+\end{cskeys}
+
+\cssection{Keyboard layout}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Super+Alt+K}{Switch US/Danish keyboard layout}
+\end{cskeys}
+\csnote{Waybar's \texttt{sway/language} module shows the active code (\texttt{us} / \texttt{dk}) and switches layout when clicked. Applies to any keyboard connected after login (\texttt{xkb\_layout "us,dk"}).}
+
+\cssection{Notifications}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Super+N}{Dismiss notification (Mako)}
+\csrow{Super+Shift+N}{Restore last dismissed notification}
+\end{cskeys}
+
+\cssection{Screenshots \& clipboard}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Print, Super+Shift+S}{Select a region, annotate (swappy)}
+\csrow{Shift+Print}{Save full output to \textasciitilde/Pictures/Screenshots}
+\csrow{Super+Shift+V}{Clipboard history (cliphist + Fuzzel)}
+\end{cskeys}
+
+\cssection{Media \& hardware}
+\begin{cskeys}{0.30\linewidth}
+\csrow{Vol Up/Down/Mute}{wpctl volume / mute}
+\csrow{Mic Mute}{wpctl mic mute toggle}
+\csrow{Bright Up/Down}{brightnessctl 5\%}
+\csrow{Play/Next/Prev}{playerctl media control}
+\end{cskeys}
+\csnote{These are the standard XF86 hardware keys; most keyboards send them directly.}
+
+\end{multicols}
+
+\clearpage
+\cssheettitle{Fedora Sway (continued)}{Common terminal / development workflow --- shared with every profile}
+\begin{multicols}{2}
+\input{common-workflow}
+\end{multicols}
+\csfoot{Full keybindings reference: docs/keybindings.md. Sway/Waybar config: platforms/fedora/stow/sway, platforms/fedora/stow/waybar. Regenerate: docs/cheatsheets/generate.sh.}
+\end{document}
