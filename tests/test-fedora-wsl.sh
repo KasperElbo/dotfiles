@@ -22,6 +22,27 @@ assert_contains "$dry_run" 'common/install-ocaml.sh'
 assert_contains "$dry_run" "Set Zsh as the user's default login shell."
 assert_contains "$dry_run" 'Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, desktop,'
 
+containers_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
+assert_contains "$containers_off_dry_run" 'Containers profile: false'
+
+containers_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --containers)"
+assert_contains "$containers_dry_run" 'Containers profile: true'
+assert_contains "$containers_dry_run" \
+  'platforms/fedora-wsl/scripts/install-containers.sh'
+
+containers_socket_dry_run="$("$repo_root/install.sh" --platform fedora-wsl \
+  --dry-run --containers --containers-api-socket)"
+assert_contains "$containers_socket_dry_run" 'Containers API socket: true'
+assert_contains "$containers_socket_dry_run" 'install-containers.sh --api-socket'
+
+if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
+  --containers-api-socket >"$test_root/api-socket-without-containers.log" 2>&1; then
+  printf 'fedora-wsl accepted --containers-api-socket without --containers.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--containers-api-socket requires --containers' \
+  "$test_root/api-socket-without-containers.log"
+
 if "$repo_root/install.sh" --platform unknown --dry-run \
   >"$test_root/invalid.log" 2>&1; then
   printf 'Unknown root platform unexpectedly succeeded.\n' >&2

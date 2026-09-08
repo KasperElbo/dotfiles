@@ -8,6 +8,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/wsl.sh"
 
 theme="macchiato"
 install_ocaml="false"
+install_containers="false"
+containers_api_socket="false"
 interactive="true"
 dry_run="false"
 run_smoke_tests="false"
@@ -24,17 +26,24 @@ Options:
   --ocaml            Install the optional OCaml development profile
   --no-ocaml         Do not install the OCaml profile (default)
 
+  --containers       Install the optional rootless Podman container
+                     development profile (see README.md, "Optional Podman
+                     container development profile"). Requires systemd as
+                     PID 1 inside this WSL distribution.
+  --no-containers    Do not install the containers profile (default)
+  --containers-api-socket
+                     With --containers, enable the rootless, socket-activated
+                     Podman API socket for Docker-compatible client tooling
+                     (default: disabled)
+
   --smoke-test       Run representative development workflow tests after setup
   --dry-run          Show the installation plan without changing anything
   --non-interactive  Use defaults without prompting
 
   -h, --help         Show this help
 
-Desktop, hardware, VM-host/guest, LaTeX, containers and AI profiles are not
-part of the Fedora WSL workstation variant. WSL's rootless networking and
-systemd behavior differ enough from native Fedora that the containers
-profile needs its own evaluation rather than reuse; see README.md's
-"Optional Podman container development profile" for details.
+Desktop, hardware, VM-host/guest, LaTeX and AI profiles are not part of the
+Fedora WSL workstation variant.
 EOF
 }
 
@@ -51,6 +60,18 @@ while (($#)); do
     ;;
   --no-ocaml)
     install_ocaml="false"
+    shift
+    ;;
+  --containers)
+    install_containers="true"
+    shift
+    ;;
+  --no-containers)
+    install_containers="false"
+    shift
+    ;;
+  --containers-api-socket)
+    containers_api_socket="true"
     shift
     ;;
   --smoke-test)
@@ -81,6 +102,10 @@ latte | frappe | macchiato | mocha) ;;
 *) die "Invalid Catppuccin flavour: $theme" ;;
 esac
 
+if [[ "$containers_api_socket" == "true" && "$install_containers" == "false" ]]; then
+  die "--containers-api-socket requires --containers"
+fi
+
 if [[ "$dry_run" == "true" ]]; then
   cat <<EOF
 
@@ -89,6 +114,8 @@ Fedora WSL installation plan
 
 Catppuccin flavour: $theme
 OCaml profile:      $install_ocaml
+Containers profile: $install_containers
+Containers API socket: $containers_api_socket
 Workflow smoke test: $run_smoke_tests
 
 Steps:
@@ -120,6 +147,21 @@ EOF
   $step. Install Fedora OCaml build prerequisites, then create the opam switch.
      platforms/fedora/scripts/install-ocaml.sh
      common/install-ocaml.sh
+EOF
+    step=$((step + 1))
+  fi
+
+  if [[ "$install_containers" == "true" ]]; then
+    containers_suffix=""
+    if [[ "$containers_api_socket" == "true" ]]; then
+      containers_suffix=" --api-socket"
+    fi
+    cat <<EOF
+
+  $step. Check WSL containers prerequisites (systemd, cgroup v2, user
+     namespaces), then install the optional rootless Podman profile.
+     platforms/fedora-wsl/scripts/install-containers.sh$containers_suffix
+     podman, podman-compose; rootless by default, no Docker Engine/alias
 EOF
     step=$((step + 1))
   fi
@@ -158,6 +200,10 @@ if [[ "$interactive" == "true" ]]; then
   printf '%s\n' '-----------------------------------'
   printf 'Catppuccin flavour: %s\n' "$theme"
   printf 'OCaml profile:      %s\n' "$install_ocaml"
+  printf 'Containers profile: %s\n' "$install_containers"
+  if [[ "$install_containers" == "true" ]]; then
+    printf 'Containers API socket: %s\n' "$containers_api_socket"
+  fi
   printf 'Workflow smoke test: %s\n\n' "$run_smoke_tests"
   confirm "Continue with installation?" "y" || exit 0
 fi
@@ -175,6 +221,17 @@ fi
 
 if [[ "$install_ocaml" == "true" ]]; then
   "$DOTFILES_ROOT/common/install-ocaml.sh"
+fi
+
+if [[ "$install_containers" == "true" ]]; then
+  containers_args=()
+  if [[ "$containers_api_socket" == "true" ]]; then
+    containers_args+=(--api-socket)
+  fi
+
+  info "Installing optional Podman containers profile"
+  "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/install-containers.sh" \
+    "${containers_args[@]}"
 fi
 
 "$DOTFILES_ROOT/common/install-tmux-theme.sh"

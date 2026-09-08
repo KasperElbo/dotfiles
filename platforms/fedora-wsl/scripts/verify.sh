@@ -309,6 +309,22 @@ if [[ -f "$ocaml_state" ]]; then
   fi
 fi
 
+containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
+if [[ -f "$containers_state" ]]; then
+  section "Containers (Podman)"
+
+  # As on native Fedora, the full smoke test runs once right after
+  # install-containers.sh; a routine verify.sh (and the install.sh run that
+  # always ends with it) skips it so it does not repeat a network-dependent
+  # test every time.
+  if "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify-containers.sh" \
+    --skip-smoke-test; then
+    pass "Containers profile verification completed"
+  else
+    fail "Containers profile verification failed"
+  fi
+fi
+
 if [[ "$run_smoke_tests" == "true" ]]; then
   section "Development workflow smoke tests"
   if "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --all; then
