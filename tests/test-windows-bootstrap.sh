@@ -29,6 +29,20 @@ grep -Fq -- 'Would rediscover the newest official FedoraLinux distribution after
   "$installer"
 grep -Fq -- 'Dry run stopped at this prerequisite' "$installer"
 
+# Start-Process -Verb RunAs opens the elevated phase in its own window whose
+# output this process never sees; the elevated phase must transcript its
+# output to a log file the parent reads back and shows, so a real failure
+# inside the elevated phase is never reported as only an opaque exit code.
+grep -Fq -- "[string]\$ElevatedLogPath" "$installer"
+grep -Fq -- 'function Invoke-ElevatedPhase' "$installer"
+grep -Fq -- 'function Invoke-ElevatedEntryPoint' "$installer"
+# $ElevatedLogPath belongs to PowerShell, not Bash.
+# shellcheck disable=SC2016
+grep -Fq -- 'Start-Transcript -Path $ElevatedLogPath -Append' "$installer"
+grep -Fq -- 'Elevated console output' "$installer"
+grep -Fq -- 'See the elevated console output above for the actual error' \
+  "$installer"
+
 grep -Fq 'https://get.scoop.sh' "$installer"
 grep -Fq 'https://github.com/amanthanvi/scoop-noctty' "$installer"
 grep -Fq "'install', 'noctty/noctty'" "$installer"
@@ -71,20 +85,22 @@ grep -Fq 'shell-integration-features = cursor,sudo,title,ssh-env,ssh-terminfo' \
   "$shared_config"
 
 if command -v pwsh >/dev/null 2>&1; then
+  # pwsh -Command does not reliably populate $args from a trailing plain
+  # argument; pass the path through the environment instead.
   # The variables in this command belong to PowerShell, not Bash.
   # shellcheck disable=SC2016
   for powershell_file in "$installer" "$theme_helper"; do
-    pwsh -NoProfile -Command '
+    POWERSHELL_FILE_TO_PARSE="$powershell_file" pwsh -NoProfile -Command '
       $tokens = $null
       $errors = $null
       [System.Management.Automation.Language.Parser]::ParseFile(
-        $args[0], [ref]$tokens, [ref]$errors
+        $env:POWERSHELL_FILE_TO_PARSE, [ref]$tokens, [ref]$errors
       ) | Out-Null
       if ($errors.Count -gt 0) {
         $errors | ForEach-Object { Write-Error $_ }
         exit 1
       }
-    ' "$powershell_file"
+    '
   done
 fi
 

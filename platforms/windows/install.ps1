@@ -33,7 +33,10 @@ param(
     [switch]$ElevatedWslPhase,
 
     [Parameter(DontShow = $true)]
-    [switch]$ElevatedWslUpdateOnly
+    [switch]$ElevatedWslUpdateOnly,
+
+    [Parameter(DontShow = $true)]
+    [string]$ElevatedLogPath
 )
 
 Set-StrictMode -Version Latest
@@ -172,25 +175,65 @@ function Update-Wsl {
     Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update')
 }
 
-function Invoke-ElevatedWslUpdate {
-    if ($DryRun) {
-        Write-Step 'Would request administrator approval to update WSL'
-        return
-    }
+function Invoke-ElevatedPhase {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PhaseSwitch,
+
+        [string[]]$ExtraArguments = @(),
+
+        [Parameter(Mandatory = $true)]
+        [string]$FailureDescription
+    )
+
+    # Start-Process -Verb RunAs launches the elevated phase in its own console
+    # window; that window's output is never captured by this process, so a
+    # failure inside it is otherwise reported only as an opaque exit code.
+    # Have the elevated phase transcript its own output to a log file this
+    # process reads back and prints, so the real error is actually visible.
+    $logPath = Join-Path ([IO.Path]::GetTempPath()) (
+        'dotfiles-wsl-elevated-{0}.log' -f [guid]::NewGuid().ToString('N')
+    )
 
     $powerShellPath = (Get-Process -Id $PID).Path
     $arguments = @(
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
         '-File', ('"{0}"' -f $PSCommandPath),
-        '-ElevatedWslUpdateOnly'
-    )
+        $PhaseSwitch,
+        '-ElevatedLogPath', ('"{0}"' -f $logPath)
+    ) + $ExtraArguments
+
+    try {
+        $process = Start-Process -FilePath $powerShellPath -ArgumentList $arguments -Verb RunAs -Wait -PassThru
+    }
+    finally {
+        if (Test-Path -LiteralPath $logPath) {
+            $logContent = Get-Content -LiteralPath $logPath -Raw
+            if ($logContent) {
+                Write-Host ''
+                Write-Host "--- Elevated console output ($FailureDescription) ---"
+                Write-Host $logContent.TrimEnd()
+                Write-Host '--- End of elevated console output ---'
+                Write-Host ''
+            }
+            Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    if ($process.ExitCode -ne 0) {
+        throw "$FailureDescription failed with exit code $($process.ExitCode). See the elevated console output above for the actual error."
+    }
+}
+
+function Invoke-ElevatedWslUpdate {
+    if ($DryRun) {
+        Write-Step 'Would request administrator approval to update WSL'
+        return
+    }
 
     Write-Step 'The current WSL catalogue does not advertise Fedora; requesting administrator approval to update WSL'
-    $process = Start-Process -FilePath $powerShellPath -ArgumentList $arguments -Verb RunAs -Wait -PassThru
-    if ($process.ExitCode -ne 0) {
-        throw "The elevated WSL update failed with exit code $($process.ExitCode)."
-    }
+    Invoke-ElevatedPhase -PhaseSwitch '-ElevatedWslUpdateOnly' -FailureDescription 'The elevated WSL update'
 }
 
 function Get-WslDistributionVersion {
@@ -219,20 +262,11 @@ function Invoke-ElevatedWslInstall {
         return
     }
 
-    $powerShellPath = (Get-Process -Id $PID).Path
-    $arguments = @(
-        '-NoProfile',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', ('"{0}"' -f $PSCommandPath),
-        '-ElevatedWslPhase',
-        '-FedoraDistribution', $Distribution
-    )
-
     Write-Step "Requesting administrator approval for WSL 2 and $Distribution"
-    $process = Start-Process -FilePath $powerShellPath -ArgumentList $arguments -Verb RunAs -Wait -PassThru
-    if ($process.ExitCode -ne 0) {
-        throw "The elevated WSL installation phase failed with exit code $($process.ExitCode)."
-    }
+    Invoke-ElevatedPhase `
+        -PhaseSwitch '-ElevatedWslPhase' `
+        -ExtraArguments @('-FedoraDistribution', $Distribution) `
+        -FailureDescription 'The elevated WSL installation phase'
 }
 
 function Install-WslDistribution {
@@ -490,21 +524,51 @@ $ManagedBlockEnd
     Write-Step "Configured Noctty from the tracked Ghostty config for $Distribution"
 }
 
+function Invoke-ElevatedEntryPoint {
+    param([scriptblock]$Action)
+
+    $transcribing = $false
+    if ($ElevatedLogPath) {
+        Start-Transcript -Path $ElevatedLogPath -Append | Out-Null
+        $transcribing = $true
+    }
+
+    try {
+        & $Action
+        exit 0
+    }
+    catch {
+        # Write the failure explicitly rather than relying on the transcript
+        # to capture PowerShell's default unhandled-error formatting, so the
+        # parent process always has a clear message to relay back.
+        Write-Host "ERROR: $($_.Exception.Message)"
+        if ($_.ScriptStackTrace) {
+            Write-Host $_.ScriptStackTrace
+        }
+        exit 1
+    }
+    finally {
+        if ($transcribing) {
+            Stop-Transcript | Out-Null
+        }
+    }
+}
+
 if ($ElevatedWslPhase -and $ElevatedWslUpdateOnly) {
     throw 'Only one internal elevated WSL phase may be selected.'
 }
 
 if ($ElevatedWslUpdateOnly) {
-    Update-Wsl
-    exit 0
+    Invoke-ElevatedEntryPoint -Action { Update-Wsl }
 }
 
 if ($ElevatedWslPhase) {
-    if (-not $FedoraDistribution) {
-        throw 'The internal WSL installation phase requires -FedoraDistribution.'
+    Invoke-ElevatedEntryPoint -Action {
+        if (-not $FedoraDistribution) {
+            throw 'The internal WSL installation phase requires -FedoraDistribution.'
+        }
+        Install-WslDistribution -Distribution $FedoraDistribution
     }
-    Install-WslDistribution -Distribution $FedoraDistribution
-    exit 0
 }
 
 if (Test-Administrator) {
