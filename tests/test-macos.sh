@@ -18,7 +18,7 @@ assert_contains() {
   }
 }
 
-dry_run="$($repo_root/install.sh --platform macos --dry-run --ocaml --containers --workflows)"
+dry_run="$("$repo_root"/install.sh --platform macos --dry-run --ocaml --containers --workflows)"
 assert_contains "$dry_run" 'Apple Silicon macOS installation plan'
 assert_contains "$dry_run" 'AeroSpace (Sway-compatible nine-workspace profile)'
 assert_contains "$dry_run" 'Homebrew at /opt/homebrew'
@@ -29,7 +29,7 @@ assert_contains "$dry_run" 'Podman machine'
 assert_contains "$dry_run" 'AI tooling profile: unavailable until repository issue #16 lands'
 assert_contains "$dry_run" 'No changes were made.'
 
-no_defaults="$($repo_root/install.sh --platform macos --dry-run --no-defaults)"
+no_defaults="$("$repo_root"/install.sh --platform macos --dry-run --no-defaults)"
 assert_contains "$no_defaults" 'macOS defaults:     false'
 if [[ "$no_defaults" == *'Apply reversible Dock'* ]]; then
   printf 'No-defaults dry run still planned preference mutation.\n' >&2
@@ -129,8 +129,8 @@ check_grid 8 down 2
 check_grid 5 right 6
 
 # Defaults are inspectable and reversible without changing this Linux runner.
-apply_plan="$($macos_root/scripts/apply-defaults.sh --dry-run)"
-restore_plan="$($macos_root/scripts/apply-defaults.sh --restore --dry-run)"
+apply_plan="$("$macos_root"/scripts/apply-defaults.sh --dry-run)"
+restore_plan="$("$macos_root"/scripts/apply-defaults.sh --restore --dry-run)"
 assert_contains "$apply_plan" 'defaults write com.apple.dock autohide -bool true'
 assert_contains "$apply_plan" 'defaults write com.apple.dock mru-spaces -bool false'
 assert_contains "$restore_plan" 'defaults delete com.apple.dock autohide'
