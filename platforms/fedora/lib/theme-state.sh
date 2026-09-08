@@ -16,6 +16,12 @@ fedora_theme_lock_wallpaper() {
     "$HOME" "$flavour"
 }
 
+fedora_theme_cursor_theme() {
+  local flavour="$1"
+
+  printf 'catppuccin-%s-mauve-cursors\n' "$flavour"
+}
+
 catppuccin_palette() {
   local flavour="$1"
 
@@ -56,9 +62,11 @@ write_fedora_theme_state() {
   local state_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles"
   local wallpaper
   local lock_wallpaper
+  local cursor_theme
 
   wallpaper="$(fedora_theme_wallpaper "$flavour")"
   lock_wallpaper="$(fedora_theme_lock_wallpaper "$flavour")"
+  cursor_theme="$(fedora_theme_cursor_theme "$flavour")"
 
   if [[ "$preserve_wallpaper" == "true" ]]; then
     wallpaper="$(current_sway_wallpaper || true)"
@@ -91,6 +99,8 @@ set \$blue #$blue
 set \$peach #$peach
 set \$teal #$teal
 set \$wallpaper $wallpaper
+
+seat * xcursor_theme $cursor_theme 24
 EOF
 
   cat <<EOF | atomic_write_file "$state_dir/waybar-theme.css"

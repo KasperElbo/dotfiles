@@ -135,6 +135,8 @@ grep -Fqx 'theme = catppuccin-mocha.conf' \
 grep -Fqx \
   "set \$wallpaper $test_root/home/.local/share/wallpapers/catppuccin-mocha.webp" \
   "$test_root/xdg/dotfiles/sway-theme.conf"
+grep -Fqx 'seat * xcursor_theme catppuccin-mocha-mauve-cursors 24' \
+  "$test_root/xdg/dotfiles/sway-theme.conf"
 grep -Fqx 'lookandfeeltool --apply Catppuccin-Mocha-Mauve' "$mock_log"
 grep -Fqx \
   'kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key BorderSizeAuto false' \
@@ -183,6 +185,8 @@ grep -Fqx 'theme = catppuccin-frappe.conf' \
   "$test_root/xdg/dotfiles/ghostty.conf"
 grep -Fqx \
   "set \$wallpaper \"$test_root/home/Pictures/custom wallpaper.jpg\"" \
+  "$test_root/xdg/dotfiles/sway-theme.conf"
+grep -Fqx 'seat * xcursor_theme catppuccin-frappe-mauve-cursors 24' \
   "$test_root/xdg/dotfiles/sway-theme.conf"
 grep -Fq 'catppuccin-frappe-lock.webp' \
   "$test_root/xdg/dotfiles/swaylock.conf"
@@ -251,5 +255,7 @@ if grep -Eq 'lookandfeeltool|kwriteconfig6|plasma-apply-|qdbus' "$mock_log"; the
 fi
 grep -Fqx 'swaymsg reload' "$mock_log"
 grep -Fqx -- 'pkill -SIGUSR2 waybar' "$mock_log"
+grep -Fqx 'seat * xcursor_theme catppuccin-mocha-mauve-cursors 24' \
+  "$test_root/xdg/dotfiles/sway-theme.conf"
 
 printf 'Theme parsing and desktop wallpaper preservation tests passed.\n'
