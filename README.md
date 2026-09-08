@@ -91,6 +91,7 @@ official Fedora WSL distribution, select the WSL variant explicitly:
 ```bash
 ./install.sh --platform fedora-wsl --dry-run
 ./install.sh --platform fedora-wsl --non-interactive
+./install.sh --platform fedora-wsl --latex --non-interactive
 ```
 
 From a Parrot Security Edition guest created on the reference Fedora VM host,
@@ -224,10 +225,10 @@ The complete OCaml development environment is explicitly opt-in:
 -h, --help         show help
 ```
 
-The Fedora WSL installer exposes `--theme`, `--ocaml`, `--containers`,
-`--containers-api-socket`, `--smoke-test`, `--dry-run`, and
-`--non-interactive`. Fedora desktop, LaTeX, Sway, VM and hardware flags are
-rejected rather than silently ignored; see "Podman containers under WSL"
+The Fedora WSL installer exposes `--theme`, `--ocaml`, `--latex`,
+`--containers`, `--containers-api-socket`, `--smoke-test`, `--dry-run`, and
+`--non-interactive`. Fedora desktop, Sway, VM and hardware flags are rejected
+rather than silently ignored; see "Podman containers under WSL"
 below for what `--containers` actually requires and changes on this
 platform.
 
@@ -2968,6 +2969,7 @@ tooling in temporary directories:
 ./scripts/test-dev-workflows.sh --angular
 ./scripts/test-dev-workflows.sh --python
 ./scripts/test-dev-workflows.sh --ocaml
+./scripts/test-dev-workflows.sh --latex
 ```
 
 The .NET check creates, restores, builds and runs a disposable console project.
@@ -2977,9 +2979,11 @@ debug server, and probes it.
 The Python check resolves an isolated environment, runs the package and tests,
 lints, checks formatting, and builds both source and wheel distributions. The
 OCaml check resolves the fixture through opam and exercises Dune build, run,
-test, format, and bytecode targets using the configured profile switch. These larger
-download-based checks are intentionally separate from `scripts/test.sh`; the
-normal repository suite validates their configuration without fetching
+test, format, and bytecode targets using the configured profile switch. The
+LaTeX check formats and builds a multi-file document, resolves a BibLaTeX
+citation through Biber, verifies its PDF, and checks a deliberate compile
+error. These larger checks are intentionally separate from `scripts/test.sh`;
+the normal repository suite validates their configuration without fetching
 language ecosystems.
 
 ---
@@ -3036,7 +3040,11 @@ support without a common-config change.
 LaTeX support is optional:
 
 ```bash
+# Native Fedora
 ./install.sh --latex
+
+# Fedora WSL
+./install.sh --platform fedora-wsl --latex
 ```
 
 or:
@@ -3051,6 +3059,105 @@ Mason owns `texlab`.
 
 LazyVim owns the VimTeX editor plugin. TeX project build configuration remains
 in the project.
+
+The optional component explicitly installs `latexmk`, `latexindent`, BibLaTeX,
+and Biber alongside the medium TeX Live scheme. It does not install any LaTeX
+binaries when `--latex` is omitted.
+
+## LaTeX editing workflow
+
+Open either the main file or an included `.tex` file in LazyVim. VimTeX owns
+project discovery, compilation, PDF viewing, and parsed build errors; TexLab
+owns completion, navigation, document symbols, diagnostics, and formatting.
+TexLab's build-on-save and ChkTeX integrations are disabled so they do not
+duplicate VimTeX's build log or introduce a second diagnostic stream.
+
+The high-value bindings below use LazyVim's local leader, `\`. They are also
+shown by which-key after pressing `\l`.
+
+| Binding | Command | Purpose |
+| --- | --- | --- |
+| `\ll` | `:VimtexCompile` | Start or stop continuous `latexmk` compilation |
+| `\lv` | `:VimtexView` | Open the PDF and forward-search to the cursor |
+| `\le` | `:VimtexErrors` | Toggle parsed LaTeX/Biber errors in quickfix |
+| `\lo` | `:VimtexCompileOutput` | Inspect raw compiler output |
+| `\lt` | `:VimtexTocOpen` | Open navigable document structure |
+| `\li` | `:VimtexInfo` | Show the detected main file, compiler, and viewer |
+| `<leader>cf` | LazyVim format | Format through TexLab and Fedora's `latexindent` |
+
+`\ll` starts VimTeX's default continuous `latexmk` mode. Save any related
+source or bibliography file to rebuild; press `\ll` again to stop it.
+Warnings remain available through `\le`, but only errors open quickfix
+automatically. Use `]q` and `[q` to move between quickfix entries without
+leaving Neovim.
+
+TexLab supplies completion and go-to-definition for commands, labels,
+references, and citations. LazyVim's normal LSP bindings apply, including
+`gd`, `gr`, and `<leader>ss` for document symbols. Its formatter calls the
+DNF-owned `latexindent`; a repository's `.latexindent.yaml` is discovered by
+`latexindent --local` and remains project-owned. LazyVim's format-on-save
+setting applies, with `<leader>cf` available for an explicit format.
+
+`latexmk` detects BibLaTeX and runs Biber as required. A normal bibliography
+setup therefore only needs project-local configuration such as:
+
+```tex
+\usepackage[backend=biber]{biblatex}
+\addbibresource{references.bib}
+```
+
+VimTeX usually finds a multi-file document's main file by following
+`\input`/`\include`. For an unambiguous project, add this near the top of
+each included file:
+
+```tex
+% !TeX root = ../main.tex
+```
+
+An empty `main.tex.latexmain` marker or a project `.latexmkrc` containing
+`@default_files = ('main.tex');` are supported alternatives. Run `\li` to
+confirm which root VimTeX selected after opening a file.
+
+On the Fedora KDE baseline, `\lv` uses the already-installed Okular and
+supports forward SyncTeX. For inverse SyncTeX, set **Settings > Configure
+Okular > Editor > Custom Text Editor** to:
+
+```text
+nvim --headless -c "VimtexInverseSearch %l '%f'"
+```
+
+Then Shift-click the PDF in Okular's browse mode. VimTeX is deliberately
+loaded at startup so this callback can locate the correct running Neovim
+instance. If Okular is unavailable (for example, on a non-KDE installation),
+`\lv` uses `xdg-open`; PDF viewing still works through the desktop default,
+but viewer-specific forward/inverse SyncTeX is not promised. The LaTeX option
+does not install another PDF application for that fallback case.
+
+On Fedora WSL, `--latex` installs the same DNF-owned toolchain but does not add
+a Linux desktop PDF application. Its platform-specific Neovim adapter
+overrides VimTeX's viewer with `wsl-open`, so `\lv` opens the generated PDF in
+its Windows handler without putting Windows launch logic in the shared editor
+configuration. That Windows-handler fallback does not currently provide
+forward or inverse SyncTeX. Verify the optional WSL toolchain separately with
+`platforms/fedora-wsl/scripts/verify.sh --latex`; combining `--latex` with the
+installer's `--smoke-test` also runs the disposable multi-file build below.
+
+The LazyVim TeX extra installs the LaTeX and BibTeX Tree-sitter parsers. It
+intentionally leaves LaTeX highlighting to VimTeX's more complete syntax
+engine, while BibTeX uses Tree-sitter. Both use the active Catppuccin palette,
+as do LazyVim diagnostics, completion, symbols, and quickfix UI.
+
+For discovery and troubleshooting, use `\li`, `:checkhealth vimtex`,
+`:LspInfo`, `:ConformInfo`, or `:Mason`. The repeatable machine-level smoke
+test is:
+
+```bash
+./scripts/test-dev-workflows.sh --latex
+```
+
+It formats and builds a disposable multi-file document, resolves a BibLaTeX
+citation through Biber, verifies the PDF, then introduces a deliberate compile
+error and checks that the log contains a quickfix-compatible file and line.
 
 Mermaid CLI (`mmdc`) is installed through mise/npm.
 

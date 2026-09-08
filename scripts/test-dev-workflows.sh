@@ -7,12 +7,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/test-dev-workflows.sh [--dotnet | --angular | --python | --ocaml | --all]
+Usage: ./scripts/test-dev-workflows.sh [--dotnet | --angular | --python | --ocaml | --latex | --all]
 
 Run disposable, network-dependent development workflow smoke tests. The
 default is --all for the default language environments. The optional OCaml
-profile is checked explicitly with --ocaml. Project sources and generated
-artifacts exist only below a temporary directory and are removed on exit.
+and LaTeX profiles are checked explicitly with --ocaml and --latex. Project
+sources and generated artifacts exist only below a temporary directory and
+are removed on exit.
 EOF
 }
 
@@ -20,6 +21,7 @@ run_dotnet=true
 run_angular=true
 run_python=true
 run_ocaml=false
+run_latex=false
 
 if (($# > 1)); then
   usage >&2
@@ -45,6 +47,12 @@ case "${1:---all}" in
   run_angular=false
   run_python=false
   run_ocaml=true
+  ;;
+--latex)
+  run_dotnet=false
+  run_angular=false
+  run_python=false
+  run_latex=true
   ;;
 -h | --help)
   usage
@@ -217,6 +225,51 @@ run_ocaml_workflow() {
   success "OCaml resolve, build, run, test, format and bytecode checks passed"
 }
 
+run_latex_workflow() {
+  require_command biber
+  require_command latexindent
+  require_command latexmk
+  require_command pdflatex
+
+  local project="$test_root/latex-smoke"
+  local formatted="$test_root/details-formatted.tex"
+  local failed_build_log="$test_root/latex-expected-failure.log"
+
+  cp -R "$DOTFILES_ROOT/tests/fixtures/latex-smoke" "$project"
+
+  info "Formatting and building the disposable multi-file LaTeX project"
+  latexindent "$project/sections/details.tex" >"$formatted"
+  grep -Fq '\section{Details}' "$formatted" ||
+    die "latexindent did not return the fixture document"
+
+  (
+    cd "$project"
+    latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
+  )
+
+  [[ -s "$project/main.pdf" ]] || die "latexmk did not create main.pdf"
+  grep -Fq 'VimTeX' "$project/main.bbl" ||
+    die "latexmk/Biber did not resolve the fixture bibliography"
+
+  printf '\n\\ThisCommandDeliberatelyDoesNotExist\n' \
+    >>"$project/sections/details.tex"
+
+  if (
+    cd "$project"
+    latexmk -g -pdf -file-line-error -interaction=nonstopmode \
+      -halt-on-error main.tex
+  ) >"$failed_build_log" 2>&1; then
+    die "the deliberately invalid LaTeX document unexpectedly compiled"
+  fi
+
+  grep -Fq 'Undefined control sequence' "$project/main.log" ||
+    die "the deliberate compile error was not recorded in main.log"
+  grep -Eq 'sections/details\.tex:[0-9]+:' "$project/main.log" ||
+    die "the compile error did not include a quickfix-compatible file and line"
+
+  success "LaTeX formatting, multi-file build, Biber, PDF and error-log checks passed"
+}
+
 if [[ "$run_dotnet" == true ]]; then
   run_dotnet_workflow
 fi
@@ -231,6 +284,10 @@ fi
 
 if [[ "$run_ocaml" == true ]]; then
   run_ocaml_workflow
+fi
+
+if [[ "$run_latex" == true ]]; then
+  run_latex_workflow
 fi
 
 success "Disposable development workflow checks passed"

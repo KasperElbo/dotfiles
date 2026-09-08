@@ -8,6 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/wsl.sh"
 
 theme="macchiato"
 install_ocaml="false"
+install_latex="false"
 install_containers="false"
 containers_api_socket="false"
 interactive="true"
@@ -26,6 +27,9 @@ Options:
   --ocaml            Install the optional OCaml development profile
   --no-ocaml         Do not install the OCaml profile (default)
 
+  --latex            Install the optional Fedora-owned LaTeX toolchain
+  --no-latex         Do not install the LaTeX toolchain (default)
+
   --containers       Install the optional rootless Podman container
                      development profile (see README.md, "Optional Podman
                      container development profile"). Requires systemd as
@@ -42,7 +46,7 @@ Options:
 
   -h, --help         Show this help
 
-Desktop, hardware, VM-host/guest, LaTeX and AI profiles are not part of the
+Desktop, hardware, VM-host/guest and AI profiles are not part of the
 Fedora WSL workstation variant.
 EOF
 }
@@ -60,6 +64,14 @@ while (($#)); do
     ;;
   --no-ocaml)
     install_ocaml="false"
+    shift
+    ;;
+  --latex)
+    install_latex="true"
+    shift
+    ;;
+  --no-latex)
+    install_latex="false"
     shift
     ;;
   --containers)
@@ -114,6 +126,7 @@ Fedora WSL installation plan
 
 Catppuccin flavour: $theme
 OCaml profile:      $install_ocaml
+LaTeX toolchain:    $install_latex
 Containers profile: $install_containers
 Containers API socket: $containers_api_socket
 Workflow smoke test: $run_smoke_tests
@@ -151,6 +164,16 @@ EOF
     step=$((step + 1))
   fi
 
+  if [[ "$install_latex" == "true" ]]; then
+    cat <<EOF
+
+  $step. Install the optional Fedora-owned LaTeX toolchain.
+     platforms/fedora/scripts/install-latex.sh
+     latexmk, latexindent, Biber and the medium TeX Live scheme
+EOF
+    step=$((step + 1))
+  fi
+
   if [[ "$install_containers" == "true" ]]; then
     containers_suffix=""
     if [[ "$containers_api_socket" == "true" ]]; then
@@ -166,16 +189,24 @@ EOF
     step=$((step + 1))
   fi
 
+  verify_suffix=""
+  if [[ "$run_smoke_tests" == "true" ]]; then
+    verify_suffix+=" --smoke-test"
+  fi
+  if [[ "$install_latex" == "true" ]]; then
+    verify_suffix+=" --latex"
+  fi
+
   cat <<EOF
 
   $step. Install the pinned Catppuccin tmux theme.
      common/install-tmux-theme.sh
 
   $((step + 1)). Verify WSL detection, Linux command ownership and runtime startup.
-     platforms/fedora-wsl/scripts/verify.sh$([[ "$run_smoke_tests" == "true" ]] && printf ' --smoke-test')
+     platforms/fedora-wsl/scripts/verify.sh$verify_suffix
 
 Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, desktop,
-LaTeX and AI tooling.
+and AI tooling.
 
 No changes were made.
 
@@ -200,6 +231,7 @@ if [[ "$interactive" == "true" ]]; then
   printf '%s\n' '-----------------------------------'
   printf 'Catppuccin flavour: %s\n' "$theme"
   printf 'OCaml profile:      %s\n' "$install_ocaml"
+  printf 'LaTeX toolchain:    %s\n' "$install_latex"
   printf 'Containers profile: %s\n' "$install_containers"
   if [[ "$install_containers" == "true" ]]; then
     printf 'Containers API socket: %s\n' "$containers_api_socket"
@@ -212,6 +244,10 @@ fi
 
 if [[ "$install_ocaml" == "true" ]]; then
   "$DOTFILES_ROOT/platforms/fedora/scripts/install-ocaml.sh"
+fi
+
+if [[ "$install_latex" == "true" ]]; then
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-latex.sh"
 fi
 
 "$DOTFILES_ROOT/common/setup-local.sh" "$theme"
@@ -244,6 +280,9 @@ fi
 verify_args=()
 if [[ "$run_smoke_tests" == "true" ]]; then
   verify_args+=(--smoke-test)
+fi
+if [[ "$install_latex" == "true" ]]; then
+  verify_args+=(--latex)
 fi
 
 printf '\n'

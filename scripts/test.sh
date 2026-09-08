@@ -17,6 +17,7 @@ tests=(
   tests/test-neovim-tool-ownership.sh
   tests/test-neovim-bootstrap.sh
   tests/test-markdown-workflow.sh
+  tests/test-latex-profile.sh
   tests/test-ocaml-profile.sh
   tests/test-idempotency.sh
   tests/test-asus-preflight.sh

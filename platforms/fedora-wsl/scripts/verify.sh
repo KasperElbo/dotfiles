@@ -10,12 +10,22 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/wsl.sh"
 failures=0
 warnings=0
 run_smoke_tests="false"
+verify_latex="false"
 
-if [[ "${1:-}" == "--smoke-test" ]]; then
-  run_smoke_tests="true"
+while (($#)); do
+  case "$1" in
+  --smoke-test)
+    run_smoke_tests="true"
+    ;;
+  --latex)
+    verify_latex="true"
+    ;;
+  *)
+    die "Unknown option: $1"
+    ;;
+  esac
   shift
-fi
-[[ $# -eq 0 ]] || die "Unknown option: $1"
+done
 
 pass() {
   printf '\033[1;32m✓\033[0m %s\n' "$*"
@@ -190,6 +200,13 @@ for command_name in "${commands[@]}"; do
   check_linux_command "$command_name"
 done
 
+if [[ "$verify_latex" == "true" ]]; then
+  section "LaTeX toolchain"
+  for command_name in biber latex latexindent latexmk lualatex pdflatex xelatex; do
+    check_linux_command "$command_name"
+  done
+fi
+
 if command -v codex >/dev/null 2>&1; then
   codex_path="$(command -v codex)"
   if is_windows_path "$codex_path"; then
@@ -338,6 +355,14 @@ if [[ "$run_smoke_tests" == "true" ]]; then
       pass "OCaml workflow"
     else
       fail "OCaml development workflow smoke test failed"
+    fi
+  fi
+
+  if [[ "$verify_latex" == "true" ]]; then
+    if "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --latex; then
+      pass "LaTeX formatting, multi-file build, Biber, PDF and error workflow"
+    else
+      fail "LaTeX development workflow smoke test failed"
     fi
   fi
 fi
