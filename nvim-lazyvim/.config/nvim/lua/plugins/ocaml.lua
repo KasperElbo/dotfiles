@@ -62,23 +62,26 @@ return {
         args = { "exec", "--", "ocamlearlybird", "debug" },
       }
 
-      local function bytecode_program()
-        local root = vim.fs.root(0, { "dune-project", "dune-workspace", ".git" })
-          or vim.fn.getcwd()
-        return vim.fn.input(
-          "OCaml bytecode executable: ",
-          root .. "/_build/default/",
-          "file"
-        )
-      end
+      local ocaml_dune = require("config.ocaml_dune")
 
       dap.configurations.ocaml = dap.configurations.ocaml or {}
       table.insert(dap.configurations.ocaml, {
-        name = "OCaml: debug bytecode executable",
+        name = "OCaml: build and debug Dune executable",
         type = "ocamlearlybird",
         request = "launch",
-        program = bytecode_program,
-        cwd = "${workspaceFolder}",
+        program = ocaml_dune.dune_program,
+        cwd = function()
+          return ocaml_dune.project_root(0) or vim.fn.getcwd()
+        end,
+      })
+      table.insert(dap.configurations.ocaml, {
+        name = "OCaml: debug bytecode executable (manual)",
+        type = "ocamlearlybird",
+        request = "launch",
+        program = ocaml_dune.manual_program,
+        cwd = function()
+          return ocaml_dune.project_root(0) or vim.fn.getcwd()
+        end,
       })
 
       return opts

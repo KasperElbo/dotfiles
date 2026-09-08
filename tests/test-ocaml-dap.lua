@@ -1,0 +1,144 @@
+local repo_root = assert(vim.env.DOTFILES_TEST_ROOT)
+package.path = repo_root .. "/nvim-lazyvim/.config/nvim/lua/?.lua;" .. package.path
+
+local dune = require("config.ocaml_dune")
+
+local original_executable = vim.fn.executable
+vim.fn.executable = function()
+  return 0
+end
+local specs = dofile(repo_root .. "/nvim-lazyvim/.config/nvim/lua/plugins/ocaml.lua")
+vim.fn.executable = original_executable
+for _, spec in ipairs(specs) do
+  if spec[1] == "mfussenegger/nvim-dap" then
+    local opts = {}
+    assert(spec.opts(nil, opts) == opts, "DAP configuration must remain inert without opam")
+  end
+end
+
+local root = dune.project_root(0, function(markers, options)
+  assert(vim.deep_equal(markers, { "dune-workspace", "dune-project" }))
+  assert(type(options.path) == "string")
+  assert(options.upward)
+  return { "/tmp/example/dune-project" }
+end)
+assert(root == "/tmp/example", "Dune root should be the marker's directory")
+
+local targets = assert(dune.parse_rule_targets(vim.json.encode({
+  {
+    targets = {
+      files = {
+        "_build/default/bin/main.bc",
+        "_build/default/bin/main.exe",
+        "_build/default/web/main.bc.js",
+      },
+    },
+  },
+  {
+    nested = {
+      targets = {
+        files = {
+          "_build/dev/tools/admin.bc",
+          "_build/default/bin/main.bc",
+        },
+      },
+    },
+  },
+})))
+assert(vim.deep_equal(targets, {
+  "_build/default/bin/main.bc",
+  "_build/dev/tools/admin.bc",
+}), "only unique Earlybird-compatible .bc targets should be discovered")
+
+local invalid_targets, invalid_error = dune.parse_rule_targets("not json")
+assert(invalid_targets == nil and invalid_error:match("invalid JSON"))
+
+local discovered = assert(dune.discover_targets("/tmp/example", function(args, options)
+  assert(vim.deep_equal(args, {
+    "opam",
+    "exec",
+    "--",
+    "dune",
+    "describe",
+    "rules",
+    "--format=json",
+  }))
+  assert(options.cwd == "/tmp/example")
+  return {
+    code = 0,
+    stdout = vim.json.encode({ { targets = { files = { "_build/default/bin/main.bc" } } } }),
+    stderr = "",
+  }
+end))
+assert(discovered[1] == "_build/default/bin/main.bc")
+
+local no_targets, no_targets_error = dune.discover_targets("/tmp/example", function()
+  return { code = 0, stdout = "[]", stderr = "" }
+end)
+assert(no_targets == nil and no_targets_error:match("%(modes byte exe%)"))
+
+local artifact = assert(dune.build_target(
+  "/tmp/example",
+  "_build/custom/bin/main.bc",
+  function(args, options)
+    assert(vim.deep_equal(args, {
+      "opam",
+      "exec",
+      "--",
+      "dune",
+      "build",
+      "_build/custom/bin/main.bc",
+    }))
+    assert(options.cwd == "/tmp/example")
+    return { code = 0, stdout = "", stderr = "" }
+  end,
+  function(path)
+    return path == "/tmp/example/_build/custom/bin/main.bc" and {}
+  end
+))
+assert(artifact == "/tmp/example/_build/custom/bin/main.bc")
+
+local failed_artifact, build_error = dune.build_target(
+  "/tmp/example",
+  "_build/default/bin/main.bc",
+  function()
+    return { code = 1, stdout = "", stderr = "File bin/main.ml, line 1: build failed" }
+  end,
+  function()
+    error("a failed build must not inspect or launch a stale artifact")
+  end
+)
+assert(failed_artifact == nil)
+assert(build_error:match("Dune failed to build bin/main.bc"))
+assert(build_error:match("build failed"))
+
+local missing_artifact, missing_error = dune.build_target(
+  "/tmp/example",
+  "_build/default/bin/main.bc",
+  function()
+    return { code = 0, stdout = "", stderr = "" }
+  end,
+  function()
+    return nil
+  end
+)
+assert(missing_artifact == nil and missing_error:match("did not produce"))
+
+local abort_token = {}
+package.loaded.dap = { ABORT = abort_token }
+local original_project_root = dune.project_root
+local original_notify = vim.notify
+local notification
+dune.project_root = function()
+  return nil
+end
+vim.notify = function(message, level, options)
+  notification = { message = message, level = level, options = options }
+end
+assert(dune.dune_program() == abort_token, "missing Dune roots should abort DAP cleanly")
+assert(notification.message:match("No dune%-project or dune%-workspace"))
+assert(notification.level == vim.log.levels.ERROR)
+dune.project_root = original_project_root
+vim.notify = original_notify
+
+print("OCaml Dune DAP checks passed.")
