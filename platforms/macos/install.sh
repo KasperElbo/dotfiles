@@ -9,6 +9,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/macos.sh"
 theme="macchiato"
 install_ocaml="false"
 install_containers="false"
+install_tailscale="false"
 apply_defaults="true"
 run_workflows="false"
 interactive="true"
@@ -24,6 +25,10 @@ Options:
   --no-ocaml         Do not install OCaml (default)
   --containers       Install the optional rootless Podman machine profile
   --no-containers    Do not install containers (default)
+  --tailscale        Install the optional Tailscale profile (Standalone
+                     macOS app via Homebrew cask); authentication stays
+                     interactive and is never automated
+  --no-tailscale     Do not install Tailscale (default)
   --defaults         Apply the documented, conservative macOS defaults (default)
   --no-defaults      Leave macOS defaults unchanged
   --workflows        Run disposable .NET, Angular, and Python workflow tests
@@ -45,6 +50,8 @@ while (($#)); do
   --no-ocaml) install_ocaml="false"; shift ;;
   --containers) install_containers="true"; shift ;;
   --no-containers) install_containers="false"; shift ;;
+  --tailscale) install_tailscale="true"; shift ;;
+  --no-tailscale) install_tailscale="false"; shift ;;
   --defaults) apply_defaults="true"; shift ;;
   --no-defaults) apply_defaults="false"; shift ;;
   --workflows) run_workflows="true"; shift ;;
@@ -72,6 +79,7 @@ Window manager:     AeroSpace (Sway-compatible nine-workspace profile)
 macOS defaults:     $apply_defaults
 OCaml profile:      $install_ocaml
 Containers profile: $install_containers
+Tailscale profile:  $install_tailscale
 Development tests:  $run_workflows
 AI tooling profile: unavailable until repository issue #16 lands
 
@@ -88,6 +96,10 @@ EOF
   fi
   if [[ "$install_containers" == true ]]; then
     printf '  %d. Install and start a rootless Podman machine; run an ARM64 smoke test.\n' "$step"
+    step=$((step + 1))
+  fi
+  if [[ "$install_tailscale" == true ]]; then
+    printf '  %d. Install the optional Tailscale profile (Homebrew cask, interactive login).\n' "$step"
     step=$((step + 1))
   fi
   cat <<EOF
@@ -132,7 +144,8 @@ if [[ "$interactive" == true ]]; then
   printf 'AeroSpace:   enabled (Sway-compatible profile)\n'
   printf 'Defaults:    %s\n' "$apply_defaults"
   printf 'OCaml:       %s\n' "$install_ocaml"
-  printf 'Containers:  %s\n\n' "$install_containers"
+  printf 'Containers:  %s\n' "$install_containers"
+  printf 'Tailscale:   %s\n\n' "$install_tailscale"
   printf 'Workflows:   %s\n\n' "$run_workflows"
   confirm "Continue with installation?" "y" || exit 0
 fi
@@ -147,6 +160,9 @@ if [[ "$install_ocaml" == true ]]; then
 fi
 if [[ "$install_containers" == true ]]; then
   "$DOTFILES_ROOT/platforms/macos/scripts/install-containers.sh"
+fi
+if [[ "$install_tailscale" == true ]]; then
+  "$DOTFILES_ROOT/platforms/macos/scripts/install-tailscale.sh"
 fi
 
 "$DOTFILES_ROOT/common/setup-local.sh" "$theme"
@@ -179,6 +195,7 @@ open -a AeroSpace || warn "Open AeroSpace manually from /Applications"
 verify_args=()
 [[ "$apply_defaults" != true ]] || verify_args+=(--defaults)
 [[ "$install_containers" != true ]] || verify_args+=(--containers)
+[[ "$install_tailscale" != true ]] || verify_args+=(--tailscale)
 
 printf '\n'
 if "$DOTFILES_ROOT/platforms/macos/scripts/verify.sh" "${verify_args[@]}"; then

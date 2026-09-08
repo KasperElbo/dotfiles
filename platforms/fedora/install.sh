@@ -16,6 +16,7 @@ install_desktop_tools="false"
 desktop_tools_force_defaults="false"
 install_containers="false"
 containers_api_socket="false"
+install_tailscale="false"
 hardware_model=""
 hardware_secure_boot="false"
 hardware_charge_limit=""
@@ -65,6 +66,13 @@ Options:
                      With --containers, enable the rootless, socket-activated
                      Podman API socket for Docker-compatible client tooling
                      (default: disabled)
+
+  --tailscale        Install the optional Tailscale networking profile: the
+                     tailscale CLI and tailscaled service, from Tailscale's
+                     own Fedora/DNF repository (see README.md, "Optional
+                     Tailscale networking profile"). Never runs 'tailscale
+                     up' and never embeds credentials or tailnet policy.
+  --no-tailscale     Do not install the Tailscale profile (default)
 
   --hardware MODEL   Install ASUS hardware support:
                      ga402xz or ga402rk
@@ -174,6 +182,16 @@ while (($#)); do
 
   --containers-api-socket)
     containers_api_socket="true"
+    shift
+    ;;
+
+  --tailscale)
+    install_tailscale="true"
+    shift
+    ;;
+
+  --no-tailscale)
+    install_tailscale="false"
     shift
     ;;
 
@@ -305,6 +323,7 @@ Desktop tools:       $install_desktop_tools
 Force app defaults:  $desktop_tools_force_defaults
 Containers profile:  $install_containers
 Containers API socket: $containers_api_socket
+Tailscale profile:   $install_tailscale
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
@@ -406,6 +425,17 @@ EOF
     step=$((step + 1))
   fi
 
+  if [[ "$install_tailscale" == "true" ]]; then
+    cat <<EOF
+
+  $step. Install the optional Tailscale networking profile
+     platforms/fedora/scripts/install-tailscale.sh
+     tailscale CLI + tailscaled from pkgs.tailscale.com; no 'tailscale up',
+     no embedded credentials or tailnet policy
+EOF
+    step=$((step + 1))
+  fi
+
   cat <<EOF
 
   $step. Initialize machine-local configuration
@@ -499,6 +529,7 @@ if [[ "$interactive" == "true" ]]; then
   printf 'Hardening profile:  %s\n' "$install_hardening"
   printf 'Desktop tools:      %s\n' "$install_desktop_tools"
   printf 'Containers profile: %s\n' "$install_containers"
+  printf 'Tailscale profile:  %s\n' "$install_tailscale"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
   printf '\n'
 
@@ -527,6 +558,7 @@ if [[ "$interactive" == "true" ]]; then
   if [[ "$install_containers" == "true" ]]; then
     printf 'Containers API socket: %s\n' "$containers_api_socket"
   fi
+  printf 'Tailscale profile:  %s\n' "$install_tailscale"
   printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
 
   if [[ -n "$hardware_model" ]]; then
@@ -632,6 +664,11 @@ if [[ "$install_containers" == "true" ]]; then
   info "Installing optional Podman containers profile"
   "$DOTFILES_ROOT/platforms/fedora/scripts/install-containers.sh" \
     "${containers_args[@]}"
+fi
+
+if [[ "$install_tailscale" == "true" ]]; then
+  info "Installing optional Tailscale networking profile"
+  "$DOTFILES_ROOT/platforms/fedora/scripts/install-tailscale.sh"
 fi
 
 info "Initializing machine-local configuration"

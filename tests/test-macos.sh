@@ -36,6 +36,30 @@ if [[ "$no_defaults" == *'Apply reversible Dock'* ]]; then
   exit 1
 fi
 
+# Tailscale is opt-in, uses the supported macOS app model (interactive
+# login), and never reuses Fedora's systemd/tailscaled service assumptions.
+no_tailscale="$("$repo_root"/install.sh --platform macos --dry-run)"
+assert_contains "$no_tailscale" 'Tailscale profile:  false'
+if [[ "$no_tailscale" == *'Install the optional Tailscale profile'* ]]; then
+  printf 'Default macOS dry run still planned the Tailscale profile.\n' >&2
+  exit 1
+fi
+tailscale_dry_run="$("$repo_root"/install.sh --platform macos --dry-run --tailscale)"
+assert_contains "$tailscale_dry_run" 'Tailscale profile:  true'
+assert_contains "$tailscale_dry_run" \
+  'Install the optional Tailscale profile (Homebrew cask, interactive login).'
+grep -Fq -- '--cask tailscale-app' "$macos_root/scripts/install-tailscale.sh"
+grep -Fq -- '--tailscale' "$macos_root/scripts/verify.sh"
+if rg -n 'systemctl|tailscaled\.service' "$macos_root/scripts/install-tailscale.sh" \
+  "$macos_root/scripts/verify.sh" | grep -q .; then
+  printf 'macOS Tailscale profile reuses Fedora systemd/tailscaled assumptions.\n' >&2
+  exit 1
+fi
+if grep -Fq 'tailscale up' "$macos_root/scripts/install-tailscale.sh"; then
+  printf "macOS Tailscale installer runs 'tailscale up' automatically.\n" >&2
+  exit 1
+fi
+
 # Homebrew owns machine tools/apps; mise retains portable runtimes and Lazygit.
 for package in bash bat coreutils eza fd fzf gh git git-delta mise neovim ripgrep shellcheck sqlite starship stow tmux zoxide; do
   grep -Eq "^brew \"$package\"$" "$brewfile"

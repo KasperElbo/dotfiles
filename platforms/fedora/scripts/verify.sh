@@ -671,6 +671,22 @@ if [[ -f "$containers_state" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Optional Tailscale networking profile
+# ---------------------------------------------------------------------------
+
+tailscale_state="$XDG_CONFIG_HOME/dotfiles/tailscale.conf"
+
+if [[ -f "$tailscale_state" ]]; then
+  section "Tailscale"
+
+  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-tailscale.sh"; then
+    pass "Tailscale profile verification completed"
+  else
+    fail "Tailscale profile verification failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Repository hygiene
 # ---------------------------------------------------------------------------
 

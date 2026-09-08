@@ -10,11 +10,13 @@ failures=0
 warnings=0
 verify_defaults="false"
 verify_containers="false"
+verify_tailscale="false"
 
 while (($#)); do
   case "$1" in
   --defaults) verify_defaults="true" ;;
   --containers) verify_containers="true" ;;
+  --tailscale) verify_tailscale="true" ;;
   *) die "Unknown option: $1" ;;
   esac
   shift
@@ -204,6 +206,45 @@ if [[ "$verify_containers" == true ]]; then
     pass "Containers run as ARM64"
   else
     fail "Container architecture is ${machine_arch:-unknown}"
+  fi
+fi
+
+if [[ "$verify_tailscale" == true ]]; then
+  section "Optional Tailscale"
+  if [[ -d /Applications/Tailscale.app ]]; then
+    pass "Tailscale application is installed"
+  else
+    fail "Tailscale application is missing"
+  fi
+
+  tailscale_cli=""
+  if [[ -x /usr/local/bin/tailscale ]]; then
+    tailscale_cli=/usr/local/bin/tailscale
+  elif [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then
+    tailscale_cli=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+  fi
+
+  if [[ -n "$tailscale_cli" ]]; then
+    if version_output="$("$tailscale_cli" version 2>&1)"; then
+      pass "tailscale version: $(printf '%s' "$version_output" | head -n1)"
+    else
+      fail "tailscale version failed"
+    fi
+
+    if status_json="$("$tailscale_cli" status --json 2>/dev/null)"; then
+      backend_state="$(printf '%s' "$status_json" | jq -r '.BackendState // "unknown"' 2>/dev/null)"
+      case "$backend_state" in
+      Running) pass "tailscale status: Running (connected to a tailnet)" ;;
+      NeedsLogin | NoState | Stopped | Starting | NeedsMachineAuth)
+        pass "tailscale status: $backend_state (installed but not logged in)"
+        ;;
+      *) warning "tailscale status reported an unrecognized BackendState: ${backend_state:-empty}" ;;
+      esac
+    else
+      warning "'tailscale status --json' did not respond (the daemon may not be running yet)"
+    fi
+  else
+    warning "Tailscale CLI is not installed; enable it from the app's Settings if you want the 'tailscale' command"
   fi
 fi
 
