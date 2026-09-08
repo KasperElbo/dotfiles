@@ -21,6 +21,9 @@ assert_contains "$dry_run" 'common/install-neovim-tools.sh'
 assert_contains "$dry_run" 'common/install-ocaml.sh'
 assert_contains "$dry_run" "Set Zsh as the user's default login shell."
 assert_contains "$dry_run" 'Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, desktop,'
+assert_contains "$dry_run" 'platforms/fedora-wsl/scripts/configure-interop.sh'
+assert_contains "$dry_run" 'enabled=true'
+assert_contains "$dry_run" 'appendWindowsPath=false'
 
 latex_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
 assert_contains "$latex_off_dry_run" 'LaTeX toolchain:    false'
@@ -248,10 +251,19 @@ cat >"$windows_root/explorer.exe" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$1" >"$OPEN_LOG"
 EOF
+cat >"$windows_root/System32/cmd.exe" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == /c && "$2" == echo && "$3" == interop-ok ]]; then
+  printf 'interop-ok\r\n'
+  exit 0
+fi
+exit 1
+EOF
 chmod +x \
   "$windows_root/System32/clip.exe" \
   "$windows_root/System32/WindowsPowerShell/v1.0/powershell.exe" \
-  "$windows_root/explorer.exe"
+  "$windows_root/explorer.exe" \
+  "$windows_root/System32/cmd.exe"
 
 printf 'clipboard text' |
   WINDOWS_SYSTEM_ROOT="$windows_root" CLIPBOARD_LOG="$test_root/clipboard.log" \
@@ -385,6 +397,8 @@ bootstrap_environment=(
   "OS_RELEASE_FILE=$test_root/os-release"
   "SHELL_STATE=$bootstrap_shell_state"
   "BOOTSTRAP_COMMAND_LOG=$bootstrap_command_log"
+  "WINDOWS_SYSTEM_ROOT=$windows_root"
+  "WSL_CONF_FILE=$test_root/bootstrap-wsl.conf"
 )
 
 run_bootstrap() {
@@ -398,6 +412,11 @@ run_bootstrap() {
 }
 
 run_bootstrap
+grep -Fq 'Ensuring explicit Windows executable interop stays available' \
+  "$test_root/bootstrap.log"
+grep -Fq 'explicit Windows executable interop works' "$test_root/bootstrap.log"
+grep -Fq 'sudo install -m 0644' "$bootstrap_command_log"
+
 bootstrap_identity="$(sha256sum "$bootstrap_config/git/local")"
 bootstrap_notes="$(sha256sum "$bootstrap_home/notes")"
 run_bootstrap
