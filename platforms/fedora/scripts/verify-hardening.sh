@@ -50,6 +50,9 @@ permissive)
 disabled)
   fail "SELinux is disabled"
   ;;
+unavailable)
+  warning "SELinux is not available on this kernel (e.g. inside a container)"
+  ;;
 *)
   warning "Could not determine SELinux mode"
   ;;

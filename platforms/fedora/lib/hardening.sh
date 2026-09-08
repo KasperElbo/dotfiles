@@ -43,6 +43,15 @@ remove_managed_root_file() {
 }
 
 selinux_mode() {
+  # SELinux is a host-kernel feature: it is not namespaced, so most
+  # containers (including the Fedora container CI runs in) have no
+  # /sys/fs/selinux and often no getenforce at all. Report that distinctly
+  # from a real Fedora install where SELinux support is missing/misconfigured.
+  [[ -d /sys/fs/selinux ]] || {
+    printf 'unavailable\n'
+    return
+  }
+
   command_exists getenforce || {
     printf 'unknown\n'
     return
@@ -78,6 +87,10 @@ harden_selinux_mode() {
     warn "SELinux is Disabled; this requires editing /etc/selinux/config," \
       "a filesystem relabel (touch /.autorelabel), and a reboot." \
       "Run these manually, then rerun the hardening profile."
+    ;;
+  unavailable)
+    warn "SELinux is not available on this kernel (e.g. inside a container);" \
+      "skipping SELinux enforcement"
     ;;
   *)
     warn "Could not determine SELinux mode (getenforce reported: $mode)"

@@ -6,6 +6,8 @@ set -u
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 # shellcheck source=../lib/secure-boot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/secure-boot.sh"
+# shellcheck source=../lib/hardening.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/hardening.sh"
 
 failures=0
 warnings=0
@@ -96,18 +98,20 @@ done
 
 section "Fedora security baseline"
 
-if command_exists getenforce; then
-  case "$(LC_ALL=C getenforce 2>/dev/null | tr '[:upper:]' '[:lower:]')" in
-  enforcing)
-    pass "SELinux is enforcing"
-    ;;
-  *)
-    fail "SELinux is not enforcing"
-    ;;
-  esac
-else
-  fail "getenforce not found; cannot verify SELinux"
-fi
+case "$(selinux_mode)" in
+enforcing)
+  pass "SELinux is enforcing"
+  ;;
+unavailable)
+  warning "SELinux is not available on this kernel (e.g. inside a container)"
+  ;;
+unknown)
+  warning "Could not determine SELinux mode (getenforce not found)"
+  ;;
+*)
+  fail "SELinux is not enforcing"
+  ;;
+esac
 
 if systemctl is-active --quiet firewalld.service; then
   pass "firewalld is active"
