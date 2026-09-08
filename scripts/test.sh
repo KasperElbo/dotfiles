@@ -30,6 +30,7 @@ tests=(
   tests/test-desktop-tools.sh
   tests/test-containers.sh
   tests/test-containers-wsl.sh
+  tests/test-wsl-interop.sh
   tests/test-fedora-wsl.sh
   tests/test-parrot-ctf.sh
   tests/test-windows-bootstrap.sh

@@ -386,15 +386,44 @@ Windows-installed `codex`. The WSL platform hook removes `/mnt/<drive>/...`
 entries before `.zshrc` executes any tools. mise then activates only the
 Linux-native runtimes installed inside Fedora.
 
-For the strongest process-wide policy, merge this into `/etc/wsl.conf`
-manually; do not replace unrelated existing sections:
+This profile treats "no Windows directories in `PATH`" and "explicit Windows
+executables still run" as two independent properties (issue #104), each
+controlled by its own `/etc/wsl.conf` `[interop]` key, and enforces both:
 
 ```ini
 [interop]
+enabled=true
 appendWindowsPath=false
 ```
 
-Restart WSL from PowerShell after changing it:
+`appendWindowsPath=false` is what keeps Windows directories out of `PATH` at
+the WSL level, ahead of and independent from the `.zshrc` PATH-stripping hook
+above. `enabled=true` is the one this profile actually needs kept **on**: it
+is what lets an explicitly full-pathed Windows executable — `wsl-open`, the
+clipboard helpers, Windows OpenSSH, a Windows-hosted 1Password SSH agent —
+run at all. Setting `enabled=false` (or omitting `[interop]` on some
+WSL/Fedora image combinations) breaks that explicit path even though `PATH`
+itself stays clean; it fails as a plain "cannot execute binary file" /
+"exec format error" from the shell, not an obviously WSL-related message.
+
+`./install.sh --platform fedora-wsl` keeps this policy in place
+automatically on every run, merge-safe:
+
+```bash
+platforms/fedora-wsl/scripts/configure-interop.sh
+platforms/fedora-wsl/scripts/configure-interop.sh --dry-run
+```
+
+It edits only the `[interop]` section's `enabled` and `appendWindowsPath`
+keys — every other section and key already in `/etc/wsl.conf`, including an
+existing `[boot] systemd=true` (see "systemd" below) or another WSL
+distribution's unrelated settings, is left untouched; it never replaces the
+whole file. Rerunning it is a no-op once the policy is already in place (it
+does not touch the file or invoke `sudo` again), and `--dry-run` shows the
+resulting file without changing anything. A WSL restart is required before
+either key actually takes effect, so both the installer and the standalone
+script end with a reminder to run this from Windows PowerShell — note that
+it affects **every** WSL distribution on the machine, not just this one:
 
 ```powershell
 wsl --shutdown
@@ -413,6 +442,18 @@ helpers rather than through every Windows executable being on `PATH`:
 the Windows browser. Set `WINDOWS_SYSTEM_ROOT` only if Windows is not available
 at the conventional `/mnt/c/Windows` mount. Neovim's `"+` and `"*` registers
 use the same clipboard helpers through a WSL-only LazyVim plugin spec.
+
+`verify.sh`'s "Windows executable interop" section checks the two properties
+separately: the existing Zsh-PATH and per-command checks confirm no Windows
+directory has leaked into `PATH`, and a dedicated check actually runs
+`/mnt/c/Windows/System32/cmd.exe /c echo interop-ok` and confirms it prints
+`interop-ok`, rather than trusting `PATH` cleanliness alone or a single
+binfmt handler name (WSL/runtime versions have used more than one). It also
+reports whatever `WSLInterop*` entries it finds under
+`/proc/sys/fs/binfmt_misc` as an informational hint, never as the sole basis
+for pass/fail. If the behavioral check fails, it prints the exact
+`/etc/wsl.conf` `[interop]` block above and the `wsl --shutdown` reminder,
+not just "broken."
 
 ## systemd
 
@@ -435,7 +476,11 @@ systemd=true
 
 Do not enable it merely to satisfy this dotfiles profile. The optional
 containers profile below is the one profile in this WSL variant that does
-require it.
+require it. `[boot] systemd=true` is a separate, unrelated `/etc/wsl.conf`
+section from the `[interop]` policy in "PATH and Windows interoperability"
+above — `configure-interop.sh` only ever touches `[interop]`, so an existing
+`[boot] systemd=true` (or lack of one) is preserved exactly as-is either
+way.
 
 ## Podman containers under WSL
 
@@ -610,24 +655,85 @@ Private keys, GitHub tokens, identities and signing configuration stay outside
 the repository. Put Git identity and optional signing settings in
 `~/.config/git/local`, as on normal Fedora.
 
-If the Windows 1Password SSH Agent is preferred, enable its WSL integration in
-1Password and use Windows OpenSSH explicitly rather than restoring the Windows
-PATH. Test it with:
+### Windows-hosted SSH agent (optional)
+
+If a Windows-hosted SSH agent is preferred — 1Password's is the common case,
+but this pattern is not 1Password-specific and this WSL profile does not
+require 1Password or any other agent — use Windows OpenSSH explicitly by its
+full path rather than restoring `/mnt/c/Windows/System32/OpenSSH` to `PATH`
+(that would shadow, or at least sit ahead of package-manager confusion with,
+the Linux `ssh` this profile installs and expects to remain authoritative).
+For 1Password specifically, enable its WSL integration in the 1Password
+Windows app first. Then test the explicit path directly:
 
 ```bash
 /mnt/c/Windows/System32/OpenSSH/ssh.exe -T git@github.com
 ```
 
-Then add the following machine-local setting to `~/.config/git/local`:
+and, to confirm the agent itself has keys loaded (useful when the above
+fails and you need to tell an agent problem from a known-hosts/network one):
+
+```bash
+/mnt/c/Windows/System32/OpenSSH/ssh-add.exe -l
+```
+
+Point Git at it by adding the following to `~/.config/git/local` for every
+repository:
 
 ```gitconfig
 [core]
     sshCommand = /mnt/c/Windows/System32/OpenSSH/ssh.exe
 ```
 
-Any 1Password commit-signing snippet also belongs in that local file. This is
-an explicit boundary choice: otherwise Git and SSH remain entirely inside
-Fedora.
+or, for one repository only, without touching machine-local config:
+
+```bash
+git config --local core.sshCommand /mnt/c/Windows/System32/OpenSSH/ssh.exe
+```
+
+This is an explicit boundary choice: without it, Git and SSH remain entirely
+inside Fedora, which is the default and requires no Windows interop at all.
+Either way, `ssh.exe` here is doing exactly one job — Git authentication
+(clone/fetch/pull/push over SSH) — and nothing else; see "PATH and Windows
+interoperability" above for why `ssh.exe` runs at all (`[interop]
+enabled=true`) without Windows directories ever being added to `PATH`.
+
+### Commit/tag signing with a Windows-hosted SSH key (optional, separate from authentication)
+
+SSH authentication (getting `ssh.exe` to talk to GitHub) and Git commit/tag
+signing (getting Git to produce a verifiable signature) are separate Git
+integrations that happen to both be able to use the same SSH keypair; wiring
+up one does not wire up the other. If commits should show as verified on
+GitHub using a key held by a Windows-hosted 1Password, that needs its own
+Git configuration pointing at 1Password's separate `op-ssh-sign-wsl.exe`
+signing helper, e.g. in `~/.config/git/local`:
+
+```gitconfig
+[gpg]
+    format = ssh
+[gpg "ssh"]
+    program = /mnt/c/.../op-ssh-sign-wsl.exe
+[commit]
+    gpgsign = true
+[user]
+    signingkey = ssh-ed25519 AAAA...
+```
+
+Do not hard-code a specific `op-ssh-sign-wsl.exe` path here: it is
+per-install and per-1Password-version. Use 1Password's own generated WSL Git
+signing snippet (1Password → Settings → SSH Agent → generated config for
+your platform) to get the correct path, or otherwise fill it in yourself; in
+either case it belongs in `~/.config/git/local`, never in this repository's
+tracked Git config, for exactly the same reason `sshCommand` above does.
+`user.signingkey` is the selected SSH **public** key; the matching public
+key must also be registered with the Git provider (GitHub → Settings → SSH
+and GPG keys, added as a **signing key**, not just an authentication key) or
+commits will sign locally but still show as unverified there. In short:
+
+| Executable | Role |
+|---|---|
+| `ssh.exe` | Git authentication — clone/fetch/pull/push |
+| `op-ssh-sign-wsl.exe` | Git commit/tag signing |
 
 ## DNS, VPN and networking
 

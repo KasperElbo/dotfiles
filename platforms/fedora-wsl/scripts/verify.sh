@@ -244,6 +244,44 @@ else
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# Windows executable interop
+#
+# The check above (and the Zsh PATH check earlier) covers one property:
+# Windows directories are absent from the Linux PATH. This section covers
+# the independent, complementary property this profile also relies on:
+# explicit Windows executables (full-path, never added to PATH) still run --
+# wsl-open, the clipboard helpers, and Windows OpenSSH/1Password SSH agent
+# use all depend on it. The two properties are controlled by separate
+# /etc/wsl.conf [interop] keys (appendWindowsPath and enabled respectively)
+# and can fail independently, so this repository verifies them separately.
+# ---------------------------------------------------------------------------
+
+section "Windows executable interop"
+
+interop_probe="$(windows_interop_probe_path)"
+binfmt_hint="$(windows_interop_binfmt_hint)"
+
+if windows_interop_works; then
+  pass "explicit Windows executable interop works ($interop_probe; binfmt_misc: $binfmt_hint)"
+else
+  fail "$(
+    cat <<EOF
+explicit Windows executable interop is not working: running
+$interop_probe /c echo interop-ok did not produce "interop-ok"
+(binfmt_misc: $binfmt_hint). Expected /etc/wsl.conf to contain:
+
+  [interop]
+  enabled=true
+  appendWindowsPath=false
+
+then a restart: run 'wsl --shutdown' from Windows PowerShell (this affects
+every WSL distribution, not just this one), then reopen this distribution.
+platforms/fedora-wsl/scripts/configure-interop.sh sets this for you.
+EOF
+  )"
+fi
+
 section "Representative runtimes"
 
 if dotnet --version >/dev/null 2>&1; then
