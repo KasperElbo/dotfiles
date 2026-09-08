@@ -198,6 +198,10 @@ The complete OCaml development environment is explicitly opt-in:
 
 --desktop-tools    install the optional day-to-day desktop application profile
 --no-desktop-tools skip the desktop-tools profile (default)
+--desktop-tools-force-defaults
+                   with --desktop-tools, override existing default
+                   applications for the mimetypes it manages instead of
+                   leaving an existing choice alone (default: leave alone)
 
 --hardware MODEL   install ASUS hardware support for ga402xz or ga402rk
                    default: disabled
@@ -1163,13 +1167,23 @@ setup this profile automates.
 The installer sets default applications with `xdg-mime` for the mimetypes
 each new or reused tool owns (common image formats to Gwenview, PDF to
 Okular, common archive formats to Ark, common audio/video formats to mpv).
-Each mimetype is only claimed if it currently has no default or is already
-set to the profile's choice; an existing, different default you or another
-application configured is left untouched and logged, on both the first run
-and every rerun. GIMP, pdfarranger, and Skanpage do not claim any file
-associations: they are opened explicitly (from Dolphin's "Open With" menu,
-`gimp`/`pdfarranger`, or the applications menu), not made the default handler
-for a mimetype another tool already owns.
+By default each mimetype is only claimed if it currently has no default or
+is already set to the profile's choice; an existing, different default you
+or another application configured is left untouched and logged, on both the
+first run and every rerun. GIMP, pdfarranger, and Skanpage do not claim any
+file associations: they are opened explicitly (from Dolphin's "Open With"
+menu, `gimp`/`pdfarranger`, or the applications menu), not made the default
+handler for a mimetype another tool already owns.
+
+Pass `--force-defaults` to `install-desktop-tools.sh` (or
+`--desktop-tools-force-defaults` to the top-level `./install.sh`) to
+override an existing, different default instead of leaving it alone. This
+replaces any prior choice — yours or another program's — for the mimetypes
+listed above with the profile's own; it does not touch any other mimetype.
+Use it when you want this profile's choices to win outright, for example on
+a fresh machine coming from a different desktop's defaults. The chosen mode
+is recorded as `force_defaults` in the profile's state file so a later
+unqualified rerun still shows what the last run actually did.
 
 The saved local state file is:
 

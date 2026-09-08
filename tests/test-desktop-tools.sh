@@ -84,7 +84,7 @@ test_environment=(
 
 run_install() {
   RPM_PRESENT="${RPM_PRESENT:-}" "${test_environment[@]}" \
-    "$repo_root/scripts/install-desktop-tools.sh" >/dev/null
+    "$repo_root/scripts/install-desktop-tools.sh" "$@" >/dev/null
 }
 
 # --- dry-run makes no changes and reports missing baseline packages -------
@@ -93,7 +93,14 @@ dry_run_output="$(RPM_PRESENT="" "${test_environment[@]}" \
   "$repo_root/scripts/install-desktop-tools.sh" --dry-run)"
 grep -Fq 'Currently missing and would be installed: ark gwenview okular' \
   <<<"$dry_run_output"
+grep -Fq 'Force-override existing default applications: false' <<<"$dry_run_output"
 grep -Fq 'No changes were made.' <<<"$dry_run_output"
+
+force_dry_run_output="$(RPM_PRESENT="" "${test_environment[@]}" \
+  "$repo_root/scripts/install-desktop-tools.sh" --dry-run --force-defaults)"
+grep -Fq 'Force-override existing default applications: true' \
+  <<<"$force_dry_run_output"
+grep -Fq 'overriding any existing default' <<<"$force_dry_run_output"
 
 if [[ -s "$command_log" ]]; then
   printf 'Dry-run executed a mutating command.\n' >&2
@@ -148,6 +155,14 @@ second_state="$(sha256sum "$state_file")"
 grep -Fqx 'image/jpeg=some-other-viewer.desktop' "$mime_store"
 grep -Fqx 'application/pdf=org.kde.okular.desktop' "$mime_store"
 printf 'PASS: rerunning is idempotent and keeps an existing user MIME choice\n'
+
+# --- --force-defaults overrides an existing choice on request ---------------
+
+RPM_PRESENT="ark gwenview okular" run_install --force-defaults
+grep -Fqx 'image/jpeg=org.kde.gwenview.desktop' "$mime_store"
+grep -Fqx 'application/pdf=org.kde.okular.desktop' "$mime_store"
+grep -Fqx 'force_defaults=true' "$state_file"
+printf 'PASS: --force-defaults overrides an existing default application\n'
 
 # --- RPM Fusion is enabled before mpv is installed --------------------------
 
