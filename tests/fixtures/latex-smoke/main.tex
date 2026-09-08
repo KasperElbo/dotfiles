@@ -1,0 +1,21 @@
+\documentclass{article}
+
+\usepackage[backend=biber,style=authoryear]{biblatex}
+\usepackage[colorlinks=true]{hyperref}
+\addbibresource{references.bib}
+
+\title{Dotfiles LaTeX smoke test}
+\author{Dotfiles}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+\label{sec:introduction}
+
+This document exercises cross-references, included files, and Biber.
+
+\input{sections/details}
+
+\printbibliography
+\end{document}

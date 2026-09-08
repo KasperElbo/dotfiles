@@ -9,7 +9,10 @@ command_exists dnf || die "LaTeX installation currently supports Fedora/DNF syst
 
 packages=(
   texlive-scheme-medium
+  latexmk
   biber
+  texlive-biblatex
+  texlive-latexindent
 )
 
 info "Installing LaTeX toolchain"

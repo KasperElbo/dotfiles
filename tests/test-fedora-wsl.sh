@@ -22,6 +22,15 @@ assert_contains "$dry_run" 'common/install-ocaml.sh'
 assert_contains "$dry_run" "Set Zsh as the user's default login shell."
 assert_contains "$dry_run" 'Excluded: KDE, Sway, Ghostty, ASUS/ROG, NVIDIA, VM host/guest, desktop,'
 
+latex_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
+assert_contains "$latex_off_dry_run" 'LaTeX toolchain:    false'
+
+latex_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --latex)"
+assert_contains "$latex_dry_run" 'LaTeX toolchain:    true'
+assert_contains "$latex_dry_run" 'platforms/fedora/scripts/install-latex.sh'
+assert_contains "$latex_dry_run" 'latexmk, latexindent, Biber'
+assert_contains "$latex_dry_run" 'platforms/fedora-wsl/scripts/verify.sh --latex'
+
 containers_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
 assert_contains "$containers_off_dry_run" 'Containers profile: false'
 
@@ -210,6 +219,8 @@ platform_env="$repo_root/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/plat
 platform_zsh="$repo_root/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform.zsh"
 grep -Fq '/mnt/[a-zA-Z]/*)' "$platform_env"
 grep -Fq 'export BROWSER=wsl-open' "$platform_env"
+grep -Fq 'vim.g.vimtex_view_general_viewer = "wsl-open"' \
+  "$repo_root/platforms/fedora-wsl/stow/nvim-wsl/.config/nvim/lua/plugins/wsl.lua"
 grep -Fq 'platform-env.zsh' "$repo_root/zsh/.zshenv"
 grep -Fq '/usr/share/zsh-autosuggestions' "$platform_zsh"
 
@@ -267,6 +278,7 @@ bootstrap_config="$bootstrap_home/.config"
 bootstrap_data="$bootstrap_home/.local/share"
 bootstrap_bin="$test_root/bootstrap-bin"
 bootstrap_shell_state="$test_root/bootstrap-login-shell"
+bootstrap_command_log="$test_root/bootstrap-commands.log"
 mkdir -p \
   "$bootstrap_config/git" \
   "$bootstrap_data/tmux/plugins" \
@@ -279,6 +291,7 @@ exit 0
 EOF
 cat >"$bootstrap_bin/sudo" <<'EOF'
 #!/usr/bin/env bash
+printf 'sudo %s\n' "$*" >>"$BOOTSTRAP_COMMAND_LOG"
 if [[ "$1" == usermod && "$2" == --shell ]]; then
   printf '%s\n' "$3" >"$SHELL_STATE"
 fi
@@ -305,9 +318,10 @@ chmod +x "$bootstrap_bin/mock-command" "$bootstrap_bin/sudo" \
   "$bootstrap_bin/id" "$bootstrap_bin/getent"
 
 bootstrap_commands=(
-  ast-grep bat curl delta dnf dotnet dotnet-easydotnet eza fd fzf gh lazygit
-  neovim-node-host node npm npx python rg rpm shellcheck sqlite3
-  starship tmux tree-sitter uv zoxide zsh
+  ast-grep bat biber curl delta dnf dotnet dotnet-easydotnet eza fd fzf gh
+  latex latexindent latexmk lazygit lualatex neovim-node-host node npm npx
+  pdflatex python rg rpm shellcheck sqlite3 starship tmux tree-sitter uv
+  xelatex zoxide zsh
 )
 for command_name in "${bootstrap_commands[@]}"; do
   ln -s mock-command "$bootstrap_bin/$command_name"
@@ -370,11 +384,12 @@ bootstrap_environment=(
   "WSL_DISTRO_NAME=FedoraLinux"
   "OS_RELEASE_FILE=$test_root/os-release"
   "SHELL_STATE=$bootstrap_shell_state"
+  "BOOTSTRAP_COMMAND_LOG=$bootstrap_command_log"
 )
 
 run_bootstrap() {
   if ! "${bootstrap_environment[@]}" \
-    "$repo_root/install.sh" --platform fedora-wsl --non-interactive \
+    "$repo_root/install.sh" --platform fedora-wsl --non-interactive "$@" \
     >"$test_root/bootstrap.log" 2>&1; then
     printf 'Complete mocked Fedora WSL bootstrap failed:\n' >&2
     sed -n '1,240p' "$test_root/bootstrap.log" >&2
@@ -386,6 +401,17 @@ run_bootstrap
 bootstrap_identity="$(sha256sum "$bootstrap_config/git/local")"
 bootstrap_notes="$(sha256sum "$bootstrap_home/notes")"
 run_bootstrap
+
+if grep -Fq 'texlive-scheme-medium' "$bootstrap_command_log"; then
+  printf 'Default Fedora WSL bootstrap unexpectedly installed LaTeX.\n' >&2
+  exit 1
+fi
+
+run_bootstrap --latex
+grep -Fq \
+  'sudo dnf install -y texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent' \
+  "$bootstrap_command_log"
+grep -Fq 'LaTeX toolchain' "$test_root/bootstrap.log"
 
 [[ "$(sha256sum "$bootstrap_config/git/local")" == "$bootstrap_identity" ]]
 [[ "$(sha256sum "$bootstrap_home/notes")" == "$bootstrap_notes" ]]
