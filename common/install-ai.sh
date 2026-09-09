@@ -219,6 +219,13 @@ if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
 fi
 [[ -n "$mise_command" ]] || die "Required command not found: mise"
 
+if [[ "$install_firstmate" == "true" ]]; then
+  require_command gh
+  require_command tmux
+  require_command jq
+  require_command curl
+fi
+
 info "Writing $conf_file"
 ensure_dir "$conf_dir"
 {
@@ -325,11 +332,6 @@ firstmate_state="disabled"
 treehouse_state="disabled"
 no_mistakes_state="disabled"
 if [[ "$install_firstmate" == "true" ]]; then
-  require_command gh
-  require_command tmux
-  require_command jq
-  require_command curl
-
   if [[ -d "$firstmate_dir/.git" ]]; then
     info "Updating FirstMate: $firstmate_dir"
     git -C "$firstmate_dir" pull --ff-only

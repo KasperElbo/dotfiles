@@ -22,6 +22,7 @@ packages=(
   gh
   git
   git-delta
+  jq
   libicu
   make
   neovim
