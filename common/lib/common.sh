@@ -29,6 +29,57 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+prepend_path() {
+  local entry="$1"
+  local current
+  local rebuilt=""
+  local -a path_entries=()
+
+  [[ -n "$entry" ]] || return 0
+
+  IFS=: read -r -a path_entries <<<"${PATH:-}"
+  for current in "${path_entries[@]}"; do
+    [[ -n "$current" && "$current" != "$entry" ]] || continue
+    rebuilt="${rebuilt:+$rebuilt:}$current"
+  done
+
+  PATH="$entry${rebuilt:+:$rebuilt}"
+  export PATH
+}
+
+resolve_mise_command() {
+  local candidate
+
+  # The standalone Linux installer has a fixed, user-owned location. Prefer
+  # it before inherited PATH so a stale WSL process cannot select mise.exe.
+  if [[ -x "$HOME/.local/bin/mise" ]]; then
+    printf '%s\n' "$HOME/.local/bin/mise"
+  else
+    candidate="$(command -v mise 2>/dev/null || true)"
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+    else
+      return 1
+    fi
+  fi
+}
+
+# Establish the non-interactive equivalent of the user-tool portion of the
+# final Zsh environment. Installers must not rely on the shell which launched
+# them having sourced .zshenv/.zshrc (notably, a WSL terminal may still be the
+# Bash process from before ensure_zsh_login_shell changed the account).
+establish_user_tool_environment() {
+  local mise_data_dir
+  local mise_shims_dir
+
+  mise_data_dir="${MISE_DATA_DIR:-$XDG_DATA_HOME/mise}"
+  mise_shims_dir="${MISE_SHIMS_DIR:-$mise_data_dir/shims}"
+
+  prepend_path "$HOME/.local/bin"
+  prepend_path "$mise_shims_dir"
+  hash -r 2>/dev/null || true
+}
+
 ensure_dir() {
   mkdir -p "$1"
 }
@@ -119,6 +170,8 @@ ensure_zsh_login_shell() {
   local current_shell
   local zsh_path
 
+  export ZSH_LOGIN_SHELL_CHANGED="false"
+
   [[ "$(id -u)" -ne 0 ]] ||
     die "Refusing to change root's login shell; run the installer as a regular user."
 
@@ -132,5 +185,6 @@ ensure_zsh_login_shell() {
   else
     info "Setting Zsh as the default login shell"
     sudo usermod --shell "$zsh_path" "$current_user"
+    export ZSH_LOGIN_SHELL_CHANGED="true"
   fi
 }

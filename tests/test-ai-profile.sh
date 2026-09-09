@@ -27,7 +27,18 @@ conf_file="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
 make_shim() {
   install_bin="$MISE_INSTALLS_DIR/$1/latest/bin/$1"
   mkdir -p "$(dirname "$install_bin")"
-  printf '#!/usr/bin/env bash\nexit 0\n' >"$install_bin"
+  if [[ "$1" == claude ]]; then
+    cat >"$install_bin" <<'SCRIPT'
+#!/usr/bin/env bash
+if [[ -n "${CLAUDE_NATIVE_BROKEN_FILE:-}" && -e "$CLAUDE_NATIVE_BROKEN_FILE" ]]; then
+  printf 'Error: claude native binary not installed.\n' >&2
+  exit 1
+fi
+printf '1.0.0 (Claude Code)\n'
+SCRIPT
+  else
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$install_bin"
+  fi
   chmod +x "$install_bin"
   printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$install_bin" >"$MISE_SHIMS_DIR/$1"
   chmod +x "$MISE_SHIMS_DIR/$1"
@@ -36,6 +47,10 @@ make_shim() {
 case "${1:-}" in
 --yes)
   if [[ "${2:-}" == install ]]; then
+    if [[ "${3:-}" == npm:@anthropic-ai/claude-code &&
+      "${CLAUDE_REPAIR_RESULT:-success}" == success ]]; then
+      rm -f -- "${CLAUDE_NATIVE_BROKEN_FILE:-}"
+    fi
     mkdir -p "$MISE_SHIMS_DIR"
     grep -Fq 'claude-code' "$conf_file" 2>/dev/null && make_shim claude
     grep -Fq 'herdr' "$conf_file" 2>/dev/null && make_shim herdr
@@ -48,6 +63,18 @@ case "${1:-}" in
     grep -Fq '"npm:quota-axi"' "$conf_file" 2>/dev/null && make_shim quota-axi
     grep -Fq '"npm:backpass"' "$conf_file" 2>/dev/null && make_shim backpass
     grep -Fq '"npm:acpx"' "$conf_file" 2>/dev/null && make_shim acpx
+  fi
+  exit 0
+  ;;
+exec)
+  [[ "${2:-}" == -- ]] || exit 2
+  shift 2
+  PATH="$MISE_SHIMS_DIR:$PATH" exec "$@"
+  ;;
+uninstall)
+  if [[ "${2:-}" == npm:@anthropic-ai/claude-code ]]; then
+    printf 'claude-uninstall\n' >>"${MISE_OPERATION_LOG:-/dev/null}"
+    rm -rf -- "$MISE_INSTALLS_DIR/claude" "$MISE_SHIMS_DIR/claude"
   fi
   exit 0
   ;;
@@ -65,6 +92,17 @@ esac
 exit 0
 EOF
 chmod +x "$mock_bin/mise"
+
+cat >"$mock_bin/npm" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == config && "${2:-}" == get ]]; then
+  case "${3:-}" in
+  ignore-scripts) printf '%s\n' "${MOCK_NPM_IGNORE_SCRIPTS:-false}" ;;
+  omit) printf '%s\n' "${MOCK_NPM_OMIT:-}" ;;
+  esac
+fi
+EOF
+chmod +x "$mock_bin/npm"
 
 for command_name in gh tmux jq; do
   cat >"$mock_bin/$command_name" <<'EOF'
@@ -118,7 +156,9 @@ test_environment=(
   "CODEX_HOME=$home/.codex"
   "XDG_CONFIG_HOME=$config"
   "XDG_DATA_HOME=$data"
-  "PATH=$home/.local/bin:$mise_shims:$mock_bin:$PATH"
+  # Deliberately omit ~/.local/bin and mise shims: this is the stale shell
+  # inherited by a first installer run before the final Zsh config is loaded.
+  "PATH=$mock_bin:$PATH"
   "MISE_DATA_DIR=$mise_data"
   "MISE_SHIMS_DIR=$mise_shims"
   "MISE_INSTALLS_DIR=$mise_installs"
@@ -183,7 +223,7 @@ fi
   printf 'AI mise conf.d file missing: %s\n' "$conf_file" >&2
   exit 1
 }
-grep -Fq '"npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }' "$conf_file"
+grep -Fq '"npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false --include=optional" }' "$conf_file"
 grep -Fq 'herdr = "latest"' "$conf_file"
 if grep -Fq 'openai/codex' "$conf_file"; then
   printf 'Codex declared without --codex\n' >&2
@@ -360,6 +400,75 @@ assert_contains "$broken_claude_output" \
   "claude is installed but 'claude --version' failed"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$claude_install"
 chmod +x "$claude_install"
+
+# --- Incomplete Claude native install: one bounded, narrow repair ----------
+
+repair_home="$test_root/repair-home"
+repair_data="$repair_home/.local/share"
+repair_mise_data="$repair_data/mise"
+repair_marker="$test_root/claude-native-broken"
+repair_log="$test_root/repair-operations.log"
+mkdir -p "$repair_home" "$repair_mise_data/shims" "$repair_mise_data/installs"
+touch "$repair_marker"
+repair_environment=(
+  env
+  "HOME=$repair_home"
+  "CODEX_HOME=$repair_home/.codex"
+  "XDG_CONFIG_HOME=$repair_home/.config"
+  "XDG_DATA_HOME=$repair_data"
+  "PATH=$mock_bin:$PATH"
+  "MISE_DATA_DIR=$repair_mise_data"
+  "MISE_SHIMS_DIR=$repair_mise_data/shims"
+  "MISE_INSTALLS_DIR=$repair_mise_data/installs"
+  "MISE_OPERATION_LOG=$repair_log"
+  "CLAUDE_NATIVE_BROKEN_FILE=$repair_marker"
+  "NPM_CONFIG_IGNORE_SCRIPTS=true"
+  "NPM_CONFIG_OMIT=optional"
+  "MOCK_NPM_IGNORE_SCRIPTS=true"
+  "MOCK_NPM_OMIT=optional"
+)
+
+if ! repair_output="$("${repair_environment[@]}" \
+  "$repo_root/common/install-ai.sh" 2>&1)"; then
+  printf '%s\n' "$repair_output" >&2
+  printf 'install-ai.sh did not repair incomplete Claude Code\n' >&2
+  exit 1
+fi
+assert_contains "$repair_output" "platform-native binary is missing"
+assert_contains "$repair_output" "ignore-scripts=true; omit=optional"
+assert_contains "$repair_output" "NPM_CONFIG_IGNORE_SCRIPTS=true; NPM_CONFIG_OMIT=optional"
+assert_contains "$repair_output" "Claude Code native installation repaired"
+[[ "$(grep -Fc claude-uninstall "$repair_log")" == 1 ]]
+[[ ! -e "$repair_marker" ]]
+
+# Once healthy, an idempotent rerun must not uninstall Claude again.
+"${repair_environment[@]}" "$repo_root/common/install-ai.sh" >/dev/null
+[[ "$(grep -Fc claude-uninstall "$repair_log")" == 1 ]]
+
+# A failed repair is attempted once and then stops with the known recovery.
+failed_home="$test_root/failed-repair-home"
+failed_data="$failed_home/.local/share"
+failed_mise_data="$failed_data/mise"
+failed_marker="$test_root/claude-still-broken"
+failed_log="$test_root/failed-repair-operations.log"
+mkdir -p "$failed_home" "$failed_mise_data/shims" "$failed_mise_data/installs"
+touch "$failed_marker"
+if failed_repair_output="$(env \
+  HOME="$failed_home" CODEX_HOME="$failed_home/.codex" \
+  XDG_CONFIG_HOME="$failed_home/.config" XDG_DATA_HOME="$failed_data" \
+  PATH="$mock_bin:$PATH" MISE_DATA_DIR="$failed_mise_data" \
+  MISE_SHIMS_DIR="$failed_mise_data/shims" \
+  MISE_INSTALLS_DIR="$failed_mise_data/installs" \
+  MISE_OPERATION_LOG="$failed_log" CLAUDE_NATIVE_BROKEN_FILE="$failed_marker" \
+  CLAUDE_REPAIR_RESULT=failure \
+  "$repo_root/common/install-ai.sh" 2>&1)"; then
+  printf 'install-ai.sh accepted Claude Code after a failed repair\n' >&2
+  exit 1
+fi
+assert_contains "$failed_repair_output" "still broken after one repair attempt"
+assert_contains "$failed_repair_output" "mise uninstall npm:@anthropic-ai/claude-code"
+assert_contains "$failed_repair_output" "mise install"
+[[ "$(grep -Fc claude-uninstall "$failed_log")" == 1 ]]
 
 # Rerunning updates (git pull --ff-only, and reruns the Treehouse installer)
 # rather than re-cloning or failing.

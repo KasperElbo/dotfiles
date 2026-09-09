@@ -156,8 +156,9 @@ if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
 fi
 
 if [[ -n "$mise_command" ]]; then
-  # Make the managed tools visible in this non-interactive verification shell.
-  eval "$("$mise_command" activate bash)"
+  # Match the installer/final-Zsh user tool environment without depending on
+  # the shell which launched this verification having loaded .zshrc.
+  establish_user_tool_environment
 else
   fail "mise not found"
 fi
@@ -216,6 +217,38 @@ if [[ -f "$ai_state" ]]; then
     pass "AI profile verification completed"
   else
     fail "AI profile verification failed"
+  fi
+
+  ai_login_commands=(claude herdr)
+  while IFS='=' read -r component ownership; do
+    case "$component:$ownership" in
+    codex:mise-npm) ai_login_commands+=(codex) ;;
+    gnhf:mise-npm) ai_login_commands+=(gnhf) ;;
+    gh_axi:mise-npm) ai_login_commands+=(gh-axi) ;;
+    chrome_devtools_axi:mise-npm) ai_login_commands+=(chrome-devtools-axi) ;;
+    lavish_axi:mise-npm) ai_login_commands+=(lavish-axi) ;;
+    tasks_axi:mise-npm) ai_login_commands+=(tasks-axi) ;;
+    quota_axi:mise-npm) ai_login_commands+=(quota-axi) ;;
+    backpass:mise-npm) ai_login_commands+=(backpass) ;;
+    acpx:mise-npm) ai_login_commands+=(acpx) ;;
+    treehouse:installed) ai_login_commands+=(treehouse) ;;
+    no_mistakes:installed) ai_login_commands+=(no-mistakes) ;;
+    esac
+  done <"$ai_state"
+
+  for command_name in "${ai_login_commands[@]}"; do
+    if zsh -lic 'command -v "$1" >/dev/null' _ "$command_name" \
+      >/dev/null 2>&1; then
+      pass "Fresh Zsh login resolves $command_name"
+    else
+      fail "Fresh Zsh login does not resolve $command_name"
+    fi
+  done
+
+  if zsh -lic 'claude --version >/dev/null' >/dev/null 2>&1; then
+    pass "Claude Code starts in a fresh Zsh login"
+  else
+    fail "Claude Code does not start in a fresh Zsh login"
   fi
 
   # WSL-specific concern beyond common/verify-ai.sh: a Windows-installed

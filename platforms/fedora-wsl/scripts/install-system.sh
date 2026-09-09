@@ -47,6 +47,15 @@ sudo dnf install -y "${packages[@]}"
 
 ensure_zsh_login_shell
 
+if [[ "${ZSH_LOGIN_SHELL_CHANGED:-false}" == "true" ]]; then
+  cat <<'EOF'
+
+Zsh is now configured as your login shell.
+This Noctty session was started before that change; open a new Noctty/WSL
+session to enter Zsh normally.
+EOF
+fi
+
 # A fresh Fedora WSL account does not necessarily have this XDG user binary
 # directory yet. Both the Starship and mise installers require its parent
 # directory to exist before they can place their executables there.

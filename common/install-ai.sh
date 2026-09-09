@@ -213,11 +213,12 @@ fi
 
 require_command git
 
-mise_command="$(command -v mise 2>/dev/null || true)"
-if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
-  mise_command="$HOME/.local/bin/mise"
-fi
+mise_command="$(resolve_mise_command || true)"
 [[ -n "$mise_command" ]] || die "Required command not found: mise"
+
+# Do not inherit the caller's possibly stale pre-Zsh PATH. This is shared by
+# every AI component, including the own-script tools in ~/.local/bin.
+establish_user_tool_environment
 
 if [[ "$install_firstmate" == "true" ]]; then
   require_command gh
@@ -235,8 +236,8 @@ ensure_dir "$conf_dir"
   printf '\n'
   printf '[tools]\n'
   # Claude Code's npm package uses postinstall to link its platform-native
-  # binary. mise otherwise disables npm lifecycle scripts by default.
-  printf '"npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }\n'
+  # optional dependency. mise otherwise disables npm lifecycle scripts.
+  printf '"npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false --include=optional" }\n'
   printf 'herdr = "latest"\n'
   if [[ "$install_codex" == "true" ]]; then
     printf '"npm:@openai/codex" = "latest"\n'
@@ -279,6 +280,45 @@ if [[ "$install_backpass" == "true" ]]; then
 fi
 info "Installing $mise_tools_msg via mise"
 "$mise_command" --yes install
+establish_user_tool_environment
+
+claude_health_check() {
+  "$mise_command" exec -- claude --version
+}
+
+diagnose_claude_npm_settings() {
+  local ignore_scripts omit
+
+  ignore_scripts="$("$mise_command" exec -- npm config get ignore-scripts 2>/dev/null || printf 'unavailable')"
+  omit="$("$mise_command" exec -- npm config get omit 2>/dev/null || printf 'unavailable')"
+
+  warn "npm settings while Claude Code was installed: ignore-scripts=${ignore_scripts:-unset}; omit=${omit:-unset}"
+  if [[ -n "${NPM_CONFIG_IGNORE_SCRIPTS:-}" || -n "${NPM_CONFIG_OMIT:-}" ]]; then
+    warn "npm environment overrides are set: NPM_CONFIG_IGNORE_SCRIPTS=${NPM_CONFIG_IGNORE_SCRIPTS:-unset}; NPM_CONFIG_OMIT=${NPM_CONFIG_OMIT:-unset}"
+  fi
+  warn "The Claude-only mise declaration explicitly enables lifecycle scripts and optional dependencies; global npm configuration was not changed."
+}
+
+claude_output=""
+if ! claude_output="$(claude_health_check 2>&1)"; then
+  if [[ "$claude_output" == *"claude native binary not installed"* ]]; then
+    warn "Claude Code's wrapper exists, but its platform-native binary is missing."
+    diagnose_claude_npm_settings
+    info "Repairing only the mise-managed Claude Code installation (one attempt)"
+    "$mise_command" uninstall npm:@anthropic-ai/claude-code
+    "$mise_command" --yes install npm:@anthropic-ai/claude-code
+    establish_user_tool_environment
+
+    if ! claude_output="$(claude_health_check 2>&1)"; then
+      printf '%s\n' "$claude_output" >&2
+      die "Claude Code is still broken after one repair attempt. Manual recovery:\n  mise uninstall npm:@anthropic-ai/claude-code\n  mise install"
+    fi
+    success "Claude Code native installation repaired: $claude_output"
+  else
+    printf '%s\n' "$claude_output" >&2
+    die "Claude Code failed its health check ('claude --version'); automatic repair is limited to the native-binary-missing failure"
+  fi
+fi
 
 # link_agent_instructions <target>: points a harness's global instructions
 # path at this repository's tracked common/assets/AGENTS.md, so editing one
