@@ -42,6 +42,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$MinimumProvenWslVersion = [version]'2.7.13'
 $NocttyBucketUrl = 'https://github.com/amanthanvi/scoop-noctty'
 $WslDistributionCatalogUrl = 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json'
 $ManagedBlockStart = '# BEGIN dotfiles Fedora WSL'
@@ -50,6 +51,7 @@ $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $GhosttyConfig = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\shared.conf'
 $GhosttyThemes = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\themes'
 $NocttyThemeHelper = Join-Path $PSScriptRoot 'set-noctty-theme.ps1'
+. (Join-Path $PSScriptRoot 'lib\wsl-version.ps1')
 
 function Write-Step {
     param([string]$Message)
@@ -89,6 +91,46 @@ function ConvertFrom-WslOutput {
             ForEach-Object { ($_ -replace "`0", '').Trim() } |
             Where-Object { $_ }
     )
+}
+
+function Get-WslPackageVersion {
+    $output = & wsl.exe --version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return $null
+    }
+
+    return ConvertFrom-WslVersionOutput -Lines $output
+}
+
+function Write-WslSupportStatus {
+    $installedVersion = Get-WslPackageVersion
+    $status = Get-WslSupportStatus `
+        -InstalledVersion $installedVersion `
+        -MinimumProvenVersion $MinimumProvenWslVersion
+
+    if ($status -eq 'Proven') {
+        Write-Step "WSL $installedVersion detected (proven-supported baseline)"
+        return
+    }
+
+    if ($status -eq 'Older') {
+        Write-Warning @"
+WSL $installedVersion detected.
+This repository is currently validated on WSL $MinimumProvenWslVersion and newer.
+Older versions may work but are unvalidated.
+
+Update WSL from PowerShell:
+  wsl --update
+"@
+        return
+    }
+
+    Write-Warning @"
+Unable to determine the installed WSL version.
+Fedora WSL is currently validated on WSL $MinimumProvenWslVersion and newer.
+Check manually with:
+  wsl --version
+"@
 }
 
 function Get-WslList {
@@ -620,6 +662,8 @@ if (Test-Administrator) {
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw 'wsl.exe was not found. Install current Windows updates and enable Windows Subsystem for Linux, then rerun this script.'
 }
+
+Write-WslSupportStatus
 
 $selectedFedora = Resolve-FedoraDistribution `
     -RequestedDistribution $FedoraDistribution `

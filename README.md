@@ -341,6 +341,29 @@ and language configuration used by the normal Fedora workstation.
 
 ## Windows-side prerequisites
 
+**Minimum proven-supported WSL version: 2.7.13.** This is the oldest version
+on which the repository's complete Fedora WSL flow has been validated,
+including its current bootstrap, systemd assumptions, `/etc/wsl.conf` interop
+policy, and explicit Windows executable invocation. Older WSL versions may
+work, but they are unvalidated and are not part of the currently tested and
+supported baseline. This support floor records the proven integration; it is
+not evidence that a specific WSL bug was fixed in exactly 2.7.13.
+
+Check the Store-delivered WSL package version from Windows PowerShell before
+starting:
+
+```powershell
+wsl --version
+```
+
+If it is older than 2.7.13, update the WSL package and check again. Updating
+Windows itself is not normally required when the package update succeeds:
+
+```powershell
+wsl --update
+wsl --version
+```
+
 From a normal, non-administrator PowerShell session in this checkout, preview
 and run the Windows-side bootstrap:
 
