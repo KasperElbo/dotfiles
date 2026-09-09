@@ -227,8 +227,11 @@ test_environment=(
   "SHELL_STATE=$shell_state"
 )
 
-"${test_environment[@]}" \
-  "$repo_root/platforms/fedora-wsl/scripts/install-system.sh" >/dev/null
+install_system_output="$("${test_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/install-system.sh")"
+assert_contains "$install_system_output" 'Zsh is now configured as your login shell.'
+assert_contains "$install_system_output" \
+  'This Noctty session was started before that change; open a new Noctty/WSL'
 [[ -x "$home/.local/bin/mise" ]]
 [[ -x "$home/.local/bin/starship" ]]
 expected_zsh_path="$(PATH="$mock_bin:/usr/bin:/bin" command -v zsh)"
@@ -405,8 +408,32 @@ done
 
 cat >"$bootstrap_bin/mise" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == exec && "${2:-}" == -- ]]; then
+make_ai_tool() {
+  name="$1"
+  install_bin="$XDG_DATA_HOME/mise/installs/$name/latest/bin/$name"
+  shim="$XDG_DATA_HOME/mise/shims/$name"
+  mkdir -p "$(dirname "$install_bin")" "$(dirname "$shim")"
+  if [[ "$name" == claude ]]; then
+    printf '#!/usr/bin/env bash\nprintf "1.0.0 (Claude Code)\\n"\n' >"$install_bin"
+  else
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$install_bin"
+  fi
+  chmod +x "$install_bin"
+  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$install_bin" >"$shim"
+  chmod +x "$shim"
+}
+
+if [[ "${1:-}" == --yes && "${2:-}" == install ]]; then
+  conf="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
+  [[ -f "$conf" ]] && make_ai_tool claude
+  [[ -f "$conf" ]] && make_ai_tool herdr
+elif [[ "${1:-}" == which ]]; then
+  candidate="$XDG_DATA_HOME/mise/installs/${2:-}/latest/bin/${2:-}"
+  [[ -x "$candidate" ]] || exit 1
+  printf '%s\n' "$candidate"
+elif [[ "${1:-}" == exec && "${2:-}" == -- ]]; then
   shift 2
+  PATH="$XDG_DATA_HOME/mise/shims:$PATH"
   exec "$@"
 fi
 exit 0
@@ -427,11 +454,16 @@ rm -- "$bootstrap_bin/zsh"
 cat >"$bootstrap_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
 printf '\033[H\033[2J\033[3J'
+PATH="$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
 if [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then
   printf '\n__DOTFILES_VERIFY_PATH__%s\n' "$PATH"
 elif [[ "$*" == *'__DOTFILES_VERIFY_STARSHIP__'* ]]; then
   printf '\n__DOTFILES_VERIFY_STARSHIP__%s\n' \
     "$XDG_CONFIG_HOME/starship/catppuccin-macchiato.toml"
+elif [[ "$*" == *'command -v "$1"'* ]]; then
+  command -v "${*: -1}" >/dev/null || exit 1
+elif [[ "$*" == *'claude --version'* ]]; then
+  claude --version >/dev/null || exit 1
 fi
 printf '\033[H\033[2J\033[3J\n'
 EOF
@@ -454,8 +486,11 @@ printf 'unrelated state\n' >"$bootstrap_home/notes"
 bootstrap_environment=(
   env
   "HOME=$bootstrap_home"
+  "CODEX_HOME=$bootstrap_home/.codex"
   "XDG_CONFIG_HOME=$bootstrap_config"
   "XDG_DATA_HOME=$bootstrap_data"
+  # Simulate the original Noctty/Bash process: the eventual mise shim
+  # directory (and therefore every AI binary) is absent.
   "PATH=$bootstrap_home/.local/bin:$bootstrap_bin:$PATH"
   "WSL_DISTRO_NAME=FedoraLinux"
   "OS_RELEASE_FILE=$test_root/os-release"
@@ -495,6 +530,14 @@ grep -Fq \
   'sudo dnf install -y texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent' \
   "$bootstrap_command_log"
 grep -Fq 'LaTeX toolchain' "$test_root/bootstrap.log"
+
+run_bootstrap --ai
+grep -Fq 'AI profile verification passed' "$test_root/bootstrap.log"
+grep -Fq 'Fresh Zsh login resolves claude' "$test_root/bootstrap.log"
+grep -Fq 'Fresh Zsh login resolves herdr' "$test_root/bootstrap.log"
+grep -Fq 'Claude Code starts in a fresh Zsh login' "$test_root/bootstrap.log"
+[[ -x "$bootstrap_data/mise/shims/claude" ]]
+[[ -x "$bootstrap_data/mise/shims/herdr" ]]
 
 [[ "$(sha256sum "$bootstrap_config/git/local")" == "$bootstrap_identity" ]]
 [[ "$(sha256sum "$bootstrap_home/notes")" == "$bootstrap_notes" ]]
