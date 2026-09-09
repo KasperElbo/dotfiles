@@ -97,12 +97,21 @@ for platform_name in "${platforms[@]}"; do
       "$platform_name" "$platform_help" >&2
     exit 1
   }
-  platform_marker="Options for platform '$platform_name'"
+  platform_marker="Options (platform '$platform_name'):"
   assert_contains "$platform_help" "--platform NAME    Target platform:"
   assert_contains "$platform_help" "$platform_marker"
-  platform_specific_help="${platform_help#*"$platform_marker"}"
-  assert_contains "$platform_specific_help" 'Usage:'
-  printf 'PASS: --platform %s --help retains selector and platform-specific help\n' \
+  assert_contains "$platform_help" '--theme FLAVOUR'
+  [[ "$(grep -c '^Usage:' <<<"$platform_help")" -eq 1 ]] || {
+    printf 'Expected one Usage section for platform %s:\n%s\n' \
+      "$platform_name" "$platform_help" >&2
+    exit 1
+  }
+  [[ "$(grep -c '^Options' <<<"$platform_help")" -eq 1 ]] || {
+    printf 'Expected one Options section for platform %s:\n%s\n' \
+      "$platform_name" "$platform_help" >&2
+    exit 1
+  }
+  printf 'PASS: --platform %s --help combines selector and platform options\n' \
     "$platform_name"
 done
 
