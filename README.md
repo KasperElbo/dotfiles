@@ -483,9 +483,13 @@ cd ~/src/dotfiles
 ./install.sh --platform fedora-wsl
 ```
 
-The installer makes Zsh the user's default login shell. Run `exec zsh -l`
-after installation to replace the Bash process in the current terminal; new
-WSL sessions start Zsh automatically.
+The installer makes Zsh the user's default login shell. An already-running
+Noctty/WSL process remains the Bash process that started before that account
+change; changing the passwd entry cannot replace it retroactively. Open a new
+Noctty/WSL session to enter Zsh normally (no Windows reboot is required), or
+run `exec zsh -l` to replace the current shell immediately. Installation and
+verification do not depend on doing either: bootstrap scripts establish the
+mise shim and user-bin environment explicitly.
 
 Keep repositories under the WSL Linux filesystem, normally `~/src`. `/mnt/c`
 is useful for exchanging files with Windows, but its metadata, file-watching,
@@ -2278,13 +2282,18 @@ avoids adding a second, Fedora-only package-management path (the `dnf` Claude
 Code repository) that would not carry over to Fedora WSL or a future macOS
 profile (see #11) unchanged.
 
-The generated AI mise configuration enables npm lifecycle scripts only for
-the Claude Code tool installation. This is required because Anthropic's npm
-package uses `postinstall` to link its platform-native binary, while mise's
-npm backend disables lifecycle scripts by default. The profile therefore
-accepts lifecycle scripts from Claude Code's installation graph, not from the
-other npm tools. Verification runs `claude --version` so an omitted or failed
-link step cannot appear healthy merely because a shim exists. See
+The generated AI mise configuration enables npm lifecycle scripts and includes
+optional dependencies only for the Claude Code tool installation
+(`--ignore-scripts=false --include=optional`). This is required because
+Anthropic's npm package uses `postinstall` to link its platform-native binary,
+while mise's npm backend disables lifecycle scripts by default. The profile
+therefore accepts lifecycle scripts from Claude Code's installation graph,
+not from the other npm tools. Verification runs `claude --version` through
+mise's explicit environment, so an omitted or failed native binary cannot
+appear healthy merely because a shim or npm wrapper exists. If that specific
+failure occurs immediately after installation, the installer removes and
+reinstalls only Claude Code once, then repeats the health check. It does not
+change the user's global npm configuration. See
 [Anthropic's setup documentation](https://docs.anthropic.com/en/docs/claude-code/setup)
 and [mise's npm lifecycle-script documentation](https://mise.jdx.dev/dev-tools/backends/npm.html#lifecycle-scripts).
 
@@ -4383,8 +4392,11 @@ Expected. Verify the Python provider through Neovim health checks instead.
 
 ## `claude`/`codex`/`herdr` are not found after `--ai`
 
-Confirm the AI profile's untracked mise config exists and mise sees it, then
-reinstall:
+First run `./scripts/verify-ai.sh`. The installer and verifier explicitly add
+the normal user-bin and mise shim directories, so a command should not be
+reported missing merely because the calling Bash session predates the final
+Zsh configuration. Confirm the AI profile's untracked mise config exists and
+mise sees it, then reinstall:
 
 ```bash
 cat ~/.config/mise/conf.d/ai.toml
@@ -4393,6 +4405,24 @@ mise install
 
 If the file is missing, rerun `./scripts/install-ai.sh` (add `--codex`
 and/or `--firstmate` as needed) — it is safe to rerun.
+
+## `claude native binary not installed`
+
+`command -v claude` is not a sufficient health check: the npm wrapper can
+exist while Claude Code's platform-native optional dependency is absent. The
+AI installer detects this with `claude --version`, reports the effective
+`npm config get ignore-scripts` and `npm config get omit` values (plus the
+corresponding `NPM_CONFIG_*` variables when set), and makes one Claude-only
+repair attempt. Its per-tool mise arguments override those settings for this
+installation without rewriting `~/.npmrc`.
+
+If that bounded repair still fails, inspect the reported npm settings and run
+the known manual recovery:
+
+```bash
+mise uninstall npm:@anthropic-ai/claude-code
+mise install
+```
 
 ## `verify-ai.sh` reports a possible duplicate install
 
