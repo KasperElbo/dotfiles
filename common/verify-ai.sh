@@ -47,12 +47,14 @@ lavish_axi_state="$(awk -F= '$1 == "lavish_axi" { print $2 }' "$state_file")"
 gnhf_state="$(awk -F= '$1 == "gnhf" { print $2 }' "$state_file")"
 backpass_state="$(awk -F= '$1 == "backpass" { print $2 }' "$state_file")"
 
-mise_command="$(command -v mise 2>/dev/null || true)"
-if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
-  mise_command="$HOME/.local/bin/mise"
-fi
+caller_path="$PATH"
+mise_command="$(resolve_mise_command || true)"
 mise_data_dir="${MISE_DATA_DIR:-$XDG_DATA_HOME/mise}"
-mise_shims_dir="$mise_data_dir/shims"
+mise_shims_dir="${MISE_SHIMS_DIR:-$mise_data_dir/shims}"
+
+# Verification has the same deterministic command environment as installation,
+# even when called from a shell that predates the final Zsh configuration.
+establish_user_tool_environment
 
 # check_mise_owned <command>: confirms the command resolves on PATH, and that
 # it is either mise's shim or the executable mise reports managing. This
@@ -60,7 +62,7 @@ mise_shims_dir="$mise_data_dir/shims"
 # the mise-owned copy while supporting mise's normal shim-based PATH setup.
 check_mise_owned() {
   local name="$1"
-  local resolved mise_resolved mise_shim
+  local resolved mise_resolved mise_shim caller_resolved
 
   resolved="$(command -v "$name" 2>/dev/null || true)"
   if [[ -z "$resolved" ]]; then
@@ -85,6 +87,16 @@ check_mise_owned() {
   fi
 
   mise_shim="$mise_shims_dir/$name"
+  caller_resolved="$(PATH="$caller_path" command -v "$name" 2>/dev/null || true)"
+  if [[ ":$caller_path:" == *":$mise_shims_dir:"* &&
+    -n "$caller_resolved" ]] &&
+    ! shell_paths_match "$caller_resolved" "$mise_resolved" &&
+    ! shell_paths_match "$caller_resolved" "$mise_shim"; then
+    fail "$name resolves outside mise, a possible duplicate install:" \
+      "$caller_resolved (mise manages $mise_resolved)"
+    return
+  fi
+
   if shell_paths_match "$resolved" "$mise_resolved"; then
     pass "$name is mise-managed: $resolved"
   elif shell_paths_match "$resolved" "$mise_shim"; then
@@ -102,7 +114,8 @@ check_command_runs() {
   local name="$1"
   shift
 
-  if "$name" "$@" >/dev/null 2>&1; then
+  if [[ -n "$mise_command" ]] &&
+    "$mise_command" exec -- "$name" "$@" >/dev/null 2>&1; then
     pass "$name launches successfully: $name $*"
   else
     fail "$name is installed but '$name $*' failed"
