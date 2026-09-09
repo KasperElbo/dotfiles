@@ -51,14 +51,16 @@ mise_command="$(command -v mise 2>/dev/null || true)"
 if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
   mise_command="$HOME/.local/bin/mise"
 fi
+mise_data_dir="${MISE_DATA_DIR:-$XDG_DATA_HOME/mise}"
+mise_shims_dir="$mise_data_dir/shims"
 
 # check_mise_owned <command>: confirms the command resolves on PATH, and that
-# it is the same binary mise reports managing -- catching the case where a
-# second install (Homebrew, a global npm install, a native installer) shadows
-# or duplicates the mise-owned copy this profile installed.
+# it is either mise's shim or the executable mise reports managing. This
+# catches a second install (Homebrew, global npm, native installer) shadowing
+# the mise-owned copy while supporting mise's normal shim-based PATH setup.
 check_mise_owned() {
   local name="$1"
-  local resolved mise_resolved
+  local resolved mise_resolved mise_shim
 
   resolved="$(command -v "$name" 2>/dev/null || true)"
   if [[ -z "$resolved" ]]; then
@@ -77,12 +79,33 @@ check_mise_owned() {
     return
   fi
 
-  if [[ "$resolved" == "$mise_resolved" ]] ||
-    [[ -e "$resolved" && -e "$mise_resolved" && "$resolved" -ef "$mise_resolved" ]]; then
+  if [[ ! -x "$mise_resolved" ]]; then
+    fail "$name's mise-managed executable is missing or not executable: $mise_resolved"
+    return
+  fi
+
+  mise_shim="$mise_shims_dir/$name"
+  if shell_paths_match "$resolved" "$mise_resolved"; then
     pass "$name is mise-managed: $resolved"
+  elif shell_paths_match "$resolved" "$mise_shim"; then
+    pass "$name is mise-managed via shim: $resolved -> $mise_resolved"
   else
     fail "$name resolves outside mise, a possible duplicate install:" \
       "$resolved (mise manages $mise_resolved)"
+  fi
+}
+
+# check_command_runs <command> <arguments...>: catches an executable that was
+# installed but is unusable, such as Claude Code without its required npm
+# postinstall step linking the platform-native binary.
+check_command_runs() {
+  local name="$1"
+  shift
+
+  if "$name" "$@" >/dev/null 2>&1; then
+    pass "$name launches successfully: $name $*"
+  else
+    fail "$name is installed but '$name $*' failed"
   fi
 }
 
@@ -212,6 +235,7 @@ fi
 section "Core agents"
 
 check_mise_owned claude
+check_command_runs claude --version
 check_mise_owned herdr
 
 if [[ "$codex_state" == mise-npm ]]; then

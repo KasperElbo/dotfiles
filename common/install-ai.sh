@@ -227,7 +227,9 @@ ensure_dir "$conf_dir"
   printf '# Not tracked by the dotfiles repository.\n'
   printf '\n'
   printf '[tools]\n'
-  printf '"npm:@anthropic-ai/claude-code" = "latest"\n'
+  # Claude Code's npm package uses postinstall to link its platform-native
+  # binary. mise otherwise disables npm lifecycle scripts by default.
+  printf '"npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }\n'
   printf 'herdr = "latest"\n'
   if [[ "$install_codex" == "true" ]]; then
     printf '"npm:@openai/codex" = "latest"\n'

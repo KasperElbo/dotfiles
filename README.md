@@ -2251,6 +2251,16 @@ avoids adding a second, Fedora-only package-management path (the `dnf` Claude
 Code repository) that would not carry over to Fedora WSL or a future macOS
 profile (see #11) unchanged.
 
+The generated AI mise configuration enables npm lifecycle scripts only for
+the Claude Code tool installation. This is required because Anthropic's npm
+package uses `postinstall` to link its platform-native binary, while mise's
+npm backend disables lifecycle scripts by default. The profile therefore
+accepts lifecycle scripts from Claude Code's installation graph, not from the
+other npm tools. Verification runs `claude --version` so an omitted or failed
+link step cannot appear healthy merely because a shim exists. See
+[Anthropic's setup documentation](https://docs.anthropic.com/en/docs/claude-code/setup)
+and [mise's npm lifecycle-script documentation](https://mise.jdx.dev/dev-tools/backends/npm.html#lifecycle-scripts).
+
 Claude Code runs in any Git repository, including one checked out through
 `git worktree`; it has no special worktree requirements of its own. See
 "Worktree isolation for agent/crewmate work" below for how this repository
@@ -2554,8 +2564,8 @@ directory above; none of it is readable from this repository.
 
 checks that Claude Code, Herdr, and (if selected) Codex/GNHF/gh-axi/
 chrome-devtools-axi/lavish-axi/tasks-axi/quota-axi/backpass/acpx resolve on
-PATH to the mise-managed copy this profile installed rather than a second
-install shadowing it elsewhere on PATH (catching duplicate
+PATH through mise's shim (or directly to the executable mise reports) rather
+than a second install shadowing it elsewhere on PATH (catching duplicate
 npm/Homebrew/native-installer ownership of the same tool), and, if
 selected, that FirstMate is cloned with `gh`, `tmux`, and `jq` present, and
 that Treehouse/No Mistakes resolve to the copies this profile installed at
@@ -4359,11 +4369,11 @@ and/or `--firstmate` as needed) — it is safe to rerun.
 
 ## `verify-ai.sh` reports a possible duplicate install
 
-It found the command on `PATH` at a location mise does not report managing —
-typically a native installer, Homebrew, or a global `npm install -g` of the
-same tool installed outside this profile. Remove the other installation (see
-each tool's own uninstall instructions) so only the mise-managed copy remains
-on `PATH`.
+It found the command on `PATH` at neither mise's shim path nor the executable
+reported by `mise which` - typically a native installer, Homebrew, or a global
+`npm install -g` of the same tool installed outside this profile. Remove the
+other installation (see each tool's own uninstall instructions) so only the
+mise-managed copy remains on `PATH`.
 
 ## Editing `common/assets/AGENTS.md` doesn't change what an agent sees
 

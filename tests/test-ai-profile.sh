@@ -6,23 +6,30 @@ test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
 mock_bin="$test_root/bin"
-mise_shims="$test_root/mise-shims"
 home="$test_root/home"
 config="$home/.config"
 data="$home/.local/share"
-mkdir -p "$mock_bin" "$mise_shims" "$home" "$config" "$data"
+mise_data="$data/mise"
+mise_shims="$mise_data/shims"
+mise_installs="$mise_data/installs"
+mkdir -p "$mock_bin" "$mise_shims" "$mise_installs" "$home" "$config" "$data"
 
 # Mocks mise closely enough to exercise install-ai.sh/verify-ai.sh without a
 # real mise install: 'mise --yes install' materializes a shim for each tool
 # declared in the AI profile's untracked conf.d file (so codex only appears
-# when actually declared), and 'mise which' reports it the same way a real
-# mise would, letting verify-ai.sh's ownership check exercise its real logic.
+# when actually declared). A command resolves through mise's shim directory,
+# while 'mise which' reports the underlying installed executable, matching
+# real mise behavior.
 cat >"$mock_bin/mise" <<'EOF'
 #!/usr/bin/env bash
 conf_file="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
 
 make_shim() {
-  printf '#!/usr/bin/env bash\nexit 0\n' >"$MISE_SHIMS_DIR/$1"
+  install_bin="$MISE_INSTALLS_DIR/$1/latest/bin/$1"
+  mkdir -p "$(dirname "$install_bin")"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$install_bin"
+  chmod +x "$install_bin"
+  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$install_bin" >"$MISE_SHIMS_DIR/$1"
   chmod +x "$MISE_SHIMS_DIR/$1"
 }
 
@@ -46,8 +53,9 @@ case "${1:-}" in
   ;;
 which)
   name="${2:-}"
-  if [[ -x "$MISE_SHIMS_DIR/$name" ]]; then
-    printf '%s\n' "$MISE_SHIMS_DIR/$name"
+  install_bin="$MISE_INSTALLS_DIR/$name/latest/bin/$name"
+  if [[ -x "$install_bin" ]]; then
+    printf '%s\n' "$install_bin"
     exit 0
   else
     exit 1
@@ -107,10 +115,13 @@ git -C "$firstmate_origin" commit -qm 'Initial commit'
 test_environment=(
   env
   "HOME=$home"
+  "CODEX_HOME=$home/.codex"
   "XDG_CONFIG_HOME=$config"
   "XDG_DATA_HOME=$data"
   "PATH=$home/.local/bin:$mise_shims:$mock_bin:$PATH"
+  "MISE_DATA_DIR=$mise_data"
   "MISE_SHIMS_DIR=$mise_shims"
+  "MISE_INSTALLS_DIR=$mise_installs"
   "FIRSTMATE_REPO_URL=$firstmate_origin"
 )
 
@@ -143,7 +154,7 @@ fi
   printf 'AI mise conf.d file missing: %s\n' "$conf_file" >&2
   exit 1
 }
-grep -Fq '"npm:@anthropic-ai/claude-code" = "latest"' "$conf_file"
+grep -Fq '"npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }' "$conf_file"
 grep -Fq 'herdr = "latest"' "$conf_file"
 if grep -Fq 'openai/codex' "$conf_file"; then
   printf 'Codex declared without --codex\n' >&2
@@ -188,6 +199,7 @@ if ! verify_core_output="$("${test_environment[@]}" "$repo_root/common/verify-ai
   exit 1
 fi
 assert_contains "$verify_core_output" 'claude is mise-managed'
+assert_contains "$verify_core_output" 'claude launches successfully: claude --version'
 assert_contains "$verify_core_output" 'herdr is mise-managed'
 assert_contains "$verify_core_output" 'codex is not installed'
 assert_contains "$verify_core_output" 'FirstMate is not installed'
@@ -287,6 +299,39 @@ assert_contains "$verify_full_output" 'quota-axi is mise-managed'
 assert_contains "$verify_full_output" 'backpass is mise-managed'
 assert_contains "$verify_full_output" 'acpx is mise-managed'
 
+# A genuinely competing executable ahead of mise's shim must still fail.
+shadow_bin="$test_root/shadow-bin"
+mkdir -p "$shadow_bin"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$shadow_bin/claude"
+chmod +x "$shadow_bin/claude"
+if shadow_output="$(env \
+  HOME="$home" XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" \
+  CODEX_HOME="$home/.codex" \
+  MISE_DATA_DIR="$mise_data" MISE_SHIMS_DIR="$mise_shims" \
+  MISE_INSTALLS_DIR="$mise_installs" \
+  PATH="$shadow_bin:$home/.local/bin:$mise_shims:$mock_bin:$PATH" \
+  "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf 'verify-ai.sh accepted a command shadowing mise: %s\n' \
+    "$shadow_bin/claude" >&2
+  exit 1
+fi
+assert_contains "$shadow_output" 'claude resolves outside mise'
+
+# Ownership alone is insufficient if an npm lifecycle step was skipped and
+# left Claude Code's platform-native binary unlinked.
+claude_install="$mise_installs/claude/latest/bin/claude"
+printf '#!/usr/bin/env bash\nexit 1\n' >"$claude_install"
+chmod +x "$claude_install"
+if broken_claude_output="$("${test_environment[@]}" \
+  "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf 'verify-ai.sh accepted a Claude Code executable that cannot launch\n' >&2
+  exit 1
+fi
+assert_contains "$broken_claude_output" \
+  "claude is installed but 'claude --version' failed"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$claude_install"
+chmod +x "$claude_install"
+
 # Rerunning updates (git pull --ff-only, and reruns the Treehouse installer)
 # rather than re-cloning or failing.
 "${test_environment[@]}" "$repo_root/common/install-ai.sh" \
@@ -299,10 +344,13 @@ mkdir -p "$backpass_only_home"
 backpass_only_environment=(
   env
   "HOME=$backpass_only_home"
+  "CODEX_HOME=$backpass_only_home/.codex"
   "XDG_CONFIG_HOME=$backpass_only_home/.config"
   "XDG_DATA_HOME=$backpass_only_home/.local/share"
   "PATH=$backpass_only_home/.local/bin:$mise_shims:$mock_bin:$PATH"
+  "MISE_DATA_DIR=$mise_data"
   "MISE_SHIMS_DIR=$mise_shims"
+  "MISE_INSTALLS_DIR=$mise_installs"
 )
 if ! "${backpass_only_environment[@]}" "$repo_root/common/install-ai.sh" \
   --backpass >"$test_root/install-backpass-only.log" 2>&1; then
@@ -335,10 +383,13 @@ printf 'my own Claude instructions\n' >"$preexisting_home/.claude/CLAUDE.md"
 preexisting_environment=(
   env
   "HOME=$preexisting_home"
+  "CODEX_HOME=$preexisting_home/.codex"
   "XDG_CONFIG_HOME=$preexisting_home/.config"
   "XDG_DATA_HOME=$preexisting_home/.local/share"
   "PATH=$preexisting_home/.local/bin:$mise_shims:$mock_bin:$PATH"
+  "MISE_DATA_DIR=$mise_data"
   "MISE_SHIMS_DIR=$mise_shims"
+  "MISE_INSTALLS_DIR=$mise_installs"
 )
 if ! "${preexisting_environment[@]}" "$repo_root/common/install-ai.sh" \
   >"$test_root/install-preexisting.log" 2>&1; then
@@ -380,7 +431,8 @@ assert_contains "$preexisting_verify" \
 dry_home="$test_root/dry-home"
 mkdir -p "$dry_home"
 dry_run_output="$(
-  env HOME="$dry_home" XDG_CONFIG_HOME="$dry_home/.config" \
+  env HOME="$dry_home" CODEX_HOME="$dry_home/.codex" \
+    XDG_CONFIG_HOME="$dry_home/.config" \
     XDG_DATA_HOME="$dry_home/.local/share" PATH="$mock_bin:$PATH" \
     "$repo_root/common/install-ai.sh" --dry-run --codex --firstmate --gnhf --backpass
 )"
