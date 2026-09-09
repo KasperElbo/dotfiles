@@ -16,6 +16,7 @@ packages=(
   gh
   git
   git-delta
+  jq
   libicu
   neovim
   openssh-clients

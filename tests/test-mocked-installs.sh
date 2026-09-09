@@ -104,6 +104,7 @@ test_environment=(
   --model ga402rk --charge-limit 80 --non-interactive >/dev/null
 
 grep -Fq 'sudo dnf install -y bat curl eza' "$command_log"
+grep -Fq 'gh git git-delta jq libicu' "$command_log"
 grep -Fq 'neovim openssh-clients ripgrep' "$command_log"
 grep -Fq 'ShellCheck shadow-utils sqlite' "$command_log"
 expected_zsh_path="$(PATH="$mock_bin:$PATH" command -v zsh)"

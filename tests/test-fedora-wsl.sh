@@ -233,6 +233,7 @@ test_environment=(
 [[ -x "$home/.local/bin/starship" ]]
 expected_zsh_path="$(PATH="$mock_bin:/usr/bin:/bin" command -v zsh)"
 grep -Fq 'sudo dnf install -y bat bzip2 curl eza fd-find fzf gawk' "$command_log"
+grep -Fq 'gh git git-delta jq libicu' "$command_log"
 grep -Fq "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log"
 grep -Fqx "$expected_zsh_path" "$shell_state"
 if grep -Fq ' starship' "$command_log"; then

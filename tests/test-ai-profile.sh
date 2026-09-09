@@ -133,6 +133,35 @@ assert_contains() {
   }
 }
 
+# FirstMate prerequisites are checked before the installer writes any profile
+# state or asks mise to install tools. Platform installers normally provide
+# these commands, but the portable entry point must also fail atomically when
+# called on its own in an incomplete environment.
+missing_jq_bin="$test_root/missing-jq-bin"
+missing_jq_home="$test_root/missing-jq-home"
+mkdir -p "$missing_jq_bin" "$missing_jq_home"
+for command_name in bash dirname git; do
+  ln -s "$(command -v "$command_name")" "$missing_jq_bin/$command_name"
+done
+for command_name in mise gh tmux curl; do
+  ln -s "$mock_bin/$command_name" "$missing_jq_bin/$command_name"
+done
+if missing_jq_output="$(env \
+  HOME="$missing_jq_home" CODEX_HOME="$missing_jq_home/.codex" \
+  XDG_CONFIG_HOME="$missing_jq_home/.config" \
+  XDG_DATA_HOME="$missing_jq_home/.local/share" \
+  PATH="$missing_jq_bin" MISE_DATA_DIR="$mise_data" \
+  MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
+  FIRSTMATE_REPO_URL="$firstmate_origin" \
+  "$repo_root/common/install-ai.sh" --firstmate 2>&1)"; then
+  printf 'install-ai.sh accepted --firstmate without jq\n' >&2
+  exit 1
+fi
+assert_contains "$missing_jq_output" 'Required command not found: jq'
+[[ ! -e "$missing_jq_home/.config/mise/conf.d/ai.toml" ]]
+[[ ! -e "$missing_jq_home/.config/dotfiles/ai.conf" ]]
+[[ ! -e "$missing_jq_home/.claude/CLAUDE.md" ]]
+
 conf_file="$config/mise/conf.d/ai.toml"
 state_file="$config/dotfiles/ai.conf"
 treehouse_target="$home/.local/bin/treehouse"
