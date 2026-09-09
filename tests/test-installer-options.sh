@@ -66,19 +66,54 @@ run_failure() {
   printf 'PASS: %s\n' "$name"
 }
 
-run_success "--help documents --platform" "--platform NAME    Target platform:" \
-  ./install.sh --help
-run_success "--help still shows the selected platform's own options" \
-  "--kde              Install Catppuccin KDE integration" \
-  ./install.sh --help
-run_success "--platform fedora-wsl --help documents --platform and forwards" \
-  "--platform NAME    Target platform:" \
-  ./install.sh --platform fedora-wsl --help
-run_success "--platform fedora-wsl --help shows fedora-wsl's own options" \
-  "Requires systemd as" \
-  ./install.sh --platform fedora-wsl --help
-run_success "-h documents --platform" "--platform NAME    Target platform:" \
-  ./install.sh -h
+long_help="$("${test_environment[@]}" ./install.sh --help 2>&1)"
+short_help="$("${test_environment[@]}" ./install.sh -h 2>&1)"
+assert_contains "$long_help" "--platform NAME    Target platform:"
+assert_contains "$long_help" "fedora (default)"
+[[ "$short_help" == "$long_help" ]] || {
+  printf './install.sh -h and --help produced different output.\n' >&2
+  exit 1
+}
+printf 'PASS: -h and --help consistently document platform selection and the default\n'
+
+# Every supported shell platform has exactly one platforms/<name>/install.sh.
+# Discovering that set here means adding another dispatcher target cannot leave
+# its top-level discoverability and forwarded platform help untested.
+platforms=()
+for platform_installer in platforms/*/install.sh; do
+  platforms+=("$(basename -- "$(dirname -- "$platform_installer")")")
+done
+
+readme_platform_selector="$(sed -n '/^--platform PLATFORM /p' README.md)"
+for platform_name in "${platforms[@]}"; do
+  assert_contains "$long_help" "$platform_name"
+  assert_contains "$readme_platform_selector" "$platform_name"
+
+  platform_help="$(
+    "${test_environment[@]}" \
+      ./install.sh --platform "$platform_name" --help 2>&1
+  )" || {
+    printf 'Expected help for platform %s to succeed:\n%s\n' \
+      "$platform_name" "$platform_help" >&2
+    exit 1
+  }
+  platform_marker="Options (platform '$platform_name'):"
+  assert_contains "$platform_help" "--platform NAME    Target platform:"
+  assert_contains "$platform_help" "$platform_marker"
+  assert_contains "$platform_help" '--theme FLAVOUR'
+  [[ "$(grep -c '^Usage:' <<<"$platform_help")" -eq 1 ]] || {
+    printf 'Expected one Usage section for platform %s:\n%s\n' \
+      "$platform_name" "$platform_help" >&2
+    exit 1
+  }
+  [[ "$(grep -c '^Options' <<<"$platform_help")" -eq 1 ]] || {
+    printf 'Expected one Options section for platform %s:\n%s\n' \
+      "$platform_name" "$platform_help" >&2
+    exit 1
+  }
+  printf 'PASS: --platform %s --help combines selector and platform options\n' \
+    "$platform_name"
+done
 
 run_success "default dry-run" "ASUS hardware:       disabled" \
   ./install.sh --dry-run

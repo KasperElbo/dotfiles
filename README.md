@@ -341,6 +341,57 @@ and language configuration used by the normal Fedora workstation.
 
 ## Windows-side prerequisites
 
+### WSL package version
+
+**Minimum proven-supported WSL version: 2.7.13.** This is the oldest version
+on which the repository's complete Fedora WSL flow has been validated,
+including its current bootstrap, systemd assumptions, `/etc/wsl.conf` interop
+policy, and explicit Windows executable invocation. Older WSL versions may
+work, but they are unvalidated and are not part of the currently tested and
+supported baseline. This support floor records the proven integration; it is
+not evidence that a specific WSL bug was fixed in exactly 2.7.13.
+
+Check the Store-delivered WSL package version from Windows PowerShell before
+starting:
+
+```powershell
+wsl --version
+```
+
+If it is older than 2.7.13, update the WSL package and check again. Updating
+Windows itself is not normally required when the package update succeeds:
+
+```powershell
+wsl --update
+wsl --version
+```
+
+### DNS, VPN and networking
+
+WSL networking depends on both the Windows build and the host VPN. When an
+always-on or corporate VPN breaks DNS or routing, first update WSL and compare
+Windows and Fedora resolution. On supported Windows 11 versions, these
+Windows-side `%UserProfile%\.wslconfig` settings are often appropriate:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+dnsTunneling=true
+autoProxy=true
+```
+
+Apply changes with `wsl --shutdown`. Corporate VPN and endpoint policy may
+override them, so this repository documents the choice but does not rewrite
+`resolv.conf`, routes, Windows firewall rules, proxy policy or VPN settings.
+
+The same reasoning applies to Tailscale: `--tailscale` is intentionally not
+offered under `--platform fedora-wsl` at all. See "Optional Tailscale
+networking profile" > "Fedora WSL policy" for the host-vs-WSL-node
+comparison and why Windows-host-only Tailscale is the recommended
+architecture here.
+
+### Windows bootstrap
+
 From a normal, non-administrator PowerShell session in this checkout, preview
 and run the Windows-side bootstrap:
 
@@ -797,30 +848,6 @@ commits will sign locally but still show as unverified there. In short:
 |---|---|
 | `ssh.exe` | Git authentication — clone/fetch/pull/push |
 | `op-ssh-sign-wsl.exe` | Git commit/tag signing |
-
-## DNS, VPN and networking
-
-WSL networking depends on both the Windows build and the host VPN. When an
-always-on or corporate VPN breaks DNS or routing, first update WSL and compare
-Windows and Fedora resolution. On supported Windows 11 versions, these
-Windows-side `%UserProfile%\.wslconfig` settings are often appropriate:
-
-```ini
-[wsl2]
-networkingMode=mirrored
-dnsTunneling=true
-autoProxy=true
-```
-
-Apply changes with `wsl --shutdown`. Corporate VPN and endpoint policy may
-override them, so this repository documents the choice but does not rewrite
-`resolv.conf`, routes, Windows firewall rules, proxy policy or VPN settings.
-
-The same reasoning applies to Tailscale: `--tailscale` is intentionally not
-offered under `--platform fedora-wsl` at all. See "Optional Tailscale
-networking profile" > "Fedora WSL policy" for the host-vs-WSL-node
-comparison and why Windows-host-only Tailscale is the recommended
-architecture here.
 
 ## Validation
 
