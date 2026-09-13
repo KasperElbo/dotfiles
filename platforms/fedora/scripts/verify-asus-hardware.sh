@@ -69,6 +69,12 @@ for package in asusctl asusctl-rog-gui; do
   fi
 done
 
+if rpm -q supergfxctl >/dev/null 2>&1; then
+  fail "supergfxctl must not be installed for the supported ASUS hardware profile"
+else
+  pass "supergfxctl is not installed"
+fi
+
 if systemctl is-active --quiet asusd.service; then
   pass "asusd.service is active"
 else
