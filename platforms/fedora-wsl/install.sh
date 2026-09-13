@@ -90,7 +90,7 @@ preflight_wsl() {
 }
 
 apply_system() { "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/install-system.sh"; }
-apply_interop() { "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/configure-interop.sh"; }
+apply_interop() { info 'Ensuring explicit Windows executable interop stays available'; "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/configure-interop.sh"; }
 apply_ocaml_native() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-ocaml.sh" --wsl; }
 apply_latex() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-latex.sh"; }
 apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" "$theme"; }
