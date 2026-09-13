@@ -35,6 +35,20 @@ if capability_validate_selection fedora base codex >/dev/null 2>&1; then
   exit 1
 fi
 capability_validate_selection fedora base ai codex
+capability_validate_selection fedora base hardware
+if capability_validate_selection fedora base hardware vm-guest >/dev/null 2>&1; then
+  printf 'Hardware and VM-guest conflict unexpectedly passed.\n' >&2
+  exit 1
+fi
+
+hardware_packages="$(awk -F '\t' '$1=="hardware" && $2=="fedora" {print $9; exit}' \
+  "$repo_root/config/capabilities.tsv")"
+[[ ",$hardware_packages," != *,supergfxctl,* ]] || {
+  printf 'Fedora hardware capability must not own supergfxctl.\n' >&2
+  exit 1
+}
+[[ ",$hardware_packages," == *,asusctl,* ]]
+[[ ",$hardware_packages," == *,akmods,* ]]
 
 grep -Fq 'config/capabilities.tsv' "$repo_root/docs/capabilities.md"
 printf 'Capability manifest validation passed.\n'
