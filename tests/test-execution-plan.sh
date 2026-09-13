@@ -28,7 +28,7 @@ printf 'Shared execution plan ordering passed.\n'
 
 fail_step() { return 23; }
 plan_reset
-plan_add done 'Completed step' apply : one : rerunnable
+plan_add 'done' 'Completed step' apply : one : rerunnable
 plan_add broken 'Injected failure' apply : fail_step : rerunnable
 plan_add pending 'Pending step' apply : two : rerunnable
 if plan_execute >"$log.failure" 2>&1; then

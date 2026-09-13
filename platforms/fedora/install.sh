@@ -97,7 +97,10 @@ case "$hardware_model" in '' | ga402xz | ga402rk) ;; *) die "Invalid hardware pr
 [[ "$install_vm_guest" != true || -z "$hardware_model" ]] || die '--vm-guest and --hardware cannot be combined'
 if [[ -n "$hardware_charge_limit" ]]; then
   [[ -n "$hardware_model" ]] || die '--charge-limit requires --hardware'
-  [[ "$hardware_charge_limit" =~ ^[0-9]+$ ]] && ((hardware_charge_limit >= 40 && hardware_charge_limit <= 100)) || die '--charge-limit must be an integer from 40 to 100'
+  if [[ ! "$hardware_charge_limit" =~ ^[0-9]+$ ]] ||
+    ((hardware_charge_limit < 40 || hardware_charge_limit > 100)); then
+    die '--charge-limit must be an integer from 40 to 100'
+  fi
 fi
 
 if [[ "$install_kde" == auto ]]; then command_exists plasmashell && install_kde=enabled || install_kde=disabled; fi

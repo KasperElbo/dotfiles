@@ -82,6 +82,8 @@ plan_failure_report() {
 plan_execute() {
   local i action exit_code
   for ((i=0; i<${#PLAN_IDS[@]}; i++)); do
+    # Exposed to the lifecycle caller for failed-step state reporting.
+    # shellcheck disable=SC2034
     PLAN_CURRENT_INDEX="$i"
     action="${PLAN_APPLIES[i]}"
     info "[${PLAN_IDS[i]}] ${PLAN_LABELS[i]}"

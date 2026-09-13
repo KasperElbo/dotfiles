@@ -23,11 +23,17 @@ else
     platform="$(profile_state_read "$state" platform install)"
     capabilities="$(profile_state_read "$state" requested_capabilities install)"
     revision="$(profile_state_read "$state" revision install)"
-    [[ "$status" == installed ]] && pass "Last installation completed ($platform: $capabilities)." ||
+    if [[ "$status" == installed ]]; then
+      pass "Last installation completed ($platform: $capabilities)."
+    else
       fail "Last installation is $status; rerun the recorded command after reviewing completed steps."
+    fi
     current_revision="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || printf unknown)"
-    [[ "$revision" == "$current_revision" ]] && pass "Checkout matches installed revision $revision." ||
+    if [[ "$revision" == "$current_revision" ]]; then
+      pass "Checkout matches installed revision $revision."
+    else
       warning "Checkout revision $current_revision differs from installed revision $revision."
+    fi
 
     IFS=, read -r -a selected <<<"$capabilities"
     for capability in "${selected[@]}"; do

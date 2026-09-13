@@ -171,4 +171,6 @@ if plan_execute; then :; else
   result=$?; install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"; exit "$result"
 fi
 install_lifecycle_commit
+# Backticks are documentation, not command substitution.
+# shellcheck disable=SC2016
 printf '\nFedora WSL setup completed. Run `exec zsh -l` for the new shell.\n'

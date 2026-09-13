@@ -8,7 +8,8 @@ python3 "$repo_root/scripts/render-capability-matrix.py" --check
 fixture="$(mktemp)"
 trap 'rm -f -- "$fixture" "$fixture.log" "$fixture.provider" "$fixture.provider.log"' EXIT
 cp "$repo_root/config/capabilities.tsv" "$fixture"
-sed -n '2p' "$fixture" >>"$fixture"
+duplicate_row="$(sed -n '2p' "$fixture")"
+printf '%s\n' "$duplicate_row" >>"$fixture"
 if CAPABILITY_MANIFEST="$fixture" python3 "$repo_root/scripts/validate-capabilities.py" \
   2>"$fixture.log"; then
   printf 'Duplicate provider fixture unexpectedly passed.\n' >&2
