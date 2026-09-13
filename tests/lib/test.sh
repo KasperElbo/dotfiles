@@ -27,6 +27,8 @@ test_cleanup() {
     [[ -n "$root" ]] && rm -rf -- "$root"
   done
   TEST_ROOTS=()
+  # Public state is consumed by scripts sourcing this library.
+  # shellcheck disable=SC2034
   TEST_ROOT=""
 }
 
