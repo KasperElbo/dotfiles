@@ -962,18 +962,44 @@ git clone <REPOSITORY_URL> ~/src/dotfiles
 cd ~/src/dotfiles
 ./install.sh --platform parrot-ctf --dry-run
 ./install.sh --platform parrot-ctf
-exec zsh -l
+# Log out of the graphical session and back in once after the first install.
 ./platforms/parrot-ctf/scripts/verify.sh
 ./install.sh --platform parrot-ctf --non-interactive
 ```
 
-The final rerun is the idempotency check. The verifier checks the Parrot and
-KVM/QEMU boundaries, both virtio channels, APT ownership, guest services,
-portable configuration links, the exact reduced Mason inventory, Neovim
-version/profile, Python/uv ownership, PATH shadowing, Starship compatibility,
-and the recorded no-secret-sharing state. On the host,
-`virsh --connect qemu:///system domifaddr parrot-ctf
---source agent` confirms that the guest agent answers.
+The first install makes the invoking non-root account's registered Zsh the
+login shell. Konsole inherits that account shell naturally; its managed
+`Dotfiles-Parrot-CTF.profile` deliberately has no `Command=` override. The
+profile installs pinned Hack Nerd Font Mono 3.4.0 user-locally, selects it in
+Konsole, and installs the four pinned Catppuccin bat themes referenced by the
+shared Git/Delta configuration. It does not install Ghostty or apply general
+KDE theming.
+
+The final rerun is the idempotency check. Without `--theme`, it preserves an
+existing valid flavour; an explicit `--theme FLAVOUR` changes it. The guest
+verifier checks observable guest state: Parrot and KVM/QEMU detection, both
+virtio channels, account shell, Zsh startup, APT ownership and command
+resolution, guest services, portable links, exact reduced Mason inventory,
+Neovim version/profile, unique PATH entries, font/glyph coverage, effective
+Konsole profile, bat themes, and Starship compatibility. Its state file is a
+record of installer intent, not proof of host isolation.
+
+Run the effective isolation check on the Fedora/libvirt host with an explicit
+domain selector:
+
+```bash
+./platforms/fedora/scripts/verify-parrot-isolation.sh --domain parrot-ctf
+virsh --connect qemu:///system domifaddr parrot-ctf --source agent
+```
+
+The host check inspects the selected domain, network, and storage-pool XML. It
+fails on bridged/non-policy interfaces, filesystem passthrough, likely
+SSH/GPG/password-manager agent channels, host USB/PCI devices, missing guest
+integration channels, non-NAT forwarding, or file-backed disks outside the
+selected pool. Output separates `VERIFIED`, `NOT OBSERVED`, and
+`MANUAL ASSURANCE REQUIRED`. Clipboard client policy, secrets entered or
+stored inside the guest, and host firewall/physical-network trust remain
+manual assurances because libvirt XML cannot establish them.
 
 Parrot owns Python, `venv`, pip, pipx, and the security-tool catalogue. mise
 owns `uv` and one explicit exception: pinned Neovim 0.12.5 from the current
@@ -1008,6 +1034,13 @@ uses `unsetopt NOMATCH`: unmatched wildcard-looking payload/URL arguments pass
 through as they do in Bash, while patterns matching local files still expand.
 See [the source-by-source shell audit](docs/parrot-ctf-shell-audit.md) for the
 classification and trade-off analysis.
+
+Parrot's early shell hook retains `/usr/local/sbin`, `/usr/sbin`, and `/sbin`,
+and retains `/snap/bin` only when that directory exists. Zsh's unique tied
+PATH array removes inherited duplicates while keeping existing order. The
+later mise activation may put only the approved `nvim` and `uv` exceptions
+first; `python`, `python3`, and security tools such as `john` continue to
+resolve to APT-owned system paths. Sourcing the hook repeatedly is idempotent.
 
 For the graphical guest clipboard, `x-copy` expands exactly to
 `xclip -selection clipboard`:

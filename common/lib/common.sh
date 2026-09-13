@@ -47,6 +47,24 @@ prepend_path() {
   export PATH
 }
 
+append_path() {
+  local entry="$1"
+  local current
+  local rebuilt=""
+  local -a path_entries=()
+
+  [[ -n "$entry" ]] || return 0
+
+  IFS=: read -r -a path_entries <<<"${PATH:-}"
+  for current in "${path_entries[@]}"; do
+    [[ -n "$current" && "$current" != "$entry" ]] || continue
+    rebuilt="${rebuilt:+$rebuilt:}$current"
+  done
+
+  PATH="${rebuilt:+$rebuilt:}$entry"
+  export PATH
+}
+
 resolve_mise_command() {
   local candidate
 
@@ -169,6 +187,7 @@ ensure_zsh_login_shell() {
   local current_user
   local current_shell
   local zsh_path
+  local shells_file="${SHELLS_FILE:-/etc/shells}"
 
   export ZSH_LOGIN_SHELL_CHANGED="false"
 
@@ -179,12 +198,21 @@ ensure_zsh_login_shell() {
   current_shell="$(login_shell_for_user "$current_user")" ||
     die "Could not determine the login shell for $current_user."
   zsh_path="$(resolve_zsh_path)" || die "Could not resolve an installed Zsh executable."
+  if [[ "${REQUIRE_REGISTERED_LOGIN_SHELL:-false}" == "true" ]]; then
+    [[ -r "$shells_file" ]] || die "Cannot read the login-shell registry: $shells_file"
+    grep -Fxq "$zsh_path" "$shells_file" ||
+      die "Resolved Zsh is not registered in $shells_file: $zsh_path"
+  fi
 
   if shell_paths_match "$current_shell" "$zsh_path"; then
     info "Zsh is already the default login shell"
   else
     info "Setting Zsh as the default login shell"
     sudo usermod --shell "$zsh_path" "$current_user"
+    current_shell="$(login_shell_for_user "$current_user")" ||
+      die "Could not verify the updated login shell for $current_user."
+    shell_paths_match "$current_shell" "$zsh_path" ||
+      die "Account login shell did not change to $zsh_path."
     export ZSH_LOGIN_SHELL_CHANGED="true"
   fi
 }

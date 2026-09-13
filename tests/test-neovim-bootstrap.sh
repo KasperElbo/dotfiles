@@ -20,6 +20,10 @@ for argument in "$@"; do
     "${MOCK_NVIM_HANG_LAZY:-false}" == "true" ]]; then
     sleep 10
   fi
+  if [[ "$argument" == '+Lazy! restore' && \
+    "${MOCK_NVIM_TREE_SITTER_RACE:-false}" == "true" ]]; then
+    printf 'Package is already installing\n'
+  fi
 
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
     [[ "${MOCK_NVIM_FAIL_MASON:-false}" != "true" ]] || exit 23
@@ -60,6 +64,37 @@ while IFS= read -r package; do
     exit 1
   }
 done <"$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt"
+
+parrot_data="$test_root/parrot-data"
+"${test_environment[@]}" XDG_DATA_HOME="$parrot_data" \
+  "$repo_root/common/install-neovim-tools.sh" --profile parrot-ctf >/dev/null
+"${test_environment[@]}" XDG_DATA_HOME="$parrot_data" \
+  "$repo_root/common/install-neovim-tools.sh" --profile parrot-ctf >/dev/null
+mapfile -t actual_parrot_packages < <(
+  find "$parrot_data/nvim/mason/packages" -mindepth 1 -maxdepth 1 \
+    -type d -printf '%f\n' | sort
+)
+mapfile -t expected_parrot_packages < <(
+  sort "$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/mason-packages.txt"
+)
+[[ "${actual_parrot_packages[*]}" == "${expected_parrot_packages[*]}" ]] || {
+  printf 'Reduced Parrot Mason inventory changed during bootstrap.\n' >&2
+  exit 1
+}
+
+if output="$(
+  env HOME="$test_root/home" XDG_DATA_HOME="$test_root/race-data" \
+    PATH="$mock_bin:$PATH" COMMAND_LOG="$command_log" \
+    NEOVIM_BOOTSTRAP_TIMEOUT=1m MOCK_NVIM_TREE_SITTER_RACE=true \
+    "$repo_root/common/install-neovim-tools.sh" 2>&1
+)"; then
+  printf 'Expected a competing tree-sitter-cli installation to fail bootstrap.\n' >&2
+  exit 1
+fi
+[[ "$output" == *"attempted a competing tree-sitter-cli installation"* ]] || {
+  printf 'Tree-sitter race was not surfaced clearly:\n%s\n' "$output" >&2
+  exit 1
+}
 
 failure_root="$test_root/failure-data"
 if output="$(
