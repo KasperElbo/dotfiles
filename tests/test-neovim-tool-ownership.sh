@@ -43,7 +43,7 @@ assert_contains "$profile_config" 'profiles/parrot-ctf/mason-packages.txt'
 assert_contains "$profile_config" 'profiles/parrot-ctf/lazy-lock.json'
 assert_contains "$profile_config" 'vim.env.DOTFILES_MASON_BOOTSTRAP == "1"'
 assert_contains "$profile_config" '"nvim-treesitter/nvim-treesitter"'
-assert_contains "$profile_config" 'opts = { ensure_installed = {} }'
+assert_contains "$profile_config" 'enabled = false'
 assert_contains "$lazyvim_config/lua/config/lazy.lua" 'spec = profile.spec()'
 assert_contains "$lazyvim_config/lua/config/lazy.lua" 'lockfile = profile.lockfile()'
 assert_contains "$lazyvim_config/lua/config/lazy.lua" \
@@ -122,6 +122,7 @@ expected_mason_packages=(
   shfmt
   stylua
   texlab
+  tree-sitter-cli
   vtsls
   yaml-language-server
 )
@@ -161,6 +162,8 @@ assert_contains "$repo_root/common/install-neovim-tools.sh" \
   "-u NONE -l \"\$DOTFILES_ROOT/common/bootstrap-mason.lua\""
 assert_contains "$repo_root/common/install-neovim-tools.sh" \
   'Package is already installing|Neovim is exiting while packages are still installing'
+assert_contains "$repo_root/common/install-neovim-tools.sh" \
+  "'+Lazy! restore mason.nvim'"
 assert_contains "$repo_root/common/bootstrap-mason.lua" \
   'require("mason.api.command").MasonInstall'
 assert_contains "$repo_root/platforms/fedora/install.sh" \
