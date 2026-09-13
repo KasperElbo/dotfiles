@@ -75,8 +75,8 @@ test_environment=(
   printf 'Expected Mason installation to be skipped after convergence\n' >&2
   exit 1
 }
-grep -Fq 'bootstrap=1 nvim <+Lazy! restore mason.nvim>' "$command_log"
-grep -Fq 'bootstrap=0 nvim <+Lazy! restore>' "$command_log"
+grep -Fq 'bootstrap=1 nvim <--headless> <+Lazy! restore mason.nvim>' "$command_log"
+grep -Fq 'bootstrap=0 nvim <--headless> <+Lazy! restore>' "$command_log"
 
 while IFS= read -r package; do
   [[ -n "$package" ]] || continue
