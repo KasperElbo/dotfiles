@@ -39,5 +39,8 @@ info "Installing Fedora packages"
 sudo dnf install -y "${packages[@]}"
 
 ensure_zsh_login_shell
+if [[ "${ZSH_LOGIN_SHELL_CHANGED:-false}" == "true" ]]; then
+  warn "Login shell changed; reboot before expecting Ghostty to use Zsh. Plasma and user services can retain the previous SHELL value until then."
+fi
 
 success "Fedora packages installed"
