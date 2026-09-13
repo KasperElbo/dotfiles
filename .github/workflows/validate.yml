@@ -86,6 +86,11 @@ jobs:
       - name: Validate shell scripts
         run: /opt/homebrew/bin/bash ./scripts/lint.sh
 
+      - name: Test portable verifier and shell-test primitives
+        run: |
+          /opt/homebrew/bin/bash ./tests/test-verifier.sh
+          /opt/homebrew/bin/bash ./tests/test-test-support.sh
+
       - name: Test macOS profile configuration
         run: /opt/homebrew/bin/bash ./tests/test-macos.sh
 
