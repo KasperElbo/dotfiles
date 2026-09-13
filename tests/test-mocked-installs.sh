@@ -121,7 +121,7 @@ grep -Fq \
   'sudo dnf install -y texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent' \
   "$command_log"
 grep -Fq \
-  'sudo dnf install -y blueman brightnessctl cliphist dex-autostart fuzzel grim jq libnotify lxqt-policykit mako nm-connection-editor pavucontrol playerctl slurp sway swaybg swayidle swaylock sway-systemd swappy waybar wireplumber xdg-desktop-portal-gtk xdg-desktop-portal-wlr' \
+  'sudo dnf install -y blueman brightnessctl cliphist dex-autostart fuzzel grim libnotify lxqt-policykit mako nm-connection-editor pavucontrol playerctl slurp sway swaybg swayidle swaylock sway-systemd swappy waybar wireplumber xdg-desktop-portal-gtk xdg-desktop-portal-wlr' \
   "$command_log"
 grep -Fq 'nm-connection-editor' "$command_log"
 grep -Fq \

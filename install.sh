@@ -3,6 +3,11 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
+if [[ "${1:-}" == doctor ]]; then
+  shift
+  exec "$repo_root/scripts/doctor.sh" "$@"
+fi
+
 platform="fedora"
 forwarded_args=()
 
@@ -16,6 +21,14 @@ while (($#)); do
     platform="$2"
     shift 2
     ;;
+  --platform=*)
+    platform="${1#*=}"
+    [[ -n "$platform" ]] || {
+      printf 'ERROR: --platform requires a value\n' >&2
+      exit 1
+    }
+    shift
+    ;;
   *)
     forwarded_args+=("$1")
     shift
@@ -23,15 +36,15 @@ while (($#)); do
   esac
 done
 
-case "$platform" in
-fedora | fedora-wsl | macos | parrot-ctf)
-  ;;
-*)
-  printf 'ERROR: Unsupported platform: %s (expected fedora, fedora-wsl, macos, or parrot-ctf)\n' \
-    "$platform" >&2
+supported_platforms="$(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
+  "$repo_root/config/capabilities.tsv" | sort -u | paste -sd'|' -)"
+if ! awk -F '\t' -v platform="$platform" \
+  'NR > 1 && $1 == "base" && $2 == platform && $15 == "implemented" {found=1} END {exit !found}' \
+  "$repo_root/config/capabilities.tsv"; then
+  printf 'ERROR: Unsupported platform: %s (expected one of %s)\n' \
+    "$platform" "$supported_platforms" >&2
   exit 1
-  ;;
-esac
+fi
 
 print_platform_options() {
   local line
@@ -54,7 +67,8 @@ print_platform_options() {
 for forwarded_arg in "${forwarded_args[@]}"; do
   if [[ "$forwarded_arg" == "-h" || "$forwarded_arg" == "--help" ]]; then
     cat <<EOF
-Usage: ./install.sh [--platform fedora|fedora-wsl|macos|parrot-ctf] [options]
+Usage: ./install.sh [--platform NAME|--platform=NAME] [options]
+       ./install.sh doctor
 
 Options (platform '$platform'):
   --platform NAME    Target platform: fedora (default), fedora-wsl, macos,

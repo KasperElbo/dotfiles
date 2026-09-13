@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 
@@ -197,12 +199,14 @@ ensure_dir "$(dirname "$state_file")"
   printf 'device_model=virtio\n'
   printf 'guest_agent=qemu-guest-agent\n'
   printf 'user=%s\n' "$target_user"
-} | atomic_write_file "$state_file"
+} | profile_state_write_content "$state_file" vm-host applying
 
 info "Validating the Fedora VM-host profile"
 if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-host.sh"; then
+  profile_state_set_status "$state_file" vm-host installed
   success "Fedora VM-host profile installed"
 else
+  profile_state_set_status "$state_file" vm-host failed
   warn "VM-host packages were installed, but validation reported problems"
   exit 1
 fi

@@ -7,20 +7,35 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 
 command_exists dnf || die "OCaml prerequisite installation currently supports Fedora/DNF systems only."
 
+wsl="false"
+while (($#)); do
+  case "$1" in
+  --wsl) wsl="true" ;;
+  *) die "Unknown option: $1" ;;
+  esac
+  shift
+done
+
 # Fedora owns the package manager and native build prerequisites. opam owns
 # every compiler switch and OCaml ecosystem package installed afterwards.
-packages=(
-  bzip2
-  bubblewrap
-  gcc
-  gcc-c++
-  m4
-  make
-  opam
-  patch
-  pkgconf-pkg-config
-  unzip
-)
+# The WSL baseline already owns compiler/build prerequisites. The workstation
+# baseline does not, so this optional provider owns them there.
+if [[ "$wsl" == "true" ]]; then
+  packages=(bubblewrap m4 opam patch pkgconf-pkg-config)
+else
+  packages=(
+    bzip2
+    bubblewrap
+    gcc
+    gcc-c++
+    m4
+    make
+    opam
+    patch
+    pkgconf-pkg-config
+    unzip
+  )
+fi
 
 info "Installing Fedora-owned OCaml prerequisites"
 sudo dnf install -y "${packages[@]}"

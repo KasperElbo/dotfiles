@@ -118,6 +118,9 @@ printf 'parrot-ctf\n' >"$test_root/neovim-profile-source"
 ln -s "$test_root/neovim-profile-source" "$config/dotfiles/neovim-profile"
 cat >"$config/dotfiles/parrot-ctf.conf" <<'EOF'
 profile=parrot-ctf
+hypervisor=kvm
+network=host-managed-default-nat
+guest_agent=qemu-guest-agent
 host_secrets=not-shared
 security_tools=parrot-apt-owned
 EOF

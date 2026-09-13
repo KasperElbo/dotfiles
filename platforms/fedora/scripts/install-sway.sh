@@ -14,7 +14,6 @@ packages=(
   dex-autostart
   fuzzel
   grim
-  jq
   libnotify
   lxqt-policykit
   mako

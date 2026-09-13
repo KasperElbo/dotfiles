@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 
@@ -230,6 +232,6 @@ ensure_dir "$(dirname "$state_file")"
   printf 'media_player=mpv\n'
   printf 'scanner=skanpage\n'
   printf 'force_defaults=%s\n' "$force_defaults"
-} | atomic_write_file "$state_file"
+} | profile_state_write_content "$state_file" desktop-tools
 
 success "Desktop-tools profile installed"

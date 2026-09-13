@@ -3,14 +3,16 @@ set -euo pipefail
 
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/profile-state.sh"
 
 state_file="$XDG_CONFIG_HOME/dotfiles/ocaml.conf"
 
 [[ -f "$state_file" ]] || die "OCaml profile state is missing: $state_file"
 require_command opam
 
-switch_name="$(awk -F= '$1 == "switch" { print $2 }' "$state_file")"
-compiler_version="$(awk -F= '$1 == "compiler" { print $2 }' "$state_file")"
+switch_name="$(profile_state_read "$state_file" switch ocaml)"
+compiler_version="$(profile_state_read "$state_file" compiler ocaml)"
 
 [[ "$switch_name" =~ ^dotfiles-ocaml-[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   die "Invalid OCaml switch in $state_file"

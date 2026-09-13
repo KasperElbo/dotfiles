@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 # shellcheck source=../lib/hardening.sh
@@ -180,12 +182,14 @@ ensure_dir "$(dirname "$state_file")"
   printf 'sysctl_dmesg_restrict=1\n'
   printf 'ssh=%s\n' "$state_ssh"
   printf 'dnf_automatic=%s\n' "$state_dnf_automatic"
-} | atomic_write_file "$state_file"
+} | profile_state_write_content "$state_file" hardening applying
 
 info "Validating the Fedora hardening profile"
 if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-hardening.sh"; then
+  profile_state_set_status "$state_file" hardening installed
   success "Fedora hardening profile installed"
 else
+  profile_state_set_status "$state_file" hardening failed
   warn "Hardening changes were applied, but validation reported problems"
   exit 1
 fi

@@ -136,7 +136,7 @@ if "${test_environment[@]}" \
   printf 'Top-level installer unexpectedly accepted a VM guest on bare metal.\n' >&2
   exit 1
 fi
-grep -Fq 'must be run inside a detected virtual machine' \
+grep -Eq 'Refusing to run the user installer as root|must be run inside a detected virtual machine' \
   "$test_root/top-level-bare-metal.log"
 [[ "$(sha256sum "$command_log")" == "$before_rejection" ]]
 

@@ -1,5 +1,29 @@
 # Development and Security-Lab Dotfiles
 
+The authoritative platform capability and provider inventory is
+[`config/capabilities.tsv`](config/capabilities.tsv). Maintainer rules for
+changing that contract are documented in
+[`docs/capabilities.md`](docs/capabilities.md).
+The [generated capability support matrix](docs/capability-matrix.md) makes
+platform ownership and intentional absences visible without duplicating it by
+hand.
+
+Installer lifecycle is `resolve → preflight → apply → verify → commit`. The
+same ordered step records drive `--dry-run` and application. Global preflight
+checks the complete selected Stow set, platform, privileges, dependencies, and
+writable state paths before the first package or configuration mutation.
+Successful runs atomically record schema-versioned provenance under
+`${XDG_STATE_HOME:-~/.local/state}/dotfiles/install.conf`; interrupted runs are
+left as `applying` or `failed`, never as successfully installed.
+Named step start/success/failure events are logged without command arguments or
+credentials in the adjacent `install.log`.
+
+Run `./install.sh doctor` (or `./doctor`) for a read-only report covering state
+integrity, interrupted installation, selected components missing state,
+checkout revision drift, and relevant verifier entry points. Reruns are
+conservative and idempotent; the installer reports completed and pending steps
+but does not claim rollback or remove packages and user configuration.
+
 Opinionated, reproducible dotfiles for a keyboard-driven development workstation built around:
 
 - Fedora

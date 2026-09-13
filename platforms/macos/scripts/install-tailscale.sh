@@ -3,6 +3,8 @@ set -euo pipefail
 
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/macos.sh"
 
@@ -14,11 +16,7 @@ info "Installing the optional Tailscale profile (Standalone macOS app)"
 "$(homebrew_path)" install --cask tailscale-app
 
 state_file="$XDG_CONFIG_HOME/dotfiles/macos-tailscale.conf"
-ensure_dir "$(dirname "$state_file")"
-atomic_write_file "$state_file" <<'EOF'
-profile=tailscale
-variant=standalone-app
-EOF
+profile_state_write "$state_file" tailscale installed variant=standalone-app
 
 info "Opening Tailscale so macOS can request its Network Extension permission"
 open -a Tailscale || warn "Open Tailscale manually from /Applications"
