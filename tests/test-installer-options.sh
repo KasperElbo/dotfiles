@@ -3,11 +3,14 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
 
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
-mkdir -p "$test_root"/{home,config,data,cache,guard-bin}
+mkdir -p "$test_root/guard-bin"
 guard_dir="$test_root/guard-bin"
 
 cat >"$guard_dir/mutation-guard" <<'EOF'
@@ -31,25 +34,15 @@ test_environment=(
   "PATH=$guard_dir:$PATH"
 )
 
-assert_contains() {
-  local output="$1"
-  local expected="$2"
-  [[ "$output" == *"$expected"* ]] || {
-    printf 'Expected output to contain %q:\n%s\n' "$expected" "$output" >&2
-    exit 1
-  }
-}
-
 run_success() {
   local name="$1"
   local expected="$2"
   shift 2
-  local output
-  output="$("${test_environment[@]}" "$@" 2>&1)" || {
-    printf 'Expected success from %s:\n%s\n' "$name" "$output" >&2
-    exit 1
-  }
-  assert_contains "$output" "$expected"
+  run_capture "${test_environment[@]}" "$@"
+  if ((TEST_STATUS != 0)); then
+    _test_die "expected success from $name (status $TEST_STATUS):\n$TEST_OUTPUT"
+  fi
+  assert_contains "$TEST_OUTPUT" "$expected"
   printf 'PASS: %s\n' "$name"
 }
 
@@ -57,12 +50,11 @@ run_failure() {
   local name="$1"
   local expected="$2"
   shift 2
-  local output
-  if output="$("${test_environment[@]}" "$@" 2>&1)"; then
-    printf 'Expected failure from %s\n' "$name" >&2
-    exit 1
+  run_capture "${test_environment[@]}" "$@"
+  if ((TEST_STATUS == 0)); then
+    _test_die "expected failure from $name"
   fi
-  assert_contains "$output" "$expected"
+  assert_contains "$TEST_OUTPUT" "$expected"
   printf 'PASS: %s\n' "$name"
 }
 
@@ -70,15 +62,9 @@ long_help="$("${test_environment[@]}" ./install.sh --help 2>&1)"
 short_help="$("${test_environment[@]}" ./install.sh -h 2>&1)"
 assert_contains "$long_help" "--platform NAME    Target platform:"
 assert_contains "$long_help" "fedora (default)"
-[[ "$short_help" == "$long_help" ]] || {
-  printf './install.sh -h and --help produced different output.\n' >&2
-  exit 1
-}
+assert_eq "$long_help" "$short_help" "./install.sh -h and --help produced different output"
 printf 'PASS: -h and --help consistently document platform selection and the default\n'
 
-# Every supported shell platform has exactly one platforms/<name>/install.sh.
-# Discovering that set here means adding another dispatcher target cannot leave
-# its top-level discoverability and forwarded platform help untested.
 platforms=()
 for platform_installer in platforms/*/install.sh; do
   platforms+=("$(basename -- "$(dirname -- "$platform_installer")")")
