@@ -441,9 +441,21 @@ EOF
 cat >"$bootstrap_bin/nvim" <<'EOF'
 #!/usr/bin/env bash
 for argument in "$@"; do
+  if [[ "$argument" == '+Lazy! restore mason.nvim' ]]; then
+    mkdir -p "$XDG_DATA_HOME/nvim/lazy/mason.nvim"
+  fi
+
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
+    mkdir -p "$XDG_DATA_HOME/nvim/mason/bin"
     for package in $DOTFILES_MASON_PACKAGES; do
       mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
+      if [[ "$package" == tree-sitter-cli ]]; then
+        cat >"$XDG_DATA_HOME/nvim/mason/bin/tree-sitter" <<'TREEEOF'
+#!/usr/bin/env bash
+exit 0
+TREEEOF
+        chmod +x "$XDG_DATA_HOME/nvim/mason/bin/tree-sitter"
+      fi
     done
   fi
 done
