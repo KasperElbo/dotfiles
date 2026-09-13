@@ -38,7 +38,7 @@ warning() {
   return 0
 }
 
-verify_finish() {
+finish_verification() {
   local label="${1:-Verification}"
 
   printf '\n'
