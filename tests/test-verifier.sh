@@ -74,8 +74,8 @@ assert_verifier_counts 0 1 0
 assert_eq "plain" "$(cat "$root/home/plain")" "regular-file negative check must not modify the path"
 
 printf 'mise ownership\n'
-mkdir -p "$root/mise-managed/bin" "$root/mise/shims" "$root/external"
-cat >"$root/mise" <<EOF
+mkdir -p "$root/mise-managed/bin" "$root/mise-data/shims" "$root/external"
+cat >"$root/mise-bin" <<EOF
 #!/usr/bin/env bash
 if [[ "\${1:-}" == which && "\${2:-}" == tool ]]; then
   printf '%s\\n' "$root/mise-managed/bin/tool"
@@ -83,13 +83,13 @@ if [[ "\${1:-}" == which && "\${2:-}" == tool ]]; then
 fi
 exit 1
 EOF
-chmod +x "$root/mise"
+chmod +x "$root/mise-bin"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise-managed/bin/tool"
 chmod +x "$root/mise-managed/bin/tool"
 
-VERIFY_MISE_COMMAND="$root/mise"
-MISE_DATA_DIR="$root/mise"
-MISE_SHIMS_DIR="$root/mise/shims"
+VERIFY_MISE_COMMAND="$root/mise-bin"
+MISE_DATA_DIR="$root/mise-data"
+MISE_SHIMS_DIR="$root/mise-data/shims"
 
 PATH="$root/mise-managed/bin:$PATH"
 VERIFY_CALLER_PATH="$PATH"
@@ -97,35 +97,35 @@ verify_reset
 check_mise_owned tool
 assert_verifier_counts 1 0 0
 
-printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise/shims/tool"
-chmod +x "$root/mise/shims/tool"
-PATH="$root/mise/shims:${PATH#*:}"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise-data/shims/tool"
+chmod +x "$root/mise-data/shims/tool"
+PATH="$root/mise-data/shims:${PATH#*:}"
 VERIFY_CALLER_PATH="$PATH"
 verify_reset
 check_mise_owned tool
 assert_verifier_counts 1 0 0
 
-rm -f "$root/mise/shims/tool" "$root/mise-managed/bin/tool"
+rm -f "$root/mise-data/shims/tool" "$root/mise-managed/bin/tool"
 hash -r
 verify_reset
 check_mise_owned tool || true
 assert_verifier_counts 0 1 0
 
-printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise/shims/tool"
-chmod +x "$root/mise/shims/tool"
-PATH="$root/mise/shims:${PATH#*:}"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise-data/shims/tool"
+chmod +x "$root/mise-data/shims/tool"
+PATH="$root/mise-data/shims:${PATH#*:}"
 VERIFY_CALLER_PATH="$PATH"
 hash -r
 verify_reset
 check_mise_owned tool || true
 assert_verifier_counts 0 1 0
-rm -f "$root/mise/shims/tool"
+rm -f "$root/mise-data/shims/tool"
 
 printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise-managed/bin/tool"
 chmod +x "$root/mise-managed/bin/tool"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$root/external/tool"
 chmod +x "$root/external/tool"
-PATH="$root/external:$root/mise/shims:${PATH#*:}"
+PATH="$root/external:$root/mise-data/shims:${PATH#*:}"
 VERIFY_CALLER_PATH="$PATH"
 hash -r
 verify_reset
