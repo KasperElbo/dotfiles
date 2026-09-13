@@ -17,6 +17,9 @@ mkdir -p \
   "$config/mise" \
   "$config/nvim/profiles/parrot-ctf" \
   "$config/starship" \
+  "$config/bat/themes" \
+  "$data/fonts/HackNerdFont/3.4.0" \
+  "$data/konsole" \
   "$data/mise/shims" \
   "$data/nvim/mason/packages" \
   "$local_bin" \
@@ -78,14 +81,64 @@ cat >"$mock_bin/starship" <<'EOF'
 #!/usr/bin/env bash
 [[ "${1:-}" == prompt ]]
 EOF
+cat >"$mock_bin/id" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  -un) printf 'parrot-test\n' ;;
+  *) /usr/bin/id "$@" ;;
+esac
+EOF
+cat >"$mock_bin/getent" <<'EOF'
+#!/usr/bin/env bash
+printf 'parrot-test:x:1000:1000:Parrot Test:%s:%s\n' "$HOME" "$MOCK_ZSH"
+EOF
+cat >"$mock_bin/fc-match" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *family*) printf 'Hack Nerd Font Mono\n' ;;
+  *file*) printf '%s\n' "$MOCK_FONT" ;;
+esac
+EOF
+cat >"$mock_bin/fc-query" <<'EOF'
+#!/usr/bin/env bash
+printf '20-7e e0b0-e0c8 f000-f381 f0001-f1af0\n'
+EOF
+cat >"$mock_bin/bat" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --list-themes ]]; then
+  printf 'Catppuccin Latte\nCatppuccin Frappe\nCatppuccin Macchiato\nCatppuccin Mocha\n'
+fi
+EOF
+cat >"$mock_bin/batcat" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --list-themes ]]; then
+  printf 'Catppuccin Latte\nCatppuccin Frappe\nCatppuccin Macchiato\nCatppuccin Mocha\n'
+fi
+EOF
+cat >"$mock_bin/ip" <<'EOF'
+#!/usr/bin/env bash
+printf 'default via 192.0.2.1 dev enp1s0\n'
+EOF
+cat >"$mock_bin/findmnt" <<'EOF'
+#!/usr/bin/env bash
+printf 'ext4 / /dev/vda2\n'
+EOF
 chmod +x \
   "$mock_bin/dpkg-query" \
+  "$mock_bin/bat" \
+  "$mock_bin/batcat" \
+  "$mock_bin/fc-match" \
+  "$mock_bin/fc-query" \
+  "$mock_bin/getent" \
+  "$mock_bin/id" \
+  "$mock_bin/ip" \
+  "$mock_bin/findmnt" \
   "$mock_bin/systemd-detect-virt" \
   "$mock_bin/systemctl" \
   "$mock_bin/starship"
 
 generic_commands=(
-  apt-get bat batcat eza fd fdfind fzf gh lazygit pipx python python3 rg sqlite3
+  apt-get eza fd fdfind fzf gh lazygit pipx python python3 rg sqlite3
   stow tmux xclip xxd zoxide zsh nmap hashcat john sqlmap gobuster ffuf hydra
 )
 for command_name in "${generic_commands[@]}"; do
@@ -130,10 +183,21 @@ mkdir -p "$config/zsh" "$config/git"
 ln -s "$repo_root/zsh/.config/zsh/.zshrc" "$config/zsh/.zshrc"
 ln -s "$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh" \
   "$config/zsh/platform.zsh"
+ln -s "$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform-env.zsh" \
+  "$config/zsh/platform-env.zsh"
 ln -s "$repo_root/git/.config/git/config" "$config/git/config"
 ln -s "$repo_root/tmux/.tmux.conf" "$home/.tmux.conf"
 ln -s "$repo_root/platforms/parrot-ctf/stow/command-shims/.local/bin/bat" "$local_bin/bat"
 ln -s "$repo_root/platforms/parrot-ctf/stow/command-shims/.local/bin/fd" "$local_bin/fd"
+printf 'font fixture\n' >"$data/fonts/HackNerdFont/3.4.0/HackNerdFontMono-Regular.ttf"
+cat >"$data/konsole/Dotfiles-Parrot-CTF.profile" <<'EOF'
+[General]
+Name=Dotfiles Parrot CTF
+Parent=FALLBACK/
+[Appearance]
+Font=Hack Nerd Font Mono,10,-1,5,50,0,0,0,0,0
+EOF
+printf '[Desktop Entry]\nDefaultProfile=Dotfiles-Parrot-CTF.profile\n' >"$config/konsolerc"
 
 while IFS= read -r package; do
   [[ -n "$package" ]] || continue
@@ -153,6 +217,9 @@ verify_environment=(
   "MISE_DATA_DIR=$data/mise"
   "MOCK_NVIM=$nvim_install"
   "MOCK_LAZY_LOCK=$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/lazy-lock.json"
+  "MOCK_ZSH=$mock_bin/zsh"
+  "MOCK_FONT=$data/fonts/HackNerdFont/3.4.0/HackNerdFontMono-Regular.ttf"
+  "SHELL=$mock_bin/zsh"
   "OS_RELEASE_FILE=$test_root/os-release"
   "QEMU_AGENT_CHANNEL=$channels/org.qemu.guest_agent.0"
   "SPICE_AGENT_CHANNEL=$channels/com.redhat.spice.0"
@@ -167,6 +234,9 @@ grep -Fq 'python3 remains Parrot/APT-owned' <<<"$verification_output"
 grep -Fq 'Neovim 0.12.5 satisfies the >= 0.12 baseline' <<<"$verification_output"
 grep -Fq 'Mason inventory exactly matches the reduced Parrot profile' <<<"$verification_output"
 grep -Fq 'Reduced LazyVim plugins match the Parrot lockfile' <<<"$verification_output"
+grep -Fq 'VERIFIED: default route/interface observed' <<<"$verification_output"
+grep -Fq 'NOT OBSERVED: mounted 9p or virtiofs host filesystem' <<<"$verification_output"
+grep -Fq 'MANUAL ASSURANCE REQUIRED:' <<<"$verification_output"
 
 mkdir -p "$data/nvim/mason/packages/roslyn"
 if "${verify_environment[@]}" \
@@ -188,5 +258,15 @@ if "${verify_environment[@]}" \
 fi
 grep -Fq 'Protected security-tool shim present: nmap' "$test_root/shadowed-tool.log"
 grep -Fq 'command -v:' "$test_root/shadowed-tool.log"
+
+unlink "$local_bin/nmap"
+unlink "$mock_bin/john"
+if "${verify_environment[@]}" \
+  "$repo_root/platforms/parrot-ctf/scripts/verify.sh" \
+  >"$test_root/missing-tool.log" 2>&1; then
+  printf 'Parrot verification accepted an installed but unresolvable john executable.\n' >&2
+  exit 1
+fi
+grep -Fq 'john is installed by Parrot but is not resolvable' "$test_root/missing-tool.log"
 
 printf 'Parrot clean-install and PATH ownership verification tests passed.\n'

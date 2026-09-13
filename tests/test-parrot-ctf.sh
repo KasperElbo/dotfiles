@@ -22,6 +22,19 @@ assert_contains "$dry_run" 'mise owns uv and pinned Neovim 0.12.5 only'
 assert_contains "$dry_run" 'reduced LazyVim/Mason inventory'
 assert_contains "$dry_run" 'Fedora/DNF/Terra'
 
+theme_home="$test_root/theme-home"
+mkdir -p "$theme_home/.config/dotfiles"
+fresh_theme="$(HOME="$theme_home" XDG_CONFIG_HOME="$theme_home/.config" \
+  "$repo_root/install.sh" --platform parrot-ctf --dry-run)"
+assert_contains "$fresh_theme" 'Theme:                  macchiato (default)'
+printf 'mocha\n' >"$theme_home/.config/dotfiles/theme"
+persisted_theme="$(HOME="$theme_home" XDG_CONFIG_HOME="$theme_home/.config" \
+  "$repo_root/install.sh" --platform parrot-ctf --dry-run)"
+assert_contains "$persisted_theme" 'Theme:                  mocha (existing)'
+explicit_theme="$(HOME="$theme_home" XDG_CONFIG_HOME="$theme_home/.config" \
+  "$repo_root/install.sh" --platform parrot-ctf --dry-run --theme latte)"
+assert_contains "$explicit_theme" 'Theme:                  latte (explicit)'
+
 if "$repo_root/install.sh" --platform parrot-ctf --dry-run --vm-host \
   >"$test_root/fedora-option.log" 2>&1; then
   printf 'Parrot profile unexpectedly accepted a Fedora VM-host option.\n' >&2
@@ -34,11 +47,13 @@ home="$test_root/home"
 config="$home/.config"
 command_log="$test_root/commands.log"
 shell_state="$test_root/login-shell"
+shells_file="$test_root/shells"
 stow_log="$test_root/stow.log"
 channels="$test_root/virtio-ports"
 mkdir -p "$mock_bin" "$config" "$channels"
 printf 'ID=parrot\n' >"$test_root/os-release"
 printf '/bin/bash\n' >"$shell_state"
+printf '/usr/bin/zsh\n' >"$shells_file"
 touch "$channels/org.qemu.guest_agent.0" "$channels/com.redhat.spice.0"
 
 cat >"$mock_bin/apt-get" <<'EOF'
@@ -70,7 +85,11 @@ printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 EOF
 cat >"$mock_bin/id" <<'EOF'
 #!/usr/bin/env bash
-[[ "${1:-}" == -un ]] && printf 'parrot-test\n' || /usr/bin/id "$@"
+case "${1:-}" in
+  -u) [[ "${MOCK_ROOT:-false}" != true ]] && printf '1000\n' || printf '0\n' ;;
+  -un) printf 'parrot-test\n' ;;
+  *) /usr/bin/id "$@" ;;
+esac
 EOF
 cat >"$mock_bin/getent" <<'EOF'
 #!/usr/bin/env bash
@@ -112,6 +131,7 @@ test_environment=(
   "OS_RELEASE_FILE=$test_root/os-release"
   "COMMAND_LOG=$command_log"
   "SHELL_STATE=$shell_state"
+  "SHELLS_FILE=$shells_file"
   "STOW_LOG=$stow_log"
   "QEMU_AGENT_CHANNEL=$channels/org.qemu.guest_agent.0"
   "SPICE_AGENT_CHANNEL=$channels/com.redhat.spice.0"
@@ -131,7 +151,26 @@ if grep -Eq '(^| )neovim( |$)' "$command_log"; then
   printf 'Parrot APT package list still owns Neovim.\n' >&2
   exit 1
 fi
-grep -Fqx '/bin/zsh' "$shell_state"
+grep -Fqx '/usr/bin/zsh' "$shell_state"
+
+usermod_count="$(grep -Fc 'sudo usermod --shell' "$command_log")"
+if "${test_environment[@]}" env MOCK_ROOT=true \
+  "$repo_root/platforms/parrot-ctf/scripts/install-system.sh" \
+  >"$test_root/root-shell.log" 2>&1; then
+  printf 'Parrot installer attempted to support a root invocation.\n' >&2
+  exit 1
+fi
+grep -Fq "Refusing to change root's login shell" "$test_root/root-shell.log"
+[[ "$(grep -Fc 'sudo usermod --shell' "$command_log")" == "$usermod_count" ]]
+
+printf '/bin/bash\n' >"$test_root/unregistered-shells"
+if "${test_environment[@]}" env SHELLS_FILE="$test_root/unregistered-shells" \
+  "$repo_root/platforms/parrot-ctf/scripts/install-system.sh" \
+  >"$test_root/unregistered-shell.log" 2>&1; then
+  printf 'Parrot installer accepted an unregistered login shell.\n' >&2
+  exit 1
+fi
+grep -Fq 'is not registered' "$test_root/unregistered-shell.log"
 
 "${test_environment[@]}" \
   "$repo_root/platforms/parrot-ctf/scripts/install-guest-integration.sh" >/dev/null
@@ -178,6 +217,11 @@ for config in "$repo_root"/starship/.config/starship/{template,catppuccin-latte,
 done
 
 parrot_zsh="$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh"
+parrot_env="$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform-env.zsh"
+path_output="$(PATH="/usr/bin:/bin:/usr/bin" zsh -f -c "source '$parrot_env'; source '$parrot_env'; print -l -- \$path")"
+for expected_path in /usr/bin /bin /usr/local/sbin /usr/sbin /sbin; do
+  [[ "$(grep -Fxc "$expected_path" <<<"$path_output")" == 1 ]]
+done
 shell_output="$(
   PATH="$mock_bin:/usr/bin:/bin" zsh -f -c \
     "source '$parrot_zsh'; alias x-copy; hex-encode CTF; hex-decode 435446; rot13 CTF"

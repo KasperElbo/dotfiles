@@ -64,6 +64,17 @@ function M.spec()
   end
 
   table.insert(spec, { import = selected.plugins })
+  if vim.env.DOTFILES_MASON_BOOTSTRAP == "1" then
+    -- During the installer-only Mason preparation phase, do not let
+    -- nvim-treesitter load, configure parsers, or run LazyVim's asynchronous
+    -- tree-sitter-cli installer. The shell installer provisions the complete
+    -- Mason inventory synchronously, then runs the normal Lazy restore with
+    -- this bootstrap flag disabled.
+    table.insert(spec, {
+      "nvim-treesitter/nvim-treesitter",
+      enabled = false,
+    })
+  end
   return spec
 end
 

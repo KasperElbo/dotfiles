@@ -12,5 +12,6 @@ ruff
 shfmt
 stylua
 texlab
+tree-sitter-cli
 vtsls
 yaml-language-server

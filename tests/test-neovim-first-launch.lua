@@ -27,10 +27,11 @@ assert(easy_dotnet.opts.debugger.bin_path == "/not-installed-yet/libexec/netcore
 local inventory_path = "nvim-lazyvim/.config/nvim/mason-packages.txt"
 local mason_config = dofile("nvim-lazyvim/.config/nvim/lua/config/mason.lua")
 local packages = mason_config.packages(inventory_path)
-assert(#packages == 16, "expected the complete Mason package inventory")
+assert(#packages == 17, "expected the complete Mason package inventory")
 assert(vim.tbl_contains(packages, "debugpy"), "debugpy is missing from the Mason inventory")
 assert(vim.tbl_contains(packages, "marksman"), "marksman is missing from the Mason inventory")
 assert(vim.tbl_contains(packages, "roslyn"), "roslyn is missing from the Mason inventory")
+assert(vim.tbl_contains(packages, "tree-sitter-cli"), "tree-sitter-cli is missing from the Mason inventory")
 assert(not vim.tbl_contains(packages, "ocaml-lsp"), "OCaml LSP must remain opam-owned")
 
 local previous_profile = vim.env.DOTFILES_NVIM_PROFILE

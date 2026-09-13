@@ -36,5 +36,5 @@ if capability_validate_selection fedora base codex >/dev/null 2>&1; then
 fi
 capability_validate_selection fedora base ai codex
 
-grep -Fq 'config/capabilities.tsv' "$repo_root/README.md"
+grep -Fq 'config/capabilities.tsv' "$repo_root/docs/capabilities.md"
 printf 'Capability manifest validation passed.\n'

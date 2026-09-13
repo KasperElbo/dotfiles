@@ -238,9 +238,21 @@ chmod +x "$mock_bin/mise"
 cat >"$mock_bin/nvim" <<'EOF'
 #!/usr/bin/env bash
 for argument in "$@"; do
+  if [[ "$argument" == '+Lazy! restore mason.nvim' ]]; then
+    mkdir -p "$XDG_DATA_HOME/nvim/lazy/mason.nvim"
+  fi
+
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
+    mkdir -p "$XDG_DATA_HOME/nvim/mason/bin"
     for package in $DOTFILES_MASON_PACKAGES; do
       mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
+      if [[ "$package" == tree-sitter-cli ]]; then
+        cat >"$XDG_DATA_HOME/nvim/mason/bin/tree-sitter" <<'TREEEOF'
+#!/usr/bin/env bash
+exit 0
+TREEEOF
+        chmod +x "$XDG_DATA_HOME/nvim/mason/bin/tree-sitter"
+      fi
     done
   fi
 done
@@ -312,7 +324,7 @@ run_bootstrap() {
 run_bootstrap
 
 grep -Fqx "$mock_bin/zsh" "$shell_state"
-grep -Fq '[system] completed' "$test_root/bootstrap.log"
+grep -Fq 'reboot before expecting Ghostty to use' "$test_root/bootstrap.log"
 
 bootstrap_identity="$(sha256sum "$bootstrap_config/git/local")"
 bootstrap_notes="$(sha256sum "$bootstrap_home/notes")"
