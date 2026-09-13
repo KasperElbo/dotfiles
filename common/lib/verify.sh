@@ -281,7 +281,7 @@ check_mise_owned() {
   caller_path="${VERIFY_CALLER_PATH:-${PATH:-}}"
   caller_resolved="$(PATH="$caller_path" command -v "$name" 2>/dev/null || true)"
 
-  if [[ ":$caller_path:" == *":$mise_shims_dir:"* && -n "$caller_resolved" ]] &&
+  if [[ -n "$caller_resolved" ]] &&
     ! shell_paths_match "$caller_resolved" "$mise_resolved" &&
     ! shell_paths_match "$caller_resolved" "$mise_shim"; then
     fail "$name resolves outside mise in the caller PATH: $caller_resolved (mise manages $mise_resolved)"
