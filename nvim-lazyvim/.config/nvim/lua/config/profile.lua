@@ -65,13 +65,14 @@ function M.spec()
 
   table.insert(spec, { import = selected.plugins })
   if vim.env.DOTFILES_MASON_BOOTSTRAP == "1" then
-    -- The installer owns tree-sitter-cli through its blocking Mason inventory
-    -- phase. Suppress parser installation during the preceding Lazy restore so
-    -- LazyVim cannot start a concurrent Mason installation from Treesitter's
-    -- build callback. Normal interactive startup keeps LazyVim's parser list.
+    -- During the installer-only Mason preparation phase, do not let
+    -- nvim-treesitter load, configure parsers, or run LazyVim's asynchronous
+    -- tree-sitter-cli installer. The shell installer provisions the complete
+    -- Mason inventory synchronously, then runs the normal Lazy restore with
+    -- this bootstrap flag disabled.
     table.insert(spec, {
       "nvim-treesitter/nvim-treesitter",
-      opts = { ensure_installed = {} },
+      enabled = false,
     })
   end
   return spec
