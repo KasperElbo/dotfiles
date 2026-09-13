@@ -3,37 +3,35 @@ set -euo pipefail
 
 # shellcheck source=../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/common.sh"
+# shellcheck source=../../common/lib/execution-plan.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/execution-plan.sh"
+# shellcheck source=../../common/lib/preflight.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/preflight.sh"
+# shellcheck source=../../common/lib/capabilities.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/capabilities.sh"
+# shellcheck source=../../common/lib/install-lifecycle.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
 # shellcheck source=lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/macos.sh"
 
-theme="macchiato"
-install_ocaml="false"
-install_containers="false"
-install_tailscale="false"
-apply_defaults="true"
-run_workflows="false"
-interactive="true"
-dry_run="false"
+theme=macchiato; install_ocaml=false; install_containers=false
+install_tailscale=false; apply_defaults=true; run_workflows=false
+interactive=true; dry_run=false
 
 usage() {
   cat <<'EOF'
-Usage: ./install.sh [options]
+Usage: ./install.sh --platform macos [options]
+
+Direct entry point: ./platforms/macos/install.sh [options]
 
 Options:
   --theme FLAVOUR    latte, frappe, macchiato, or mocha (default: macchiato)
-  --ocaml            Install the optional opam-managed OCaml profile
-  --no-ocaml         Do not install OCaml (default)
-  --containers       Install the optional rootless Podman machine profile
-  --no-containers    Do not install containers (default)
-  --tailscale        Install the optional Tailscale profile (Standalone
-                     macOS app via Homebrew cask); authentication stays
-                     interactive and is never automated
-  --no-tailscale     Do not install Tailscale (default)
-  --defaults         Apply the documented, conservative macOS defaults (default)
-  --no-defaults      Leave macOS defaults unchanged
-  --workflows        Run disposable .NET, Angular, and Python workflow tests
-  --no-workflows     Skip network-dependent workflow tests (default)
-  --dry-run          Show the complete plan without changing anything
+  --ocaml/--no-ocaml
+  --containers/--no-containers
+  --tailscale/--no-tailscale
+  --defaults/--no-defaults
+  --workflows/--no-workflows
+  --dry-run          Show the resolved plan without changing anything
   --non-interactive  Use selected options without prompting
   -h, --help         Show this help
 EOF
@@ -41,39 +39,78 @@ EOF
 
 while (($#)); do
   case "$1" in
-  --theme)
-    [[ $# -ge 2 ]] || die "--theme requires a value"
-    theme="$2"
-    shift 2
-    ;;
-  --ocaml) install_ocaml="true"; shift ;;
-  --no-ocaml) install_ocaml="false"; shift ;;
-  --containers) install_containers="true"; shift ;;
-  --no-containers) install_containers="false"; shift ;;
-  --tailscale) install_tailscale="true"; shift ;;
-  --no-tailscale) install_tailscale="false"; shift ;;
-  --defaults) apply_defaults="true"; shift ;;
-  --no-defaults) apply_defaults="false"; shift ;;
-  --workflows) run_workflows="true"; shift ;;
-  --no-workflows) run_workflows="false"; shift ;;
-  --dry-run) dry_run="true"; interactive="false"; shift ;;
-  --non-interactive) interactive="false"; shift ;;
+  --theme) [[ $# -ge 2 ]] || die "--theme requires a value"; theme="$2"; shift 2 ;;
+  --ocaml) install_ocaml=true; shift ;; --no-ocaml) install_ocaml=false; shift ;;
+  --containers) install_containers=true; shift ;; --no-containers) install_containers=false; shift ;;
+  --tailscale) install_tailscale=true; shift ;; --no-tailscale) install_tailscale=false; shift ;;
+  --defaults) apply_defaults=true; shift ;; --no-defaults) apply_defaults=false; shift ;;
+  --workflows) run_workflows=true; shift ;; --no-workflows) run_workflows=false; shift ;;
+  --dry-run) dry_run=true; interactive=false; shift ;;
+  --non-interactive) interactive=false; shift ;;
   -h | --help) usage; exit 0 ;;
-  *) die "Unknown option: $1" ;;
+  *) die "Unknown option for macos: $1" ;;
   esac
 done
+case "$theme" in latte | frappe | macchiato | mocha) ;; *) die "Invalid Catppuccin flavour: $theme" ;; esac
 
-case "$theme" in
-latte | frappe | macchiato | mocha) ;;
-*) die "Invalid Catppuccin flavour: $theme" ;;
-esac
+preflight_macos() {
+  require_regular_user
+  require_apple_silicon_macos
+  preflight_commands awk date find git readlink xcode-select
+  xcode-select -p >/dev/null 2>&1 || die "Apple Command Line Tools are required; run 'xcode-select --install'."
+  if [[ ! -x "$(homebrew_path)" ]]; then
+    preflight_commands curl sudo
+    preflight_sudo "$interactive"
+  fi
+  preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
+  preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
+  local specs=() spec
+  local selected=(base)
+  [[ "$install_ocaml" != true ]] || selected+=(ocaml)
+  [[ "$install_containers" != true ]] || selected+=(containers)
+  [[ "$install_tailscale" != true ]] || selected+=(tailscale)
+  capability_validate_selection macos "${selected[@]}"
+  while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs macos "${selected[@]}")
+  preflight_stow_packages "${specs[@]}"
+}
+
+apply_system() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interactive); "$DOTFILES_ROOT/platforms/macos/scripts/install-system.sh" "${args[@]}"; activate_homebrew_path; }
+apply_ocaml_native() { "$DOTFILES_ROOT/platforms/macos/scripts/install-ocaml.sh"; }
+apply_containers() { "$DOTFILES_ROOT/platforms/macos/scripts/install-containers.sh"; }
+apply_tailscale() { "$DOTFILES_ROOT/platforms/macos/scripts/install-tailscale.sh"; }
+apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" "$theme"; }
+apply_stow() { "$DOTFILES_ROOT/platforms/macos/scripts/stow.sh"; }
+apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
+apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh"; }
+apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
+apply_ocaml() { "$DOTFILES_ROOT/common/install-ocaml.sh"; }
+apply_macos_defaults() { "$DOTFILES_ROOT/platforms/macos/scripts/apply-defaults.sh"; }
+apply_workflows() { "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --all; [[ "$install_ocaml" != true ]] || "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --ocaml; }
+apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
+apply_aerospace() { open -a AeroSpace || warn 'Open AeroSpace manually from /Applications'; }
+verify_macos() { local args=(); [[ "$apply_defaults" != true ]] || args+=(--defaults); [[ "$install_containers" != true ]] || args+=(--containers); [[ "$install_tailscale" != true ]] || args+=(--tailscale); "$DOTFILES_ROOT/platforms/macos/scripts/verify.sh" "${args[@]}"; }
+
+plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' apply preflight_macos apply_system : 'Install native Homebrew at /opt/homebrew, Brewfile machine tools, Ghostty, and AeroSpace.'
+[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Homebrew OCaml prerequisites' apply : apply_ocaml_native : 'platforms/macos/scripts/install-ocaml.sh'
+[[ "$install_containers" != true ]] || plan_add containers 'Install and start a rootless Podman machine' apply : apply_containers : 'Run an ARM64 smoke test with the Podman machine.'
+[[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale profile (Homebrew cask, interactive login).' apply : apply_tailscale : 'Authentication and Network Extension approval remain interactive.'
+plan_add local 'Initialize local Git and theme state' apply : apply_local : "common/setup-local.sh $theme"
+plan_add stow 'Deploy shared and macOS configuration' apply : apply_stow : 'platforms/macos/scripts/stow.sh'
+plan_add mise 'Install mise-managed runtimes' apply : apply_mise : 'common/install-mise.sh'
+plan_add nvim 'Restore LazyVim and Mason tools' apply : apply_nvim : 'common/install-neovim-tools.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and platform tools' apply : apply_ocaml : 'common/install-ocaml.sh'
+[[ "$apply_defaults" != true ]] || plan_add defaults 'Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults' apply : apply_macos_defaults : 'platforms/macos/scripts/apply-defaults.sh'
+[[ "$run_workflows" != true ]] || plan_add workflows 'Run disposable .NET, Angular, and Python workflow tests' apply : apply_workflows : 'scripts/test-dev-workflows.sh'
+plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme"
+plan_add aerospace 'Launch AeroSpace' apply : apply_aerospace : 'macOS may request Accessibility access.'
+plan_add verify 'Verify installation and native architecture' verify : verify_macos : 'platforms/macos/scripts/verify.sh'
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
 
 Apple Silicon macOS installation plan
 --------------------------------------
-
 Catppuccin flavour: $theme
 Window manager:     AeroSpace (Sway-compatible nine-workspace profile)
 macOS defaults:     $apply_defaults
@@ -83,133 +120,32 @@ Tailscale profile:  $install_tailscale
 Development tests:  $run_workflows
 AI tooling profile: unavailable until repository issue #16 lands
 
-Steps:
-
-  1. Verify native arm64 macOS and Apple Command Line Tools.
-  2. Install native Homebrew at /opt/homebrew when absent.
-  3. Install Brewfile machine tools, Ghostty, and AeroSpace.
 EOF
-  step=4
-  if [[ "$install_ocaml" == true ]]; then
-    printf '  %d. Install Homebrew OCaml prerequisites.\n' "$step"
-    step=$((step + 1))
-  fi
-  if [[ "$install_containers" == true ]]; then
-    printf '  %d. Install and start a rootless Podman machine; run an ARM64 smoke test.\n' "$step"
-    step=$((step + 1))
-  fi
-  if [[ "$install_tailscale" == true ]]; then
-    printf '  %d. Install the optional Tailscale profile (Homebrew cask, interactive login).\n' "$step"
-    step=$((step + 1))
-  fi
-  cat <<EOF
-  $step. Initialize local Git/theme state and stow shared plus macOS configuration.
-  $((step + 1)). Install mise runtimes, LazyVim/Mason tools, and Catppuccin tmux.
-EOF
-  step=$((step + 2))
-  if [[ "$install_ocaml" == true ]]; then
-    printf '  %d. Create the opam-owned OCaml switch and platform tools.\n' "$step"
-    step=$((step + 1))
-  fi
-  if [[ "$apply_defaults" == true ]]; then
-    printf '  %d. Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults.\n' "$step"
-    step=$((step + 1))
-  fi
-  if [[ "$run_workflows" == true ]]; then
-    printf '  %d. Run disposable .NET, Angular, and Python end-to-end tests.\n' "$step"
-    step=$((step + 1))
-  fi
-  cat <<EOF
-  $step. Launch AeroSpace, then verify installation and native architecture.
-
-Manual configuration still required afterward:
-
-  • Grant AeroSpace Accessibility permission in Privacy & Security.
-  • Choose the documented Mission Control multi-display setting.
-  • Configure Git identity and SSH authentication; run gh auth login.
-  • Review keyboard, trackpad, Touch ID, FileVault, and application permissions.
-
-No changes were made.
-
-EOF
-  exit 0
+  plan_render
+  printf '\nNo changes were made.\n\n'; exit 0
 fi
-
-require_apple_silicon_macos
 
 if [[ "$interactive" == true ]]; then
-  printf '\nApple Silicon macOS workstation\n'
-  printf '%s\n' '---------------------------------'
-  printf 'Theme:       %s\n' "$theme"
-  printf 'AeroSpace:   enabled (Sway-compatible profile)\n'
-  printf 'Defaults:    %s\n' "$apply_defaults"
-  printf 'OCaml:       %s\n' "$install_ocaml"
-  printf 'Containers:  %s\n' "$install_containers"
-  printf 'Tailscale:   %s\n\n' "$install_tailscale"
-  printf 'Workflows:   %s\n\n' "$run_workflows"
-  confirm "Continue with installation?" "y" || exit 0
-fi
-
-system_args=()
-[[ "$interactive" == true ]] || system_args+=(--non-interactive)
-"$DOTFILES_ROOT/platforms/macos/scripts/install-system.sh" "${system_args[@]}"
-activate_homebrew_path
-
-if [[ "$install_ocaml" == true ]]; then
-  "$DOTFILES_ROOT/platforms/macos/scripts/install-ocaml.sh"
-fi
-if [[ "$install_containers" == true ]]; then
-  "$DOTFILES_ROOT/platforms/macos/scripts/install-containers.sh"
-fi
-if [[ "$install_tailscale" == true ]]; then
-  "$DOTFILES_ROOT/platforms/macos/scripts/install-tailscale.sh"
-fi
-
-"$DOTFILES_ROOT/common/setup-local.sh" "$theme"
-"$DOTFILES_ROOT/platforms/macos/scripts/stow.sh"
-"$DOTFILES_ROOT/common/install-mise.sh"
-"$DOTFILES_ROOT/common/install-neovim-tools.sh"
-"$DOTFILES_ROOT/common/install-tmux-theme.sh"
-
-if [[ "$install_ocaml" == true ]]; then
-  "$DOTFILES_ROOT/common/install-ocaml.sh"
-fi
-
-if [[ "$apply_defaults" == true ]]; then
-  "$DOTFILES_ROOT/platforms/macos/scripts/apply-defaults.sh"
-fi
-
-if [[ "$run_workflows" == true ]]; then
-  "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --all
-  if [[ "$install_ocaml" == true ]]; then
-    "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --ocaml
+  printf '\nApple Silicon macOS workstation\n\n'
+  if confirm 'Continue with installation?' y; then :; else
+    result=$?; ((result == 1)) || die 'Invalid confirmation response'
+    printf 'Cancelled; no changes made.\n'; exit 0
   fi
 fi
-
-theme_command="$HOME/.local/bin/theme"
-[[ ! -x "$theme_command" ]] || "$theme_command" "$theme"
-
-info "Opening AeroSpace so macOS can request Accessibility access"
-open -a AeroSpace || warn "Open AeroSpace manually from /Applications"
-
-verify_args=()
-[[ "$apply_defaults" != true ]] || verify_args+=(--defaults)
-[[ "$install_containers" != true ]] || verify_args+=(--containers)
-[[ "$install_tailscale" != true ]] || verify_args+=(--tailscale)
-
-printf '\n'
-if "$DOTFILES_ROOT/platforms/macos/scripts/verify.sh" "${verify_args[@]}"; then
-  success "macOS workstation installation completed"
-else
-  warn "Installation completed, but verification reported failures"
-  exit 1
+plan_preflight
+capabilities=base
+[[ "$install_ocaml" != true ]] || capabilities+=,ocaml
+[[ "$install_containers" != true ]] || capabilities+=,containers
+[[ "$install_tailscale" != true ]] || capabilities+=,tailscale
+DOTFILES_RERUN_COMMAND='./install.sh --platform macos --non-interactive'
+install_lifecycle_begin macos "$capabilities" "$DOTFILES_RERUN_COMMAND"
+if plan_execute; then :; else
+  result=$?; install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"; exit "$result"
 fi
+install_lifecycle_commit
 
 cat <<'EOF'
 
-Finish the manual security and display steps in docs/macos.md. In particular,
-grant AeroSpace Accessibility access, keep SIP and Gatekeeper enabled, and do
-not enable Rosetta for Ghostty. Configure Git/SSH identities and run gh auth
-login before using repository workflows.
-
+Finish the manual security and display steps in docs/macos.md. Grant AeroSpace
+Accessibility access, keep SIP and Gatekeeper enabled, and configure Git/SSH.
 EOF

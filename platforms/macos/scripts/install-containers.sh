@@ -3,6 +3,8 @@ set -euo pipefail
 
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/macos.sh"
 
@@ -30,10 +32,6 @@ podman run --rm docker.io/library/alpine:latest sh -c \
 podman-compose version >/dev/null
 
 state_file="$XDG_CONFIG_HOME/dotfiles/macos-containers.conf"
-ensure_dir "$(dirname "$state_file")"
-atomic_write_file "$state_file" <<'EOF'
-profile=podman-machine
-rootful=false
-EOF
+profile_state_write "$state_file" podman-machine installed rootful=false
 
 success "Optional Podman machine profile installed"

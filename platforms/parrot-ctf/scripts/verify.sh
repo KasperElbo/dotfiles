@@ -4,6 +4,8 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
@@ -387,12 +389,12 @@ for link in "${links[@]}"; do
 done
 
 state_file="$XDG_CONFIG_HOME/dotfiles/parrot-ctf.conf"
-if [[ -r "$state_file" ]] &&
-  grep -Fxq 'host_secrets=not-shared' "$state_file" &&
-  grep -Fxq 'security_tools=parrot-apt-owned' "$state_file"; then
+if profile_state_validate_file "$state_file" parrot-ctf &&
+  [[ "$(profile_state_read "$state_file" host_secrets parrot-ctf)" == not-shared ]] &&
+  [[ "$(profile_state_read "$state_file" security_tools parrot-ctf)" == parrot-apt-owned ]]; then
   pass "CTF guest installer intent is recorded (not isolation proof)"
 else
-  fail "Parrot CTF safety state is missing"
+  fail "Parrot CTF safety state is missing or invalid"
 fi
 
 if ((failures > 0)); then

@@ -4,6 +4,8 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/secure-boot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/secure-boot.sh"
 # shellcheck source=../lib/power-profiles.sh
@@ -26,12 +28,6 @@ warning() {
   warnings=$((warnings + 1))
 }
 
-read_state_value() {
-  local key="$1"
-  awk -F= -v key="$key" '$1 == key { print substr($0, length(key) + 2) }' \
-    "$state_file"
-}
-
 state_file="$XDG_CONFIG_HOME/dotfiles/hardware.conf"
 
 if [[ ! -f "$state_file" ]]; then
@@ -39,9 +35,10 @@ if [[ ! -f "$state_file" ]]; then
   exit 1
 fi
 
-model="$(read_state_value profile)"
-require_secure_boot="$(read_state_value secure_boot)"
-charge_limit="$(read_state_value charge_limit)"
+model="$(profile_state_read "$state_file" profile)"
+profile_state_validate_file "$state_file" "$model" || exit 1
+require_secure_boot="$(profile_state_read "$state_file" secure_boot "$model")"
+charge_limit="$(profile_state_read "$state_file" charge_limit "$model")"
 
 case "$model" in
 ga402xz | ga402rk)

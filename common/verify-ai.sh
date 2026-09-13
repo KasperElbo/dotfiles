@@ -4,6 +4,8 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/profile-state.sh"
 
 failures=0
 
@@ -39,13 +41,15 @@ section() {
   exit 1
 }
 
-codex_state="$(awk -F= '$1 == "codex" { print $2 }' "$state_file")"
-firstmate_state="$(awk -F= '$1 == "firstmate" { print $2 }' "$state_file")"
-treehouse_state="$(awk -F= '$1 == "treehouse" { print $2 }' "$state_file")"
-no_mistakes_state="$(awk -F= '$1 == "no_mistakes" { print $2 }' "$state_file")"
-lavish_axi_state="$(awk -F= '$1 == "lavish_axi" { print $2 }' "$state_file")"
-gnhf_state="$(awk -F= '$1 == "gnhf" { print $2 }' "$state_file")"
-backpass_state="$(awk -F= '$1 == "backpass" { print $2 }' "$state_file")"
+profile_state_validate_file "$state_file" ai || exit 1
+
+codex_state="$(profile_state_read "$state_file" codex ai)"
+firstmate_state="$(profile_state_read "$state_file" firstmate ai)"
+treehouse_state="$(profile_state_read "$state_file" treehouse ai)"
+no_mistakes_state="$(profile_state_read "$state_file" no_mistakes ai)"
+lavish_axi_state="$(profile_state_read "$state_file" lavish_axi ai)"
+gnhf_state="$(profile_state_read "$state_file" gnhf ai)"
+backpass_state="$(profile_state_read "$state_file" backpass ai)"
 
 caller_path="$PATH"
 mise_command="$(resolve_mise_command || true)"

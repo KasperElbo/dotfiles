@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
 # Shared library value consumed by sourcing scripts.
 # shellcheck disable=SC2034
 DOTFILES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 
 info() {
   printf '\033[1;34m==>\033[0m %s\n' "$*"
@@ -123,6 +122,8 @@ atomic_write_file() {
 
   [[ ! -d "$path" ]] || die "Cannot replace directory with file: $path"
 
+  ensure_dir "$(dirname "$path")"
+  chmod 700 "$(dirname "$path")" 2>/dev/null || true
   temporary="$(mktemp "${path}.XXXXXX")"
 
   if ! cat >"$temporary"; then
@@ -132,6 +133,11 @@ atomic_write_file() {
 
   chmod 600 "$temporary"
 
+  # Persist the temporary file before the same-filesystem rename when the
+  # host supplies GNU sync. macOS sync has no -f, so durability there relies
+  # on rename semantics rather than turning a safe write into a hard failure.
+  sync -f "$temporary" 2>/dev/null || true
+
   if ! mv -- "$temporary" "$path"; then
     rm -f -- "$temporary"
     return 1
@@ -140,18 +146,37 @@ atomic_write_file() {
 
 confirm() {
   local prompt="$1"
-  local default="${2:-y}"
   local answer
+  local normalized
 
-  if [[ "$default" == "y" ]]; then
-    read -r -p "$prompt [Y/n] " answer
-    answer="${answer:-y}"
+  read -r -p "$prompt [y/N] " answer
+
+  normalized="$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')"
+  case "$normalized" in
+  y | yes) return 0 ;;
+  n | no | "") return 1 ;;
+  *)
+    warn "Invalid response '$answer'; expected yes or no."
+    return 2
+    ;;
+  esac
+}
+
+require_regular_user() {
+  [[ "$(id -u)" -ne 0 ]] ||
+    die "Refusing to run the user installer as root; run it as a regular user."
+}
+
+preflight_sudo() {
+  local interactive="${1:-true}"
+
+  require_command sudo
+  if [[ "$interactive" == "true" ]]; then
+    sudo -v || die "Could not acquire sudo authorization before installation."
   else
-    read -r -p "$prompt [y/N] " answer
-    answer="${answer:-n}"
+    sudo -n -v ||
+      die "Non-interactive installation requires cached sudo authorization; run 'sudo -v' first."
   fi
-
-  [[ "$answer" =~ ^[Yy]$ ]]
 }
 
 require_command() {

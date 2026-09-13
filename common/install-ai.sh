@@ -3,6 +3,8 @@ set -euo pipefail
 
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/profile-state.sh"
 
 install_codex="false"
 install_firstmate="false"
@@ -431,12 +433,14 @@ ensure_dir "$(dirname "$state_file")"
     printf 'backpass=disabled\n'
     printf 'acpx=disabled\n'
   fi
-} | atomic_write_file "$state_file"
+} | profile_state_write_content "$state_file" ai applying
 
 info "Validating the AI profile"
 if "$DOTFILES_ROOT/common/verify-ai.sh"; then
+  profile_state_set_status "$state_file" ai installed
   success "AI profile installed"
 else
+  profile_state_set_status "$state_file" ai failed
   warn "AI tooling installed, but validation reported problems"
   exit 1
 fi

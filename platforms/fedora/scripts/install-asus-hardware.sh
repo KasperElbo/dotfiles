@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 # shellcheck source=../lib/secure-boot.sh
@@ -352,18 +354,10 @@ if [[ -n "$charge_limit" ]]; then
   asusctl battery info
 fi
 
-state_dir="$XDG_CONFIG_HOME/dotfiles"
-state_file="$state_dir/hardware.conf"
-ensure_dir "$state_dir"
-
-state_temp="$(mktemp "$state_dir/.hardware.XXXXXX")"
-{
-  printf 'profile=%s\n' "$model"
-  printf 'secure_boot=%s\n' "$require_secure_boot"
-  printf 'charge_limit=%s\n' "$charge_limit"
-} >"$state_temp"
-chmod 600 "$state_temp"
-mv -- "$state_temp" "$state_file"
+state_file="$XDG_CONFIG_HOME/dotfiles/hardware.conf"
+profile_state_write "$state_file" "$model" installed \
+  "secure_boot=$require_secure_boot" \
+  "charge_limit=${charge_limit:-unchanged}"
 
 success "ASUS hardware support installed for $model_label"
 

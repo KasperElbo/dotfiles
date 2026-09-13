@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
@@ -33,6 +35,6 @@ ensure_dir "$(dirname "$state_file")"
   printf 'shared_folders=manual\n'
   printf 'host_secrets=not-shared\n'
   printf 'security_tools=parrot-apt-owned\n'
-} | atomic_write_file "$state_file"
+} | profile_state_write_content "$state_file" parrot-ctf
 
 success "Parrot guest integration installed"

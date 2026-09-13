@@ -22,8 +22,13 @@ printf 'SecureBoot %s\n' "${MOCK_SECURE_BOOT:-enabled}"
 EOF
 cat >"$mock_bin/sudo" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$*" == '-n -v' ]]; then exit 0; fi
 printf 'unexpected mutation: sudo %s\n' "$*" >>"$MUTATION_LOG"
 exit 97
+EOF
+cat >"$mock_bin/id" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in -u) printf '1000\n' ;; -un) printf 'fedora-test\n' ;; *) /usr/bin/id "$@" ;; esac
 EOF
 chmod +x "$mock_bin"/*
 

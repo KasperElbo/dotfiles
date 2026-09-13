@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 # shellcheck source=../lib/tailscale.sh
@@ -112,14 +114,17 @@ state_file="$XDG_CONFIG_HOME/dotfiles/tailscale.conf"
 ensure_dir "$(dirname "$state_file")"
 {
   printf 'profile=tailscale\n'
+  printf 'variant=fedora-service\n'
   printf 'repo=pkgs.tailscale.com\n'
   printf 'service=tailscaled\n'
-} | atomic_write_file "$state_file"
+} | profile_state_write_content "$state_file" tailscale applying
 
 info "Validating the Fedora Tailscale profile"
 if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-tailscale.sh"; then
+  profile_state_set_status "$state_file" tailscale installed
   success "Fedora Tailscale profile installed"
 else
+  profile_state_set_status "$state_file" tailscale failed
   warn "Tailscale was installed, but validation reported problems"
   exit 1
 fi

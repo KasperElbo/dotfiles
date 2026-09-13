@@ -3,6 +3,8 @@ set -euo pipefail
 
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/profile-state.sh"
 
 require_command opam
 
@@ -40,11 +42,8 @@ opam install --switch "$switch_name" --yes \
 # automatically when commands are run from inside their directory.
 opam switch set "$switch_name"
 
-ensure_dir "$(dirname "$state_file")"
-atomic_write_file "$state_file" <<EOF
-switch=$switch_name
-compiler=$compiler_version
-EOF
+profile_state_write "$state_file" ocaml installed \
+  "switch=$switch_name" "compiler=$compiler_version"
 
 success "OCaml $compiler_version development environment installed"
 
