@@ -11,7 +11,7 @@ mock_bin="$test_root/bin"
 command_log="$test_root/commands.log"
 font_dir="$data/fonts/HackNerdFont/3.4.0"
 bat_theme_dir="$config/bat/themes"
-mkdir -p "$mock_bin" "$font_dir" "$bat_theme_dir"
+mkdir -p "$mock_bin" "$home/.local/bin" "$font_dir" "$bat_theme_dir"
 printf 'ID=parrot\n' >"$test_root/os-release"
 printf 'font fixture\n' >"$font_dir/HackNerdFontMono-Regular.ttf"
 for flavour in Latte Frappe Macchiato Mocha; do
@@ -42,7 +42,10 @@ cat >"$mock_bin/fc-cache" <<'EOF'
 #!/usr/bin/env bash
 printf 'fc-cache %s\n' "$*" >>"$COMMAND_LOG"
 EOF
-cat >"$mock_bin/bat" <<'EOF'
+# Match the fresh-install ordering: Stow has created the supported Parrot bat
+# shim, but the current installer process has not started a new login shell and
+# therefore does not have ~/.local/bin on PATH yet.
+cat >"$home/.local/bin/bat" <<'EOF'
 #!/usr/bin/env bash
 printf 'bat %s\n' "$*" >>"$COMMAND_LOG"
 EOF
@@ -57,7 +60,7 @@ cat >"$mock_bin/curl" <<'EOF'
 printf 'Unexpected download during idempotent terminal install.\n' >&2
 exit 1
 EOF
-chmod +x "$mock_bin"/*
+chmod +x "$mock_bin"/* "$home/.local/bin/bat"
 
 environment=(
   env "HOME=$home" "XDG_CONFIG_HOME=$config" "XDG_DATA_HOME=$data"
@@ -72,6 +75,7 @@ if grep -Eq '^Command=' "$profile"; then
   printf 'Konsole profile contains an unnecessary shell override.\n' >&2
   exit 1
 fi
+grep -Fq 'bat cache --build' "$command_log"
 grep -Fq 'DefaultProfile Dotfiles-Parrot-CTF.profile' "$command_log"
 first_profile="$(sha256sum "$profile")"
 "${environment[@]}" "$repo_root/platforms/parrot-ctf/scripts/install-terminal.sh" >/dev/null
