@@ -51,14 +51,14 @@ hardware_packages="$(awk -F '\t' '$1=="hardware" && $2=="fedora" {print $9; exit
 [[ ",$hardware_packages," == *,akmods,* ]]
 
 fedora_installer="$repo_root/platforms/fedora/install.sh"
-[[ "$(grep -Fc '"$hardware_selected:hardware"' "$fedora_installer")" -ge 2 ]] || {
+[[ "$(grep -Fc "\"\$hardware_selected:hardware\"" "$fedora_installer")" -ge 2 ]] || {
   printf 'Fedora hardware selection is not included in both preflight and lifecycle capability resolution.\n' >&2
   exit 1
 }
-grep -Fq 'DOTFILES_RERUN_COMMAND="$(build_rerun_command)"' "$fedora_installer"
-grep -Fq 'args+=(--hardware "$hardware_model")' "$fedora_installer"
+grep -Fq "DOTFILES_RERUN_COMMAND=\"\$(build_rerun_command)\"" "$fedora_installer"
+grep -Fq "args+=(--hardware \"\$hardware_model\")" "$fedora_installer"
 grep -Fq 'args+=(--secure-boot)' "$fedora_installer"
-grep -Fq 'args+=(--charge-limit "$hardware_charge_limit")' "$fedora_installer"
+grep -Fq "args+=(--charge-limit \"\$hardware_charge_limit\")" "$fedora_installer"
 
 hardware_dry_run="$(
   "$repo_root/install.sh" --dry-run --no-kde --no-latex \
