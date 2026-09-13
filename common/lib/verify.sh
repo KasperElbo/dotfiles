@@ -1,0 +1,298 @@
+#!/usr/bin/env bash
+
+# Shared read-only verification primitives.
+#
+# This library deliberately does not select shell options. Verifier entrypoints
+# own their execution policy; sourcing a common library must never change the
+# caller's errexit, nounset, or pipefail state.
+
+VERIFY_PASSES=${VERIFY_PASSES:-0}
+VERIFY_FAILURES=${VERIFY_FAILURES:-0}
+VERIFY_WARNINGS=${VERIFY_WARNINGS:-0}
+
+verify_reset() {
+  VERIFY_PASSES=0
+  VERIFY_FAILURES=0
+  VERIFY_WARNINGS=0
+}
+
+section() {
+  printf '\n\033[1m%s\033[0m\n' "$1"
+}
+
+pass() {
+  printf '\033[1;32m✓\033[0m %s\n' "$*"
+  VERIFY_PASSES=$((VERIFY_PASSES + 1))
+  return 0
+}
+
+fail() {
+  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
+  VERIFY_FAILURES=$((VERIFY_FAILURES + 1))
+  return 1
+}
+
+warning() {
+  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
+  VERIFY_WARNINGS=$((VERIFY_WARNINGS + 1))
+  return 0
+}
+
+verify_finish() {
+  local label="${1:-Verification}"
+
+  printf '\n'
+  if ((VERIFY_FAILURES > 0)); then
+    printf '\033[1;31m%s failed:\033[0m %d failure(s), %d warning(s)\n' \
+      "$label" "$VERIFY_FAILURES" "$VERIFY_WARNINGS" >&2
+    return 1
+  fi
+
+  if ((VERIFY_WARNINGS > 0)); then
+    printf '\033[1;33m%s passed with warnings:\033[0m %d warning(s)\n' \
+      "$label" "$VERIFY_WARNINGS"
+  else
+    printf '\033[1;32m%s passed.\033[0m\n' "$label"
+  fi
+  return 0
+}
+
+check_command() {
+  local command_name="$1"
+  local command_path
+
+  command_path="$(command -v "$command_name" 2>/dev/null || true)"
+  if [[ -n "$command_path" ]]; then
+    pass "$command_name: $command_path"
+  else
+    fail "$command_name not found"
+  fi
+}
+
+check_command_runs() {
+  local label="$1"
+  shift
+
+  if "$@" >/dev/null 2>&1; then
+    pass "$label"
+  else
+    fail "$label"
+  fi
+}
+
+verify_version_at_least() {
+  local actual="$1"
+  local minimum="$2"
+  local -a actual_parts=() minimum_parts=()
+  local index actual_part minimum_part count
+
+  [[ "$actual" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
+  [[ "$minimum" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
+
+  IFS=. read -r -a actual_parts <<<"$actual"
+  IFS=. read -r -a minimum_parts <<<"$minimum"
+  count="${#actual_parts[@]}"
+  ((${#minimum_parts[@]} > count)) && count="${#minimum_parts[@]}"
+
+  for ((index = 0; index < count; index++)); do
+    actual_part="${actual_parts[index]:-0}"
+    minimum_part="${minimum_parts[index]:-0}"
+    ((10#$actual_part > 10#$minimum_part)) && return 0
+    ((10#$actual_part < 10#$minimum_part)) && return 1
+  done
+  return 0
+}
+
+check_version_at_least() {
+  local label="$1"
+  local actual="$2"
+  local minimum="$3"
+
+  if verify_version_at_least "$actual" "$minimum"; then
+    pass "$label $actual satisfies >= $minimum"
+  else
+    fail "$label ${actual:-unknown} does not satisfy >= $minimum"
+  fi
+}
+
+check_file_contains() {
+  local label="$1"
+  local path="$2"
+  local expected="$3"
+
+  if [[ -r "$path" ]] && grep -Fq -- "$expected" "$path"; then
+    pass "$label"
+  else
+    fail "$label: expected '$expected' in $path"
+  fi
+}
+
+verify_file_mode() {
+  local path="$1"
+  local mode
+
+  mode="$(stat -c '%a' "$path" 2>/dev/null || true)"
+  if [[ -z "$mode" ]]; then
+    mode="$(stat -f '%Lp' "$path" 2>/dev/null || true)"
+  fi
+  [[ -n "$mode" ]] || return 1
+  printf '%s\n' "$mode"
+}
+
+check_file_mode() {
+  local label="$1"
+  local path="$2"
+  local expected_mode="$3"
+  local actual_mode
+
+  actual_mode="$(verify_file_mode "$path" 2>/dev/null || true)"
+  if [[ "$actual_mode" == "$expected_mode" ]]; then
+    pass "$label mode is $expected_mode"
+  else
+    fail "$label mode is ${actual_mode:-unknown}; expected $expected_mode"
+  fi
+}
+
+# Resolve an existing path without GNU-only readlink flags. Basic readlink is
+# available on GNU/Linux and macOS; directory canonicalization is delegated to
+# the shell's portable `cd -P` behavior. Symlink loops are bounded explicitly.
+verify_canonical_existing_path() {
+  local path="$1"
+  local target directory basename iteration=0
+
+  [[ -e "$path" ]] || return 1
+
+  while [[ -L "$path" ]]; do
+    iteration=$((iteration + 1))
+    ((iteration <= 64)) || return 1
+    target="$(readlink "$path" 2>/dev/null)" || return 1
+    if [[ "$target" == /* ]]; then
+      path="$target"
+    else
+      path="$(dirname "$path")/$target"
+    fi
+    [[ -e "$path" ]] || return 1
+  done
+
+  directory="$(cd -P -- "$(dirname -- "$path")" 2>/dev/null && pwd)" || return 1
+  basename="$(basename -- "$path")"
+  [[ -e "$directory/$basename" ]] || return 1
+  printf '%s/%s\n' "$directory" "$basename"
+}
+
+verify_path_is_within_root() {
+  local path="$1"
+  local root="${2%/}"
+
+  [[ "$path" == "$root" || "$path" == "$root/"* ]]
+}
+
+# check_symlink <link> <expected-root>
+#
+# An owned Stow link has five independent properties: the link object exists,
+# it is a symlink, its referent exists, canonical resolution succeeds, and the
+# resolved referent is inside the exact expected package root. The final test
+# is component-aware so /repo/dotfiles-other never satisfies /repo/dotfiles.
+check_symlink() {
+  local link="$1"
+  local expected_root="${2%/}"
+  local resolved=""
+  local canonical_root=""
+
+  if [[ ! -e "$link" && ! -L "$link" ]]; then
+    fail "$link is missing; expected Stow ownership under $expected_root"
+    return 1
+  fi
+  if [[ ! -L "$link" ]]; then
+    fail "$link is not a symlink; expected Stow ownership under $expected_root"
+    return 1
+  fi
+  if [[ ! -e "$link" ]]; then
+    fail "$link is a dangling symlink; expected a live referent under $expected_root"
+    return 1
+  fi
+
+  resolved="$(verify_canonical_existing_path "$link" 2>/dev/null || true)"
+  canonical_root="$(verify_canonical_existing_path "$expected_root" 2>/dev/null || true)"
+  if [[ -z "$resolved" || -z "$canonical_root" ]]; then
+    fail "$link could not be canonically resolved; resolved=${resolved:-<none>} expected=$expected_root"
+    return 1
+  fi
+
+  if verify_path_is_within_root "$resolved" "$canonical_root"; then
+    pass "$link -> $resolved"
+    return 0
+  fi
+
+  fail "$link is not owned by the expected package; resolved=$resolved expected=$canonical_root"
+  return 1
+}
+
+check_system_service_active() {
+  local unit="$1"
+  if systemctl is-active --quiet "$unit"; then
+    pass "$unit is active"
+  else
+    fail "$unit is not active"
+  fi
+}
+
+check_user_service_active() {
+  local unit="$1"
+  if systemctl --user is-active --quiet "$unit"; then
+    pass "$unit is active for the user"
+  else
+    fail "$unit is not active for the user"
+  fi
+}
+
+# Shared mise ownership check. Callers that mutate PATH after sourcing should
+# set VERIFY_CALLER_PATH to the original PATH first. VERIFY_MISE_COMMAND may be
+# supplied by a verifier; otherwise the normal repository resolver is used.
+check_mise_owned() {
+  local name="$1"
+  local resolved mise_resolved mise_shim caller_path caller_resolved mise_command
+  local mise_data_dir mise_shims_dir
+
+  resolved="$(command -v "$name" 2>/dev/null || true)"
+  if [[ -z "$resolved" ]]; then
+    fail "$name not found"
+    return 1
+  fi
+
+  mise_command="${VERIFY_MISE_COMMAND:-}"
+  if [[ -z "$mise_command" ]] && declare -F resolve_mise_command >/dev/null 2>&1; then
+    mise_command="$(resolve_mise_command 2>/dev/null || true)"
+  fi
+  if [[ -z "$mise_command" ]]; then
+    fail "mise not found; cannot prove ownership of $name ($resolved)"
+    return 1
+  fi
+
+  mise_resolved="$("$mise_command" which "$name" 2>/dev/null || true)"
+  if [[ -z "$mise_resolved" || ! -x "$mise_resolved" ]]; then
+    fail "$name is not backed by an executable reported by mise: ${mise_resolved:-<none>}"
+    return 1
+  fi
+
+  mise_data_dir="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
+  mise_shims_dir="${MISE_SHIMS_DIR:-$mise_data_dir/shims}"
+  mise_shim="$mise_shims_dir/$name"
+  caller_path="${VERIFY_CALLER_PATH:-${PATH:-}}"
+  caller_resolved="$(PATH="$caller_path" command -v "$name" 2>/dev/null || true)"
+
+  if [[ ":$caller_path:" == *":$mise_shims_dir:"* && -n "$caller_resolved" ]] &&
+    ! shell_paths_match "$caller_resolved" "$mise_resolved" &&
+    ! shell_paths_match "$caller_resolved" "$mise_shim"; then
+    fail "$name resolves outside mise in the caller PATH: $caller_resolved (mise manages $mise_resolved)"
+    return 1
+  fi
+
+  if shell_paths_match "$resolved" "$mise_resolved"; then
+    pass "$name is mise-managed: $resolved"
+  elif shell_paths_match "$resolved" "$mise_shim"; then
+    pass "$name is mise-managed via shim: $resolved -> $mise_resolved"
+  else
+    fail "$name resolves outside mise: $resolved (mise manages $mise_resolved)"
+  fi
+}
