@@ -4,6 +4,7 @@
 # own shell policy; sourcing this file intentionally does not change options.
 
 TEST_ROOTS=()
+TEST_ROOT=""
 TEST_OUTPUT=""
 TEST_STATUS=0
 
@@ -16,8 +17,8 @@ test_new_root() {
   local root
   root="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-test.XXXXXX")" || return 1
   TEST_ROOTS+=("$root")
+  TEST_ROOT="$root"
   mkdir -p "$root"/{home,config,data,state,cache,bin,logs,contracts}
-  printf '%s\n' "$root"
 }
 
 test_cleanup() {
@@ -26,6 +27,7 @@ test_cleanup() {
     [[ -n "$root" ]] && rm -rf -- "$root"
   done
   TEST_ROOTS=()
+  TEST_ROOT=""
 }
 
 test_install_cleanup_trap() {
