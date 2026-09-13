@@ -4,11 +4,12 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../lib/wsl.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/wsl.sh"
 
-failures=0
-warnings=0
+verify_reset
 run_smoke_tests="false"
 verify_latex="false"
 
@@ -27,24 +28,6 @@ while (($#)); do
   shift
 done
 
-pass() {
-  printf '\033[1;32m✓\033[0m %s\n' "$*"
-}
-
-fail() {
-  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
-  failures=$((failures + 1))
-}
-
-warning() {
-  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
-  warnings=$((warnings + 1))
-}
-
-section() {
-  printf '\n\033[1m%s\033[0m\n' "$1"
-}
-
 check_linux_command() {
   local command_name="$1"
   local command_path
@@ -56,24 +39,6 @@ check_linux_command() {
     fail "$command_name resolves to a Windows executable: $command_path"
   else
     pass "$command_name: $command_path"
-  fi
-}
-
-check_symlink() {
-  local target="$1"
-  local expected_prefix="$2"
-  local resolved
-
-  if [[ ! -L "$target" ]]; then
-    fail "$target is not a symlink"
-    return
-  fi
-
-  resolved="$(readlink -f "$target")"
-  if [[ "$resolved" == "$expected_prefix"* ]]; then
-    pass "$target -> $resolved"
-  else
-    fail "$target resolves outside dotfiles repo: $resolved"
   fi
 }
 
@@ -156,8 +121,6 @@ if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
 fi
 
 if [[ -n "$mise_command" ]]; then
-  # Match the installer/final-Zsh user tool environment without depending on
-  # the shell which launched this verification having loaded .zshrc.
   establish_user_tool_environment
 else
   fail "mise not found"
@@ -251,9 +214,6 @@ if [[ -f "$ai_state" ]]; then
     fail "Claude Code does not start in a fresh Zsh login"
   fi
 
-  # WSL-specific concern beyond common/verify-ai.sh: a Windows-installed
-  # claude.exe/codex.exe/herdr.exe/treehouse.exe earlier on PATH would
-  # silently shadow the Linux-native copy this profile installed.
   for command_name in claude codex herdr treehouse; do
     command_path="$(command -v "$command_name" 2>/dev/null || true)"
     if [[ -z "$command_path" ]]; then
@@ -286,19 +246,6 @@ else
     pass "AI profile is not installed (not selected)"
   fi
 fi
-
-# ---------------------------------------------------------------------------
-# Windows executable interop
-#
-# The check above (and the Zsh PATH check earlier) covers one property:
-# Windows directories are absent from the Linux PATH. This section covers
-# the independent, complementary property this profile also relies on:
-# explicit Windows executables (full-path, never added to PATH) still run --
-# wsl-open, the clipboard helpers, and Windows OpenSSH/1Password SSH agent
-# use all depend on it. The two properties are controlled by separate
-# /etc/wsl.conf [interop] keys (appendWindowsPath and enabled respectively)
-# and can fail independently, so this repository verifies them separately.
-# ---------------------------------------------------------------------------
 
 section "Windows executable interop"
 
@@ -437,10 +384,6 @@ containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
 if [[ -f "$containers_state" ]]; then
   section "Containers (Podman)"
 
-  # As on native Fedora, the full smoke test runs once right after
-  # install-containers.sh; a routine verify.sh (and the install.sh run that
-  # always ends with it) skips it so it does not repeat a network-dependent
-  # test every time.
   if "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify-containers.sh" \
     --skip-smoke-test; then
     pass "Containers profile verification completed"
@@ -474,10 +417,4 @@ if [[ "$run_smoke_tests" == "true" ]]; then
   fi
 fi
 
-printf '\n'
-if ((failures > 0)); then
-  printf '%d failure(s), %d warning(s).\n' "$failures" "$warnings" >&2
-  exit 1
-fi
-
-printf 'Fedora WSL verification passed with %d warning(s).\n' "$warnings"
+finish_verification "Fedora WSL verification"
