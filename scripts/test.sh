@@ -6,6 +6,8 @@ repo_root="$(cd -- "$script_dir/.." && pwd)"
 cd "$repo_root"
 
 tests=(
+  tests/test-verifier.sh
+  tests/test-test-support.sh
   tests/test-capabilities.sh
   tests/test-profile-state.sh
   tests/test-execution-plan.sh
