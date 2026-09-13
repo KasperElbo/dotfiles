@@ -66,7 +66,15 @@ for flavour in Latte Frappe Macchiato Mocha; do
   chmod 0644 "$temporary_theme"
   mv -- "$temporary_theme" "$theme_file"
 done
-bat cache --build >/dev/null
+
+# Debian/Parrot packages bat as `batcat`; the supported portable `bat` command
+# is the stowed shim installed immediately before this script runs. The current
+# installer process has not started a fresh login shell yet, so ~/.local/bin
+# may not be on PATH. Invoke the managed shim explicitly instead of depending
+# on ambient install-time PATH state.
+bat_command="$HOME/.local/bin/bat"
+[[ -x "$bat_command" ]] || die "Parrot bat shim is missing after Stow: $bat_command"
+"$bat_command" cache --build >/dev/null
 
 konsole_dir="$XDG_DATA_HOME/konsole"
 konsole_profile="$konsole_dir/Dotfiles-Parrot-CTF.profile"
