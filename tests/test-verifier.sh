@@ -111,6 +111,16 @@ verify_reset
 check_mise_owned tool || true
 assert_verifier_counts 0 1 0
 
+printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise/shims/tool"
+chmod +x "$root/mise/shims/tool"
+PATH="$root/mise/shims:${PATH#*:}"
+VERIFY_CALLER_PATH="$PATH"
+hash -r
+verify_reset
+check_mise_owned tool || true
+assert_verifier_counts 0 1 0
+rm -f "$root/mise/shims/tool"
+
 printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise-managed/bin/tool"
 chmod +x "$root/mise-managed/bin/tool"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$root/external/tool"
