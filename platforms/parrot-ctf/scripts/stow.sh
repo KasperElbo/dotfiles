@@ -12,7 +12,7 @@ require_command stow
 "$DOTFILES_ROOT/common/stow.sh" --headless --without-mise
 
 platform_stow_dir="$DOTFILES_ROOT/platforms/parrot-ctf/stow"
-packages=(command-shims mise-ctf zsh-platform)
+packages=(command-shims mise-ctf neovim-profile zsh-platform)
 
 info "Stowing Parrot CTF integration into $HOME"
 for package in "${packages[@]}"; do

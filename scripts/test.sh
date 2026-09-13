@@ -36,6 +36,7 @@ tests=(
   tests/test-wsl-interop.sh
   tests/test-fedora-wsl.sh
   tests/test-parrot-ctf.sh
+  tests/test-parrot-verification.sh
   tests/test-windows-bootstrap.sh
   tests/test-macos.sh
 )

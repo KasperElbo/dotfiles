@@ -969,14 +969,56 @@ exec zsh -l
 
 The final rerun is the idempotency check. The verifier checks the Parrot and
 KVM/QEMU boundaries, both virtio channels, APT ownership, guest services,
-portable configuration links, Python/uv, and the recorded no-secret-sharing
-state. On the host, `virsh --connect qemu:///system domifaddr parrot-ctf
+portable configuration links, the exact reduced Mason inventory, Neovim
+version/profile, Python/uv ownership, PATH shadowing, Starship compatibility,
+and the recorded no-secret-sharing state. On the host,
+`virsh --connect qemu:///system domifaddr parrot-ctf
 --source agent` confirms that the guest agent answers.
 
-Parrot owns Python, `venv`, pip and pipx. mise owns only `uv` in this profile;
-the normal workstation's .NET, Node, Python, Mermaid and language-server
-manifest is intentionally not stowed. Use `uv init`/`uv sync`, a local `.venv`,
-or pipx rather than installing challenge packages into Parrot's system Python.
+Parrot owns Python, `venv`, pip, pipx, and the security-tool catalogue. mise
+owns `uv` and one explicit exception: pinned Neovim 0.12.5 from the current
+`github:neovim/neovim` backend, because Parrot 7.3's APT/backports Neovim 0.10.x
+cannot run the tracked LazyVim baseline. The effective `nvim` must resolve
+through mise; `python`, `python3`, and installed security tools must not.
+
+The Parrot editor profile restores only core LazyVim plus Python testing and
+debugging. Its exact Mason inventory is basedpyright, debugpy,
+lua-language-server, Ruff, Stylua, and the Tree-sitter CLI required by
+LazyVim's core syntax support. It deliberately excludes .NET, Node, Angular,
+TeX, Markdown-preview, and other general workstation integrations.
+Its separate tracked lockfile prevents a reduced restore from rewriting the
+workstation plugin lock. After the bootstrap phase, the pinned plugin lock and managed tools support
+offline editor startup; automatic Lazy plugin update checking is disabled for
+this profile. Add challenge-specific runtimes in the challenge repository,
+not the machine-wide Parrot mise manifest. Use `uv init`/`uv sync`, a local
+`.venv`, or pipx rather than installing challenge packages into Parrot's
+system Python.
+
+Opting into the full workstation editor is explicit and does not mutate the
+Parrot base profile: launch with `DOTFILES_NVIM_PROFILE=workstation nvim`, then
+provision any extra runtimes and Mason packages that profile needs yourself.
+Remove the override to return to the reduced profile selected by the stowed
+marker. Prefer project-local Lazy specs when only one challenge needs an extra
+editor integration.
+
+The shared Zsh environment remains authoritative for generic shell behavior.
+Parrot's Bash aliases are not sourced wholesale; only the reviewed
+`hex-encode`, `hex-decode`, and `rot13` CTF helpers are retained. The profile
+uses `unsetopt NOMATCH`: unmatched wildcard-looking payload/URL arguments pass
+through as they do in Bash, while patterns matching local files still expand.
+See [the source-by-source shell audit](docs/parrot-ctf-shell-audit.md) for the
+classification and trade-off analysis.
+
+For the graphical guest clipboard, `x-copy` expands exactly to
+`xclip -selection clipboard`:
+
+```bash
+printf 'hello' | x-copy
+```
+
+It exists only in the Parrot and Fedora VM-guest profiles and does not replace
+`wl-copy`. A printable reduced profile reference is available from
+`docs/cheatsheets/parrot-ctf.tex`.
 
 ---
 
@@ -1297,7 +1339,7 @@ The repository has platform-specific ownership layers around one portable core:
 | `platforms/fedora` | DNF/Terra packages, including the opam binary and OCaml build prerequisites; KDE and Sway integration; system services; SELinux/system paths; Secure Boot; and ASUS hardware | Copies of shared Zsh/Git/Neovim/tmux/mise configuration or OCaml packages inside opam switches |
 | `platforms/fedora-wsl` | WSL detection, CLI prerequisites, early Windows PATH isolation, explicit clipboard/browser interop and WSL verification | Fedora desktop, Ghostty, hardware, GPU, VM host/guest, invasive host networking changes, credentials or copies of portable configuration |
 | `platforms/macos` | Native `/opt/homebrew` packages, AeroSpace, Mac shell paths, deliberate defaults, Podman machine integration, and arm64/security verification | Copies of shared configuration, Rosetta, Intel Homebrew, weakened SIP/Gatekeeper, identities, credentials, or Fedora service assumptions |
-| `platforms/parrot-ctf` | Parrot/APT prerequisites, KVM/SPICE guest agents, Debian command shims, a narrow uv-only mise manifest, and lab-boundary verification | Fedora/Terra/KDE/ASUS provisioning, host virtualization, credentials, shared folders, or a duplicate Parrot security-tool catalogue |
+| `platforms/parrot-ctf` | Parrot/APT prerequisites, KVM/SPICE guest agents, Debian command shims, reduced LazyVim/Mason selection, a narrow uv/Neovim mise manifest, and lab/PATH-boundary verification | Fedora/Terra/KDE/ASUS provisioning, host virtualization, mise-managed system Python/security tools, credentials, shared folders, or a duplicate Parrot security-tool catalogue |
 
 The shared Stow package directories remain at the repository root to preserve
 existing symlink targets. `common/stow.sh` is their authoritative package
@@ -1379,7 +1421,8 @@ install.sh --platform parrot-ctf
     ├── common/setup-local.sh
     ├── common/stow.sh --headless --without-mise
     ├── platforms/parrot-ctf/scripts/stow.sh
-    ├── common/install-mise.sh                         uv only
+    ├── common/install-mise.sh                         uv + pinned Neovim
+    ├── common/install-neovim-tools.sh --profile parrot-ctf
     ├── common/install-tmux-theme.sh
     └── platforms/parrot-ctf/scripts/verify.sh
 ```
@@ -1574,6 +1617,16 @@ can be exported explicitly to SPICE's X11 clipboard path:
 ```bash
 wl-paste --no-newline | xclip -selection clipboard -in
 ```
+
+The Fedora VM-guest shell also exposes the exact guest-only shorthand
+`x-copy='xclip -selection clipboard'`, so stdin can be copied directly:
+
+```bash
+printf 'hello' | x-copy
+```
+
+The alias is activated only when the verified VM-guest state file is present;
+native Fedora workstation and Fedora WSL profiles do not receive it.
 
 Run that command once after copying text in the guest, then paste it on the
 host. It is intentionally a manual, text-only workaround rather than a
@@ -2783,9 +2836,12 @@ The `parrot-ctf` profile installs only shell/editor/Python prerequisites and
 `qemu-guest-agent`/`spice-vdagent`. Parrot Security Edition's existing security
 packages and repositories remain untouched and APT-owned. Debian's `batcat`
 and `fdfind` command names are exposed as `bat` and `fd` through two small
-Parrot-only wrappers. Starship is APT-owned; mise is installed in
-`~/.local/bin` from its upstream installer and installs only `uv` from the
-Parrot manifest.
+Parrot-only wrappers. `x-copy` is a guest-only alias backed by APT-owned
+`xclip`. Starship is APT-owned; the unused `AOSC` symbol is omitted so its
+1.22.1 parser accepts the shared config. mise is installed in `~/.local/bin`
+from its upstream installer and owns only `uv` plus pinned Neovim 0.12.5. The
+Neovim exception exists because Parrot 7.3's 0.10.x package is below the
+tracked LazyVim minimum; system Python and security tools remain APT-owned.
 
 ## mise
 

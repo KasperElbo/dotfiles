@@ -32,9 +32,19 @@ lazyvim_extras=(
   lazyvim.plugins.extras.test.core
 )
 
+profile_config="$lazyvim_config/lua/config/profile.lua"
 for extra in "${lazyvim_extras[@]}"; do
-  assert_contains "$lazyvim_config/lazyvim.json" "\"$extra\""
+  assert_contains "$profile_config" "\"$extra\""
 done
+assert_contains "$lazyvim_config/lazyvim.json" '"extras": []'
+assert_contains "$profile_config" '["parrot-ctf"]'
+assert_contains "$profile_config" 'plugins = "ctf_plugins"'
+assert_contains "$profile_config" 'profiles/parrot-ctf/mason-packages.txt'
+assert_contains "$profile_config" 'profiles/parrot-ctf/lazy-lock.json'
+assert_contains "$lazyvim_config/lua/config/lazy.lua" 'spec = profile.spec()'
+assert_contains "$lazyvim_config/lua/config/lazy.lua" 'lockfile = profile.lockfile()'
+assert_contains "$lazyvim_config/lua/config/lazy.lua" \
+  'vim.g.lazyvim_python_lsp = "basedpyright"'
 
 dotnet_config="$lazyvim_config/lua/plugins/dotnet.lua"
 assert_contains "$dotnet_config" '"roslyn"'
@@ -116,6 +126,25 @@ expected_mason_packages=(
 [[ "${mason_inventory[*]}" == "${expected_mason_packages[*]}" ]] ||
   fail "tracked Mason inventory does not match the intended package set"
 
+parrot_mason_inventory_file="$lazyvim_config/profiles/parrot-ctf/mason-packages.txt"
+mapfile -t parrot_mason_inventory <"$parrot_mason_inventory_file"
+expected_parrot_mason=(
+  basedpyright
+  debugpy
+  lua-language-server
+  ruff
+  stylua
+  tree-sitter-cli
+)
+[[ "${parrot_mason_inventory[*]}" == "${expected_parrot_mason[*]}" ]] ||
+  fail "Parrot Mason inventory does not match the reduced package set"
+for excluded in angular-language-server eslint-lsp js-debug-adapter json-lsp \
+  marksman netcoredbg pyright roslyn texlab vtsls yaml-language-server; do
+  if grep -Fxq "$excluded" "$parrot_mason_inventory_file"; then
+    fail "workstation Mason package leaked into Parrot profile: $excluded"
+  fi
+done
+
 mason_config="$lazyvim_config/lua/plugins/mason.lua"
 assert_contains "$mason_config" 'require("config.mason").packages()'
 assert_contains "$mason_config" 'vim.env.DOTFILES_MASON_BOOTSTRAP == "1"'
@@ -123,6 +152,8 @@ assert_contains "$mason_config" 'lazy = false'
 assert_contains "$dotnet_config" 'vim.env.DOTFILES_MASON_BOOTSTRAP == "1"'
 assert_contains "$repo_root/common/install-neovim-tools.sh" \
   'nvim-lazyvim/.config/nvim/mason-packages.txt'
+assert_contains "$repo_root/common/install-neovim-tools.sh" \
+  'nvim-lazyvim/.config/nvim/profiles/parrot-ctf/mason-packages.txt'
 assert_contains "$repo_root/common/install-neovim-tools.sh" \
   "-u NONE -l \"\$DOTFILES_ROOT/common/bootstrap-mason.lua\""
 assert_contains "$repo_root/common/bootstrap-mason.lua" \
@@ -139,6 +170,10 @@ assert_contains "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
   'nvim-lazyvim/.config/nvim/mason-packages.txt'
 assert_contains "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
   "fail \"Mason package not installed: \$package\""
+assert_contains "$repo_root/platforms/parrot-ctf/install.sh" \
+  'common/install-neovim-tools.sh" --profile parrot-ctf'
+assert_contains "$repo_root/platforms/parrot-ctf/scripts/verify.sh" \
+  'Mason inventory mismatch'
 
 if printf '%s\n' "${mason_inventory[@]}" | grep -Fxq 'ocaml-lsp' ||
   printf '%s\n' "${mason_inventory[@]}" | grep -Fxq 'ocamlformat'; then

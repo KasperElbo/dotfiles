@@ -17,7 +17,9 @@ sudo apt-get install -y --no-install-recommends \
   spice-vdagent
 
 info "Activating guest integration"
-sudo systemctl enable --now qemu-guest-agent.service
+# Debian/Parrot ships the guest agent as a static unit, activated by its
+# virtio device. Starting it is valid; attempting to enable it is not.
+sudo systemctl start qemu-guest-agent.service
 sudo systemctl start spice-vdagentd.socket
 
 state_file="$XDG_CONFIG_HOME/dotfiles/parrot-ctf.conf"

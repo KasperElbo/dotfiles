@@ -1,0 +1,54 @@
+% Parrot Security Edition CTF VM printable cheat sheet.
+\documentclass[10pt]{extarticle}
+\usepackage{cheatsheet}
+
+\begin{document}
+\cssheettitle{Parrot CTF VM}{Reduced, disposable KVM/QEMU security-lab profile}
+
+\begin{multicols}{2}
+
+\cssection{Shell and navigation}
+\begin{cskeys}{0.30\linewidth}
+\csrow{ls / ll / la}{eza short / long+git / all}
+\csrow{tree}{eza --tree}
+\csrow{cat}{bat (syntax highlight)}
+\csrow{z name / zi}{zoxide jump / interactive picker}
+\csrow{Ctrl+R}{fzf history search}
+\end{cskeys}
+
+\cssection{CTF helpers}
+\begin{cskeys}{0.30\linewidth}
+\csrow{hex-encode TEXT}{encode text with xxd}
+\csrow{hex-decode HEX}{decode hexadecimal text}
+\csrow{rot13 TEXT}{apply ROT13}
+\csrow{x-copy}{copy stdin to X11 clipboard}
+\end{cskeys}
+\csnote{Example: \texttt{printf 'hello' | x-copy}. Parrot Bash aliases are not imported wholesale.}
+
+\cssection{Globbing policy}
+Unmatched glob-looking arguments pass through to CTF tools instead of raising
+Zsh \texttt{NOMATCH}; patterns matching local files still expand. Quote an
+argument whenever a tool must receive its exact bytes.\par
+
+\columnbreak
+
+\cssection{Editor}
+The reduced LazyVim profile includes core editing plus Python test/debug
+support. It intentionally excludes .NET, Angular, TeX, and general workstation
+integrations. Press \texttt{Space} for WhichKey.\par
+
+\cssection{Ownership boundary}
+Parrot/APT owns system Python and the security catalogue. mise owns only
+\texttt{uv} and the pinned Neovim exception. \texttt{bat} and \texttt{fd} are
+deliberate local compatibility shims for Debian command names.\par
+
+\cssection{Validation}
+\begin{cskeys}{0.30\linewidth}
+\csrow{verify.sh}{validate profile and ownership}
+\csrow{exec zsh -l}{start the installed login shell}
+\end{cskeys}
+\csnote{Full command: \texttt{platforms/parrot-ctf/scripts/verify.sh}.}
+
+\end{multicols}
+\csfoot{Profile guide: README.md \#parrot-security-edition-ctf-vm. Shell audit: docs/parrot-ctf-shell-audit.md.}
+\end{document}

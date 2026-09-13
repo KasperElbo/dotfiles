@@ -1,0 +1,6 @@
+basedpyright
+debugpy
+lua-language-server
+ruff
+stylua
+tree-sitter-cli
