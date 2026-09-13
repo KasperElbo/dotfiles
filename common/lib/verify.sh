@@ -109,9 +109,9 @@ check_version_at_least() {
   local minimum="$3"
 
   if verify_version_at_least "$actual" "$minimum"; then
-    pass "$label $actual satisfies >= $minimum"
+    pass "$label $actual satisfies the >= $minimum baseline"
   else
-    fail "$label ${actual:-unknown} does not satisfy >= $minimum"
+    fail "$label ${actual:-unknown} does not satisfy the >= $minimum baseline"
   fi
 }
 
