@@ -4,14 +4,14 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../../../common/lib/profile-state.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
-failures=0
-pass() { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
-fail() { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; failures=$((failures + 1)); }
+verify_reset
 manual() { printf '\033[1;33mMANUAL ASSURANCE REQUIRED:\033[0m %s\n' "$*"; }
 
 command_diagnostics() {
@@ -32,16 +32,6 @@ is_apt_owned_command() {
   [[ "$command_path" != "$HOME/"* && "$resolved_path" != "$HOME/"* ]] || return 1
   dpkg-query -S "$command_path" >/dev/null 2>&1 ||
     dpkg-query -S "$resolved_path" >/dev/null 2>&1
-}
-
-version_is_supported() {
-  local version="$1"
-  local major minor
-
-  [[ "$version" =~ ^([0-9]+)\.([0-9]+)(\.[0-9]+)?$ ]] || return 1
-  major="${BASH_REMATCH[1]}"
-  minor="${BASH_REMATCH[2]}"
-  ((major > 0 || (major == 0 && minor >= 12)))
 }
 
 require_parrot || exit 1
@@ -153,11 +143,7 @@ if [[ -n "$mise_command" ]]; then
       sed -n '1s/^NVIM v\([0-9][0-9.]*\).*/\1/p'
   )"
 fi
-if version_is_supported "$nvim_version"; then
-  pass "Neovim $nvim_version satisfies the >= 0.12 baseline"
-else
-  fail "Neovim >= 0.12 required; resolved version: ${nvim_version:-unknown}"
-fi
+check_version_at_least "Neovim" "$nvim_version" "0.12"
 
 nvim_log="$(mktemp)"
 if [[ -n "$mise_command" ]] &&
@@ -312,16 +298,8 @@ else
   fail "Bat is missing Catppuccin themes: ${missing_bat_themes[*]}"
 fi
 
-if systemctl is-active --quiet qemu-guest-agent.service; then
-  pass "qemu-guest-agent is active"
-else
-  fail "qemu-guest-agent is not active"
-fi
-if systemctl is-active --quiet spice-vdagentd.socket; then
-  pass "SPICE guest socket is active"
-else
-  fail "SPICE guest socket is not active"
-fi
+check_system_service_active qemu-guest-agent.service
+check_system_service_active spice-vdagentd.socket
 
 printf '\nGuest isolation evidence\n'
 default_route="$(ip route show default 2>/dev/null | head -n 1)"
@@ -367,26 +345,24 @@ else
 fi
 manual "guest observations cannot prove libvirt NAT, absence of inactive passthrough devices, or host-side forwarding; run the host verifier with --domain"
 
-links=(
-  "$HOME/.zshenv"
-  "$XDG_CONFIG_HOME/zsh/.zshrc"
-  "$XDG_CONFIG_HOME/zsh/platform-env.zsh"
-  "$XDG_CONFIG_HOME/zsh/platform.zsh"
-  "$XDG_CONFIG_HOME/git/config"
-  "$XDG_CONFIG_HOME/mise/config.toml"
-  "$XDG_CONFIG_HOME/nvim/init.lua"
-  "$XDG_CONFIG_HOME/dotfiles/neovim-profile"
-  "$HOME/.tmux.conf"
-  "$HOME/.local/bin/bat"
-  "$HOME/.local/bin/fd"
-)
-for link in "${links[@]}"; do
-  if [[ -L "$link" ]]; then
-    pass "$link is managed by Stow"
-  else
-    fail "Missing Stow link: $link"
-  fi
-done
+section "Stow ownership"
+check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh"
+check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh"
+check_symlink "$XDG_CONFIG_HOME/zsh/platform-env.zsh" \
+  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/zsh-platform"
+check_symlink "$XDG_CONFIG_HOME/zsh/platform.zsh" \
+  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/zsh-platform"
+check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git"
+check_symlink "$XDG_CONFIG_HOME/mise/config.toml" \
+  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/mise-ctf"
+check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim"
+check_symlink "$XDG_CONFIG_HOME/dotfiles/neovim-profile" \
+  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/neovim-profile"
+check_symlink "$HOME/.tmux.conf" "$DOTFILES_ROOT/tmux"
+check_symlink "$HOME/.local/bin/bat" \
+  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/command-shims"
+check_symlink "$HOME/.local/bin/fd" \
+  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/command-shims"
 
 state_file="$XDG_CONFIG_HOME/dotfiles/parrot-ctf.conf"
 if profile_state_validate_file "$state_file" parrot-ctf &&
@@ -397,8 +373,4 @@ else
   fail "Parrot CTF safety state is missing or invalid"
 fi
 
-if ((failures > 0)); then
-  printf '\n%d Parrot CTF verification failure(s).\n' "$failures" >&2
-  exit 1
-fi
-printf '\nParrot CTF verification passed.\n'
+finish_verification "Parrot CTF verification"
