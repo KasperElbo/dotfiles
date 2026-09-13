@@ -1,7 +1,7 @@
 local M = {}
 
 function M.packages(path)
-  path = path or (vim.fn.stdpath("config") .. "/mason-packages.txt")
+  path = path or require("config.profile").mason_inventory()
 
   local packages = {}
   for _, line in ipairs(vim.fn.readfile(path)) do

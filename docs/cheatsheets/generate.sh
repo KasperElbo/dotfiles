@@ -2,7 +2,7 @@
 # Render the printable keyboard cheat sheets from their tracked LaTeX source.
 #
 # Usage:
-#   docs/cheatsheets/generate.sh              # build all four PDFs
+#   docs/cheatsheets/generate.sh              # build all five PDFs
 #   docs/cheatsheets/generate.sh fedora-sway   # build just one
 #
 # Output PDFs are NOT committed to the repository (see docs/cheatsheets/README.md):
@@ -15,7 +15,7 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$script_dir"
 
-sheets=(fedora-kde fedora-sway fedora-wsl macos)
+sheets=(fedora-kde fedora-sway fedora-wsl macos parrot-ctf)
 if (($# > 0)); then
   sheets=("$@")
 fi

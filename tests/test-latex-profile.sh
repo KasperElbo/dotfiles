@@ -23,7 +23,7 @@ for package in latexmk biber texlive-biblatex texlive-latexindent; do
   assert_contains "$latex_installer" "  $package"
 done
 
-assert_contains "$repo_root/nvim-lazyvim/.config/nvim/lazyvim.json" \
+assert_contains "$repo_root/nvim-lazyvim/.config/nvim/lua/config/profile.lua" \
   'lazyvim.plugins.extras.lang.tex'
 assert_contains "$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt" 'texlab'
 

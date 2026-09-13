@@ -18,6 +18,7 @@ sway_tex="$cheatsheets_dir/fedora-sway.tex"
 kde_tex="$cheatsheets_dir/fedora-kde.tex"
 wsl_tex="$cheatsheets_dir/fedora-wsl.tex"
 macos_tex="$cheatsheets_dir/macos.tex"
+parrot_tex="$cheatsheets_dir/parrot-ctf.tex"
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -122,6 +123,16 @@ require_in "$wsl_tex" 'appendWindowsPath=false' "Fedora WSL cheat sheet"
 # --- README's own layout-switch documentation (source for the KDE sheet) ---
 require_in "$kde_readme_section" 'Meta+Alt+K' "README.md"
 
+# --- The reduced Parrot sheet documents only guest/profile behavior ---
+for phrase in 'hex-encode' 'hex-decode' 'rot13' 'x-copy' 'NOMATCH' \
+  'system Python' 'pinned Neovim'; do
+  require_in "$parrot_tex" "$phrase" "Parrot CTF cheat sheet"
+done
+if grep -Eq 'Angular|TeX|\.NET' "$parrot_tex" &&
+  ! grep -Fq 'excludes .NET, Angular, TeX' "$parrot_tex"; then
+  fail "Parrot CTF cheat sheet advertises workstation editor integrations"
+fi
+
 # --- Discovery mechanisms stay prominent rather than static tables drifting ---
 for phrase in \
   'ghostty +list-keybinds --default' \
@@ -134,7 +145,7 @@ for phrase in \
 done
 
 # --- Every cheat sheet input file referenced actually exists ---
-for f in "$sway_tex" "$kde_tex" "$wsl_tex" "$macos_tex" \
+for f in "$sway_tex" "$kde_tex" "$wsl_tex" "$macos_tex" "$parrot_tex" \
   "$cheatsheets_dir/common-workflow.tex" "$cheatsheets_dir/cheatsheet.sty" \
   "$cheatsheets_dir/generate.sh"; do
   [[ -f "$f" ]] || fail "missing tracked file: $f"

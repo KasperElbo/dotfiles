@@ -18,6 +18,8 @@ assert_contains "$dry_run" 'libvirt default NAT'
 assert_contains "$dry_run" 'Existing Parrot/APT catalogue (unchanged)'
 assert_contains "$dry_run" 'Host secrets:           Not forwarded or mounted'
 assert_contains "$dry_run" 'AI tooling:             Not installed'
+assert_contains "$dry_run" 'mise owns uv and pinned Neovim 0.12.5 only'
+assert_contains "$dry_run" 'reduced LazyVim/Mason inventory'
 assert_contains "$dry_run" 'Fedora/DNF/Terra'
 
 if "$repo_root/install.sh" --platform parrot-ctf --dry-run --vm-host \
@@ -90,6 +92,16 @@ cat >"$mock_bin/stow" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "${*: -1}" >>"$STOW_LOG"
 EOF
+cat >"$mock_bin/xxd" <<'EOF'
+#!/usr/bin/env python3
+import sys
+
+data = sys.stdin.buffer.read()
+if "-r" in sys.argv:
+    sys.stdout.buffer.write(bytes.fromhex(data.decode().strip()))
+else:
+    sys.stdout.write(data.hex() + "\n")
+EOF
 chmod +x "$mock_bin"/*
 
 test_environment=(
@@ -114,6 +126,11 @@ first_mise="$(sha256sum "$home/.local/bin/mise")"
 grep -Fq 'sudo apt-get update' "$command_log"
 grep -Fq 'apt-get install -y --no-install-recommends bat build-essential' "$command_log"
 grep -Fq 'starship' "$command_log"
+grep -Fq 'xclip xdg-utils xxd' "$command_log"
+if grep -Eq '(^| )neovim( |$)' "$command_log"; then
+  printf 'Parrot APT package list still owns Neovim.\n' >&2
+  exit 1
+fi
 grep -Fqx '/bin/zsh' "$shell_state"
 
 "${test_environment[@]}" \
@@ -126,18 +143,82 @@ first_state="$(sha256sum "$state_file")"
 grep -Fxq 'network=host-managed-default-nat' "$state_file"
 grep -Fxq 'host_secrets=not-shared' "$state_file"
 grep -Fxq 'security_tools=parrot-apt-owned' "$state_file"
-grep -Fq 'systemctl enable --now qemu-guest-agent.service' "$command_log"
+grep -Fq 'systemctl start qemu-guest-agent.service' "$command_log"
+if grep -Fq 'systemctl enable --now qemu-guest-agent.service' "$command_log"; then
+  printf 'Parrot attempted to enable the static qemu-guest-agent unit.\n' >&2
+  exit 1
+fi
 
 "${test_environment[@]}" \
   "$repo_root/platforms/parrot-ctf/scripts/stow.sh" >/dev/null
 "${test_environment[@]}" \
   "$repo_root/platforms/parrot-ctf/scripts/stow.sh" >/dev/null
 for package in bat bin fzf git lazygit nvim-lazyvim starship tmux zsh \
-  command-shims mise-ctf zsh-platform; do
+  command-shims mise-ctf neovim-profile zsh-platform; do
   grep -Fqx "$package" "$stow_log"
 done
 if grep -Eq '^(ghostty|mise|sway|waybar|theme-hooks)$' "$stow_log"; then
   printf 'Parrot CTF profile deployed a workstation-only Stow package.\n' >&2
+  exit 1
+fi
+
+mise_manifest="$repo_root/platforms/parrot-ctf/stow/mise-ctf/.config/mise/config.toml"
+grep -Fqx 'nvim = "github:neovim/neovim"' "$mise_manifest"
+grep -Fq 'nvim = { version = "0.12.5"' "$mise_manifest"
+if grep -Eq '^[[:space:]]*python[[:space:]]*=' "$mise_manifest"; then
+  printf 'Parrot mise manifest unexpectedly manages Python.\n' >&2
+  exit 1
+fi
+
+for config in "$repo_root"/starship/.config/starship/{template,catppuccin-latte,catppuccin-frappe,catppuccin-macchiato,catppuccin-mocha}.toml; do
+  if grep -Fq 'AOSC =' "$config"; then
+    printf 'Unsupported AOSC Starship symbol remains in %s.\n' "$config" >&2
+    exit 1
+  fi
+done
+
+parrot_zsh="$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh"
+shell_output="$(
+  PATH="$mock_bin:/usr/bin:/bin" zsh -f -c \
+    "source '$parrot_zsh'; alias x-copy; hex-encode CTF; hex-decode 435446; rot13 CTF"
+)"
+assert_contains "$shell_output" "x-copy='xclip -selection clipboard'"
+assert_contains "$shell_output" '4354460a'
+assert_contains "$shell_output" 'CTF'
+assert_contains "$shell_output" 'PGS'
+
+unmatched_glob="$(
+  cd "$test_root"
+  zsh -f -c "source '$parrot_zsh'; print -r -- https://target.invalid/FUZZ?id=* 'user?' 'hash[a-f]'"
+)"
+[[ "$unmatched_glob" == 'https://target.invalid/FUZZ?id=* user? hash[a-f]' ]] || {
+  printf 'Parrot unmatched glob did not pass through literally: %s\n' "$unmatched_glob" >&2
+  exit 1
+}
+mkdir -p "$test_root/glob"
+touch "$test_root/glob/one.txt" "$test_root/glob/two.txt"
+matched_glob="$(
+  cd "$test_root/glob"
+  zsh -f -c "source '$parrot_zsh'; print -l -- *.txt"
+)"
+[[ "$matched_glob" == $'one.txt\ntwo.txt' ]] || {
+  printf 'Parrot normal filename globbing was disabled: %s\n' "$matched_glob" >&2
+  exit 1
+}
+
+fedora_zsh="$repo_root/platforms/fedora/stow/zsh-platform/.config/zsh/platform.zsh"
+fedora_state="$test_root/fedora-state"
+mkdir -p "$fedora_state/dotfiles"
+if XDG_CONFIG_HOME="$fedora_state" zsh -f -c "source '$fedora_zsh'; alias x-copy" \
+  >"$test_root/native-fedora-alias.log" 2>&1; then
+  printf 'Native Fedora unexpectedly received the VM-only x-copy alias.\n' >&2
+  exit 1
+fi
+printf 'profile=vm-guest\n' >"$fedora_state/dotfiles/vm-guest.conf"
+fedora_alias="$(XDG_CONFIG_HOME="$fedora_state" zsh -f -c "source '$fedora_zsh'; alias x-copy")"
+[[ "$fedora_alias" == "x-copy='xclip -selection clipboard'" ]]
+if rg -q 'alias x-copy=' "$repo_root/platforms/fedora-wsl"; then
+  printf 'Fedora WSL unexpectedly received the VM-only x-copy alias.\n' >&2
   exit 1
 fi
 

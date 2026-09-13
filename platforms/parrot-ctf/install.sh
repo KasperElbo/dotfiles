@@ -67,7 +67,8 @@ Theme:                  $theme
 Hypervisor:             KVM/QEMU through qemu:///system
 Normal network:         libvirt default NAT
 Security tools:         Existing Parrot/APT catalogue (unchanged)
-Python:                 Parrot Python + venv/pipx; mise owns uv only
+Python:                 Parrot Python + venv/pipx; never mise-managed
+Portable tools:         mise owns uv and pinned Neovim 0.12.5 only
 Host secrets:           Not forwarded or mounted
 Shared folders:         Disabled unless configured manually
 AI tooling:             Not installed
@@ -78,8 +79,10 @@ Steps:
   2. Install the portable working-environment prerequisites with APT.
   3. Install qemu-guest-agent and spice-vdagent with APT and activate them.
   4. Initialize local Git/theme state and stow the headless portable profile.
-  5. Apply only the narrow Parrot shims, Zsh paths, and uv mise manifest.
-  6. Install uv and the pinned tmux theme, then verify the complete guest.
+  5. Apply the Parrot shims, reduced Neovim profile, Zsh policy, and narrow
+     uv/Neovim mise manifest.
+  6. Install uv, Neovim, the reduced LazyVim/Mason inventory, and the pinned
+     tmux theme, then verify the complete guest.
 
 Excluded: Fedora/DNF/Terra, KDE/Sway, ASUS/ROG, NVIDIA, VM-host, host secret
 forwarding, automatic shared folders, offensive-tool package lists, and AI.
@@ -103,6 +106,7 @@ fi
 "$DOTFILES_ROOT/common/setup-local.sh" "$theme"
 "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/stow.sh"
 "$DOTFILES_ROOT/common/install-mise.sh"
+"$DOTFILES_ROOT/common/install-neovim-tools.sh" --profile parrot-ctf
 "$DOTFILES_ROOT/common/install-tmux-theme.sh"
 
 theme_command="$HOME/.local/bin/theme"

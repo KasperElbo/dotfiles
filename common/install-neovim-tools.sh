@@ -4,10 +4,33 @@ set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
+establish_user_tool_environment
 require_command nvim
 require_command timeout
 
-inventory_file="$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
+profile="workstation"
+
+while (($#)); do
+  case "$1" in
+  --profile)
+    [[ $# -ge 2 ]] || die "--profile requires a value"
+    profile="$2"
+    shift 2
+    ;;
+  *) die "Unknown option: $1" ;;
+  esac
+done
+
+case "$profile" in
+workstation)
+  inventory_file="$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
+  ;;
+parrot-ctf)
+  inventory_file="$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/mason-packages.txt"
+  ;;
+*) die "Unsupported Neovim profile: $profile" ;;
+esac
+
 [[ -r "$inventory_file" ]] || die "Mason package inventory not found: $inventory_file"
 
 mapfile -t mason_packages < <(
@@ -41,7 +64,8 @@ run_nvim_phase() {
   local status
 
   info "$description"
-  if DOTFILES_MASON_BOOTSTRAP=1 timeout --kill-after=30s \
+  if DOTFILES_NVIM_PROFILE="$profile" DOTFILES_MASON_BOOTSTRAP=1 \
+    timeout --kill-after=30s \
     "$bootstrap_timeout" "${nvim_command[@]}" --headless "$@"; then
     return
   else
@@ -83,5 +107,7 @@ done
 if ((${#remaining_packages[@]} > 0)); then
   die "Mason provisioning incomplete; missing: ${remaining_packages[*]}"
 fi
+
+run_nvim_phase "Verifying LazyVim headless startup" +qa
 
 success "LazyVim plugins and Mason editor tools installed"

@@ -1,6 +1,6 @@
 # Printable keyboard cheat sheets
 
-One A4 (1-2 page) printable cheat sheet per primary workstation profile,
+One A4 (1-2 page) printable cheat sheet per primary workstation/lab profile,
 organized by task (Launch, Navigate, Move, Workspaces, ...) rather than by
 config-file order, so it works as an actual desk reference:
 
@@ -10,14 +10,16 @@ config-file order, so it works as an actual desk reference:
 | `fedora-sway.tex` | Fedora Sway (keyboard-first XMonad-like session) |
 | `fedora-wsl.tex` | Fedora WSL (Windows desktop + Linux dev runtime) |
 | `macos.tex` | Apple Silicon macOS (AeroSpace) |
+| `parrot-ctf.tex` | Parrot Security Edition CTF guest |
 
-`common-workflow.tex` is `\input` by every sheet above so the shared
+`common-workflow.tex` is `\input` by the four workstation sheets so the shared
 terminal/editor workflow (Ghostty, Zsh, fzf, zoxide, tmux, LazyVim, Lazygit,
 theme) is written once instead of duplicated four times in the LaTeX source;
-each rendered PDF still includes it in full, since each sheet must be a
+each workstation PDF still includes it in full, since each sheet must be a
 self-contained page at the machine. `cheatsheet.sty` holds the shared page
 layout (A4 margins, a two-column task table, section headings) used by every
-sheet. [`../keybindings.md`](../keybindings.md) is the same shared content
+sheet. The Parrot sheet is deliberately reduced and does not advertise
+workstation-only LazyVim integrations. [`../keybindings.md`](../keybindings.md) is the same shared content
 as an ordinary Markdown page, for reading on screen or linking from the
 README instead of opening a PDF.
 

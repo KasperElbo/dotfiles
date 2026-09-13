@@ -25,7 +25,6 @@ packages=(
   git-delta
   jq
   lazygit
-  neovim
   pipx
   python-is-python3
   python3
@@ -39,7 +38,9 @@ packages=(
   stow
   tmux
   unzip
+  xclip
   xdg-utils
+  xxd
   zoxide
   zsh
   zsh-autosuggestions

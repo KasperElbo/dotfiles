@@ -33,6 +33,21 @@ assert(vim.tbl_contains(packages, "marksman"), "marksman is missing from the Mas
 assert(vim.tbl_contains(packages, "roslyn"), "roslyn is missing from the Mason inventory")
 assert(not vim.tbl_contains(packages, "ocaml-lsp"), "OCaml LSP must remain opam-owned")
 
+local previous_profile = vim.env.DOTFILES_NVIM_PROFILE
+vim.env.DOTFILES_NVIM_PROFILE = "parrot-ctf"
+package.loaded["config.profile"] = nil
+package.path = "nvim-lazyvim/.config/nvim/lua/?.lua;nvim-lazyvim/.config/nvim/lua/?/init.lua;" .. package.path
+local profile = require("config.profile")
+assert(profile.name() == "parrot-ctf", "explicit Parrot Neovim profile was not selected")
+assert(profile.current().checker_enabled == false, "Parrot profile must not check for updates at startup")
+assert(profile.current().plugins == "ctf_plugins", "Parrot profile loaded workstation plugin overrides")
+assert(#profile.current().extras == 3, "Parrot profile should contain only the reduced extra set")
+for _, extra in ipairs(profile.current().extras) do
+  assert(not extra:match("angular|markdown|tex|yaml|eslint"), "workstation extra leaked into Parrot profile: " .. extra)
+end
+vim.env.DOTFILES_NVIM_PROFILE = previous_profile
+package.loaded["config.profile"] = nil
+
 local markdown_plugins = dofile("nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua")
 local markdown_mason
 local markdown_lint
