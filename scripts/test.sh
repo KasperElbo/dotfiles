@@ -30,6 +30,7 @@ tests=(
   tests/test-idempotency.sh
   tests/test-asus-preflight.sh
   tests/test-asus-verification.sh
+  tests/test-hardware-lifecycle-contract.sh
   tests/test-mocked-installs.sh
   tests/test-sftp-baseline.sh
   tests/test-ai-profile.sh
