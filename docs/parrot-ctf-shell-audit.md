@@ -28,6 +28,8 @@ The upstream files were identical for the behavior classified below.
 | `psmem`, `psmem10`, colored `man` wrapper | Generic conveniences | Excluded |
 | `hex-encode`, `hex-decode`, `rot13` | Useful CTF helpers | Preserved as explicit Zsh functions, backed by APT-owned `xxd`/`tr` |
 | Bash completion and `/etc/profile.d/*.sh` loading | Bash-only initialization | Excluded; Zsh completion and explicit platform hooks own this behavior |
+| `/usr/local/sbin`, `/usr/sbin`, `/sbin` | Distro command paths, including APT-owned `john` | Preserved by the early Parrot environment hook; Zsh keeps entries unique |
+| `/snap/bin` | Optional Snap command path | Preserved only when the directory exists; Snap is not installed by this profile |
 
 ## Globbing decision
 
@@ -50,3 +52,7 @@ when the target tool must always receive the exact bytes.
 The behavior is isolated to the Parrot profile in
 `platforms/parrot-ctf/stow/zsh-platform`; Fedora, WSL, and macOS retain normal
 Zsh `NOMATCH` behavior.
+
+PATH policy runs earlier from `platform-env.zsh`, before shared startup
+activates mise. This keeps the distro security catalogue reachable without
+copying Parrot Bash's duplicate PATH entries or adding wrappers.

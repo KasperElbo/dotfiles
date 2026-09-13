@@ -80,7 +80,20 @@ run_nvim_phase() {
 
 # A separate blocking lazy.nvim pass makes Mason and its command available on
 # a completely clean account before the package installation process starts.
-run_nvim_phase "Restoring LazyVim plugins" '+Lazy! restore' +qa
+restore_log="$(mktemp)"
+if run_nvim_phase "Restoring LazyVim plugins" '+Lazy! restore' +qa \
+  > >(tee "$restore_log") 2>&1; then
+  :
+fi
+# The backticks are literal fragments of LazyVim's diagnostic.
+# shellcheck disable=SC2016
+if grep -Eq \
+  'Package is already installing|Neovim is exiting while packages are still installing|Failed to install `tree-sitter-cli` with `mason.nvim`' \
+  "$restore_log"; then
+  rm -f -- "$restore_log"
+  die "LazyVim restore attempted a competing tree-sitter-cli installation"
+fi
+rm -f -- "$restore_log"
 
 mason_root="$XDG_DATA_HOME/nvim/mason/packages"
 missing_packages=()

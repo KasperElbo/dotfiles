@@ -7,6 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/parrot.sh"
 
 theme="macchiato"
+theme_source="default"
 interactive="true"
 dry_run="false"
 
@@ -33,6 +34,7 @@ while (($#)); do
   --theme)
     [[ $# -ge 2 ]] || die "--theme requires a value"
     theme="$2"
+    theme_source="explicit"
     shift 2
     ;;
   --dry-run)
@@ -57,13 +59,24 @@ latte | frappe | macchiato | mocha) ;;
 *) die "Invalid Catppuccin flavour: $theme" ;;
 esac
 
+theme_state="$XDG_CONFIG_HOME/dotfiles/theme"
+if [[ "$theme_source" != "explicit" && -r "$theme_state" ]]; then
+  persisted_theme="$(tr -d '[:space:]' <"$theme_state")"
+  case "$persisted_theme" in
+  latte | frappe | macchiato | mocha)
+    theme="$persisted_theme"
+    theme_source="existing"
+    ;;
+  esac
+fi
+
 if [[ "$dry_run" == "true" ]]; then
   cat <<EOF
 
 Parrot Security Edition CTF VM plan
 -----------------------------------
 
-Theme:                  $theme
+Theme:                  $theme ($theme_source)
 Hypervisor:             KVM/QEMU through qemu:///system
 Normal network:         libvirt default NAT
 Security tools:         Existing Parrot/APT catalogue (unchanged)
@@ -78,9 +91,9 @@ Steps:
      QEMU guest-agent and SPICE channels from the #13 host profile.
   2. Install the portable working-environment prerequisites with APT.
   3. Install qemu-guest-agent and spice-vdagent with APT and activate them.
-  4. Initialize local Git/theme state and stow the headless portable profile.
-  5. Apply the Parrot shims, reduced Neovim profile, Zsh policy, and narrow
-     uv/Neovim mise manifest.
+  4. Initialize local Git/theme state and stow the reduced portable profile.
+  5. Apply Parrot shims, account/PATH policy, pinned Nerd Font, Konsole profile,
+     bat themes, reduced Neovim profile, and the narrow mise manifest.
   6. Install uv, Neovim, the reduced LazyVim/Mason inventory, and the pinned
      tmux theme, then verify the complete guest.
 
@@ -105,6 +118,7 @@ fi
 "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-guest-integration.sh"
 "$DOTFILES_ROOT/common/setup-local.sh" "$theme"
 "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/stow.sh"
+"$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-terminal.sh"
 "$DOTFILES_ROOT/common/install-mise.sh"
 "$DOTFILES_ROOT/common/install-neovim-tools.sh" --profile parrot-ctf
 "$DOTFILES_ROOT/common/install-tmux-theme.sh"
@@ -116,7 +130,8 @@ theme_command="$HOME/.local/bin/theme"
 
 cat <<'EOF'
 
-Parrot CTF guest setup completed. Run `exec zsh -l` for the new shell.
-Keep challenge state outside the dotfiles checkout and take a VM snapshot
-before importing untrusted material or changing lab networking.
+Parrot CTF guest setup completed. Start a new graphical login session so
+Konsole inherits the account's Zsh login shell. Keep challenge state outside
+the dotfiles checkout and take a VM snapshot before importing untrusted
+material or changing lab networking.
 EOF
