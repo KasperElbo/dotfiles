@@ -81,6 +81,68 @@ resolve_mise_command() {
   fi
 }
 
+# --- Deterministic mise invocation ------------------------------------------
+#
+# mise composes its configuration from the global config *and* from every
+# mise.toml/.mise.toml between the working directory and the filesystem root.
+# A dotfiles bootstrap started from inside an unrelated project would therefore
+# install that project's tools, or let them influence resolution.
+#
+# Every mise call this repository makes runs instead from an empty,
+# repository-owned context directory, with MISE_CEILING_PATHS set to that same
+# directory. MISE_CEILING_PATHS is mise's own supported mechanism and stops the
+# ancestry walk there, excluding the ceiling directory itself; the neutral
+# working directory gives the same guarantee on a mise too old to know the
+# setting. The global config (and its conf.d fragments) still applies, which is
+# exactly the manifest a global bootstrap is meant to install.
+
+mise_context_dir() {
+  printf '%s/dotfiles/mise-context\n' "${XDG_STATE_HOME:-$HOME/.local/state}"
+}
+
+# mise_config_summary: the logical manifest a deterministic invocation applies.
+# Printed in verbose/dry-run output so it is obvious which config is in play.
+mise_config_summary() {
+  local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+  printf 'global: %s/mise/config.toml\n' "$config_home"
+  printf 'fragments: %s/mise/conf.d/*.toml\n' "$config_home"
+  printf 'directory config: none (context %s, MISE_CEILING_PATHS set to it)\n' \
+    "$(mise_context_dir)"
+}
+
+mise_prepare_context() {
+  local context
+  local stray
+
+  context="$(mise_context_dir)"
+  ensure_dir "$context"
+
+  # This directory is repository-owned and must stay free of tool declarations;
+  # a stray config here would silently defeat the isolation it exists to give.
+  for stray in mise.toml .mise.toml mise.local.toml .mise.local.toml; do
+    [[ ! -e "$context/$stray" ]] || rm -f -- "$context/$stray"
+  done
+
+  printf '%s\n' "$context"
+}
+
+# run_mise <mise-executable> [arguments...]: invoke mise in the deterministic
+# context. Use this for every install, resolution, and verification call so a
+# caller's project configuration can never reach a global bootstrap.
+run_mise() {
+  local mise_command="$1"
+  local context
+  shift
+
+  context="$(mise_prepare_context)" || return 1
+
+  (
+    cd -- "$context" || exit 1
+    MISE_CEILING_PATHS="$context" exec "$mise_command" "$@"
+  )
+}
+
 # Establish the non-interactive equivalent of the user-tool portion of the
 # final Zsh environment. Installers must not rely on the shell which launched
 # them having sourced .zshenv/.zshrc (notably, a WSL terminal may still be the
