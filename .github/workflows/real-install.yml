@@ -231,16 +231,39 @@ jobs:
           & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "mkdir -p ~/src && git clone https://github.com/KasperElbo/dotfiles.git ~/src/dotfiles-ci && cd ~/src/dotfiles-ci && git checkout '$env:SHA'"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Clean install, verify and idempotent rerun
+      - name: Clean install before WSL restart
         shell: pwsh
         env:
           WSL_USER: ${{ inputs.wsl_user }}
         run: |
           & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "cd ~/src/dotfiles-ci && ./install.sh --platform fedora-wsl --theme macchiato --non-interactive"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Restart disposable WSL distro to apply wsl.conf policy
+        shell: pwsh
+        env:
+          WSL_USER: ${{ inputs.wsl_user }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & wsl.exe --terminate $env:CI_WSL_DISTRO
+          if ($LASTEXITCODE -ne 0) {
+            throw "wsl --terminate failed with exit code $LASTEXITCODE"
+          }
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc 'true'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Disposable Fedora WSL distro did not restart successfully."
+          }
+
+      - name: Independent post-restart verifier and idempotent rerun
+        shell: pwsh
+        env:
+          WSL_USER: ${{ inputs.wsl_user }}
+        run: |
           & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "cd ~/src/dotfiles-ci && ./platforms/fedora-wsl/scripts/verify.sh"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "cd ~/src/dotfiles-ci && ./install.sh --platform fedora-wsl --theme macchiato --non-interactive"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "cd ~/src/dotfiles-ci && ./platforms/fedora-wsl/scripts/verify.sh"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Selected-state transition and verifier
