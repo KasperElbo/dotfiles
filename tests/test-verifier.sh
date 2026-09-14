@@ -16,10 +16,11 @@ test_new_root
 root="$TEST_ROOT"
 
 assert_verifier_counts() {
-  local passes="$1" failures="$2" warnings="$3"
+  local passes="$1" failures="$2" warnings="$3" not_observed="${4:-0}"
   assert_eq "$passes" "$VERIFY_PASSES" "verifier pass count"
   assert_eq "$failures" "$VERIFY_FAILURES" "verifier failure count"
   assert_eq "$warnings" "$VERIFY_WARNINGS" "verifier warning count"
+  assert_eq "$not_observed" "$VERIFY_NOT_OBSERVED" "verifier not-observed count"
 }
 
 printf 'Verifier outcome contract\n'
@@ -27,6 +28,11 @@ verify_reset
 warning "informational drift"
 finish_verification "Fixture" >/dev/null
 assert_verifier_counts 0 0 1
+
+verify_reset
+not_observed "hosted CI cannot change this host precondition"
+finish_verification "Fixture" >/dev/null
+assert_verifier_counts 0 0 0 1
 
 verify_reset
 fail "owned invariant failed" || true
