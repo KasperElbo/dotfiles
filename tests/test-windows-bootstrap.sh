@@ -5,10 +5,14 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 installer="$repo_root/platforms/windows/install.ps1"
 wsl_version_helper="$repo_root/platforms/windows/lib/wsl-version.ps1"
 theme_helper="$repo_root/platforms/windows/set-noctty-theme.ps1"
+windows_manifest="$repo_root/platforms/windows/manifest.psd1"
+windows_verifier="$repo_root/platforms/windows/verify.ps1"
 
 [[ -f "$installer" ]]
 [[ -f "$wsl_version_helper" ]]
 [[ -f "$theme_helper" ]]
+[[ -f "$windows_manifest" ]]
+[[ -f "$windows_verifier" ]]
 
 grep -Fq -- "wsl.exe @arguments" "$installer"
 grep -Fq -- "& \$FilePath @Arguments | Out-Host" "$installer"
@@ -76,8 +80,13 @@ if [[ "$(grep -Fc -- "$start_process_call" <<<"$invoke_elevated_phase_body")" -n
 fi
 
 grep -Fq 'https://get.scoop.sh' "$installer"
-grep -Fq 'https://github.com/amanthanvi/scoop-noctty' "$installer"
-grep -Fq "'install', 'noctty/noctty'" "$installer"
+grep -Fq 'https://github.com/amanthanvi/scoop-noctty' "$windows_manifest"
+grep -Fq "QualifiedName = 'noctty/noctty'" "$windows_manifest"
+grep -Fq "Import-PowerShellDataFile (Join-Path \$PSScriptRoot 'manifest.psd1')" "$installer"
+grep -Fq 'function Write-WindowsSelectionState' "$installer"
+# $selectedFedora belongs to PowerShell, not Bash.
+# shellcheck disable=SC2016
+grep -Fq 'Write-WindowsSelectionState -Distribution $selectedFedora' "$installer"
 grep -Fq "ghostty\.config\ghostty\shared.conf" "$installer"
 grep -Fq 'config-file = "dotfiles/ghostty.conf"' "$installer"
 grep -Fq 'config-file = "dotfiles/theme.conf"' "$installer"
@@ -121,7 +130,7 @@ if command -v pwsh >/dev/null 2>&1; then
   # argument; pass the path through the environment instead.
   # The variables in this command belong to PowerShell, not Bash.
   # shellcheck disable=SC2016
-  for powershell_file in "$installer" "$wsl_version_helper" "$theme_helper"; do
+  for powershell_file in "$installer" "$wsl_version_helper" "$theme_helper" "$windows_verifier" "$repo_root/verify.ps1"; do
     POWERSHELL_FILE_TO_PARSE="$powershell_file" pwsh -NoProfile -Command '
       $tokens = $null
       $errors = $null
