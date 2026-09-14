@@ -17,7 +17,7 @@ assert_contains() {
 # The public entry point remains useful for help and dry-run when invoked via
 # the exact system-Bash command used on a fresh Mac.
 help_output="$(/bin/bash "$repo_root/install.sh" --platform macos --help)"
-assert_contains "$help_output" 'Usage: ./install.sh --platform macos [options]'
+assert_contains "$help_output" 'Usage: ./install.sh [--platform NAME|--platform=NAME] [options]'
 assert_contains "$help_output" '--dry-run'
 
 dry_run_output="$(/bin/bash "$repo_root/install.sh" --platform macos --dry-run \
