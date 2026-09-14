@@ -74,6 +74,9 @@ jobs:
           --no-ocaml --no-containers --no-tailscale --no-defaults
           --non-interactive
 
+      - name: Native .NET debugger smoke test
+        run: ./tests/integration/macos-dotnet-debug.sh
+
       - name: Independent verifier
         run: ./platforms/macos/scripts/verify.sh
 

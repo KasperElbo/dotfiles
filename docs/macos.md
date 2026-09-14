@@ -86,15 +86,17 @@ Do not install a second copy through another manager.
 |---|---|
 | Apple / macOS | `/bin/zsh`, `open`, `pbcopy`, `pbpaste`, Keychain, SDK and compiler from Command Line Tools |
 | Homebrew `/opt/homebrew` | Machine tools, Git/GitHub CLI, Neovim, tmux, mise, Starship, shell plugins, Ghostty, AeroSpace |
-| mise | .NET 10, Node 24, Python 3.14, uv, Lazygit and the existing portable developer CLIs |
-| Mason / LazyVim | Editor-facing LSP, formatter, linter, test, and debug adapters from the shared inventory |
+| mise | .NET 10, Node 24, Python 3.14, uv, Lazygit, EasyDotnet 3.4.25 and the existing portable developer CLIs |
+| Mason / LazyVim | Editor-facing LSP, formatter, linter, test, and non-.NET debug adapters from the shared inventory; Roslyn remains Mason-owned |
 | opam (optional) | OCaml compiler switch, Dune, OCaml LSP, formatter, utop, and Earlybird |
 | Project | Project-specific npm/NuGet/Python dependencies and formatters |
 
 `/usr/local/bin/brew` is treated as an accidental Intel Homebrew install and
-fails verification. Do not install Rosetta to make an x86-only package work;
-first find a native package, and record any genuine exception before changing
-this policy.
+fails verification. Do not install Rosetta to make an x86-only package work.
+EasyDotnet's pinned companion tool bundles the native `osx-arm64`
+`netcoredbg` that the C# DAP configuration launches. The macOS verifier
+rejects a Mason-owned or `osx-x64` debugger path, while the CI probe records
+legacy Intel behavior without installing Rosetta.
 
 ## 4. Development workflows
 
@@ -115,7 +117,9 @@ Or run them separately:
 ```
 
 - .NET creates a console and xUnit project, then restores, builds, tests, and
-  runs them. LazyVim uses the shared Roslyn/EasyDotnet and `netcoredbg` setup.
+  runs them. LazyVim uses Mason-owned Roslyn and EasyDotnet 3.4.25's bundled
+  native `netcoredbg` setup; Mason's Intel-only `netcoredbg` package is not
+  installed.
 - Angular installs fixture-local npm dependencies, formats, lints, tests,
   builds development/debug bundles, checks source maps, serves, and probes the
   app. TypeScript/Angular editor and debugging configuration stays shared.

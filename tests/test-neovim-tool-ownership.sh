@@ -54,12 +54,13 @@ assert_contains "$dotnet_config" '"roslyn"'
 assert_contains "$dotnet_config" '"netcoredbg"'
 assert_contains "$dotnet_config" 'lsp = {'
 assert_contains "$dotnet_config" 'enabled = false'
-assert_contains "$dotnet_config" \
-  '"/libexec/netcoredbg/netcoredbg"'
-assert_contains "$dotnet_config" '{ warn = false }'
+assert_contains "$dotnet_config" 'engine = "netcoredbg"'
 assert_contains "$dotnet_config" 'auto_register_dap = true'
 assert_contains "$dotnet_config" '"jay-babu/mason-nvim-dap.nvim"'
 assert_contains "$dotnet_config" 'coreclr = function() end'
+if grep -Fq 'bin_path' "$dotnet_config" || grep -Fq 'LazyVim.get_pkg_path' "$dotnet_config"; then
+  fail "EasyDotnet must resolve its bundled debugger instead of a Mason path"
+fi
 
 command -v nvim >/dev/null 2>&1 || fail "nvim is required for first-launch tests"
 nvim_log="$(mktemp)"
@@ -115,7 +116,6 @@ expected_mason_packages=(
   json-lsp
   lua-language-server
   marksman
-  netcoredbg
   pyright
   roslyn
   ruff

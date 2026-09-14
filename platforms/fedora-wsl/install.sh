@@ -80,7 +80,7 @@ preflight_wsl() {
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   local specs=() spec
-  local selected=(base)
+  local selected=(base dotnet-debug)
   for selection in "$install_ocaml:ocaml" "$install_latex:latex" "$install_containers:containers" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
     [[ "${selection%%:*}" != true ]] || selected+=("${selection#*:}")
   done
@@ -163,7 +163,7 @@ if [[ "$interactive" == true ]]; then
   fi
 fi
 plan_preflight
-capabilities=base
+capabilities=base,dotnet-debug
 for selection in "$install_ocaml:ocaml" "$install_latex:latex" "$install_containers:containers" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do [[ "${selection%%:*}" != true ]] || capabilities+=,"${selection#*:}"; done
 DOTFILES_RERUN_COMMAND='./install.sh --platform fedora-wsl --non-interactive'
 install_lifecycle_begin fedora-wsl "$capabilities" "$DOTFILES_RERUN_COMMAND"

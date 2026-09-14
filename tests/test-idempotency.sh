@@ -135,12 +135,16 @@ bootstrap_cache="$bootstrap_home/.cache"
 stub_root="$test_root/bootstrap-stubs"
 mock_bin="$stub_root/bin"
 shell_state="$test_root/login-shell"
+debugger_path="$test_root/easydotnet/tools/netcoredbg/linux-x64/netcoredbg"
 mkdir -p \
   "$bootstrap_config/git" \
   "$bootstrap_data/tmux/plugins" \
   "$bootstrap_cache" \
+  "$(dirname "$debugger_path")" \
   "$mock_bin"
 printf '/bin/bash\n' >"$shell_state"
+touch "$debugger_path"
+chmod +x "$debugger_path"
 
 test_stub_init "$stub_root"
 test_stub_install "$stub_root" sudo
@@ -255,6 +259,16 @@ exit 0
 EOF
 chmod +x "$mock_bin/zsh"
 
+rm -- "$mock_bin/dotnet-easydotnet"
+cat >"$mock_bin/dotnet-easydotnet" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == healthcheck ]]; then
+  printf '[{"type":"ok","name":"debugger.engine","value":"netcoredbg"},{"type":"ok","name":"debugger.source","value":"bundled"},{"type":"ok","name":"debugger.platform","value":"linux-x64"},{"type":"ok","name":"debugger.path","value":"%s"},{"type":"ok","name":"debugger.version","value":"NET Core debugger test version"}]\n' \
+    "$MOCK_EASY_DOTNET_DEBUGGER"
+fi
+EOF
+chmod +x "$mock_bin/dotnet-easydotnet"
+
 cat >"$mock_bin/mise" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == exec && "${2:-}" == -- ]]; then
@@ -341,6 +355,7 @@ bootstrap_environment=(
   "SPICE_AGENT_CHANNEL=$virtio_ports/com.redhat.spice.0"
   "SHELL_STATE=$shell_state"
   "TEST_STUB_ROOT=$stub_root"
+  "MOCK_EASY_DOTNET_DEBUGGER=$debugger_path"
   "PATH=$mock_bin:$PATH"
 )
 

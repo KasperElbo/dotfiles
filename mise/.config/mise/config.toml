@@ -1,7 +1,7 @@
 [tools]
 ast-grep = "latest"
 dotnet = "10"
-"dotnet:EasyDotnet" = "latest"
+"dotnet:EasyDotnet" = "3.4.25"
 lazygit = "latest"
 node = "24"
 "npm:@mermaid-js/mermaid-cli" = "latest"

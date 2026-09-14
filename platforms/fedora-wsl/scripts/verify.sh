@@ -280,6 +280,12 @@ else
   fail ".NET SDK failed"
 fi
 
+case "$(uname -m)" in
+aarch64 | arm64) check_easy_dotnet_debugger linux-arm64 ;;
+x86_64 | amd64) check_easy_dotnet_debugger linux-x64 ;;
+*) fail "Unsupported .NET debugger architecture: $(uname -m)" ;;
+esac
+
 if node --version >/dev/null 2>&1; then
   pass "Node starts"
 else

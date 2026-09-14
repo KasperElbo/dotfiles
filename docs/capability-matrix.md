@@ -10,6 +10,7 @@ Generated from `config/capabilities.tsv`; do not edit this table by hand.
 | `codex` | ✓ `mise-npm` | ✓ `mise-npm` | — | — |
 | `containers` | ✓ `dnf` | ✓ `dnf` | ✓ `homebrew` | — unsupported |
 | `desktop-tools` | ✓ `dnf+rpmfusion` | — unsupported | — unsupported | — unsupported |
+| `dotnet-debug` | ✓ `mise-easydotnet` | ✓ `mise-easydotnet` | ✓ `mise-easydotnet` | — unsupported |
 | `firstmate` | ✓ `mise+upstream-scripts` | ✓ `mise+upstream-scripts` | — | — |
 | `gnhf` | ✓ `mise-npm` | ✓ `mise-npm` | — | — |
 | `hardening` | ✓ `dnf` | — unsupported | — unsupported | — unsupported |

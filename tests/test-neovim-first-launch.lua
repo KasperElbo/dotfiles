@@ -1,17 +1,4 @@
-local calls = {}
-
-_G.LazyVim = {
-  get_pkg_path = function(package, path, opts)
-    table.insert(calls, { package = package, path = path, opts = opts })
-    return "/not-installed-yet" .. path
-  end,
-}
-
 local plugins = dofile("nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua")
-assert(#calls == 1, "expected exactly one Mason package path lookup")
-assert(calls[1].package == "netcoredbg", "expected netcoredbg package lookup")
-assert(calls[1].path == "/libexec/netcoredbg/netcoredbg", "unexpected netcoredbg path")
-assert(calls[1].opts.warn == false, "first-launch missing package warning must be disabled")
 
 local easy_dotnet
 for _, plugin in ipairs(plugins) do
@@ -22,12 +9,14 @@ for _, plugin in ipairs(plugins) do
 end
 
 assert(easy_dotnet, "easy-dotnet plugin spec not found")
-assert(easy_dotnet.opts.debugger.bin_path == "/not-installed-yet/libexec/netcoredbg/netcoredbg")
+assert(easy_dotnet.opts.debugger.engine == "netcoredbg")
+assert(easy_dotnet.opts.debugger.auto_register_dap == true)
+assert(easy_dotnet.opts.debugger.bin_path == nil)
 
 local inventory_path = "nvim-lazyvim/.config/nvim/mason-packages.txt"
 local mason_config = dofile("nvim-lazyvim/.config/nvim/lua/config/mason.lua")
 local packages = mason_config.packages(inventory_path)
-assert(#packages == 17, "expected the complete Mason package inventory")
+assert(#packages == 16, "expected the complete Mason package inventory")
 assert(vim.tbl_contains(packages, "debugpy"), "debugpy is missing from the Mason inventory")
 assert(vim.tbl_contains(packages, "marksman"), "marksman is missing from the Mason inventory")
 assert(vim.tbl_contains(packages, "roslyn"), "roslyn is missing from the Mason inventory")
