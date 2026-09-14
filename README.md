@@ -1780,6 +1780,25 @@ checks the first two unconditionally, on every run, whether or not
   `--secure-boot` flag to make Secure Boot itself a hard requirement on
   supported laptop hardware.
 
+### What verification proves
+
+`verify-hardening.sh` is read-only and sorts every check into one of four
+kinds, so a green run says exactly what it means and nothing more:
+
+| Kind | Examples | Result when unmet |
+|---|---|---|
+| **Repository-owned** | the `90-dotfiles-hardening` drop-ins under `sysctl.d`, `sudoers.d`, `faillock.conf.d`, `audit/rules.d` and `sshd_config.d`; `authselect`'s `with-faillock` feature; `auditd.service`; `dnf5-automatic.timer` | **Failure.** Each is checked for presence, the exact file mode the installer set, and the policy lines it wrote — and, where a file can be present but inert, for the effective state too (`sysctl -n`, `auditctl -l`). Reverting one is drift, not a warning. |
+| **Fedora baseline** | SELinux enforcing, `firewalld` active, private-key permissions | **Failure.** The installer verifies rather than changes these, but the profile's claims rest on them. |
+| **Environmental** | Secure Boot state, SELinux unavailable inside a container, a machine where `authselect` could not enable faillock | **Warning**, with the reason. These depend on firmware, a vendor, or the host, not on this repository. |
+| **Manual assurance** | mount options, the service watch-list, the `ss -tuln` listening sockets, the exposed `firewalld` services and ports | **Not verified**, and labelled as such in the output. These are printed for a human to judge; a passing run asserts nothing about them. |
+
+Owned checks run only when the profile was actually selected — that is, when
+`$XDG_CONFIG_HOME/dotfiles/hardening.conf` records an installation. On a
+machine that never installed the profile the absence of these files is
+correct, not a defect, and verification says so instead of failing. If that
+state file exists but cannot be read or validated, verification fails rather
+than guessing what was applied.
+
 ### Rejected ideas
 
 Considered and deliberately left out, to keep this a daily-driver workstation
@@ -2073,6 +2092,18 @@ against it; this profile does not set it for you:
 export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/podman/podman.sock"
 ```
 
+**Verification:** the installer records the selection as
+`api_socket=enabled|disabled` in `$XDG_CONFIG_HOME/dotfiles/containers.conf`,
+and `verify-containers.sh` checks the machine against that record rather than
+accepting either outcome. With `api_socket=enabled`, the **user** unit must be
+both enabled and active — a system-scoped `podman.socket` does not satisfy it,
+because a rootless client does not use it — and anything less fails
+verification. With `api_socket=disabled`, a disabled socket passes and an
+independently enabled one is reported as a warning, since it may have been
+enabled deliberately after installation. A missing or unreadable record for a
+selected containers profile fails with the command needed to re-record it.
+Verification never enables, starts, or stops the socket.
+
 ### Differences from Docker worth knowing day to day
 
 - **No background daemon by default.** Rootless Podman runs each container
@@ -2170,6 +2201,18 @@ account/tailnet-specific — logging in, ACLs, exit nodes, subnet routes,
 device tags, Tailscale SSH — is deliberately left to you, interactively,
 outside this repository. Nothing here embeds a reusable auth key, an OAuth
 client secret, a node key, or any tailnet policy.
+
+Verification is read-only and keeps three outcomes separate: a **connected**
+tailnet (`BackendState: Running`); a valid **installed but not authenticated**
+machine (`NeedsLogin`, `NoState`, `Stopped`, `Starting`, `NeedsMachineAuth`),
+which passes with the exact command needed to finish connecting; and a state
+that **could not be determined**, which fails. That last group is the reason
+this profile's verification exists in the form it does: a missing or unusable
+`jq` (the declared JSON parser), a `tailscale status --json` call that fails
+while `tailscaled` is up, malformed JSON, an absent `BackendState`, or a
+backend state the verifier does not recognize all mean the connection state
+was never actually read, so none of them may report success. Verification
+never runs `tailscale up` or otherwise changes tailnet state.
 
 ### Package ownership
 

@@ -17,6 +17,8 @@ new_test_root() {
   : >"$test_root/subgid"
   : >"$test_root/user-enabled-units"
   : >"$test_root/user-active-units"
+  : >"$test_root/system-enabled-units"
+  : >"$test_root/system-active-units"
   : >"$test_root/commands.log"
 
   # DNF uses the shared exact-argv contract so renamed packages or unexpected
@@ -34,6 +36,10 @@ new_test_root() {
   test_stub_allow "$test_root" systemctl --user enable --now podman.socket
   test_stub_allow "$test_root" systemctl --user is-enabled --quiet podman.socket
   test_stub_allow "$test_root" systemctl --user is-active --quiet podman.socket
+  # The verifier only consults the system scope to explain why a system-scoped
+  # socket does not satisfy the user-scoped requirement; it is never enabled.
+  test_stub_allow "$test_root" systemctl is-enabled --quiet podman.socket
+  test_stub_allow "$test_root" systemctl is-active --quiet podman.socket
 
   cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
@@ -114,6 +120,18 @@ fi
 if [[ $# -eq 4 && "$1" == --user && "$2" == is-active &&
   "$3" == --quiet && "$4" == podman.socket ]]; then
   grep -qx podman.socket "$USER_ACTIVE_UNITS" 2>/dev/null
+  exit $?
+fi
+
+if [[ $# -eq 3 && "$1" == is-enabled && "$2" == --quiet &&
+  "$3" == podman.socket ]]; then
+  grep -qx podman.socket "$SYSTEM_ENABLED_UNITS" 2>/dev/null
+  exit $?
+fi
+
+if [[ $# -eq 3 && "$1" == is-active && "$2" == --quiet &&
+  "$3" == podman.socket ]]; then
+  grep -qx podman.socket "$SYSTEM_ACTIVE_UNITS" 2>/dev/null
   exit $?
 fi
 
@@ -212,7 +230,30 @@ base_environment() {
     "SUBGID_FILE=$root/subgid" \
     "USER_ENABLED_UNITS=$root/user-enabled-units" \
     "USER_ACTIVE_UNITS=$root/user-active-units" \
+    "SYSTEM_ENABLED_UNITS=$root/system-enabled-units" \
+    "SYSTEM_ACTIVE_UNITS=$root/system-active-units" \
     "USER=tester"
+}
+
+# The installer records api_socket= in the containers profile state; the
+# verifier checks the observed socket against it. Tests that exercise the
+# verifier directly therefore have to record a selection, exactly as an
+# install would.
+write_containers_state() {
+  local root="$1"
+  local api_socket="$2"
+
+  mkdir -p "$root/config/dotfiles"
+  cat >"$root/config/dotfiles/containers.conf" <<EOF
+schema_version=2
+profile=containers
+status=installed
+runtime=podman
+mode=rootless
+compose_provider=podman-compose
+api_socket=$api_socket
+user=tester
+EOF
 }
 
 fail_with_context() {
@@ -369,9 +410,152 @@ assert_contains "$TEST_OUTPUT" 'strict stub rejected unsupported argv: systemctl
 
 verify_socket_output="$(env "${test_environment[@]}" \
   "$repo_root/scripts/verify-containers.sh" --skip-smoke-test 2>&1)"
-assert_contains "$verify_socket_output" 'podman.socket is enabled'
-assert_contains "$verify_socket_output" 'podman.socket is active'
+assert_contains "$verify_socket_output" \
+  'podman.socket is enabled and active for the user'
+assert_contains "$verify_socket_output" 'as recorded'
 printf 'PASS: --api-socket enables the rootless user-scoped API socket\n'
+
+# --- recorded api_socket intent is what verification is measured against ---
+#
+# Before this contract the verifier passed whether the socket was enabled or
+# disabled, so a run that asked for --api-socket and silently failed to
+# establish it still verified clean. Each case below records an intent and
+# then observes a socket state, so only the matching pair may pass.
+
+# requested enabled + healthy user socket -> pass
+new_test_root
+mapfile -t test_environment < <(base_environment "$test_root")
+printf 'tester:100000:65536\n' >"$test_root/subuid"
+printf 'tester:100000:65536\n' >"$test_root/subgid"
+write_containers_state "$test_root" enabled
+printf 'podman.socket\n' >"$test_root/user-enabled-units"
+printf 'podman.socket\n' >"$test_root/user-active-units"
+
+run_capture env "${test_environment[@]}" \
+  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+assert_success
+assert_contains "$TEST_OUTPUT" 'podman.socket is enabled and active for the user'
+printf 'PASS: recorded api_socket=enabled with a healthy user socket passes\n'
+
+# requested enabled + socket never established -> fail
+new_test_root
+mapfile -t test_environment < <(base_environment "$test_root")
+printf 'tester:100000:65536\n' >"$test_root/subuid"
+printf 'tester:100000:65536\n' >"$test_root/subgid"
+write_containers_state "$test_root" enabled
+
+run_capture env "${test_environment[@]}" \
+  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+assert_failure
+assert_contains "$TEST_OUTPUT" 'api_socket=enabled was recorded'
+assert_contains "$TEST_OUTPUT" 'systemctl --user enable --now podman.socket'
+printf 'PASS: recorded api_socket=enabled without the socket fails\n'
+
+# requested enabled + enabled but not active (broken/unusable) -> fail
+new_test_root
+mapfile -t test_environment < <(base_environment "$test_root")
+printf 'tester:100000:65536\n' >"$test_root/subuid"
+printf 'tester:100000:65536\n' >"$test_root/subgid"
+write_containers_state "$test_root" enabled
+printf 'podman.socket\n' >"$test_root/user-enabled-units"
+
+run_capture env "${test_environment[@]}" \
+  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+assert_failure
+assert_contains "$TEST_OUTPUT" 'enabled but not active for the user'
+printf 'PASS: an enabled-but-inactive user socket fails verification\n'
+
+# a system-scoped socket cannot substitute for the user-scoped one
+new_test_root
+mapfile -t test_environment < <(base_environment "$test_root")
+printf 'tester:100000:65536\n' >"$test_root/subuid"
+printf 'tester:100000:65536\n' >"$test_root/subgid"
+write_containers_state "$test_root" enabled
+printf 'podman.socket\n' >"$test_root/system-enabled-units"
+printf 'podman.socket\n' >"$test_root/system-active-units"
+
+run_capture env "${test_environment[@]}" \
+  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'a system-scoped podman.socket is present and does not satisfy this rootless profile'
+printf 'PASS: a system-scoped socket does not satisfy the user-scoped requirement\n'
+
+# requested disabled + disabled -> pass
+new_test_root
+mapfile -t test_environment < <(base_environment "$test_root")
+printf 'tester:100000:65536\n' >"$test_root/subuid"
+printf 'tester:100000:65536\n' >"$test_root/subgid"
+write_containers_state "$test_root" disabled
+
+run_capture env "${test_environment[@]}" \
+  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+assert_success
+assert_contains "$TEST_OUTPUT" 'podman.socket is not enabled, as recorded'
+printf 'PASS: recorded api_socket=disabled with no socket passes\n'
+
+# requested disabled + independently enabled -> warning, not failure
+new_test_root
+mapfile -t test_environment < <(base_environment "$test_root")
+printf 'tester:100000:65536\n' >"$test_root/subuid"
+printf 'tester:100000:65536\n' >"$test_root/subgid"
+write_containers_state "$test_root" disabled
+printf 'podman.socket\n' >"$test_root/user-enabled-units"
+printf 'podman.socket\n' >"$test_root/user-active-units"
+
+run_capture env "${test_environment[@]}" \
+  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+assert_success
+assert_contains "$TEST_OUTPUT" 'api_socket=disabled was recorded, but'
+assert_contains "$TEST_OUTPUT" 'passed with warnings'
+printf 'PASS: an independently enabled socket is drift, reported as a warning\n'
+
+# corrupt/unknown recorded state -> fail with a repair instruction
+new_test_root
+mapfile -t test_environment < <(base_environment "$test_root")
+printf 'tester:100000:65536\n' >"$test_root/subuid"
+printf 'tester:100000:65536\n' >"$test_root/subgid"
+mkdir -p "$test_root/config/dotfiles"
+cat >"$test_root/config/dotfiles/containers.conf" <<'EOF'
+schema_version=2
+profile=containers
+status=installed
+runtime=podman
+mode=rootless
+EOF
+
+run_capture env "${test_environment[@]}" \
+  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+assert_failure
+assert_contains "$TEST_OUTPUT" 'missing or invalid api_socket'
+assert_contains "$TEST_OUTPUT" 'install-containers.sh'
+printf 'PASS: corrupt recorded containers state fails with a repair instruction\n'
+
+# selected in the install state but with no profile state at all -> fail
+new_test_root
+mapfile -t test_environment < <(base_environment "$test_root")
+printf 'tester:100000:65536\n' >"$test_root/subuid"
+printf 'tester:100000:65536\n' >"$test_root/subgid"
+mkdir -p "$test_root/state/dotfiles"
+cat >"$test_root/state/dotfiles/install.conf" <<'EOF'
+schema_version=2
+profile=install
+status=installed
+platform=fedora
+requested_capabilities=base,containers
+observed_capabilities=base,containers
+external_assurance=not-recorded
+repository=local-checkout
+revision=unknown
+provenance=capability-manifest@unknown
+EOF
+
+run_capture env "${test_environment[@]}" \
+  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+assert_failure
+assert_contains "$TEST_OUTPUT" 'the containers profile is selected in'
+assert_contains "$TEST_OUTPUT" 'is missing'
+printf 'PASS: a selected containers profile with no recorded state fails\n'
 
 # --- verify-containers.sh --skip-smoke-test never touches containers -------
 
@@ -389,6 +573,10 @@ assert_contains "$verify_output" 'podman version'
 assert_contains "$verify_output" 'podman info reports rootless execution'
 assert_contains "$verify_output" 'rootless network backend: netavark'
 assert_contains "$verify_output" 'smoke test skipped'
+# With nothing recorded there is no intent to measure against: that is
+# reported as unobserved rather than silently passing the socket check.
+assert_contains "$verify_output" 'no containers profile selection is recorded'
+assert_contains "$verify_output" 'completed with unobserved checks'
 
 if grep -Eq 'podman (pull|build|volume create|network create)' \
   "$test_root/commands.log"; then
@@ -439,6 +627,7 @@ mapfile -t test_environment < <(base_environment "$test_root")
 
 printf 'tester:100000:65536\n' >"$test_root/subuid"
 printf 'tester:100000:65536\n' >"$test_root/subgid"
+write_containers_state "$test_root" disabled
 
 smoke_output="$(env "${test_environment[@]}" \
   "$repo_root/scripts/verify-containers.sh" 2>&1)" ||
