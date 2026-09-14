@@ -41,7 +41,113 @@ run_scenario() {
   # stateful security/service commands local because they model Fedora state.
   test_stub_init "$test_root"
   test_stub_install "$test_root" dnf
+  test_stub_install "$test_root" sudo
+  test_stub_install "$test_root" systemctl
   test_stub_allow "$test_root" dnf install -y dnf5-plugin-automatic
+  test_stub_allow "$test_root" sudo setenforce 1
+  test_stub_allow "$test_root" sudo test -f /etc/selinux/config
+  test_stub_allow "$test_root" sudo grep -q '^SELINUX=' /etc/selinux/config
+  test_stub_allow "$test_root" sudo sed -i \
+    's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
+  test_stub_allow "$test_root" sudo authselect enable-feature with-faillock
+  test_stub_allow "$test_root" sudo dnf install -y dnf5-plugin-automatic
+  test_stub_allow "$test_root" sudo test -f \
+    /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+  test_stub_allow "$test_root" sudo test -f \
+    /etc/sudoers.d/90-dotfiles-hardening
+  test_stub_allow "$test_root" sudo test -f \
+    /etc/audit/rules.d/90-dotfiles-hardening.rules
+  test_stub_allow "$test_root" sudo test -f \
+    /etc/sysctl.d/90-dotfiles-hardening.conf
+  test_stub_allow "$test_root" sudo cat \
+    /etc/audit/rules.d/90-dotfiles-hardening.rules
+  test_stub_allow "$test_root" sudo sysctl -p \
+    /etc/sysctl.d/90-dotfiles-hardening.conf
+  test_stub_allow "$test_root" sudo auditctl -l
+  test_stub_allow "$test_root" sudo systemctl enable --now auditd.service
+  test_stub_allow "$test_root" sudo systemctl enable --now dnf5-automatic.timer
+
+  test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
+    "$test_root/state/tmp-1" \
+    /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+  test_stub_allow "$test_root" sudo install -D -m 0440 -o root -g root \
+    "$test_root/state/tmp-3" /etc/sudoers.d/90-dotfiles-hardening
+  test_stub_allow "$test_root" sudo install -D -m 0640 -o root -g root \
+    "$test_root/state/tmp-4" /etc/audit/rules.d/90-dotfiles-hardening.rules
+  test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
+    "$test_root/state/tmp-5" /etc/sysctl.d/90-dotfiles-hardening.conf
+
+  if [[ "$seed_sshd" == "true" ]]; then
+    test_stub_allow "$test_root" sudo test -f \
+      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+    test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
+      "$test_root/state/tmp-6" \
+      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-9" \
+      /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-11" \
+      /etc/sudoers.d/90-dotfiles-hardening
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-12" \
+      /etc/audit/rules.d/90-dotfiles-hardening.rules
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-13" \
+      /etc/sysctl.d/90-dotfiles-hardening.conf
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-14" \
+      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+    test_stub_allow "$test_root" sudo sshd -t
+    test_stub_allow "$test_root" sudo systemctl reload sshd.service
+    test_stub_allow "$test_root" sudo grep -Fqx 'PermitRootLogin no' \
+      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+    test_stub_allow "$test_root" sudo grep -Fqx 'MaxAuthTries 3' \
+      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+  else
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-8" \
+      /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-10" \
+      /etc/sudoers.d/90-dotfiles-hardening
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-11" \
+      /etc/audit/rules.d/90-dotfiles-hardening.rules
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-12" \
+      /etc/sysctl.d/90-dotfiles-hardening.conf
+  fi
+
+  systemctl_contracts=(
+    'is-enabled --quiet auditd.service'
+    'enable --now auditd.service'
+    'is-active --quiet sshd.service'
+    'is-enabled --quiet sshd.service'
+    'reload sshd.service'
+    'is-enabled --quiet dnf5-automatic.timer'
+    'enable --now dnf5-automatic.timer'
+    'is-active --quiet firewalld.service'
+    'is-active --quiet auditd.service'
+    'is-enabled --quiet avahi-daemon.service'
+    'is-enabled --quiet cups-browsed.service'
+    'is-enabled --quiet rpcbind.service'
+    'is-enabled --quiet nfs-server.service'
+    'is-enabled --quiet smb.service'
+    'is-enabled --quiet vsftpd.service'
+    'is-enabled --quiet telnet.socket'
+  )
+  for systemctl_contract in "${systemctl_contracts[@]}"; do
+    read -r -a systemctl_argv <<<"$systemctl_contract"
+    test_stub_allow "$test_root" systemctl "${systemctl_argv[@]}"
+  done
+
+  cat >"$mock_bin/mktemp" <<'EOF'
+#!/usr/bin/env bash
+counter_file="$TEST_STUB_ROOT/state/mktemp-counter"
+counter="$(cat "$counter_file" 2>/dev/null || printf '0')"
+counter=$((counter + 1))
+printf '%s\n' "$counter" >"$counter_file"
+if (($# == 0)); then
+  path="$TEST_STUB_ROOT/state/tmp-$counter"
+else
+  path="${1/XXXXXX/$(printf '%06d' "$counter")}"
+fi
+mkdir -p "$(dirname "$path")"
+: >"$path"
+printf '%s\n' "$path"
+EOF
 
   cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
@@ -101,7 +207,7 @@ case "$1" in
 esac
 EOF
 
-  cat >"$mock_bin/systemctl" <<'EOF'
+  cat >"$test_root/handlers/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 cmd="${1:-}"
@@ -192,7 +298,7 @@ printf 'tcp LISTEN 0 128 127.0.0.1:631 0.0.0.0:*\n'
 exit 0
 EOF
 
-  cat >"$mock_bin/sudo" <<'SUDO_EOF'
+  cat >"$test_root/handlers/sudo" <<'SUDO_EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 
@@ -207,7 +313,13 @@ cmd="$1"
 shift || true
 
 case "$cmd" in
-test | cmp | rm | grep | sed | cat)
+cmp)
+  [[ "${1:-}" == -s && $# -eq 3 ]] || exit 96
+  left="$(rewrite "$2")"
+  right="$(rewrite "$3")"
+  [[ -f "$left" && -f "$right" && "$(cat -- "$left")" == "$(cat -- "$right")" ]]
+  ;;
+test | rm | grep | sed | cat)
   args=()
   for a in "$@"; do args+=("$(rewrite "$a")"); done
   "$cmd" "${args[@]}"
@@ -252,7 +364,7 @@ dnf | systemctl | authselect | sshd | augenrules | auditctl | sysctl)
 esac
 SUDO_EOF
 
-  chmod +x "$mock_bin"/*
+  chmod +x "$mock_bin"/* "$test_root/handlers"/*
   printf 'ID=fedora\n' >"$test_root/os-release"
 
   mapfile -t base_environment < <(test_env_args "$test_root")

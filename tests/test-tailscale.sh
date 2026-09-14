@@ -2,18 +2,38 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
 
 new_test_root() {
   local test_root
   test_root="$(mktemp -d)"
 
   local mock_bin="$test_root/bin"
-  mkdir -p "$mock_bin" "$test_root/home" "$test_root/xdg" "$test_root/etc/yum.repos.d"
+  mkdir -p "$mock_bin" "$test_root/home" "$test_root/xdg" \
+    "$test_root/etc/yum.repos.d" "$test_root/handlers"
   : >"$test_root/commands.log"
   : >"$test_root/enabled-units"
   : >"$test_root/active-units"
 
-  cat >"$mock_bin/dnf" <<'EOF'
+  test_stub_init "$test_root"
+  for command_name in dnf sudo systemctl; do
+    test_stub_install "$test_root" "$command_name"
+  done
+  test_stub_allow "$test_root" dnf install -y dnf5-plugins
+  test_stub_allow "$test_root" dnf config-manager addrepo --overwrite \
+    --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+  test_stub_allow "$test_root" dnf install -y tailscale
+  test_stub_allow "$test_root" sudo dnf install -y dnf5-plugins
+  test_stub_allow "$test_root" sudo dnf config-manager addrepo --overwrite \
+    --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+  test_stub_allow "$test_root" sudo dnf install -y tailscale
+  test_stub_allow "$test_root" sudo systemctl enable --now tailscaled
+  test_stub_allow "$test_root" systemctl enable --now tailscaled
+  test_stub_allow "$test_root" systemctl is-enabled --quiet tailscaled
+  test_stub_allow "$test_root" systemctl is-active --quiet tailscaled
+
+  cat >"$test_root/handlers/dnf" <<'EOF'
 #!/usr/bin/env bash
 printf 'dnf %s\n' "$*" >>"$COMMAND_LOG"
 
@@ -32,13 +52,13 @@ fi
 exit 0
 EOF
 
-  cat >"$mock_bin/sudo" <<'EOF'
+  cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
-"$@"
+exec "$@"
 EOF
 
-  cat >"$mock_bin/systemctl" <<'EOF'
+  cat >"$test_root/handlers/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 
@@ -84,7 +104,7 @@ status)
 esac
 EOF
 
-  chmod +x "$mock_bin"/*
+  chmod +x "$mock_bin"/* "$test_root/handlers"/*
 
   printf 'ID=fedora\n' >"$test_root/os-release"
 
@@ -99,6 +119,7 @@ base_environment() {
     "XDG_CONFIG_HOME=$test_root/xdg" \
     "XDG_DATA_HOME=$test_root/home/.local/share" \
     "PATH=$test_root/bin:$PATH" \
+    "TEST_STUB_ROOT=$test_root" \
     "COMMAND_LOG=$test_root/commands.log" \
     "OS_RELEASE_FILE=$test_root/os-release" \
     "TAILSCALE_REPO_FILE=$test_root/etc/yum.repos.d/tailscale.repo" \

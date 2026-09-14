@@ -2,17 +2,12 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
 
-assert_contains() {
-  local output="$1"
-  local expected="$2"
-  [[ "$output" == *"$expected"* ]] || {
-    printf 'Expected output to contain %q:\n%s\n' "$expected" "$output" >&2
-    exit 1
-  }
-}
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ocaml)"
 assert_contains "$dry_run" 'Fedora WSL installation plan'
@@ -143,15 +138,24 @@ mkdir -p "$mock_bin" "$config"
 printf 'ID=fedora\n' >"$test_root/os-release"
 printf '/bin/bash\n' >"$shell_state"
 
-cat >"$mock_bin/dnf" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
+test_stub_init "$test_root"
+test_stub_install "$test_root" dnf
+test_stub_install "$test_root" sudo
+fedora_wsl_packages=(
+  bat bzip2 curl eza fd-find fzf gawk gcc gcc-c++ gh git git-delta jq libicu
+  make neovim openssh-clients procps-ng ripgrep ShellCheck shadow-utils sqlite
+  sqlite-devel stow tmux unzip zoxide zsh zsh-autosuggestions
+  zsh-syntax-highlighting
+)
+test_stub_allow "$test_root" dnf install -y "${fedora_wsl_packages[@]}"
+test_stub_allow "$test_root" sudo dnf install -y "${fedora_wsl_packages[@]}"
+test_stub_allow "$test_root" sudo usermod --shell "$mock_bin/zsh" fedora-test
+
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-cat >"$mock_bin/sudo" <<'EOF'
+cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 if [[ "$1" == usermod && "$2" == --shell ]]; then
@@ -214,7 +218,7 @@ cat >"$mock_bin/stow" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "${*: -1}" >>"$STOW_LOG"
 EOF
-chmod +x "$mock_bin"/*
+chmod +x "$mock_bin"/* "$test_root/handlers/sudo"
 
 test_environment=(
   env
@@ -355,7 +359,8 @@ grep -Fq -- '-Flavor "mocha"' "$test_root/powershell.log"
 bootstrap_home="$test_root/bootstrap-home"
 bootstrap_config="$bootstrap_home/.config"
 bootstrap_data="$bootstrap_home/.local/share"
-bootstrap_bin="$test_root/bootstrap-bin"
+bootstrap_stub_root="$test_root/bootstrap-stubs"
+bootstrap_bin="$bootstrap_stub_root/bin"
 bootstrap_shell_state="$test_root/bootstrap-login-shell"
 bootstrap_command_log="$test_root/bootstrap-commands.log"
 mkdir -p \
@@ -364,17 +369,36 @@ mkdir -p \
   "$bootstrap_bin"
 printf '/bin/bash\n' >"$bootstrap_shell_state"
 
+test_stub_init "$bootstrap_stub_root"
+test_stub_install "$bootstrap_stub_root" dnf
+test_stub_install "$bootstrap_stub_root" sudo
+test_stub_allow "$bootstrap_stub_root" dnf install -y \
+  "${fedora_wsl_packages[@]}"
+test_stub_allow "$bootstrap_stub_root" dnf install -y \
+  texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent
+test_stub_allow "$bootstrap_stub_root" sudo -n -v
+test_stub_allow "$bootstrap_stub_root" sudo dnf install -y \
+  "${fedora_wsl_packages[@]}"
+test_stub_allow "$bootstrap_stub_root" sudo dnf install -y \
+  texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent
+test_stub_allow "$bootstrap_stub_root" sudo usermod --shell \
+  "$bootstrap_bin/zsh" fedora-test
+
 cat >"$bootstrap_bin/mock-command" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-cat >"$bootstrap_bin/sudo" <<'EOF'
+cat >"$bootstrap_stub_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$BOOTSTRAP_COMMAND_LOG"
 if [[ "$1" == usermod && "$2" == --shell ]]; then
   printf '%s\n' "$3" >"$SHELL_STATE"
+  exit 0
 fi
-exit 0
+case "$1" in
+dnf | install) exec "$@" ;;
+*) exit 0 ;;
+esac
 EOF
 cat >"$bootstrap_bin/id" <<'EOF'
 #!/usr/bin/env bash
@@ -393,11 +417,21 @@ else
   /usr/bin/getent "$@"
 fi
 EOF
-chmod +x "$bootstrap_bin/mock-command" "$bootstrap_bin/sudo" \
+cat >"$bootstrap_bin/mktemp" <<'EOF'
+#!/usr/bin/env bash
+path="$(/usr/bin/mktemp "$@")" || exit
+if (($# == 0)); then
+  printf 'install -m 0644 %q %q\n' "$path" "$WSL_CONF_FILE" \
+    >>"$TEST_STUB_ROOT/contracts/sudo.allow"
+fi
+printf '%s\n' "$path"
+EOF
+chmod +x "$bootstrap_bin/mock-command" \
   "$bootstrap_bin/id" "$bootstrap_bin/getent"
+chmod +x "$bootstrap_stub_root/handlers/sudo" "$bootstrap_bin/mktemp"
 
 bootstrap_commands=(
-  ast-grep bat biber curl delta dnf dotnet dotnet-easydotnet eza fd fzf gh
+  ast-grep bat biber curl delta dotnet dotnet-easydotnet eza fd fzf gh
   latex latexindent latexmk lazygit lualatex neovim-node-host node npm npx
   pdflatex python rg rpm shellcheck sqlite3 starship tmux tree-sitter uv
   xelatex zoxide zsh
@@ -511,6 +545,7 @@ bootstrap_environment=(
   "OS_RELEASE_FILE=$test_root/os-release"
   "SHELL_STATE=$bootstrap_shell_state"
   "BOOTSTRAP_COMMAND_LOG=$bootstrap_command_log"
+  "TEST_STUB_ROOT=$bootstrap_stub_root"
   "WINDOWS_SYSTEM_ROOT=$windows_root"
   "WSL_CONF_FILE=$test_root/bootstrap-wsl.conf"
 )

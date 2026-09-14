@@ -26,6 +26,21 @@ These tests use isolated homes, strict mocks, disposable directories and
 containers where appropriate. Their output is labelled
 `mocked/unit/contract evidence` because they do not replace clean-machine tests.
 
+### Shared shell-test contracts
+
+Shell suites should source `tests/lib/test.sh` instead of defining another
+temporary-root, assertion, capture, or privileged-command framework. The
+library creates per-suite HOME/XDG roots and provides exact-argv stubs for
+`sudo`, `dnf`, `apt-get`, `systemctl`, `git`, `curl`, and `mise`. A command is
+rejected with status 96 unless the suite explicitly registers its complete
+argument vector with `test_stub_allow`.
+
+Stateful behavior remains visible in the owning suite. After the shared stub
+has logged and accepted an invocation, it executes an optional handler at
+`$TEST_STUB_ROOT/handlers/<command>`. Handlers may model such things as login
+shell changes or system/user service state; they do not widen the allow-list.
+This keeps command policy centralized while leaving domain fixtures auditable.
+
 ## Scheduled/manual real-install validation
 
 `.github/workflows/real-install.yml` is intentionally separate from normal PR

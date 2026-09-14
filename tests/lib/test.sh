@@ -18,7 +18,7 @@ test_new_root() {
   root="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-test.XXXXXX")" || return 1
   TEST_ROOTS+=("$root")
   TEST_ROOT="$root"
-  mkdir -p "$root"/{home,config,data,state,cache,bin,logs,contracts}
+  mkdir -p "$root"/{home,config,data,state,cache,bin,logs,contracts,handlers}
 }
 
 test_cleanup() {
@@ -160,7 +160,7 @@ _test_stub_quote_argv() {
 test_stub_init() {
   local root="$1"
   export TEST_STUB_ROOT="$root"
-  mkdir -p "$root/bin" "$root/logs" "$root/contracts"
+  mkdir -p "$root/bin" "$root/logs" "$root/contracts" "$root/handlers"
 
   cat >"$root/bin/.dotfiles-strict-stub" <<'STUB'
 #!/usr/bin/env bash
@@ -182,6 +182,10 @@ quote_argv() {
 invocation="$(quote_argv "$@")"
 printf '%s\n' "$invocation" >>"$log"
 if [[ -r "$contract" ]] && grep -Fxq -- "$invocation" "$contract"; then
+  handler="$root/handlers/$name"
+  if [[ -x "$handler" ]]; then
+    exec "$handler" "$@"
+  fi
   exit 0
 fi
 printf 'strict stub rejected unsupported argv: %s%s%s\n' \

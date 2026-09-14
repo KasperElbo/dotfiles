@@ -2,8 +2,12 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 mock_bin="$test_root/bin"
 command_log="$test_root/commands.log"
@@ -13,7 +17,26 @@ mkdir -p \
   "$test_root/xdg" \
   "$test_root/virtio-ports"
 
-cat >"$mock_bin/dnf" <<'EOF'
+test_stub_init "$test_root"
+for command_name in dnf sudo systemctl; do
+  test_stub_install "$test_root" "$command_name"
+done
+test_stub_allow "$test_root" dnf install -y qemu-guest-agent spice-vdagent xclip
+test_stub_allow "$test_root" sudo dnf install -y qemu-guest-agent spice-vdagent xclip
+test_stub_allow "$test_root" sudo systemctl enable --now qemu-guest-agent.service
+test_stub_allow "$test_root" sudo systemctl start spice-vdagentd.socket
+test_stub_allow "$test_root" systemctl enable --now qemu-guest-agent.service
+test_stub_allow "$test_root" systemctl start spice-vdagentd.socket
+test_stub_allow "$test_root" systemctl --user disable --now \
+  dotfiles-spice-wayland-clipboard.service
+test_stub_allow "$test_root" systemctl --user daemon-reload
+test_stub_allow "$test_root" systemctl is-active --quiet qemu-guest-agent.service
+test_stub_allow "$test_root" systemctl is-active --quiet spice-vdagentd.socket
+test_stub_allow "$test_root" systemctl --user is-active --quiet spice-vdagent.service
+test_stub_allow "$test_root" systemctl --user is-active --quiet \
+  dotfiles-spice-wayland-clipboard.service
+
+cat >"$test_root/handlers/dnf" <<'EOF'
 #!/usr/bin/env bash
 printf 'dnf %s\n' "$*" >>"$COMMAND_LOG"
 EOF
@@ -26,7 +49,7 @@ esac
 exit 1
 EOF
 
-cat >"$mock_bin/systemctl" <<'EOF'
+cat >"$test_root/handlers/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 case "$*" in
@@ -38,10 +61,10 @@ esac
 exit 0
 EOF
 
-cat >"$mock_bin/sudo" <<'EOF'
+cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
-"$@"
+exec "$@"
 EOF
 
 cat >"$mock_bin/ip" <<'EOF'
@@ -55,7 +78,7 @@ printf '%s\n' "${MOCK_VIRTUALIZATION_TYPE:-kvm}"
 [[ "${MOCK_VIRTUALIZATION_TYPE:-kvm}" != none ]]
 EOF
 
-chmod +x "$mock_bin"/*
+chmod +x "$mock_bin"/* "$test_root/handlers"/*
 
 printf 'ID=fedora\n' >"$test_root/os-release"
 touch \
