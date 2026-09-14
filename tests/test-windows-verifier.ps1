@@ -156,3 +156,4 @@ finally {
 }
 
 Write-Host 'Windows installed-state verifier fixture tests passed.'
+exit 0
