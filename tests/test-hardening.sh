@@ -104,28 +104,44 @@ EOF
   cat >"$mock_bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
-cmd="$1"
+cmd="${1:-}"
 shift || true
+reject() {
+  printf 'strict systemctl fixture rejected unsupported argv: %s' "$cmd" >&2
+  printf ' %q' "$@" >&2
+  printf '\n' >&2
+  exit 96
+}
 case "$cmd" in
 is-active)
-  args=("$@")
-  grep -qx "${args[-1]}" "$ACTIVE_UNITS" 2>/dev/null
+  [[ $# -eq 2 && "$1" == --quiet ]] || reject "$@"
+  grep -qx "$2" "$ACTIVE_UNITS" 2>/dev/null
   exit $?
   ;;
 is-enabled)
-  args=("$@")
-  grep -qx "${args[-1]}" "$ENABLED_UNITS" 2>/dev/null
+  [[ $# -eq 2 && "$1" == --quiet ]] || reject "$@"
+  grep -qx "$2" "$ENABLED_UNITS" 2>/dev/null
   exit $?
   ;;
 enable)
-  for a in "$@"; do
-    case "$a" in --*) continue ;; esac
-    grep -qx "$a" "$ENABLED_UNITS" 2>/dev/null || printf '%s\n' "$a" >>"$ENABLED_UNITS"
-    grep -qx "$a" "$ACTIVE_UNITS" 2>/dev/null || printf '%s\n' "$a" >>"$ACTIVE_UNITS"
-  done
+  [[ $# -eq 2 && "$1" == --now ]] || reject "$@"
+  unit="$2"
+  grep -qx "$unit" "$ENABLED_UNITS" 2>/dev/null || printf '%s\n' "$unit" >>"$ENABLED_UNITS"
+  grep -qx "$unit" "$ACTIVE_UNITS" 2>/dev/null || printf '%s\n' "$unit" >>"$ACTIVE_UNITS"
+  exit 0
+  ;;
+reload)
+  [[ $# -eq 1 && "$1" == sshd.service ]] || reject "$@"
+  exit 0
+  ;;
+restart)
+  [[ $# -eq 1 && "$1" == auditd.service ]] || reject "$@"
+  exit 0
+  ;;
+*)
+  reject "$@"
   ;;
 esac
-exit 0
 EOF
 
   cat >"$mock_bin/sshd" <<'EOF'
@@ -339,6 +355,11 @@ SUDO_EOF
   else
     assert_contains "$verify_output" 'SSH posture is not applicable'
   fi
+
+  run_capture env COMMAND_LOG="$command_log" ACTIVE_UNITS="$active_units" \
+    ENABLED_UNITS="$enabled_units" PATH="$mock_bin:$PATH" \
+    systemctl daemon-reload
+  assert_status 96
 
   printf 'PASS: %s\n' "$scenario_name"
 }
