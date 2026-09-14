@@ -170,23 +170,91 @@ done
 
 # Mocks Treehouse's and No Mistakes' real install scripts closely enough to
 # exercise install-ai.sh without the network, while rejecting any curl shape
-# other than the exact curl|sh contract used by install_via_own_script.
+# other than the exact bounded-transfer contract in common/lib/fetch.sh. The
+# staged installer is written to the --output path, never piped, so a test that
+# passes proves the download-then-execute path and not a curl|sh pipeline.
+#
+# Behaviour knobs, so the same fixture can model every failure the staged
+# installer has to reject:
+#   MOCK_CURL_FAIL_URL      substring; curl exits non-zero for a matching URL
+#   MOCK_CURL_EMPTY_URL     substring; curl exits 0 having written nothing
+#   MOCK_CURL_GARBAGE_URL   substring; curl writes an HTML error page
+#   MOCK_CURL_MUTATE_URL    substring; the staged script installs the wrong tool
 cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
-if [[ $# -ne 5 || "$1" != --fail || "$2" != --show-error ||
-  "$3" != --silent || "$4" != --location ]]; then
+set -u
+reject() {
   printf 'strict curl fixture rejected unsupported argv: %s\n' "$*" >&2
   exit 96
-fi
-url="$5"
-emit_installer() {
-  printf '#!/usr/bin/env sh\n'
-  printf 'mkdir -p "$HOME/.local/bin"\n'
-  printf 'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$HOME/.local/bin/%s"\n' "$1"
-  printf 'chmod +x "$HOME/.local/bin/%s"\n' "$1"
 }
+
+expected=(--fail --show-error --silent --location --proto '=https' --tlsv1.2)
+(($# >= ${#expected[@]})) || reject "$@"
+for index in "${!expected[@]}"; do
+  [[ "${@:index+1:1}" == "${expected[index]}" ]] || reject "$@"
+done
+shift "${#expected[@]}"
+
+output=""
+url=""
+while (($#)); do
+  case "$1" in
+  --connect-timeout | --max-time)
+    [[ "${2:-}" =~ ^[0-9]+$ ]] || reject "$@"
+    shift 2
+    ;;
+  --output)
+    output="${2:-}"
+    shift 2
+    ;;
+  --)
+    url="${2:-}"
+    shift "$#"
+    ;;
+  *) reject "$@" ;;
+  esac
+done
+[[ -n "$output" && -n "$url" ]] || reject "$output" "$url"
+
+# The staged file must already exist, mode 0600, before any byte is written.
+[[ -f "$output" ]] || {
+  printf 'strict curl fixture: destination was not pre-created: %s\n' "$output" >&2
+  exit 95
+}
+if [[ "$(stat -c '%a' "$output" 2>/dev/null || stat -f '%Lp' "$output")" != 600 ]]; then
+  printf 'strict curl fixture: destination is not mode 0600: %s\n' "$output" >&2
+  exit 95
+fi
+
+if [[ -n "${MOCK_CURL_FAIL_URL:-}" && "$url" == *"$MOCK_CURL_FAIL_URL"* ]]; then
+  printf 'curl: (22) simulated transport failure\n' >&2
+  exit 22
+fi
+if [[ -n "${MOCK_CURL_EMPTY_URL:-}" && "$url" == *"$MOCK_CURL_EMPTY_URL"* ]]; then
+  exit 0
+fi
+if [[ -n "${MOCK_CURL_GARBAGE_URL:-}" && "$url" == *"$MOCK_CURL_GARBAGE_URL"* ]]; then
+  printf '<html><body>503 Service Unavailable</body></html>\n' >"$output"
+  exit 0
+fi
+
+emit_installer() {
+  {
+    printf '#!/usr/bin/env sh\n'
+    printf 'mkdir -p "$HOME/.local/bin"\n'
+    printf 'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$HOME/.local/bin/%s"\n' "$1"
+    printf 'chmod +x "$HOME/.local/bin/%s"\n' "$1"
+  } >"$output"
+}
+
 case "$url" in
-*treehouse*) emit_installer treehouse ;;
+*treehouse*)
+  if [[ -n "${MOCK_CURL_MUTATE_URL:-}" && "$url" == *"$MOCK_CURL_MUTATE_URL"* ]]; then
+    emit_installer something-else
+  else
+    emit_installer treehouse
+  fi
+  ;;
 *no-mistakes*) emit_installer no-mistakes ;;
 *)
   printf 'strict curl fixture rejected unexpected URL: %s\n' "$url" >&2
@@ -263,6 +331,8 @@ assert_path_missing "$missing_jq_home/.config/mise/conf.d/ai.toml"
 assert_path_missing "$missing_jq_home/.config/dotfiles/ai.conf"
 assert_path_missing "$missing_jq_home/.claude/CLAUDE.md"
 
+treehouse_source_url="https://kunchenguid.github.io/treehouse/install.sh"
+no_mistakes_source_url="https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh"
 conf_file="$config/mise/conf.d/ai.toml"
 state_file="$config/dotfiles/ai.conf"
 treehouse_target="$home/.local/bin/treehouse"
@@ -588,6 +658,123 @@ assert_contains "$preexisting_verify" \
   "Claude Code (CLAUDE.md) ($preexisting_home/.claude/CLAUDE.md) is a plain file"
 assert_contains "$preexisting_verify" \
   "Codex (AGENTS.md): $preexisting_home/.codex/AGENTS.md -> $agents_source"
+
+# --- Staged installation: provenance is recorded ----------------------------
+
+assert_file_line "$state_file" "requested=codex,firstmate,gnhf,backpass"
+assert_file_line "$state_file" "firstmate_source=$firstmate_origin"
+recorded_commit="$(git -C "$data/firstmate" rev-parse HEAD)"
+assert_file_line "$state_file" "firstmate_commit=$recorded_commit"
+assert_file_line "$state_file" "treehouse_source=$treehouse_source_url"
+assert_file_line "$state_file" "no_mistakes_source=$no_mistakes_source_url"
+assert_file_line "$state_file" \
+  "treehouse_target_digest=$(sha256sum "$treehouse_target" | cut -d' ' -f1)"
+assert_file_line "$state_file" \
+  "no_mistakes_target_digest=$(sha256sum "$no_mistakes_target" | cut -d' ' -f1)"
+printf 'PASS: staged installation records source, resolved commit, and digests\n'
+
+# --- A failing download can never be masked by a successful consumer --------
+#
+# The original pipeline was 'curl ... | sh', whose exit status is the shell's.
+# These scenarios each make the download fail in a different way and require
+# the installer to stop before executing anything and before writing state that
+# claims the component is installed.
+
+staged_failure_case() {
+  local label="$1"
+  local expected="$2"
+  local description="$3"
+  shift 3
+
+  local case_home="$test_root/staged-$label-home"
+  mkdir -p "$case_home"
+  local case_output
+  if case_output="$(env \
+    HOME="$case_home" CODEX_HOME="$case_home/.codex" \
+    XDG_CONFIG_HOME="$case_home/.config" \
+    XDG_DATA_HOME="$case_home/.local/share" \
+    XDG_STATE_HOME="$case_home/.local/state" \
+    PATH="$mock_bin:$PATH" MISE_DATA_DIR="$mise_data" \
+    MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
+    FIRSTMATE_REPO_URL="$firstmate_origin" \
+    DOTFILES_FETCH_ATTEMPTS=2 DOTFILES_FETCH_RETRY_DELAY=0 \
+    "$@" \
+    "$repo_root/common/install-ai.sh" --firstmate 2>&1)"; then
+    printf 'install-ai.sh accepted a %s installer\n' "$label" >&2
+    printf '%s\n' "$case_output" >&2
+    exit 1
+  fi
+  assert_contains "$case_output" "$expected"
+
+  # Nothing may be left claiming success: no Treehouse binary, and no state
+  # file recording the component as installed.
+  assert_path_missing "$case_home/.local/bin/treehouse"
+  assert_file_not_contains "$case_home/.config/dotfiles/ai.conf" 'treehouse=installed'
+  printf 'PASS: %s\n' "$description"
+}
+
+staged_failure_case transport 'Giving up on the Treehouse installer' \
+  'a failing curl is not masked by a successful shell consumer' \
+  MOCK_CURL_FAIL_URL=treehouse
+staged_failure_case empty 'Download produced an empty file for the Treehouse installer' \
+  'an empty download is never executed' \
+  MOCK_CURL_EMPTY_URL=treehouse
+staged_failure_case markup 'does not look like a shell script' \
+  'content of the wrong shape is never executed' \
+  MOCK_CURL_GARBAGE_URL=treehouse
+staged_failure_case digest 'SHA-256 mismatch for the Treehouse installer' \
+  'a wrong-digest download is never executed' \
+  TREEHOUSE_INSTALL_SCRIPT_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+
+# A download that succeeds and executes, but does not produce the expected
+# target, fails at the component responsible for it rather than several steps
+# later. The verifier is not what catches this.
+staged_failure_case wrong-target 'Treehouse did not install its expected target' \
+  'an unexpected installed target fails at the responsible component' \
+  MOCK_CURL_MUTATE_URL=treehouse
+
+# The bounded retry policy is real: a transient failure inside the budget
+# still succeeds, and the attempt count is capped.
+transient_home="$test_root/transient-home"
+transient_marker="$test_root/transient-marker"
+mkdir -p "$transient_home"
+cat >"$mock_bin/curl-transient" <<'EOF'
+#!/usr/bin/env bash
+# Fails once, then defers to the real fixture. Proves a safe fetch retries
+# within its budget instead of giving up on the first transport error.
+if [[ ! -e "$TRANSIENT_MARKER" ]]; then
+  : >"$TRANSIENT_MARKER"
+  printf 'curl: (56) simulated transient failure\n' >&2
+  exit 56
+fi
+exec "$MOCK_CURL_REAL" "$@"
+EOF
+chmod +x "$mock_bin/curl-transient"
+transient_bin="$test_root/transient-bin"
+mkdir -p "$transient_bin"
+for command_name in "$mock_bin"/*; do
+  [[ "$(basename "$command_name")" != curl* ]] || continue
+  ln -sf "$command_name" "$transient_bin/$(basename "$command_name")"
+done
+ln -sf "$mock_bin/curl-transient" "$transient_bin/curl"
+if ! transient_output="$(env \
+  HOME="$transient_home" CODEX_HOME="$transient_home/.codex" \
+  XDG_CONFIG_HOME="$transient_home/.config" \
+  XDG_DATA_HOME="$transient_home/.local/share" \
+  XDG_STATE_HOME="$transient_home/.local/state" \
+  PATH="$transient_bin:$PATH" MISE_DATA_DIR="$mise_data" \
+  MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
+  FIRSTMATE_REPO_URL="$firstmate_origin" \
+  MOCK_CURL_REAL="$mock_bin/curl" TRANSIENT_MARKER="$transient_marker" \
+  DOTFILES_FETCH_RETRY_DELAY=0 \
+  "$repo_root/common/install-ai.sh" --firstmate 2>&1)"; then
+  printf '%s\n' "$transient_output" >&2
+  printf 'install-ai.sh did not retry a transient download failure\n' >&2
+  exit 1
+fi
+assert_contains "$transient_output" 'attempt 1/3'
+assert_path_executable "$transient_home/.local/bin/treehouse"
+printf 'PASS: a transient safe fetch retries within the bounded policy\n'
 
 # --- --validate forwards to verify-ai.sh ------------------------------------
 

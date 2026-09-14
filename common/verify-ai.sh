@@ -6,6 +6,8 @@ set -u
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=lib/verify.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/verify.sh"
+# shellcheck source=lib/fetch.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/fetch.sh"
 # shellcheck source=lib/profile-state.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/profile-state.sh"
 
@@ -35,6 +37,11 @@ no_mistakes_state="$(profile_state_read "$state_file" no_mistakes ai)"
 lavish_axi_state="$(profile_state_read "$state_file" lavish_axi ai)"
 gnhf_state="$(profile_state_read "$state_file" gnhf ai)"
 backpass_state="$(profile_state_read "$state_file" backpass ai)"
+requested_state="$(profile_state_read "$state_file" requested ai 2>/dev/null || printf 'not-recorded')"
+firstmate_source_state="$(profile_state_read "$state_file" firstmate_source ai 2>/dev/null || printf 'not-recorded')"
+firstmate_commit_state="$(profile_state_read "$state_file" firstmate_commit ai 2>/dev/null || printf 'not-recorded')"
+treehouse_target_digest_state="$(profile_state_read "$state_file" treehouse_target_digest ai 2>/dev/null || printf 'not-recorded')"
+no_mistakes_target_digest_state="$(profile_state_read "$state_file" no_mistakes_target_digest ai 2>/dev/null || printf 'not-recorded')"
 
 # Capture the environment configured for a fresh interactive login before the
 # verifier adds mise's shims to its own process. An explicit value remains
@@ -59,7 +66,7 @@ check_mise_command_runs() {
   shift
 
   if [[ -n "$mise_command" ]] &&
-    "$mise_command" exec -- "$name" "$@" >/dev/null 2>&1; then
+    run_mise "$mise_command" exec -- "$name" "$@" >/dev/null 2>&1; then
     pass "$name launches successfully: $name $*"
   else
     fail "$name is installed but '$name $*' failed"
@@ -89,6 +96,47 @@ check_own_script_owned() {
     fail "$name on PATH ($resolved) is not $target, a possible duplicate install"
   else
     warning "$target is not on PATH"
+  fi
+}
+
+# Under additive semantics a component that is present but not selected is
+# never rewritten or silently deleted. It is reported, with the one command
+# that would remove it, so state and filesystem never disagree in silence.
+report_disabled_but_present() {
+  local label="$1"
+  local path="$2"
+  local flag="$3"
+
+  if [[ -e "$path" || -L "$path" ]]; then
+    warning "$label is not selected but $path is still present;" \
+      "run './common/install-ai.sh $flag' to remove it"
+  else
+    pass "$label is not installed (optional subcomponent not selected)"
+  fi
+}
+
+# check_recorded_digest <label> <path> <recorded>: compares the installed
+# binary against the digest recorded for that binary -- not against the digest
+# of the remote installer that produced it, which is a different artifact. A
+# component whose file no longer matches is still usable,
+# but this repository can no longer prove it owns it -- and a later removal
+# will refuse to delete it. Say so rather than letting it look verified.
+check_recorded_digest() {
+  local label="$1"
+  local path="$2"
+  local recorded="$3"
+  local actual
+
+  if [[ "$recorded" == not-recorded || -z "$recorded" ]]; then
+    warning "$label has no recorded installer digest; rerun the AI installer so removal can prove ownership"
+    return
+  fi
+
+  actual="$(fetch_sha256 "$path" 2>/dev/null || true)"
+  if [[ "$actual" == "$recorded" ]]; then
+    pass "$label matches its recorded provenance digest"
+  else
+    warning "$label ($path) no longer matches the recorded digest; it was replaced or updated outside this installer, and removal will refuse to delete it"
   fi
 }
 
@@ -123,6 +171,8 @@ check_symlink_owned() {
 }
 
 section "AI profile ownership (mise conf.d)"
+
+pass "Requested optional components: $requested_state"
 
 if [[ -f "$conf_file" ]]; then
   pass "Untracked mise config present: $conf_file"
@@ -202,7 +252,8 @@ check_mise_owned herdr
 if [[ "$codex_state" == mise-npm ]]; then
   check_mise_owned codex
 elif command -v codex >/dev/null 2>&1; then
-  warning "codex is installed but the AI profile state says codex=$codex_state"
+  warning "codex is not selected (codex=$codex_state) but is still on PATH;" \
+    "run './common/install-ai.sh --no-codex' to remove it"
 else
   pass "codex is not installed (optional subcomponent not selected)"
 fi
@@ -218,7 +269,8 @@ section "GNHF (optional, unattended-run agent orchestrator)"
 if [[ "$gnhf_state" == mise-npm ]]; then
   check_mise_owned gnhf
 elif command -v gnhf >/dev/null 2>&1; then
-  warning "gnhf is installed but the AI profile state says gnhf=$gnhf_state"
+  warning "gnhf is not selected (gnhf=$gnhf_state) but is still on PATH;" \
+    "run './common/install-ai.sh --no-gnhf' to remove it"
 else
   pass "gnhf is not installed (optional subcomponent not selected)"
 fi
@@ -230,6 +282,22 @@ if [[ "$firstmate_state" == cloned ]]; then
 
   if [[ -d "$firstmate_dir/.git" ]]; then
     pass "FirstMate cloned: $firstmate_dir"
+    firstmate_origin="$(git -C "$firstmate_dir" config --get remote.origin.url 2>/dev/null || true)"
+    firstmate_head="$(git -C "$firstmate_dir" rev-parse HEAD 2>/dev/null || true)"
+    if [[ "$firstmate_source_state" == not-recorded ]]; then
+      warning "FirstMate has no recorded source; rerun the AI installer so removal can prove ownership"
+    elif [[ "$firstmate_origin" != "$firstmate_source_state" ]]; then
+      warning "FirstMate origin (${firstmate_origin:-none}) is not the recorded $firstmate_source_state; removal will refuse to delete it"
+    else
+      pass "FirstMate origin matches the recorded source: $firstmate_source_state"
+    fi
+    if [[ "$firstmate_commit_state" == not-recorded ]]; then
+      warning "FirstMate has no recorded commit; rerun the AI installer so removal can prove ownership"
+    elif [[ "$firstmate_head" != "$firstmate_commit_state" ]]; then
+      warning "FirstMate is at ${firstmate_head:-an unreadable commit}, not the recorded $firstmate_commit_state; it moved outside this installer"
+    else
+      pass "FirstMate is at the recorded rolling commit $firstmate_commit_state"
+    fi
   else
     fail "FirstMate state says cloned, but $firstmate_dir/.git is missing"
   fi
@@ -242,12 +310,7 @@ if [[ "$firstmate_state" == cloned ]]; then
     fi
   done
 else
-  if [[ -d "$XDG_DATA_HOME/firstmate" ]]; then
-    warning "FirstMate not selected (firstmate=$firstmate_state), but" \
-      "$XDG_DATA_HOME/firstmate exists; remove it manually if unwanted"
-  else
-    pass "FirstMate is not installed (optional subcomponent not selected)"
-  fi
+  report_disabled_but_present FirstMate "$XDG_DATA_HOME/firstmate" --no-firstmate
 fi
 
 section "FirstMate toolchain (mise-managed)"
@@ -273,26 +336,18 @@ section "Treehouse (worktree isolation for FirstMate crewmates)"
 
 if [[ "$treehouse_state" == installed ]]; then
   check_own_script_owned treehouse "$treehouse_target"
+  check_recorded_digest Treehouse "$treehouse_target" "$treehouse_target_digest_state"
 else
-  if [[ -e "$treehouse_target" ]]; then
-    warning "FirstMate/Treehouse not selected (treehouse=$treehouse_state)," \
-      "but $treehouse_target exists; remove it manually if unwanted"
-  else
-    pass "Treehouse is not installed (FirstMate subcomponent not selected)"
-  fi
+  report_disabled_but_present Treehouse "$treehouse_target" --no-firstmate
 fi
 
 section "No Mistakes (local push validation gate)"
 
 if [[ "$no_mistakes_state" == installed ]]; then
   check_own_script_owned no-mistakes "$no_mistakes_target"
+  check_recorded_digest "No Mistakes" "$no_mistakes_target" "$no_mistakes_target_digest_state"
 else
-  if [[ -e "$no_mistakes_target" ]]; then
-    warning "FirstMate/No Mistakes not selected (no_mistakes=$no_mistakes_state)," \
-      "but $no_mistakes_target exists; remove it manually if unwanted"
-  else
-    pass "No Mistakes is not installed (FirstMate subcomponent not selected)"
-  fi
+  report_disabled_but_present "No Mistakes" "$no_mistakes_target" --no-firstmate
 fi
 
 section "backpass (optional, instructions-file tuning)"
@@ -301,7 +356,8 @@ if [[ "$backpass_state" == mise-npm ]]; then
   check_mise_owned backpass
   check_mise_owned acpx
 elif command -v backpass >/dev/null 2>&1; then
-  warning "backpass is installed but the AI profile state says backpass=$backpass_state"
+  warning "backpass is not selected (backpass=$backpass_state) but is still on PATH;" \
+    "run './common/install-ai.sh --no-backpass' to remove it"
 else
   pass "backpass is not installed (optional subcomponent not selected)"
 fi

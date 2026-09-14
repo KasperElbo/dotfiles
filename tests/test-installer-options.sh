@@ -184,25 +184,25 @@ run_success "AI remains opt-in" "AI profile:          false" \
   ./install.sh --dry-run
 run_success "AI dry-run" "common/install-ai.sh" \
   ./install.sh --dry-run --ai
-run_success "AI Codex remains opt-in" "AI Codex subcomponent: false" \
+run_success "AI Codex remains opt-in" "AI Codex subcomponent: inherit" \
   ./install.sh --dry-run --ai
 run_success "AI Codex dry-run" "common/install-ai.sh --codex" \
   ./install.sh --dry-run --ai --codex
-run_success "AI FirstMate remains opt-in" "AI FirstMate subcomponent: false" \
+run_success "AI FirstMate remains opt-in" "AI FirstMate subcomponent: inherit" \
   ./install.sh --dry-run --ai
 run_success "AI FirstMate dry-run" "common/install-ai.sh --firstmate" \
   ./install.sh --dry-run --ai --firstmate
 run_success "AI Codex and FirstMate together dry-run" \
   "common/install-ai.sh --codex --firstmate" \
   ./install.sh --dry-run --ai --codex --firstmate
-run_success "AI GNHF remains opt-in" "AI GNHF subcomponent: false" \
+run_success "AI GNHF remains opt-in" "AI GNHF subcomponent: inherit" \
   ./install.sh --dry-run --ai
 run_success "AI GNHF dry-run" "common/install-ai.sh --gnhf" \
   ./install.sh --dry-run --ai --gnhf
 run_success "AI Codex, FirstMate and GNHF together dry-run" \
   "common/install-ai.sh --codex --firstmate --gnhf" \
   ./install.sh --dry-run --ai --codex --firstmate --gnhf
-run_success "AI backpass remains opt-in" "AI backpass subcomponent: false" \
+run_success "AI backpass remains opt-in" "AI backpass subcomponent: inherit" \
   ./install.sh --dry-run --ai
 run_success "AI backpass dry-run" "common/install-ai.sh --backpass" \
   ./install.sh --dry-run --ai --backpass
@@ -212,6 +212,15 @@ run_success "AI backpass does not require FirstMate" \
 run_success "AI everything together dry-run" \
   "common/install-ai.sh --codex --firstmate --gnhf --backpass" \
   ./install.sh --dry-run --ai --codex --firstmate --gnhf --backpass
+run_success "AI explicit removal is forwarded, not silently implied" \
+  "common/install-ai.sh --no-codex --no-firstmate --no-gnhf --no-backpass" \
+  ./install.sh --dry-run --ai --no-codex --no-firstmate --no-gnhf --no-backpass
+run_success "AI explicit removal is reported as a removal" \
+  "AI Codex subcomponent: false" \
+  ./install.sh --dry-run --ai --no-codex
+run_failure "AI removal flags still require the AI profile" \
+  "--codex/--no-codex requires --ai" \
+  ./install.sh --dry-run --no-codex
 run_success "Standalone AI dry-run" "Herdr:                installed via mise" \
   ./scripts/install-ai.sh --dry-run
 run_success "Sway dry-run forwards local setup" \
@@ -253,13 +262,13 @@ run_failure "VM host and guest are mutually exclusive" \
 run_failure "VM guest excludes laptop hardware" \
   "--vm-guest and --hardware cannot be combined" \
   ./install.sh --dry-run --vm-guest --hardware ga402xz
-run_failure "Codex requires the AI profile" "--codex requires --ai" \
+run_failure "Codex requires the AI profile" "--codex/--no-codex requires --ai" \
   ./install.sh --dry-run --codex
-run_failure "FirstMate requires the AI profile" "--firstmate requires --ai" \
+run_failure "FirstMate requires the AI profile" "--firstmate/--no-firstmate requires --ai" \
   ./install.sh --dry-run --firstmate
-run_failure "GNHF requires the AI profile" "--gnhf requires --ai" \
+run_failure "GNHF requires the AI profile" "--gnhf/--no-gnhf requires --ai" \
   ./install.sh --dry-run --gnhf
-run_failure "backpass requires the AI profile" "--backpass requires --ai" \
+run_failure "backpass requires the AI profile" "--backpass/--no-backpass requires --ai" \
   ./install.sh --dry-run --backpass
 
 if find "$test_root/home" "$test_root/config" "$test_root/data" \

@@ -41,6 +41,39 @@ has logged and accepted an invocation, it executes an optional handler at
 shell changes or system/user service state; they do not widen the allow-list.
 This keeps command policy centralized while leaving domain fixtures auditable.
 
+### Supply-chain and transition suites
+
+Three suites carry the invariants from the AI/mise/supply-chain workstream:
+
+- `tests/test-supply-chain.sh` validates the network-source registry, proves
+  the linter fails closed on a new unregistered `curl`/`wget`/PowerShell
+  download, Git clone, or container image, rejects a registry row whose tier
+  and integrity mechanism contradict each other, rejects a wildcard used as
+  an exact pin, asserts no installer passes `--nogpgcheck` or pipes a
+  download into a shell, and exercises the bounded fetch policy (single
+  successful attempt, bounded retry on a transient failure, clear terminal
+  failure, empty-body rejection, non-HTTPS refusal, digest and shape
+  rejection).
+- `tests/test-mise-context.sh` copies `tests/fixtures/unrelated-project`,
+  whose `.mise.toml` declares a sentinel tool, and runs the real global and
+  AI bootstraps from inside it, from a nested directory inside it, from
+  `$HOME`, and from the dotfiles checkout. The resolved tool set must be
+  identical every time and must never contain the sentinel. The fixture
+  first proves it *can* see the sentinel without isolation, so the test
+  cannot pass vacuously.
+- `tests/test-ai-transitions.sh` walks the full optional-component matrix:
+  fresh core-only install, add one component, no-op rerun, full install,
+  rerun omitting an installed component, dry-run preview, declined removal,
+  explicit removal, a removal refused because the target was user-modified,
+  an enabled-but-missing component, a disabled-but-present component, an
+  interrupted transition and its recovery, and a lost state file. Each step
+  asserts both the profile state and the filesystem.
+
+`tests/test-ai-profile.sh` additionally covers the staged-installation
+failure modes: a failing `curl` that a piped consumer would have reported as
+success, an empty body, markup instead of a script, a digest mismatch, and an
+installer that runs but produces the wrong target.
+
 ## Scheduled/manual real-install validation
 
 `.github/workflows/real-install.yml` is intentionally separate from normal PR

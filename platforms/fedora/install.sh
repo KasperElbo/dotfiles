@@ -19,7 +19,10 @@ install_sway=false; install_vm_host=false; install_vm_guest=false
 install_hardening=false; install_desktop_tools=false
 desktop_tools_force_defaults=false; install_containers=false
 containers_api_socket=false; install_tailscale=false; install_ai=false
-ai_codex=false; ai_firstmate=false; ai_gnhf=false; ai_backpass=false
+# Empty means the sub-flag was omitted. install-ai.sh treats that as
+# additive -- keep whatever is already installed -- so it must stay
+# distinguishable from an explicit --no-<component> removal request.
+ai_codex=''; ai_firstmate=''; ai_gnhf=''; ai_backpass=''
 hardware_model=''; hardware_secure_boot=false; hardware_charge_limit=''
 interactive=true; dry_run=false
 
@@ -89,10 +92,10 @@ case "$hardware_model" in '' | ga402xz | ga402rk) ;; *) die "Invalid hardware pr
 [[ "$hardware_secure_boot" != true || -n "$hardware_model" ]] || die '--secure-boot requires --hardware'
 [[ "$desktop_tools_force_defaults" != true || "$install_desktop_tools" == true ]] || die '--desktop-tools-force-defaults requires --desktop-tools'
 [[ "$containers_api_socket" != true || "$install_containers" == true ]] || die '--containers-api-socket requires --containers'
-[[ "$ai_codex" != true || "$install_ai" == true ]] || die '--codex requires --ai'
-[[ "$ai_firstmate" != true || "$install_ai" == true ]] || die '--firstmate requires --ai'
-[[ "$ai_gnhf" != true || "$install_ai" == true ]] || die '--gnhf requires --ai'
-[[ "$ai_backpass" != true || "$install_ai" == true ]] || die '--backpass requires --ai'
+[[ -z "$ai_codex" || "$install_ai" == true ]] || die '--codex/--no-codex requires --ai'
+[[ -z "$ai_firstmate" || "$install_ai" == true ]] || die '--firstmate/--no-firstmate requires --ai'
+[[ -z "$ai_gnhf" || "$install_ai" == true ]] || die '--gnhf/--no-gnhf requires --ai'
+[[ -z "$ai_backpass" || "$install_ai" == true ]] || die '--backpass/--no-backpass requires --ai'
 [[ "$install_vm_host" != true || "$install_vm_guest" != true ]] || die '--vm-host and --vm-guest cannot be combined'
 [[ "$install_vm_guest" != true || -z "$hardware_model" ]] || die '--vm-guest and --hardware cannot be combined'
 if [[ -n "$hardware_charge_limit" ]]; then
@@ -135,10 +138,10 @@ build_rerun_command() {
   [[ "$containers_api_socket" != true ]] || args+=(--containers-api-socket)
   [[ "$install_tailscale" != true ]] || args+=(--tailscale)
   [[ "$install_ai" != true ]] || args+=(--ai)
-  [[ "$ai_codex" != true ]] || args+=(--codex)
-  [[ "$ai_firstmate" != true ]] || args+=(--firstmate)
-  [[ "$ai_gnhf" != true ]] || args+=(--gnhf)
-  [[ "$ai_backpass" != true ]] || args+=(--backpass)
+  case "$ai_codex" in true) args+=(--codex) ;; false) args+=(--no-codex) ;; esac
+  case "$ai_firstmate" in true) args+=(--firstmate) ;; false) args+=(--no-firstmate) ;; esac
+  case "$ai_gnhf" in true) args+=(--gnhf) ;; false) args+=(--no-gnhf) ;; esac
+  case "$ai_backpass" in true) args+=(--backpass) ;; false) args+=(--no-backpass) ;; esac
   if [[ "$hardware_selected" == true ]]; then
     args+=(--hardware "$hardware_model")
     [[ "$hardware_secure_boot" != true ]] || args+=(--secure-boot)
@@ -187,7 +190,7 @@ apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
 apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh"; }
 apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
 apply_ocaml() { "$DOTFILES_ROOT/common/install-ocaml.sh"; }
-apply_ai() { local args=(); [[ "$ai_codex" != true ]] || args+=(--codex); [[ "$ai_firstmate" != true ]] || args+=(--firstmate); [[ "$ai_gnhf" != true ]] || args+=(--gnhf); [[ "$ai_backpass" != true ]] || args+=(--backpass); "$DOTFILES_ROOT/common/install-ai.sh" "${args[@]}"; }
+apply_ai() { local args=(); case "$ai_codex" in true) args+=(--codex) ;; false) args+=(--no-codex) ;; esac; case "$ai_firstmate" in true) args+=(--firstmate) ;; false) args+=(--no-firstmate) ;; esac; case "$ai_gnhf" in true) args+=(--gnhf) ;; false) args+=(--no-gnhf) ;; esac; case "$ai_backpass" in true) args+=(--backpass) ;; false) args+=(--no-backpass) ;; esac; [[ "$interactive" == true ]] || args+=(--non-interactive); "$DOTFILES_ROOT/common/install-ai.sh" "${args[@]}"; }
 apply_kde() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-kde-theme.sh"; }
 apply_latex() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-latex.sh"; }
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
@@ -212,7 +215,7 @@ plan_add mise 'Install mise-managed runtimes and developer tools' apply : apply_
 plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim : 'common/install-neovim-tools.sh'
 plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
 [[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and Platform tools' apply : apply_ocaml : "OCaml ${OCAML_COMPILER_VERSION:-5.5.0}; common/install-ocaml.sh"
-if [[ "$install_ai" == true ]]; then ai_note='common/install-ai.sh'; [[ "$ai_codex" != true ]] || ai_note+=' --codex'; [[ "$ai_firstmate" != true ]] || ai_note+=' --firstmate'; [[ "$ai_gnhf" != true ]] || ai_note+=' --gnhf'; [[ "$ai_backpass" != true ]] || ai_note+=' --backpass'; plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$ai_note"; fi
+if [[ "$install_ai" == true ]]; then ai_note='common/install-ai.sh'; case "$ai_codex" in true) ai_note+=' --codex' ;; false) ai_note+=' --no-codex' ;; esac; case "$ai_firstmate" in true) ai_note+=' --firstmate' ;; false) ai_note+=' --no-firstmate' ;; esac; case "$ai_gnhf" in true) ai_note+=' --gnhf' ;; false) ai_note+=' --no-gnhf' ;; esac; case "$ai_backpass" in true) ai_note+=' --backpass' ;; false) ai_note+=' --no-backpass' ;; esac; plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$ai_note"; fi
 [[ "$install_kde" != enabled ]] || plan_add kde 'Install all four Catppuccin KDE themes' apply : apply_kde : 'platforms/fedora/scripts/install-kde-theme.sh'
 [[ "$install_latex" != enabled ]] || plan_add latex 'Install LaTeX toolchain' apply : apply_latex : 'platforms/fedora/scripts/install-latex.sh'
 plan_add theme "Apply Catppuccin $theme" apply : apply_theme : "theme $theme"
@@ -239,10 +242,10 @@ Containers profile:  $install_containers
 Containers API socket: $containers_api_socket
 Tailscale profile:   $install_tailscale
 AI profile:          $install_ai
-AI Codex subcomponent: $ai_codex
-AI FirstMate subcomponent: $ai_firstmate
-AI GNHF subcomponent: $ai_gnhf
-AI backpass subcomponent: $ai_backpass
+AI Codex subcomponent: ${ai_codex:-inherit}
+AI FirstMate subcomponent: ${ai_firstmate:-inherit}
+AI GNHF subcomponent: ${ai_gnhf:-inherit}
+AI backpass subcomponent: ${ai_backpass:-inherit}
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}

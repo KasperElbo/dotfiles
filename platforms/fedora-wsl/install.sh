@@ -18,7 +18,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/containers.sh"
 
 theme=macchiato; install_ocaml=false; install_latex=false
 install_containers=false; containers_api_socket=false; install_ai=false
-ai_codex=false; ai_firstmate=false; ai_gnhf=false; ai_backpass=false
+# Empty means the sub-flag was omitted. install-ai.sh treats that as
+# additive -- keep whatever is already installed -- so it must stay
+# distinguishable from an explicit --no-<component> removal request.
+ai_codex=''; ai_firstmate=''; ai_gnhf=''; ai_backpass=''
 interactive=true; dry_run=false; run_smoke_tests=false
 
 usage() {
@@ -68,10 +71,10 @@ while (($#)); do
 done
 case "$theme" in latte | frappe | macchiato | mocha) ;; *) die "Invalid Catppuccin flavour: $theme" ;; esac
 [[ "$containers_api_socket" != true || "$install_containers" == true ]] || die '--containers-api-socket requires --containers'
-[[ "$ai_codex" != true || "$install_ai" == true ]] || die '--codex requires --ai'
-[[ "$ai_firstmate" != true || "$install_ai" == true ]] || die '--firstmate requires --ai'
-[[ "$ai_gnhf" != true || "$install_ai" == true ]] || die '--gnhf requires --ai'
-[[ "$ai_backpass" != true || "$install_ai" == true ]] || die '--backpass requires --ai'
+[[ -z "$ai_codex" || "$install_ai" == true ]] || die '--codex/--no-codex requires --ai'
+[[ -z "$ai_firstmate" || "$install_ai" == true ]] || die '--firstmate/--no-firstmate requires --ai'
+[[ -z "$ai_gnhf" || "$install_ai" == true ]] || die '--gnhf/--no-gnhf requires --ai'
+[[ -z "$ai_backpass" || "$install_ai" == true ]] || die '--backpass/--no-backpass requires --ai'
 
 preflight_wsl() {
   require_regular_user; require_fedora_wsl
@@ -100,7 +103,7 @@ apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh"; }
 apply_ocaml() { "$DOTFILES_ROOT/common/install-ocaml.sh"; }
 apply_containers() { local args=(); [[ "$containers_api_socket" != true ]] || args+=(--api-socket); "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/install-containers.sh" "${args[@]}"; }
 apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
-apply_ai() { local args=(); [[ "$ai_codex" != true ]] || args+=(--codex); [[ "$ai_firstmate" != true ]] || args+=(--firstmate); [[ "$ai_gnhf" != true ]] || args+=(--gnhf); [[ "$ai_backpass" != true ]] || args+=(--backpass); "$DOTFILES_ROOT/common/install-ai.sh" "${args[@]}"; }
+apply_ai() { local args=(); case "$ai_codex" in true) args+=(--codex) ;; false) args+=(--no-codex) ;; esac; case "$ai_firstmate" in true) args+=(--firstmate) ;; false) args+=(--no-firstmate) ;; esac; case "$ai_gnhf" in true) args+=(--gnhf) ;; false) args+=(--no-gnhf) ;; esac; case "$ai_backpass" in true) args+=(--backpass) ;; false) args+=(--no-backpass) ;; esac; [[ "$interactive" == true ]] || args+=(--non-interactive); "$DOTFILES_ROOT/common/install-ai.sh" "${args[@]}"; }
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
 verify_wsl() { local args=(); [[ "$run_smoke_tests" != true ]] || args+=(--smoke-test); [[ "$install_latex" != true ]] || args+=(--latex); "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify.sh" "${args[@]}"; }
 
@@ -120,7 +123,7 @@ if [[ "$install_containers" == true ]]; then
 fi
 plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
 if [[ "$install_ai" == true ]]; then
-  ai_note='common/install-ai.sh'; [[ "$ai_codex" != true ]] || ai_note+=' --codex'; [[ "$ai_firstmate" != true ]] || ai_note+=' --firstmate'; [[ "$ai_gnhf" != true ]] || ai_note+=' --gnhf'; [[ "$ai_backpass" != true ]] || ai_note+=' --backpass'
+  ai_note='common/install-ai.sh'; case "$ai_codex" in true) ai_note+=' --codex' ;; false) ai_note+=' --no-codex' ;; esac; case "$ai_firstmate" in true) ai_note+=' --firstmate' ;; false) ai_note+=' --no-firstmate' ;; esac; case "$ai_gnhf" in true) ai_note+=' --gnhf' ;; false) ai_note+=' --no-gnhf' ;; esac; case "$ai_backpass" in true) ai_note+=' --backpass' ;; false) ai_note+=' --no-backpass' ;; esac
   plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$ai_note"
 fi
 plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme"
@@ -138,8 +141,8 @@ LaTeX toolchain:    $install_latex
 Containers profile: $install_containers
 Containers API socket: $containers_api_socket
 AI profile:         $install_ai
-AI Codex subcomponent:     $ai_codex
-AI FirstMate subcomponent: $ai_firstmate
+AI Codex subcomponent:     ${ai_codex:-inherit}
+AI FirstMate subcomponent: ${ai_firstmate:-inherit}
 AI GNHF subcomponent:      $ai_gnhf
 AI backpass subcomponent:  $ai_backpass
 Workflow smoke test: $run_smoke_tests
