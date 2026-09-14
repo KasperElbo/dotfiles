@@ -382,7 +382,7 @@ check_easy_dotnet_debugger() {
     pass "EasyDotnet debugger does not resolve through Mason"
   fi
 
-  EASY_DOTNET_DEBUGGER_PATH="$debugger_path"
+  export EASY_DOTNET_DEBUGGER_PATH="$debugger_path"
 
   ((VERIFY_FAILURES == 0))
 }

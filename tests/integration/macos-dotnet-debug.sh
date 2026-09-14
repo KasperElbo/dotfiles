@@ -130,11 +130,14 @@ printf 'Rosetta package: %s\nLegacy x86_64 start: %s\nLegacy x86_64 -> arm64 DAP
   "$rosetta_package" "$legacy_start" "$legacy_dap"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  summary_dotnet='`dotnet`'
+  summary_platform='`osx-arm64`'
+  summary_value='`value == 42`'
   {
     printf '## Apple Silicon .NET debugger evidence\n\n'
-    printf -- '- `dotnet`: arm64\n'
-    printf -- '- selected provider: EasyDotnet bundled netcoredbg (`osx-arm64`)\n'
-    printf -- '- native breakpoint/evaluate interaction: passed (`value == 42`)\n'
+    printf -- '- %s: arm64\n' "$summary_dotnet"
+    printf -- '- selected provider: EasyDotnet bundled netcoredbg (%s)\n' "$summary_platform"
+    printf -- '- native breakpoint/evaluate interaction: passed (%s)\n' "$summary_value"
     printf -- '- Rosetta package: %s\n' "$rosetta_package"
     printf -- '- legacy x86_64 binary start: %s\n' "$legacy_start"
     printf -- '- legacy x86_64 debugger -> native arm64 CoreCLR: %s\n' "$legacy_dap"
