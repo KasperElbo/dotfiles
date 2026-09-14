@@ -15,6 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fedora.sh"
 
 theme=macchiato; install_kde=auto; install_latex=auto; install_ocaml=false
+run_dev_workflows=false
 install_sway=false; install_vm_host=false; install_vm_guest=false
 install_hardening=false; install_desktop_tools=false
 desktop_tools_force_defaults=false; install_containers=false
@@ -55,6 +56,7 @@ Options:
   --hardware MODEL   ga402xz or ga402rk
   --secure-boot      Require Secure Boot for selected hardware
   --charge-limit N   ASUS battery limit (40-100)
+  --dev-workflows    Run the disposable development workflow smoke tests
   --dry-run          Show the resolved plan without changing anything
   --non-interactive  Use defaults without prompting (requires cached sudo)
   -h, --help         Show this help
@@ -83,6 +85,7 @@ while (($#)); do
   --hardware) [[ $# -ge 2 ]] || die '--hardware requires a value'; hardware_model="$2"; shift 2 ;;
   --secure-boot) hardware_secure_boot=true; shift ;;
   --charge-limit) [[ $# -ge 2 ]] || die '--charge-limit requires a value'; hardware_charge_limit="$2"; shift 2 ;;
+  --dev-workflows) run_dev_workflows=true; shift ;; --no-dev-workflows) run_dev_workflows=false; shift ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
   -h | --help) usage; exit 0 ;;
@@ -198,6 +201,7 @@ apply_kde() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-kde-theme.sh"; }
 apply_latex() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-latex.sh"; }
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
 verify_fedora() { "$DOTFILES_ROOT/platforms/fedora/scripts/verify.sh"; }
+apply_dev_workflows() { local args=(--all); [[ "$install_ocaml" != true ]] || args+=(--ocaml); [[ "$install_latex" != enabled ]] || args+=(--latex); "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" "${args[@]}"; }
 
 plan_add system 'Install Fedora system packages' apply preflight_fedora apply_system : "Set Zsh as the user's default login shell. platforms/fedora/scripts/install-system.sh"
 plan_add terra 'Enable Terra and install Terra-managed packages' apply : apply_terra : 'platforms/fedora/scripts/install-terra.sh'
@@ -222,6 +226,10 @@ if [[ "$install_ai" == true ]]; then ai_note='common/install-ai.sh'; case "$ai_c
 [[ "$install_kde" != enabled ]] || plan_add kde 'Install all four Catppuccin KDE themes' apply : apply_kde : 'platforms/fedora/scripts/install-kde-theme.sh'
 [[ "$install_latex" != enabled ]] || plan_add latex 'Install LaTeX toolchain' apply : apply_latex : 'platforms/fedora/scripts/install-latex.sh'
 plan_add theme "Apply Catppuccin $theme" apply : apply_theme : "theme $theme"
+if [[ "$run_dev_workflows" == true ]]; then
+  dev_workflows_note='scripts/test-dev-workflows.sh --all'; [[ "$install_ocaml" != true ]] || dev_workflows_note+=' --ocaml'; [[ "$install_latex" != enabled ]] || dev_workflows_note+=' --latex'
+  plan_add dev-workflows 'Run the disposable development workflow smoke tests' verify : apply_dev_workflows : "$dev_workflows_note"
+fi
 plan_add verify 'Verify installation' verify : verify_fedora : 'platforms/fedora/scripts/verify.sh'
 
 bool_kde=false; [[ "$install_kde" != enabled ]] || bool_kde=true
@@ -252,6 +260,7 @@ AI backpass subcomponent: ${ai_backpass:-inherit}
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
+Development workflow smoke tests: $run_dev_workflows
 
 EOF
   plan_render

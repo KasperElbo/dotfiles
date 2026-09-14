@@ -83,6 +83,7 @@ default_tests=(
   tests/test-neovim-tool-ownership.sh
   tests/test-csharpier-ownership.sh
   tests/test-json-workflow.sh
+  tests/test-dev-workflow-contract.sh
   tests/test-dotnet-debugger-contract.sh
   tests/test-dap-smoke.py
   tests/test-neovim-bootstrap.sh

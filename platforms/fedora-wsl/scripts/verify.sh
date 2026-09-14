@@ -10,13 +10,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/wsl.sh"
 
 verify_reset
-run_smoke_tests="false"
+run_dev_workflows="false"
 verify_latex="false"
 
 while (($#)); do
   case "$1" in
+  --dev-workflows)
+    run_dev_workflows="true"
+    ;;
   --smoke-test)
-    run_smoke_tests="true"
+    # Deprecated spelling of --dev-workflows, kept because it is documented in
+    # released instructions. It resolves to identical behavior.
+    printf 'WARNING: --smoke-test is deprecated; use --dev-workflows instead.\n' >&2
+    run_dev_workflows="true"
     ;;
   --latex)
     verify_latex="true"
@@ -423,10 +429,10 @@ if [[ -f "$containers_state" ]]; then
   fi
 fi
 
-if [[ "$run_smoke_tests" == "true" ]]; then
+if [[ "$run_dev_workflows" == "true" ]]; then
   section "Development workflow smoke tests"
   if "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --all; then
-    pass ".NET, Angular/TypeScript and Python workflows"
+    pass ".NET, Angular/TypeScript, Python and JSON workflows"
   else
     fail "One or more development workflow smoke tests failed"
   fi

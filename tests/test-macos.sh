@@ -33,13 +33,13 @@ if GITHUB_ACTIONS=false RUNNER_ENVIRONMENT=github-hosted macos_is_github_hosted_
   exit 1
 fi
 
-dry_run="$("$repo_root"/install.sh --platform macos --dry-run --ocaml --containers --workflows)"
+dry_run="$("$repo_root"/install.sh --platform macos --dry-run --ocaml --containers --dev-workflows)"
 assert_contains "$dry_run" 'Apple Silicon macOS installation plan'
 assert_contains "$dry_run" 'AeroSpace (Sway-compatible nine-workspace profile)'
 assert_contains "$dry_run" 'Homebrew at /opt/homebrew'
 assert_contains "$dry_run" 'OCaml profile:      true'
 assert_contains "$dry_run" 'Containers profile: true'
-assert_contains "$dry_run" 'Development tests:  true'
+assert_contains "$dry_run" 'Development workflow smoke tests: true'
 assert_contains "$dry_run" 'Podman machine'
 assert_contains "$dry_run" 'AI tooling profile: unavailable until repository issue #16 lands'
 assert_contains "$dry_run" 'No changes were made.'
@@ -196,6 +196,7 @@ fi
 grep -Fq 'nvim-macos' "$macos_root/scripts/stow.sh"
 grep -Fq 'nvim-macos' "$macos_root/scripts/verify.sh"
 grep -Fq './scripts/test-dev-workflows.sh --latex' "$repo_root/docs/macos.md"
+grep -Fq './install.sh --platform macos --dev-workflows' "$repo_root/docs/macos.md"
 
 # gnubin supplies GNU tools macOS does not ship without shadowing Apple's
 # coreutils. /etc/zprofile runs path_helper after .zshenv, so nothing set there

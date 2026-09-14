@@ -22,7 +22,7 @@ install_containers=false; containers_api_socket=false; install_ai=false
 # additive -- keep whatever is already installed -- so it must stay
 # distinguishable from an explicit --no-<component> removal request.
 ai_codex=''; ai_firstmate=''; ai_gnhf=''; ai_backpass=''
-interactive=true; dry_run=false; run_smoke_tests=false
+interactive=true; dry_run=false; run_dev_workflows=false
 
 usage() {
   cat <<'EOF'
@@ -42,7 +42,8 @@ Options:
                      AI subcomponents are additive: omitting one leaves it
                      installed. --no-<component> is the only thing that
                      removes one, and it confirms first.
-  --smoke-test
+  --dev-workflows    Run the disposable development workflow smoke tests
+                     (--smoke-test is the deprecated spelling of this)
   --dry-run          Show the resolved plan without changing anything
   --non-interactive  Use defaults without prompting (requires cached sudo)
   -h, --help         Show this help
@@ -64,7 +65,8 @@ while (($#)); do
   --firstmate) ai_firstmate=true; shift ;; --no-firstmate) ai_firstmate=false; shift ;;
   --gnhf) ai_gnhf=true; shift ;; --no-gnhf) ai_gnhf=false; shift ;;
   --backpass) ai_backpass=true; shift ;; --no-backpass) ai_backpass=false; shift ;;
-  --smoke-test) run_smoke_tests=true; shift ;;
+  --dev-workflows) run_dev_workflows=true; shift ;; --no-dev-workflows) run_dev_workflows=false; shift ;;
+  --smoke-test) warn '--smoke-test is deprecated; use --dev-workflows instead.'; run_dev_workflows=true; shift ;;
   --tailscale | --no-tailscale) die '--tailscale is not supported on Fedora WSL: install Tailscale on the Windows host instead.' ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
@@ -108,7 +110,7 @@ apply_containers() { local args=(); [[ "$containers_api_socket" != true ]] || ar
 apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
 apply_ai() { local args=(); case "$ai_codex" in true) args+=(--codex) ;; false) args+=(--no-codex) ;; esac; case "$ai_firstmate" in true) args+=(--firstmate) ;; false) args+=(--no-firstmate) ;; esac; case "$ai_gnhf" in true) args+=(--gnhf) ;; false) args+=(--no-gnhf) ;; esac; case "$ai_backpass" in true) args+=(--backpass) ;; false) args+=(--no-backpass) ;; esac; [[ "$interactive" == true ]] || args+=(--non-interactive); "$DOTFILES_ROOT/common/install-ai.sh" "${args[@]}"; }
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
-verify_wsl() { local args=(); [[ "$run_smoke_tests" != true ]] || args+=(--smoke-test); [[ "$install_latex" != true ]] || args+=(--latex); "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify.sh" "${args[@]}"; }
+verify_wsl() { local args=(); [[ "$run_dev_workflows" != true ]] || args+=(--dev-workflows); [[ "$install_latex" != true ]] || args+=(--latex); "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify.sh" "${args[@]}"; }
 
 plan_add system 'Install Fedora command-line prerequisites and Linux-native mise' apply preflight_wsl apply_system : "Set Zsh as the user's default login shell. platforms/fedora-wsl/scripts/install-system.sh"
 plan_add interop 'Preserve explicit Windows executable interop without Windows PATH entries' apply : apply_interop : 'platforms/fedora-wsl/scripts/configure-interop.sh; enabled=true, appendWindowsPath=false'
@@ -130,7 +132,7 @@ if [[ "$install_ai" == true ]]; then
   plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$ai_note"
 fi
 plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme"
-verify_note='platforms/fedora-wsl/scripts/verify.sh'; [[ "$run_smoke_tests" != true ]] || verify_note+=' --smoke-test'; [[ "$install_latex" != true ]] || verify_note+=' --latex'
+verify_note='platforms/fedora-wsl/scripts/verify.sh'; [[ "$run_dev_workflows" != true ]] || verify_note+=' --dev-workflows'; [[ "$install_latex" != true ]] || verify_note+=' --latex'
 plan_add verify 'Verify WSL detection, Linux command ownership, and runtime startup' verify : verify_wsl : "$verify_note"
 
 if [[ "$dry_run" == true ]]; then
@@ -148,7 +150,7 @@ AI Codex subcomponent:     ${ai_codex:-inherit}
 AI FirstMate subcomponent: ${ai_firstmate:-inherit}
 AI GNHF subcomponent:      $ai_gnhf
 AI backpass subcomponent:  $ai_backpass
-Workflow smoke test: $run_smoke_tests
+Development workflow smoke tests: $run_dev_workflows
 
 EOF
   plan_render

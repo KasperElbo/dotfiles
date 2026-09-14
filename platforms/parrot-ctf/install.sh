@@ -33,6 +33,8 @@ Options:
 
 This is a KVM/QEMU lab-guest profile. Parrot owns its security catalogue;
 Fedora, desktop, VM-host, LaTeX, OCaml, containers, and AI are unsupported.
+Development workflow smoke tests (--dev-workflows) are unsupported too: the
+reduced profile has no workstation language runtimes to exercise.
 EOF
 }
 
@@ -46,6 +48,8 @@ while (($#)); do
     ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
+  --dev-workflows | --no-dev-workflows | --smoke-test | --workflows | --no-workflows)
+    die 'Development workflow smoke tests are not supported on parrot-ctf: the reduced profile deliberately has no .NET, Node or Angular runtime. Run them on a workstation profile instead.' ;;
   -h | --help) usage; exit 0 ;;
   *) die "Unknown option for parrot-ctf: $1" ;;
   esac
