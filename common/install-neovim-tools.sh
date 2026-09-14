@@ -47,6 +47,45 @@ if ! printf '%s\n' "${mason_packages[@]}" | grep -Fxq 'tree-sitter-cli'; then
   die "Mason inventory must include tree-sitter-cli so bootstrap has one explicit owner"
 fi
 
+# Optional pins for packages whose registry advertises a build before that
+# build's platform archives exist upstream. Pinned packages are installed at
+# the recorded version; everything else tracks the refreshed registries.
+version_pin_file="$DOTFILES_ROOT/common/mason-package-versions.txt"
+mason_version_pins=()
+if [[ -e "$version_pin_file" ]]; then
+  [[ -r "$version_pin_file" ]] ||
+    die "Mason version pin file is not readable: $version_pin_file"
+
+  while IFS= read -r pin_line; do
+    read -r pin_package pin_version pin_extra <<<"$pin_line"
+    [[ -n "${pin_package:-}" ]] || continue
+    [[ -z "${pin_extra:-}" ]] || die "Invalid Mason version pin: $pin_line"
+    [[ "$pin_package" =~ ^[a-z0-9][a-z0-9._-]*$ ]] ||
+      die "Invalid Mason package name in version pins: $pin_package"
+    [[ -n "${pin_version:-}" ]] ||
+      die "Mason version pin is missing a version: $pin_package"
+    [[ "$pin_version" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] ||
+      die "Invalid Mason version pin for $pin_package: $pin_version"
+
+    # The same pin file serves every profile, so a pin for a package this
+    # profile does not install is not an error.
+    printf '%s\n' "${mason_packages[@]}" | grep -Fxq "$pin_package" || continue
+    mason_version_pins+=("$pin_package=$pin_version")
+  done < <(sed -e 's/#.*$//' -e '/^[[:space:]]*$/d' "$version_pin_file")
+fi
+
+mason_version_pin() {
+  local package="$1"
+  local pin
+
+  for pin in ${mason_version_pins[@]+"${mason_version_pins[@]}"}; do
+    if [[ "$pin" == "$package="* ]]; then
+      printf '%s\n' "${pin#*=}"
+      return 0
+    fi
+  done
+}
+
 bootstrap_timeout="${NEOVIM_BOOTSTRAP_TIMEOUT:-20m}"
 [[ "$bootstrap_timeout" =~ ^[1-9][0-9]*[smhd]?$ ]] ||
   die "Invalid NEOVIM_BOOTSTRAP_TIMEOUT: $bootstrap_timeout"
@@ -100,10 +139,21 @@ for package in "${mason_packages[@]}"; do
 done
 
 if ((${#missing_packages[@]} > 0)); then
+  install_targets=()
+  for package in "${missing_packages[@]}"; do
+    pinned_version="$(mason_version_pin "$package")"
+    if [[ -n "$pinned_version" ]]; then
+      info "Pinning Mason package $package to $pinned_version"
+      install_targets+=("$package@$pinned_version")
+    else
+      install_targets+=("$package")
+    fi
+  done
+
   # Load Mason directly for this phase. MasonInstall blocks until the complete
   # declared inventory has converged, so tree-sitter-cli has one installer.
   DOTFILES_MASON_PLUGIN="$mason_plugin" \
-    DOTFILES_MASON_PACKAGES="${missing_packages[*]}" \
+    DOTFILES_MASON_PACKAGES="${install_targets[*]}" \
     run_nvim_phase 1 "Installing Mason editor tools" \
     -u NONE -l "$DOTFILES_ROOT/common/bootstrap-mason.lua"
 else

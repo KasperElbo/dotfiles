@@ -1,0 +1,22 @@
+# Pinned Mason package versions.
+#
+# Format: "<package> <version>", one pin per line. A package listed here is
+# installed at the pinned version instead of whatever the refreshed Mason
+# registries currently advertise. Packages absent from this file continue to
+# track their registry. Pins that name a package outside the profile being
+# installed are ignored, so one file serves every Neovim profile.
+#
+# Only pin a package when tracking its registry is actually unsafe, and record
+# why here.
+
+# roslyn is served by the third-party github:Crashdummyy/mason-registry, which
+# publishes a registry release every day pointing at the matching
+# roslynLanguageServer release. That upstream release is created before its
+# per-platform archives are uploaded, so a registry release can advertise a
+# version whose downloads return 404 for every platform. Real installations
+# then fail at "Package roslyn failed ... wget failed with exit code 8", which
+# is what broke the scheduled real-install validation on 2026-09-14 for
+# 5.12.0-1.26463.1 (that release still carries only its source archives).
+# Pin a release whose six platform archives are all published so installs are
+# reproducible rather than dependent on the timing of an upstream nightly job.
+roslyn 5.12.0-1.26462.1

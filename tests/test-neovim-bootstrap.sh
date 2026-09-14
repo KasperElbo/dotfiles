@@ -35,8 +35,12 @@ for argument in "$@"; do
 
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
     [[ "${MOCK_NVIM_FAIL_MASON:-false}" != "true" ]] || exit 23
+    printf 'mason-targets=%s\n' "$DOTFILES_MASON_PACKAGES" >>"$COMMAND_LOG"
     mkdir -p "$XDG_DATA_HOME/nvim/mason/bin"
-    for package in $DOTFILES_MASON_PACKAGES; do
+    for target in $DOTFILES_MASON_PACKAGES; do
+      # Mason stores a package under its name whether or not the request
+      # carried an "@version" pin.
+      package="${target%%@*}"
       mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
       if [[ "$package" == tree-sitter-cli ]]; then
         cat >"$XDG_DATA_HOME/nvim/mason/bin/tree-sitter" <<'TREEEOF'
@@ -87,6 +91,34 @@ while IFS= read -r package; do
 done <"$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt"
 [[ -x "$test_root/data/nvim/mason/bin/tree-sitter" ]] || {
   printf 'tree-sitter-cli was not exposed through the Mason bin directory\n' >&2
+  exit 1
+}
+
+# Packages recorded in the pin file must be requested at that exact version so
+# a registry release that advertises an unpublished upstream build cannot break
+# a real installation. Everything else must stay unpinned.
+pin_file="$repo_root/common/mason-package-versions.txt"
+mason_targets="$(grep -F 'mason-targets=' "$command_log" | head -n1)"
+while read -r pinned_package pinned_version _; do
+  [[ -n "$pinned_package" ]] || continue
+  grep -Fxq "$pinned_package" \
+    "$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt" || continue
+  [[ "$mason_targets" == *" $pinned_package@$pinned_version"* ||
+    "$mason_targets" == *"=$pinned_package@$pinned_version"* ]] || {
+    printf 'Mason install did not request the pinned version of %s (%s):\n%s\n' \
+      "$pinned_package" "$pinned_version" "$mason_targets" >&2
+    exit 1
+  }
+  [[ -d "$test_root/data/nvim/mason/packages/$pinned_package" ]] || {
+    printf 'Pinned Mason package was not installed under its plain name: %s\n' \
+      "$pinned_package" >&2
+    exit 1
+  }
+done < <(sed -e 's/#.*$//' -e '/^[[:space:]]*$/d' "$pin_file")
+
+[[ "$mason_targets" == *' stylua '* || "$mason_targets" == *' stylua' ]] || {
+  printf 'Unpinned Mason packages must be requested without a version:\n%s\n' \
+    "$mason_targets" >&2
   exit 1
 }
 
