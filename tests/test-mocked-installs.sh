@@ -138,7 +138,6 @@ case "$*" in
 'enable --now firewalld.service' | \
 'enable --now asusd.service' | \
 'start asusd.service' | \
-'enable --now asusd.service' | \
 'enable --now asus-shutdown.service' | \
 'mask --now power-profiles-daemon.service' | \
 'mask --now tuned-ppd.service' | \
