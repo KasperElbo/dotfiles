@@ -57,7 +57,7 @@ function Write-VerificationFailure {
 function Normalize-ObservedPath {
     param([string]$Value)
 
-    if ($Value -notmatch '^[A-Za-z]:[\/]') {
+    if ($Value -notmatch '^[A-Za-z]:[\\/]') {
         return [IO.Path]::GetFullPath($Value)
     }
 
@@ -91,7 +91,7 @@ function Test-PathWithinRoot {
         $trimCharacters = [char[]]@('\', '/')
         $fullPath = (Normalize-ObservedPath $Path).TrimEnd($trimCharacters)
         $fullRoot = (Normalize-ObservedPath $Root).TrimEnd($trimCharacters)
-        $separator = if ($Path -match '^[A-Za-z]:[\/]') { '\' } else { [IO.Path]::DirectorySeparatorChar }
+        $separator = if ($Path -match '^[A-Za-z]:[\\/]') { '\' } else { [IO.Path]::DirectorySeparatorChar }
         if ($fullPath.Equals($fullRoot, [StringComparison]::OrdinalIgnoreCase)) {
             return $true
         }
