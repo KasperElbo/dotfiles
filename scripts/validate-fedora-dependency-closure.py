@@ -69,6 +69,7 @@ def main() -> int:
             )
 
     def closure(platform: str, capability: str) -> set[str]:
+        nonlocal errors
         resolved: set[str] = set()
         pending = [capability]
         while pending:
@@ -78,6 +79,7 @@ def main() -> int:
             row = rows.get((platform, current))
             if row is None:
                 fail(f"{platform}/{capability}: missing capability {current}")
+                errors += 1
                 break
             resolved.add(current)
             pending.extend(split(row["dependencies"]))
