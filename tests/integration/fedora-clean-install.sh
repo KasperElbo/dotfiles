@@ -56,15 +56,25 @@ docker exec "$container" dnf --assumeyes install \
   firewalld git sudo shadow-utils >/dev/null
 docker exec "$container" systemctl enable --now firewalld.service >/dev/null
 
+# sudo approves an account through pam_unix, which shells out to the setuid
+# unix_chkpwd helper whenever it cannot read the shadow entry itself. That
+# helper does not work inside a privileged Fedora container on a GitHub-hosted
+# Ubuntu runner, so every sudo call in this fixture failed with "PAM account
+# management error: Authentication service cannot retrieve authentication info"
+# before the installer could reach its package-manager path. This is a known
+# container-transport defect (fedora-cloud/docker-brew-fedora#117), not
+# installer behavior, so approve container-local accounts from /etc/passwd
+# directly. Authorization is still decided by the real sudoers rules below and
+# the installer still performs every privileged action through real sudo.
+docker exec "$container" bash -c \
+  'printf "%s\n" "account    sufficient    pam_localuser.so" >/etc/pam.d/sudo.dotfiles-ci &&
+   cat /etc/pam.d/sudo >>/etc/pam.d/sudo.dotfiles-ci &&
+   cat /etc/pam.d/sudo.dotfiles-ci >/etc/pam.d/sudo &&
+   rm -f /etc/pam.d/sudo.dotfiles-ci'
+
 create_test_user() {
   local user="$1"
   docker exec "$container" useradd --create-home --shell /bin/bash "$user"
-
-  # useradd leaves a locked password in this minimal container. sudo still runs
-  # PAM account checks for NOPASSWD users, so make the disposable account valid
-  # in the same way a normal workstation login account is valid. Authentication
-  # remains disabled by the NOPASSWD sudoers rule below.
-  docker exec "$container" passwd --delete "$user" >/dev/null
   docker exec "$container" bash -c \
     "printf '%s\\n' '$user ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/$user && chmod 0440 /etc/sudoers.d/$user"
 
@@ -73,6 +83,14 @@ create_test_user() {
   if ! docker exec --user "$user" --env HOME="/home/$user" \
     "$container" sudo -n -v; then
     printf 'Disposable Fedora user %s does not have working non-interactive sudo.\n' "$user" >&2
+    printf 'Container sudo diagnostics follow.\n' >&2
+    docker exec "$container" getent passwd "$user" >&2 || true
+    docker exec "$container" bash -c \
+      "getent shadow '$user' || printf 'no shadow entry for %s\\n' '$user'" >&2 || true
+    docker exec "$container" cat /etc/pam.d/sudo >&2 || true
+    docker exec "$container" cat "/etc/sudoers.d/$user" >&2 || true
+    docker exec --user "$user" --env HOME="/home/$user" \
+      "$container" sudo -n -l >&2 || true
     return 1
   fi
 }

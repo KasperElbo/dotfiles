@@ -2986,6 +2986,22 @@ the same inventory, so later interactive starts retain the expected behavior.
 additional Mason packages so stale or manually installed tools can be reviewed
 instead of silently acquiring a second owner.
 
+### Pinned Mason versions
+
+Packages normally track whatever version their registry advertises.
+`common/mason-package-versions.txt` records the exceptions as
+`<package> <version>` lines, and the installer requests those packages as
+`package@version` instead. Pins that name a package outside the profile being
+installed are ignored, so one file serves every Neovim profile.
+
+`roslyn` is pinned. It is served by the third-party
+`github:Crashdummyy/mason-registry`, whose daily release points at the matching
+`roslynLanguageServer` release. That upstream release is created before its
+per-platform archives are uploaded, so the registry can advertise a version
+whose downloads return 404 on every platform and fail a real installation. Bump
+the pin after confirming the newer release actually carries its platform
+archives.
+
 ## Project-local tooling
 
 Project formatters, linters, compilers, and repository-specific CLIs should remain project-owned.

@@ -161,6 +161,23 @@ assert_contains "$repo_root/common/install-neovim-tools.sh" \
 assert_contains "$repo_root/common/install-neovim-tools.sh" \
   "-u NONE -l \"\$DOTFILES_ROOT/common/bootstrap-mason.lua\""
 assert_contains "$repo_root/common/install-neovim-tools.sh" \
+  'common/mason-package-versions.txt'
+
+# A version pin only makes sense for a package some profile actually installs,
+# and an unreadable pin file would silently stop pinning anything.
+mason_pin_file="$repo_root/common/mason-package-versions.txt"
+[[ -r "$mason_pin_file" ]] || fail "Mason version pin file is missing: $mason_pin_file"
+while read -r pinned_package pinned_version pinned_extra; do
+  [[ -n "$pinned_package" ]] || continue
+  [[ -z "$pinned_extra" ]] || fail "Malformed Mason version pin: $pinned_package"
+  [[ -n "$pinned_version" ]] ||
+    fail "Mason version pin is missing a version: $pinned_package"
+  if ! grep -Fxq "$pinned_package" "$mason_inventory_file" &&
+    ! grep -Fxq "$pinned_package" "$parrot_mason_inventory_file"; then
+    fail "Mason version pin names a package no profile installs: $pinned_package"
+  fi
+done < <(sed -e 's/#.*$//' -e '/^[[:space:]]*$/d' "$mason_pin_file")
+assert_contains "$repo_root/common/install-neovim-tools.sh" \
   'Package is already installing|Neovim is exiting while packages are still installing'
 assert_contains "$repo_root/common/install-neovim-tools.sh" \
   "'+Lazy! restore mason.nvim'"

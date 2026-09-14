@@ -447,7 +447,10 @@ for argument in "$@"; do
 
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
     mkdir -p "$XDG_DATA_HOME/nvim/mason/bin"
-    for package in $DOTFILES_MASON_PACKAGES; do
+    for target in $DOTFILES_MASON_PACKAGES; do
+      # Mason stores a package under its name whether or not the request
+      # carried an "@version" pin.
+      package="${target%%@*}"
       mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
       if [[ "$package" == tree-sitter-cli ]]; then
         cat >"$XDG_DATA_HOME/nvim/mason/bin/tree-sitter" <<'TREEEOF'

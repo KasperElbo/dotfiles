@@ -18,4 +18,6 @@ require("mason").setup({
 
 -- MasonInstall blocks in headless mode, exits non-zero for an invalid package
 -- or failed install, and refreshes the configured registries before installing.
+-- Entries may carry a "package@version" pin from common/mason-package-versions.txt;
+-- Mason resolves those against the registry entry instead of its latest version.
 require("mason.api.command").MasonInstall(vim.split(package_list, " ", { trimempty = true }))
