@@ -2,14 +2,17 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+
+test_install_cleanup_trap
 
 run_scenario() {
   local scenario_name="$1"
   local seed_sshd="$2"
 
-  local test_root
-  test_root="$(mktemp -d)"
-
+  test_new_root
+  local test_root="$TEST_ROOT"
   local mock_bin="$test_root/bin"
   local command_log="$test_root/commands.log"
   local fake_root="$test_root/fake-root"
@@ -17,11 +20,9 @@ run_scenario() {
   local active_units="$test_root/state/active-units"
   local enabled_units="$test_root/state/enabled-units"
   local sysctl_kv="$test_root/state/sysctl.kv"
-
   local selinux_fs_root="$test_root/selinux-fs"
 
-  mkdir -p "$mock_bin" "$test_root/home" "$test_root/xdg" \
-    "$fake_root/etc/selinux" "$(dirname "$selinux_state")" "$selinux_fs_root"
+  mkdir -p "$fake_root/etc/selinux" "$selinux_fs_root"
   : >"$command_log"
   : >"$active_units"
   : >"$enabled_units"
@@ -36,10 +37,11 @@ run_scenario() {
     printf 'sshd.service\n' >>"$enabled_units"
   fi
 
-  cat >"$mock_bin/dnf" <<'EOF'
-#!/usr/bin/env bash
-printf 'dnf %s\n' "$*" >>"$COMMAND_LOG"
-EOF
+  # Package-manager calls use the shared exact-argv stub. The scenario keeps
+  # stateful security/service commands local because they model Fedora state.
+  test_stub_init "$test_root"
+  test_stub_install "$test_root" dnf
+  test_stub_allow "$test_root" dnf install -y dnf5-plugin-automatic
 
   cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
@@ -226,7 +228,10 @@ dnf | systemctl | authselect | sshd | augenrules | auditctl | sysctl)
   "$cmd" "${args[@]}"
   ;;
 *)
-  "$cmd" "$@"
+  printf 'strict sudo fixture rejected unsupported command: %s' "$cmd" >&2
+  printf ' %q' "$@" >&2
+  printf '\n' >&2
+  exit 96
   ;;
 esac
 SUDO_EOF
@@ -234,11 +239,10 @@ SUDO_EOF
   chmod +x "$mock_bin"/*
   printf 'ID=fedora\n' >"$test_root/os-release"
 
+  mapfile -t base_environment < <(test_env_args "$test_root")
   local test_environment=(
     env
-    "HOME=$test_root/home"
-    "XDG_CONFIG_HOME=$test_root/xdg"
-    "XDG_DATA_HOME=$test_root/home/.local/share"
+    "${base_environment[@]}"
     "PATH=$mock_bin:$PATH"
     "COMMAND_LOG=$command_log"
     "OS_RELEASE_FILE=$test_root/os-release"
@@ -259,123 +263,83 @@ SUDO_EOF
 
   if ! run_install; then
     cat "$test_root/install-output.log" >&2
-    printf '[%s] install-hardening.sh failed\n' "$scenario_name" >&2
-    exit 1
+    _test_die "[$scenario_name] install-hardening.sh failed"
+    return 1
   fi
 
-  state_file="$test_root/xdg/dotfiles/hardening.conf"
-  [[ -f "$state_file" ]] ||
-    {
-      printf '[%s] state file missing: %s\n' "$scenario_name" "$state_file" >&2
-      exit 1
-    }
+  local state_file="$test_root/config/dotfiles/hardening.conf"
+  assert_path_exists "$state_file"
+  local first_state
   first_state="$(sha256sum "$state_file")"
 
   if ! run_install; then
     cat "$test_root/install-output.log" >&2
-    printf '[%s] rerun of install-hardening.sh failed\n' "$scenario_name" >&2
-    exit 1
+    _test_die "[$scenario_name] rerun of install-hardening.sh failed"
+    return 1
   fi
+  local second_state
   second_state="$(sha256sum "$state_file")"
+  assert_eq "$first_state" "$second_state" "[$scenario_name] hardening.conf changed on rerun"
 
-  [[ "$first_state" == "$second_state" ]] || {
-    printf '[%s] hardening.conf changed on rerun\n' "$scenario_name" >&2
-    exit 1
-  }
+  assert_file_line "$state_file" 'profile=hardening'
+  assert_file_line "$state_file" 'selinux_mode=enforcing'
+  assert_file_line "$state_file" 'faillock=true'
+  assert_file_line "$state_file" 'sysctl_ptrace_scope=1'
+  assert_file_line "$state_file" 'sysctl_kptr_restrict=2'
+  assert_file_line "$state_file" 'sysctl_dmesg_restrict=1'
+  assert_file_line "$state_file" 'dnf_automatic=notifyonly'
 
-  fail_with_context() {
-    local message="$1"
-    local file="${2:-}"
-    printf '[%s] %s\n' "$scenario_name" "$message" >&2
-    if [[ -n "$file" ]]; then
-      printf -- '--- %s ---\n' "$file" >&2
-      cat "$file" >&2 2>/dev/null || printf '(missing or unreadable)\n' >&2
-    fi
-    exit 1
-  }
+  assert_file_contains "$command_log" 'sudo setenforce 1'
+  assert_file_contains "$command_log" 'sudo authselect enable-feature with-faillock'
+  assert_file_contains "$command_log" 'sudo dnf install -y dnf5-plugin-automatic'
+  assert_file_contains "$command_log" 'systemctl enable --now dnf5-automatic.timer'
+  test_stub_assert_called "$test_root" dnf install -y dnf5-plugin-automatic
 
-  assert_line_in_file() {
-    local pattern="$1" file="$2"
-    grep -Fqx -- "$pattern" "$file" 2>/dev/null ||
-      fail_with_context "expected exact line '$pattern' in $file" "$file"
-  }
-
-  assert_in_file() {
-    local pattern="$1" file="$2"
-    grep -Fq -- "$pattern" "$file" 2>/dev/null ||
-      fail_with_context "expected '$pattern' in $file" "$file"
-  }
-
-  assert_in_string() {
-    local pattern="$1" haystack="$2" label="$3"
-    grep -Fq -- "$pattern" <<<"$haystack" ||
-      fail_with_context "expected '$pattern' in $label:\n$haystack"
-  }
-
-  assert_line_in_file 'profile=hardening' "$state_file"
-  assert_line_in_file 'selinux_mode=enforcing' "$state_file"
-  assert_line_in_file 'faillock=true' "$state_file"
-  assert_line_in_file 'sysctl_ptrace_scope=1' "$state_file"
-  assert_line_in_file 'sysctl_kptr_restrict=2' "$state_file"
-  assert_line_in_file 'sysctl_dmesg_restrict=1' "$state_file"
-  assert_line_in_file 'dnf_automatic=notifyonly' "$state_file"
-
-  assert_in_file 'sudo setenforce 1' "$command_log"
-  assert_in_file 'sudo authselect enable-feature with-faillock' "$command_log"
-  assert_in_file 'sudo dnf install -y dnf5-plugin-automatic' "$command_log"
-  assert_in_file 'systemctl enable --now dnf5-automatic.timer' \
-    "$command_log"
-
-  assert_line_in_file 'kernel.yama.ptrace_scope = 1' \
-    "$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf"
-  assert_line_in_file 'kernel.kptr_restrict = 2' \
-    "$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf"
-  assert_line_in_file 'kernel.dmesg_restrict = 1' \
-    "$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf"
-  assert_line_in_file 'deny = 5' \
-    "$fake_root/etc/security/faillock.conf.d/90-dotfiles-hardening.conf"
-  assert_in_file 'Defaults logfile="/var/log/sudo.log"' \
-    "$fake_root/etc/sudoers.d/90-dotfiles-hardening"
-  assert_in_file 'dotfiles-identity' \
-    "$fake_root/etc/audit/rules.d/90-dotfiles-hardening.rules"
-  assert_line_in_file 'SELINUX=enforcing' "$fake_root/etc/selinux/config"
+  assert_file_line "$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf" \
+    'kernel.yama.ptrace_scope = 1'
+  assert_file_line "$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf" \
+    'kernel.kptr_restrict = 2'
+  assert_file_line "$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf" \
+    'kernel.dmesg_restrict = 1'
+  assert_file_line "$fake_root/etc/security/faillock.conf.d/90-dotfiles-hardening.conf" \
+    'deny = 5'
+  assert_file_contains "$fake_root/etc/sudoers.d/90-dotfiles-hardening" \
+    'Defaults logfile="/var/log/sudo.log"'
+  assert_file_contains "$fake_root/etc/audit/rules.d/90-dotfiles-hardening.rules" \
+    'dotfiles-identity'
+  assert_file_line "$fake_root/etc/selinux/config" 'SELINUX=enforcing'
 
   if [[ "$seed_sshd" == "true" ]]; then
-    assert_line_in_file 'PermitRootLogin no' \
-      "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
-    assert_line_in_file 'MaxAuthTries 3' \
-      "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
-    assert_in_file 'sudo systemctl reload sshd.service' "$command_log"
-    assert_line_in_file 'ssh=hardened' "$state_file"
+    assert_file_line "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf" \
+      'PermitRootLogin no'
+    assert_file_line "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf" \
+      'MaxAuthTries 3'
+    assert_file_contains "$command_log" 'sudo systemctl reload sshd.service'
+    assert_file_line "$state_file" 'ssh=hardened'
   else
-    [[ -f "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf" ]] &&
-      fail_with_context \
-        "sshd drop-in written although sshd was never present"
-    assert_line_in_file 'ssh=not-present' "$state_file"
+    assert_path_missing "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
+    assert_file_line "$state_file" 'ssh=not-present'
   fi
 
-  verify_output="$("${test_environment[@]}" \
-    "$repo_root/platforms/fedora/scripts/verify-hardening.sh" 2>&1)" ||
-    fail_with_context \
-      "verify-hardening.sh reported failures:\n$verify_output"
+  local verify_output
+  if ! verify_output="$("${test_environment[@]}" \
+    "$repo_root/platforms/fedora/scripts/verify-hardening.sh" 2>&1)"; then
+    _test_die "[$scenario_name] verify-hardening.sh reported failures:\n$verify_output"
+    return 1
+  fi
 
-  assert_in_string 'SELinux is enforcing' "$verify_output" 'verify output'
-  assert_in_string 'firewalld is active' "$verify_output" 'verify output'
-  assert_in_string 'kernel.yama.ptrace_scope = 1' "$verify_output" \
-    'verify output'
-  assert_in_string 'kernel.kptr_restrict = 2' "$verify_output" 'verify output'
-  assert_in_string 'kernel.dmesg_restrict = 1' "$verify_output" \
-    'verify output'
+  assert_contains "$verify_output" 'SELinux is enforcing'
+  assert_contains "$verify_output" 'firewalld is active'
+  assert_contains "$verify_output" 'kernel.yama.ptrace_scope = 1'
+  assert_contains "$verify_output" 'kernel.kptr_restrict = 2'
+  assert_contains "$verify_output" 'kernel.dmesg_restrict = 1'
 
   if [[ "$seed_sshd" == "true" ]]; then
-    assert_in_string 'sshd hardening drop-in applied' "$verify_output" \
-      'verify output'
+    assert_contains "$verify_output" 'sshd hardening drop-in applied'
   else
-    assert_in_string 'SSH posture is not applicable' "$verify_output" \
-      'verify output'
+    assert_contains "$verify_output" 'SSH posture is not applicable'
   fi
 
-  rm -rf -- "$test_root"
   printf 'PASS: %s\n' "$scenario_name"
 }
 
