@@ -64,12 +64,61 @@ fi
 
 command -v nvim >/dev/null 2>&1 || fail "nvim is required for first-launch tests"
 nvim_log="$(mktemp)"
-trap 'rm -f -- "$nvim_log"' EXIT
-NVIM_LOG_FILE="$nvim_log" nvim --headless -u NONE -i NONE \
-  -c 'lua dofile("tests/test-neovim-first-launch.lua")' \
-  -c 'quitall!'
-DOTFILES_TEST_ROOT="$repo_root" NVIM_LOG_FILE="$nvim_log" \
-  nvim --headless -u NONE -i NONE -l tests/test-ocaml-dap.lua
+lua_output="$(mktemp)"
+trap 'rm -f -- "$nvim_log" "$lua_output"' EXIT
+
+# `nvim -l` is the supported standalone-Lua entry point on the pinned 0.12
+# baseline: an uncaught error becomes Neovim's exit status. The older
+# `-c 'lua dofile(...)' -c 'quitall!'` form printed the very same error and
+# still exited 0, because the trailing quit command overwrote the failure.
+run_nvim_lua_test() {
+  local script="$1"
+  shift
+
+  env "$@" NVIM_LOG_FILE="$nvim_log" \
+    nvim --headless -u NONE -i NONE -l "$script" >"$lua_output" 2>&1
+}
+
+report_nvim_lua_output() {
+  printf 'Captured Neovim output:\n' >&2
+  sed 's/^/  /' "$lua_output" >&2
+}
+
+run_nvim_lua_test tests/test-neovim-first-launch.lua || {
+  report_nvim_lua_output
+  fail "Neovim first-launch Lua test failed"
+}
+
+# Prove the harness cannot go green on a failed Lua assertion. The fixture uses
+# the same invocation path as the real test, so a regression in the invocation
+# form is caught here rather than silently masking future failures.
+sentinel_fixture="tests/fixtures/neovim-first-launch-sentinel.lua"
+if run_nvim_lua_test "$sentinel_fixture"; then
+  report_nvim_lua_output
+  fail "a deliberately failing Lua fixture did not fail the Neovim test harness"
+fi
+grep -Fq "$sentinel_fixture" "$lua_output" || {
+  report_nvim_lua_output
+  fail "Neovim failure output does not name the failing Lua file"
+}
+grep -Fq 'dotfiles first-launch sentinel' "$lua_output" || {
+  report_nvim_lua_output
+  fail "Neovim failure output does not name the failing assertion"
+}
+
+run_nvim_lua_test tests/test-ocaml-dap.lua "DOTFILES_TEST_ROOT=$repo_root" || {
+  report_nvim_lua_output
+  fail "Neovim OCaml DAP Lua test failed"
+}
+
+# The verifier's Neovim baseline check runs Lua through an Ex command, where an
+# uncaught error never reaches the exit status. It must convert a failed check
+# into `cquit` rather than relying on the error propagating on its own.
+fedora_verifier="$repo_root/platforms/fedora/scripts/verify.sh"
+assert_contains "$fedora_verifier" 'vim.cmd("cquit 1")'
+if grep -Fq '+lua assert(' "$fedora_verifier"; then
+  fail "verifier asserts in an Ex command, where a Lua failure cannot fail the run"
+fi
 
 formatting_config="$lazyvim_config/lua/plugins/formatting.lua"
 assert_contains "$formatting_config" 'cs = { "csharpier" }'
