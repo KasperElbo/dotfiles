@@ -39,6 +39,7 @@ packages=(
 
 info "Installing Fedora packages"
 sudo dnf install -y "${packages[@]}"
+sudo systemctl enable --now firewalld.service
 
 ensure_zsh_login_shell
 if [[ "${ZSH_LOGIN_SHELL_CHANGED:-false}" == "true" ]]; then
