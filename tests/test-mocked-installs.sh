@@ -86,6 +86,7 @@ for systemctl_argv in \
   'is-active --quiet power-profiles-daemon.service' \
   'is-active --quiet tuned-ppd.service' \
   'is-active --quiet tuned.service' \
+  'enable --now firewalld.service' \
   'start asusd.service' \
   'enable --now asusd.service' \
   'enable --now asus-shutdown.service' \
@@ -95,6 +96,7 @@ for systemctl_argv in \
   read -r -a argv <<<"$systemctl_argv"
   test_stub_allow "$test_root" systemctl "${argv[@]}"
 done
+test_stub_allow "$test_root" sudo systemctl enable --now firewalld.service
 test_stub_allow "$test_root" sudo systemctl start asusd.service
 test_stub_allow "$test_root" sudo systemctl enable --now asusd.service
 test_stub_allow "$test_root" sudo systemctl enable --now asus-shutdown.service
@@ -133,6 +135,8 @@ case "$*" in
 'is-active --quiet tuned.service')
   exit 1
   ;;
+'enable --now firewalld.service' | \
+'enable --now asusd.service' | \
 'start asusd.service' | \
 'enable --now asusd.service' | \
 'enable --now asus-shutdown.service' | \
