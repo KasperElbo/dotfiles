@@ -131,7 +131,10 @@ def run(adapter: pathlib.Path, assembly: pathlib.Path, source: pathlib.Path, tim
                 "locale": "en-us",
             },
         )
-        client.event("initialized")
+        # netcoredbg 3.2.0 advertises its capabilities in response to
+        # initialize but does not send the optional initialized event before
+        # accepting configuration requests. Continue after the successful
+        # response; any later event remains buffered by DapClient.
         breakpoint = breakpoint_line(source)
         response = client.request(
             "setBreakpoints",
