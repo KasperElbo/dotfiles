@@ -73,12 +73,18 @@ for cmd in sftp scp ssh; do
     fail "$cmd not found; openssh-clients should provide it"
     continue
   fi
-  owner="$(rpm -qf --queryformat '%{NAME}' "$resolved" 2>/dev/null || true)"
+  # RPM records the real path, and Fedora's /usr/sbin is a symlink to
+  # /usr/bin, so PATH order alone decides whether "command -v" hands back a
+  # spelling the package database can match. Canonicalize first, or the query
+  # reports "no owning package" for a perfectly correct installation.
+  canonical="$(verify_canonical_existing_path "$resolved" 2>/dev/null || true)"
+  owner="$(rpm -qf --queryformat '%{NAME}' "${canonical:-$resolved}" \
+    2>/dev/null || true)"
   if [[ "$owner" == openssh-clients ]]; then
-    pass "$cmd is provided by openssh-clients: $resolved"
+    pass "$cmd is provided by openssh-clients: ${canonical:-$resolved}"
   else
-    fail "$cmd resolves to $resolved, owned by ${owner:-no RPM package};" \
-      "expected Fedora's openssh-clients"
+    fail "$cmd resolves to ${canonical:-$resolved}, owned by" \
+      "${owner:-no RPM package}; expected Fedora's openssh-clients"
   fi
 done
 

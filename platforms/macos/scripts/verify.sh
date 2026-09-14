@@ -86,11 +86,17 @@ for name in sftp scp ssh; do
   resolved="$(command -v "$name" 2>/dev/null || true)"
   if [[ -z "$resolved" ]]; then
     fail "$name not found; macOS ships it in /usr/bin"
-  elif [[ "$resolved" == /usr/bin/"$name" ]]; then
-    pass "$name is Apple's system OpenSSH: $resolved"
+    continue
+  fi
+  # Compare the real path, so neither a symlinked PATH entry nor a Homebrew
+  # shim decides the answer by spelling.
+  canonical="$(verify_canonical_existing_path "$resolved" 2>/dev/null || true)"
+  if [[ "${canonical:-$resolved}" == /usr/bin/"$name" ]]; then
+    pass "$name is Apple's system OpenSSH: ${canonical:-$resolved}"
   else
-    fail "$name resolves to $resolved, not Apple's system OpenSSH at" \
-      "/usr/bin/$name; this platform installs no second SSH implementation"
+    fail "$name resolves to ${canonical:-$resolved}, not Apple's system" \
+      "OpenSSH at /usr/bin/$name; this platform installs no second SSH" \
+      "implementation"
   fi
 done
 
