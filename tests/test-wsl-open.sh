@@ -114,4 +114,18 @@ assert_failure
 assert_contains "$TEST_OUTPUT" 'Unsupported URI or nonexistent path: custom-scheme:value'
 assert_file_empty "$argument_log"
 
+# Real explorer.exe exits nonzero even when it opens the target. Every argument
+# must still be dispatched, and wsl-open must not inherit that status.
+cat >"$windows_root/explorer.exe" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\0' "$@" >>"$EXPLORER_ARGUMENT_LOG"
+exit 1
+EOF
+chmod +x "$windows_root/explorer.exe"
+
+: >"$wslpath_log"
+run_open "$work_root/file.txt" "$url" "$work_root/directory with spaces"
+assert_logged_arguments "$argument_log" \
+  'C:\converted\file.txt' "$url" 'C:\converted\directory with spaces'
+
 printf 'WSL path conversion and argument-boundary tests passed.\n'

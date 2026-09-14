@@ -49,6 +49,9 @@ for argument in "$@"; do
   converted_arguments+=("$windows_path")
 done
 
+# Explorer reports a nonzero exit status even when it opens the target, so the
+# status cannot distinguish success from failure. Dispatch every argument and
+# ignore the status; aborting here would silently drop the remaining targets.
 for converted_argument in "${converted_arguments[@]}"; do
-  "$explorer" "$converted_argument"
+  "$explorer" "$converted_argument" || true
 done
