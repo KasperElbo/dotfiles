@@ -70,6 +70,7 @@ profile_state_validate_file() {
   local path="$1"
   local expected_profile="${2:-}"
   local line key value profile="" schema="" status="" allowed_output required_output
+  local seen_count=0
   local -a seen=() allowed=() required=()
 
   [[ -r "$path" ]] || { printf 'State file is not readable: %s\n' "$path" >&2; return 1; }
@@ -80,11 +81,12 @@ profile_state_validate_file() {
     }
     key="${line%%=*}"
     value="${line#*=}"
-    profile_state_key_is_listed "$key" "${seen[@]}" && {
+    if ((seen_count > 0)) && profile_state_key_is_listed "$key" "${seen[@]}"; then
       printf 'Duplicate state key in %s: %s\n' "$path" "$key" >&2
       return 1
-    }
+    fi
     seen+=("$key")
+    seen_count=$((seen_count + 1))
     profile_state_validate_value "$key" "$value" || {
       printf 'Invalid value for %s in %s\n' "$key" "$path" >&2
       return 1
@@ -165,6 +167,7 @@ profile_state_write() {
 profile_state_write_content() {
   local path="$1" expected_profile="$2" status="${3:-installed}"
   local line key profile=""
+  local entries_count=0
   local -a entries=()
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" == *=* ]] || die "Invalid state entry: $line"
@@ -173,23 +176,36 @@ profile_state_write_content() {
       profile="${line#*=}"
     else
       entries+=("$line")
+      entries_count=$((entries_count + 1))
     fi
   done
   [[ "$profile" == "$expected_profile" ]] ||
     die "State content profile mismatch: expected $expected_profile, found ${profile:-empty}"
-  profile_state_write "$path" "$profile" "$status" "${entries[@]}"
+  if ((entries_count > 0)); then
+    profile_state_write "$path" "$profile" "$status" "${entries[@]}"
+  else
+    profile_state_write "$path" "$profile" "$status"
+  fi
 }
 
 profile_state_set_status() {
   local path="$1" expected_profile="$2" new_status="$3"
   local line key
+  local entries_count=0
   local -a entries=()
   profile_state_validate_file "$path" "$expected_profile" || return 1
   while IFS= read -r line || [[ -n "$line" ]]; do
     key="${line%%=*}"
-    case "$key" in schema_version | profile | status) ;; *) entries+=("$line") ;; esac
+    case "$key" in
+    schema_version | profile | status) ;;
+    *) entries+=("$line"); entries_count=$((entries_count + 1)) ;;
+    esac
   done <"$path"
-  profile_state_write "$path" "$expected_profile" "$new_status" "${entries[@]}"
+  if ((entries_count > 0)); then
+    profile_state_write "$path" "$expected_profile" "$new_status" "${entries[@]}"
+  else
+    profile_state_write "$path" "$expected_profile" "$new_status"
+  fi
 }
 
 profile_state_dir() {

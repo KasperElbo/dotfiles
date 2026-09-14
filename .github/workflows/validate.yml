@@ -89,6 +89,7 @@ jobs:
       - name: Test system-Bash bootstrap compatibility
         run: |
           /bin/bash ./tests/test-execution-plan.sh
+          /bin/bash ./tests/test-profile-state.sh
           /bin/bash ./platforms/macos/install.sh \
             --theme macchiato --no-ocaml --no-containers --no-tailscale \
             --no-defaults --dry-run --non-interactive >/dev/null
