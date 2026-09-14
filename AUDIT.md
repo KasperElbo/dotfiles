@@ -138,7 +138,7 @@ verify gives a false pass. **medium** a real correctness or maintainability prob
 | [F-28](#f-28) | medium | `scripts/test-dev-workflows.sh` is production code living in the test directory, run by no CI job | Executed |
 | [F-29](#f-29) | medium | macOS prepends coreutils `gnubin` to PATH, shadowing Apple's tools, and its own comment and docs claim the opposite | Read |
 | [F-30](#f-30) | medium | The Homebrew installer is fetched from a moving `HEAD` ref with no checksum | Read |
-| [F-31](#f-31) | medium | Documented project-local CSharpier formatting cannot resolve | Read |
+| ~~[F-31](#f-31)~~ | ~~medium~~ | **WITHDRAWN.** Refuted on verification: Conform resolves the project-local dotnet tool itself | Executed |
 | [F-32](#f-32) | medium | PATH is rebuilt without deduplication outside macOS | Read |
 | [F-33](#f-33) | medium | Nothing pins any executable the repository installs | Read |
 | [F-34](#f-34) | medium | Every interactive shell start runs four unconditional `eval` initialisations and an uncached `compinit` | Read |
@@ -740,7 +740,23 @@ inventory is in Appendix B.
 The repository states six design principles, four of which are about ownership. Held
 against the code, the picture is mixed rather than bad. Principles 1 and 3 are largely
 honoured. Principle 2 is honoured in spirit but the boundary moves per platform.
-Principle 4 is the one that does not survive contact with the editor config (F-31).
+
+**Principle 4 is honoured, and this paragraph originally said the opposite.** The first two
+versions of this report claimed principle 4 "does not survive contact with the editor
+config", resting entirely on F-31. That finding has been withdrawn: Conform resolves the
+project-local dotnet tool by itself, so the editor defers to project-declared tooling exactly
+as principle 4 intends, with no global install and no repository configuration. On the
+evidence now available, principle 4 is the best-served of the four rather than the worst.
+
+**The principle least honoured in practice is 2**, and the evidence is the boundary moving
+per platform rather than any single misplacement: `mise` and Starship come from vendor curl
+installers on Fedora WSL while the README's Terra section presents them as RPM-owned; `jq` is
+baseline on two platforms, gated behind an unrelated desktop profile on a third and absent on
+the fourth (F-02); `lazygit` is mise-managed on three platforms and APT-managed on the CTF
+guest. Each is defensible alone; together they mean the answer to "who owns this tool" depends
+on which machine you are standing on, which is what the principle exists to prevent. Running
+it close is the gap between the reproducibility the README claims and what is actually pinned
+(F-33).
 
 **The structural problem is not any single misplacement. It is that the same baseline is
 assembled independently four times, with nothing reconciling the lists.** Seventeen tools
@@ -786,9 +802,49 @@ implementation and it exists today.
 `mise which` to report the shim, and assert the verifier **fails**. Then reorder so the
 shim wins and assert it passes. Both cases must exercise the shared helper.
 
-### F-31
-**Documented project-local CSharpier formatting cannot resolve**
-*medium, correctness. Support: read.*
+### F-31 (WITHDRAWN)
+**~~Documented project-local CSharpier formatting cannot resolve~~**
+*withdrawn. This finding was wrong. Support for the withdrawal: executed.*
+
+> **Withdrawn after verification.** An adversarial verifier refuted this, and I confirmed
+> the refutation against upstream source. The finding's central premise, that Conform points
+> at a bare `csharpier` executable, is false: Conform's built-in formatter resolves the
+> project-local dotnet tool by itself. `formatting.lua:7` is correct as written and needs no
+> change. The original text is struck through below and kept for the record.
+
+**Why it was wrong.** `lua/conform/formatters/csharpier.lua` in conform.nvim does not declare
+a static executable. Both `command` and `args` are functions gated on an `is_local()` probe:
+```lua
+local version_check = vim.system({ "dotnet", "csharpier", "--version" }):wait()
+is_local_cache = version_check.code == 0
+...
+command = function() if is_local() then return "dotnet" else return "csharpier" end end,
+args = function()
+  if is_local() then return { "csharpier", "format", "--stdin-path", "$FILENAME" }
+  else return { "format", "--stdin-path", "$FILENAME" } end
+end,
+```
+So a project with `.config/dotnet-tools.json` restored via `dotnet tool restore` is invoked as
+`dotnet csharpier format`, which is exactly the invocation the finding claimed was missing.
+The bare `cs = { "csharpier" }` relies on that built-in detection, which is the same
+upstream-resolves-project-local mechanism the audit's own notes correctly credit for Prettier
+via `node_modules/.bin`. The proposed fix would have duplicated logic Conform already has.
+
+**The one caveat, checked and closed.** The verifier noted that the repository pins
+conform.nvim by commit, so a sufficiently old pin could predate this behaviour. I checked:
+`lazy-lock.json` pins `016802de402556da54c36bd7359b441266b01cdd`, and `git show` of
+`lua/conform/formatters/csharpier.lua` at that exact commit already contains `is_local`
+(8 occurrences). There is no residual defect, not even a version-specific one.
+
+**What this cost.** F-31 was published at high severity in the first version of this report
+and reduced to medium in the second. It should not have been published at all. It is the one
+finding in this audit that was affirmatively false rather than merely imprecise, and it
+survived because the original audit reasoned about what a formatter spec usually looks like
+instead of reading the formatter this repository actually uses. Marked withdrawn rather than
+deleted so the record is auditable.
+
+<details>
+<summary>Original text, retained for the record (do not act on this)</summary>
 
 **Evidence.** `nvim-lazyvim/.config/nvim/lua/plugins/formatting.lua:7` declares
 `cs = { "csharpier" }` for Conform. No installer ever puts a `csharpier` executable on
@@ -824,6 +880,14 @@ routes `cs` through `dotnet` and sets `require_cwd`, and to assert no installer 
 contains a global `csharpier` (pinning principle 4 in both directions). Add a fixture under
 `tests/fixtures/dotnet-smoke/` with a `.config/dotnet-tools.json` declaring CSharpier and
 extend `scripts/test-dev-workflows.sh --dotnet` to format a file through it.
+
+</details>
+
+**What is still worth doing here.** The withdrawal removes the defect, not the test gap. There
+is no fixture exercising C# formatting at all, which is why nothing caught that the finding was
+false either. Adding `tests/fixtures/dotnet-smoke/` with a `.config/dotnet-tools.json`
+declaring CSharpier, and extending `scripts/test-dev-workflows.sh --dotnet` to format a file
+through it, remains worthwhile on its own merits as coverage for a documented workflow.
 
 ### F-33
 **Nothing pins any executable the repository installs**
@@ -2798,7 +2862,7 @@ twice.
 F-16 (dry-run projection; the larger Option A is worth it if you adopt the step registry),
 F-38 (lifecycle: the install stamp first, it is cheap and everything else reads it),
 F-48 and F-49 (shim cleanup and the `theme-state.sh` renames), F-29 (macOS `gnubin`
-decision), F-31 (CSharpier), F-32, F-34 (shell startup), F-33 (pinning policy and the
+decision), F-32, F-34 (shell startup), F-33 (pinning policy and the
 honest reproducibility claim), F-12 (Nerd Font), F-54 (Starship drift gate),
 F-39, F-40, F-41, F-56 (cheat sheets and the binding registry), F-42.
 
@@ -2848,7 +2912,7 @@ verification scripts; the test suite; shell and tool configuration; the theme sy
   a second agent, including a high-severity one confirming that the README's generic
   Verification instructions always invoke the Fedora-only verifier, exactly the concern
   flagged for checking.
-- **Neovim and Mason.** I established F-04 empirically and F-31, and Chapter B covers the
+- **Neovim and Mason.** I established F-04 empirically, and Chapter B covers the
   ownership split from the package inventory. Not covered: whether the stow overlay mechanism
   (`nvim-wsl`, `nvim-macos` dropping files into `.config/nvim/lua/plugins/`) actually loads
   given `lua/config/lazy.lua`'s spec imports. That is a load-order question that deserves a
