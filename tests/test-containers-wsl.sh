@@ -105,40 +105,38 @@ EOF
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 
-if [[ "${1:-}" != --user ]]; then
+if [[ $# -eq 4 && "$1" == --user && "$2" == enable &&
+  "$3" == --now && "$4" == podman.socket ]]; then
+  grep -qx podman.socket "$USER_ENABLED_UNITS" 2>/dev/null ||
+    printf 'podman.socket\n' >>"$USER_ENABLED_UNITS"
+  grep -qx podman.socket "$USER_ACTIVE_UNITS" 2>/dev/null ||
+    printf 'podman.socket\n' >>"$USER_ACTIVE_UNITS"
   exit 0
 fi
-shift
-cmd="${1:-}"
-shift || true
 
-case "$cmd" in
-enable)
-  for arg in "$@"; do
-    case "$arg" in --*) continue ;; esac
-    grep -qx "$arg" "$USER_ENABLED_UNITS" 2>/dev/null ||
-      printf '%s\n' "$arg" >>"$USER_ENABLED_UNITS"
-    grep -qx "$arg" "$USER_ACTIVE_UNITS" 2>/dev/null ||
-      printf '%s\n' "$arg" >>"$USER_ACTIVE_UNITS"
-  done
-  ;;
-is-enabled)
-  args=("$@")
-  grep -qx "${args[-1]}" "$USER_ENABLED_UNITS" 2>/dev/null
+if [[ $# -eq 4 && "$1" == --user && "$2" == is-enabled &&
+  "$3" == --quiet && "$4" == podman.socket ]]; then
+  grep -qx podman.socket "$USER_ENABLED_UNITS" 2>/dev/null
   exit $?
-  ;;
-is-active)
-  args=("$@")
-  grep -qx "${args[-1]}" "$USER_ACTIVE_UNITS" 2>/dev/null
+fi
+
+if [[ $# -eq 4 && "$1" == --user && "$2" == is-active &&
+  "$3" == --quiet && "$4" == podman.socket ]]; then
+  grep -qx podman.socket "$USER_ACTIVE_UNITS" 2>/dev/null
   exit $?
-  ;;
-esac
-exit 0
+fi
+
+printf 'strict systemctl fixture rejected unsupported argv: %s\n' "$*" >&2
+exit 96
 EOF
 
   cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 printf 'curl %s\n' "$*" >>"$COMMAND_LOG"
+if [[ $# -ne 2 || "$1" != -fsS || "$2" != http://127.0.0.1:*/* ]]; then
+  printf 'strict curl fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+fi
 if [[ "${MOCK_CURL_EXIT:-0}" == 0 ]]; then
   printf '%s' "${MOCK_CURL_OUTPUT-dotfiles-podman-smoke}"
 fi
@@ -314,6 +312,28 @@ if env "${test_environment[@]}" SYSTEMD_USER_BUS_SOCKET="$test_root/no-such-bus"
 fi
 
 printf 'PASS: cgroup v2, user-namespace, and systemd --user session capability checks reflect the filesystem\n'
+
+# --- fixture contract keeps user and system service scope distinct ----------
+
+new_test_root
+mapfile -t test_environment < <(base_environment "$test_root")
+
+run_capture env "${test_environment[@]}" \
+  systemctl --user enable --now podman.socket
+assert_success
+run_capture env "${test_environment[@]}" \
+  systemctl --user is-enabled --quiet podman.socket
+assert_success
+run_capture env "${test_environment[@]}" \
+  systemctl --user is-active --quiet podman.socket
+assert_success
+run_capture env "${test_environment[@]}" systemctl enable --now podman.socket
+assert_status 96
+assert_contains "$TEST_OUTPUT" 'strict systemctl fixture rejected unsupported argv'
+run_capture env "${test_environment[@]}" curl --head http://127.0.0.1:1/
+assert_status 96
+assert_contains "$TEST_OUTPUT" 'strict curl fixture rejected unsupported argv'
+printf 'PASS: container fixture rejects system-scope service calls and unsupported curl argv\n'
 
 # --- require_wsl_containers_prereqs fails closed, before any mutation ------
 
