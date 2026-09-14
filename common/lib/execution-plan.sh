@@ -12,6 +12,8 @@ PLAN_APPLIES=()
 PLAN_VERIFIES=()
 PLAN_NOTES=()
 PLAN_COMPLETED=()
+PLAN_COUNT=0
+PLAN_COMPLETED_COUNT=0
 PLAN_CURRENT_INDEX=-1
 
 plan_log() {
@@ -24,24 +26,32 @@ plan_log() {
 plan_reset() {
   PLAN_IDS=(); PLAN_LABELS=(); PLAN_PHASES=(); PLAN_PREFLIGHTS=()
   PLAN_APPLIES=(); PLAN_VERIFIES=(); PLAN_NOTES=(); PLAN_COMPLETED=()
-  PLAN_CURRENT_INDEX=-1
+  PLAN_COUNT=0; PLAN_COMPLETED_COUNT=0; PLAN_CURRENT_INDEX=-1
 }
 
 plan_add() {
   [[ $# -eq 7 ]] || die "plan_add requires id, label, phase, preflight, apply, verify and note"
-  local existing
-  for existing in "${PLAN_IDS[@]}"; do
+  local i existing
+
+  # macOS still ships Bash 3.2. With nounset enabled, expanding an empty array
+  # via "${array[@]}" raises an unbound-variable error there even when the
+  # array was explicitly initialized. Track the count separately and only
+  # index arrays that contain elements so the bootstrap path remains compatible
+  # with the shell available before Homebrew is installed.
+  for ((i=0; i<PLAN_COUNT; i++)); do
+    existing="${PLAN_IDS[i]}"
     [[ "$existing" != "$1" ]] || die "Duplicate execution-plan step ID: $1"
   done
   PLAN_IDS+=("$1"); PLAN_LABELS+=("$2"); PLAN_PHASES+=("$3")
   PLAN_PREFLIGHTS+=("$4"); PLAN_APPLIES+=("$5"); PLAN_VERIFIES+=("$6")
   PLAN_NOTES+=("$7")
+  PLAN_COUNT=$((PLAN_COUNT + 1))
 }
 
 plan_render() {
   local i
   printf 'Resolved steps (dry-run and apply use this exact order):\n'
-  for ((i=0; i<${#PLAN_IDS[@]}; i++)); do
+  for ((i=0; i<PLAN_COUNT; i++)); do
     printf '  %2d. [%s] %s\n' "$((i + 1))" "${PLAN_IDS[i]}" "${PLAN_LABELS[i]}"
     [[ -z "${PLAN_NOTES[i]}" ]] || printf '      %s\n' "${PLAN_NOTES[i]}"
   done
@@ -49,7 +59,7 @@ plan_render() {
 
 plan_preflight() {
   local i action
-  for ((i=0; i<${#PLAN_IDS[@]}; i++)); do
+  for ((i=0; i<PLAN_COUNT; i++)); do
     action="${PLAN_PREFLIGHTS[i]}"
     [[ -z "$action" || "$action" == : ]] || "$action"
   done
@@ -57,15 +67,18 @@ plan_preflight() {
 
 plan_pending_ids() {
   local start="${1:-0}" i result=""
-  for ((i=start; i<${#PLAN_IDS[@]}; i++)); do
+  for ((i=start; i<PLAN_COUNT; i++)); do
     result="${result:+$result,}${PLAN_IDS[i]}"
   done
   printf '%s\n' "${result:-none}"
 }
 
 plan_completed_ids() {
-  local result="" id
-  for id in "${PLAN_COMPLETED[@]}"; do result="${result:+$result,}$id"; done
+  local result="" id i
+  for ((i=0; i<PLAN_COMPLETED_COUNT; i++)); do
+    id="${PLAN_COMPLETED[i]}"
+    result="${result:+$result,}$id"
+  done
   printf '%s\n' "${result:-none}"
 }
 
@@ -81,7 +94,7 @@ plan_failure_report() {
 
 plan_execute() {
   local i action exit_code
-  for ((i=0; i<${#PLAN_IDS[@]}; i++)); do
+  for ((i=0; i<PLAN_COUNT; i++)); do
     # Exposed to the lifecycle caller for failed-step state reporting.
     # shellcheck disable=SC2034
     PLAN_CURRENT_INDEX="$i"
@@ -98,6 +111,7 @@ plan_execute() {
       fi
     fi
     PLAN_COMPLETED+=("${PLAN_IDS[i]}")
+    PLAN_COMPLETED_COUNT=$((PLAN_COMPLETED_COUNT + 1))
     plan_log "success id=${PLAN_IDS[i]}"
     success "[${PLAN_IDS[i]}] completed"
   done
@@ -105,7 +119,7 @@ plan_execute() {
 
 plan_verify() {
   local i action
-  for ((i=0; i<${#PLAN_IDS[@]}; i++)); do
+  for ((i=0; i<PLAN_COUNT; i++)); do
     action="${PLAN_VERIFIES[i]}"
     [[ -z "$action" || "$action" == : ]] || "$action"
   done
