@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import select
+import signal
 import subprocess
 import sys
 import time
@@ -19,12 +21,16 @@ class DapClient:
         self.sequence = 0
         self.pending: list[dict[str, Any]] = []
         self.transcript: list[dict[str, Any]] = []
+        self.process_group: int | None = None
         self.process = subprocess.Popen(
             command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            start_new_session=os.name == "posix",
         )
+        if os.name == "posix":
+            self.process_group = self.process.pid
 
     def send(self, command: str, arguments: dict[str, Any]) -> int:
         self.sequence += 1
@@ -94,17 +100,75 @@ class DapClient:
             and message.get("event") == name
         )
 
-    def close(self) -> None:
-        if self.process.poll() is None:
-            self.process.kill()
-        self.process.wait(timeout=5)
+    def _group_exists(self) -> bool:
+        if self.process_group is None:
+            return self.process.poll() is None
+        try:
+            os.killpg(self.process_group, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _signal_process_tree(self, requested_signal: signal.Signals) -> None:
+        if self.process_group is not None:
+            os.killpg(self.process_group, requested_signal)
+        elif self.process.poll() is None:
+            self.process.send_signal(requested_signal)
+
+    def close(self) -> list[str]:
+        """Terminate the adapter and every launched debuggee without raising."""
+        notes: list[str] = []
+        try:
+            if self._group_exists():
+                try:
+                    self._signal_process_tree(signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+
+                deadline = time.monotonic() + 1
+                while self._group_exists() and time.monotonic() < deadline:
+                    self.process.poll()
+                    time.sleep(0.05)
+
+                if self._group_exists():
+                    try:
+                        self._signal_process_tree(signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
+            try:
+                self.process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                notes.append("adapter did not exit after process-tree termination")
+        except Exception as error:  # Cleanup must not replace the DAP failure.
+            notes.append(f"process-tree cleanup failed: {error}")
+        return notes
 
     def diagnostics(self) -> str:
-        if self.process.poll() is None:
-            self.process.kill()
-        _, stderr = self.process.communicate(timeout=5)
+        notes = self.close()
+        stderr = b""
+        try:
+            _, stderr = self.process.communicate(timeout=1)
+        except subprocess.TimeoutExpired as error:
+            stderr = error.stderr or b""
+            notes.append("adapter pipes remained open after process-tree termination")
+            for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception as close_error:
+                        notes.append(f"closing an adapter pipe failed: {close_error}")
+        except Exception as error:  # Diagnostics must preserve the original exception.
+            notes.append(f"collecting adapter stderr failed: {error}")
         rendered = "\n".join(json.dumps(message, sort_keys=True) for message in self.transcript)
-        return f"DAP transcript:\n{rendered}\nAdapter stderr:\n{stderr.decode(errors='replace')}"
+        cleanup = "\n".join(notes)
+        return (
+            f"DAP transcript:\n{rendered}\n"
+            f"Adapter stderr:\n{stderr.decode(errors='replace')}\n"
+            f"Cleanup diagnostics:\n{cleanup}"
+        )
 
 
 def breakpoint_line(source: pathlib.Path) -> int:

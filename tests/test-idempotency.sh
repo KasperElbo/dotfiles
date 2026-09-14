@@ -263,7 +263,7 @@ rm -- "$mock_bin/dotnet-easydotnet"
 cat >"$mock_bin/dotnet-easydotnet" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == healthcheck ]]; then
-  printf '[{"name":"debugger.engine","value":"netcoredbg"},{"name":"debugger.source","value":"bundled"},{"name":"debugger.platform","value":"linux-x64"},{"name":"debugger.path","value":"%s"}]\n' \
+  printf '[{"type":"ok","name":"debugger.engine","value":"netcoredbg"},{"type":"ok","name":"debugger.source","value":"bundled"},{"type":"ok","name":"debugger.platform","value":"linux-x64"},{"type":"ok","name":"debugger.path","value":"%s"},{"type":"ok","name":"debugger.version","value":"NET Core debugger test version"}]\n' \
     "$MOCK_EASY_DOTNET_DEBUGGER"
 fi
 EOF

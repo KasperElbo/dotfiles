@@ -64,9 +64,10 @@ PATH="$mock_bin:$PATH"
 export PATH
 
 health_json() {
-  local source="$1" platform="$2" path="$3"
-  printf '[{"name":"debugger.engine","value":"netcoredbg"},{"name":"debugger.source","value":"%s"},{"name":"debugger.platform","value":"%s"},{"name":"debugger.path","value":"%s"}]\n' \
-    "$source" "$platform" "$path"
+  local source="$1" platform="$2" path="$3" version_type="${4:-ok}"
+  local version="${5:-NET Core debugger test version}"
+  printf '[{"type":"ok","name":"debugger.engine","value":"netcoredbg"},{"type":"ok","name":"debugger.source","value":"%s"},{"type":"ok","name":"debugger.platform","value":"%s"},{"type":"ok","name":"debugger.path","value":"%s"},{"type":"%s","name":"debugger.version","value":"%s"}]\n' \
+    "$source" "$platform" "$path" "$version_type" "$version"
 }
 
 verify_reset
@@ -92,5 +93,21 @@ MOCK_EASY_DOTNET_HEALTH="$(health_json bundled osx-x64 "$debugger_root/osx-arm64
 export MOCK_EASY_DOTNET_HEALTH
 if check_easy_dotnet_debugger osx-arm64 >/dev/null; then :; fi
 ((VERIFY_FAILURES >= 1)) || fail_test "the wrong bundled platform was accepted"
+
+failing_debugger="$test_root/failing/tools/netcoredbg/osx-arm64/netcoredbg"
+mkdir -p "$(dirname "$failing_debugger")"
+cat >"$failing_debugger" <<'EOF_DEBUGGER'
+#!/usr/bin/env bash
+exit 1
+EOF_DEBUGGER
+chmod +x "$failing_debugger"
+verify_reset
+MOCK_EASY_DOTNET_HEALTH="$(
+  health_json bundled osx-arm64 "$failing_debugger" warn \
+    'netcoredbg --version exited with status 1'
+)"
+export MOCK_EASY_DOTNET_HEALTH
+if check_easy_dotnet_debugger osx-arm64 >/dev/null; then :; fi
+((VERIFY_FAILURES >= 1)) || fail_test "a debugger that cannot start was accepted"
 
 printf '.NET debugger provider contract passed.\n'

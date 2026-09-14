@@ -338,7 +338,7 @@ check_mise_owned() {
 # Mason-owned debugger, because that would bypass the declared provider.
 check_easy_dotnet_debugger() {
   local expected_platform="$1"
-  local health engine source platform debugger_path
+  local health engine source platform debugger_path debugger_version_type debugger_version
 
   EASY_DOTNET_DEBUGGER_PATH=""
 
@@ -351,6 +351,8 @@ check_easy_dotnet_debugger() {
   source="$(printf '%s\n' "$health" | jq -r '.[] | select(.name == "debugger.source") | .value' 2>/dev/null)"
   platform="$(printf '%s\n' "$health" | jq -r '.[] | select(.name == "debugger.platform") | .value' 2>/dev/null)"
   debugger_path="$(printf '%s\n' "$health" | jq -r '.[] | select(.name == "debugger.path") | .value' 2>/dev/null)"
+  debugger_version_type="$(printf '%s\n' "$health" | jq -r '.[] | select(.name == "debugger.version") | .type' 2>/dev/null)"
+  debugger_version="$(printf '%s\n' "$health" | jq -r '.[] | select(.name == "debugger.version") | .value' 2>/dev/null)"
 
   if [[ "$engine" == netcoredbg ]]; then
     pass "EasyDotnet debugger engine is netcoredbg"
@@ -380,6 +382,12 @@ check_easy_dotnet_debugger() {
     fail "EasyDotnet unexpectedly resolved a Mason-owned debugger: $debugger_path"
   else
     pass "EasyDotnet debugger does not resolve through Mason"
+  fi
+
+  if [[ "$debugger_version_type" == ok && -n "$debugger_version" ]]; then
+    pass "EasyDotnet debugger starts successfully: $debugger_version"
+  else
+    fail "EasyDotnet debugger version check is ${debugger_version_type:-missing}: ${debugger_version:-unknown}"
   fi
 
   export EASY_DOTNET_DEBUGGER_PATH="$debugger_path"
