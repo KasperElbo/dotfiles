@@ -131,6 +131,10 @@ assert_path_exists() {
   [[ -e "$1" || -L "$1" ]] || _test_die "expected path to exist: $1"
 }
 
+assert_path_executable() {
+  [[ -x "$1" ]] || _test_die "expected executable path: $1"
+}
+
 assert_path_missing() {
   [[ ! -e "$1" && ! -L "$1" ]] || _test_die "expected path to be absent: $1"
 }
