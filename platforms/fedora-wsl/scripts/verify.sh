@@ -46,7 +46,7 @@ check_windows_path_command_absent() {
   local command_name="$1"
   local command_path
 
-  command_path="$(command -v "$command_name" 2>/dev/null || true)"
+  command_path="$(PATH="$login_path" command -v "$command_name" 2>/dev/null || true)"
   if [[ -z "$command_path" ]]; then
     pass "$command_name is not inherited through PATH"
   else
@@ -112,7 +112,9 @@ for command_name in node.exe dotnet.exe python.exe claude.exe codex.exe; do
   check_windows_path_command_absent "$command_name"
 done
 
-pass "Extensionless Linux lookup is verified separately from explicit .exe lookup"
+if [[ -n "$login_path" ]]; then
+  pass "Explicit .exe lookup was checked in the fresh Zsh login PATH"
+fi
 
 selected_theme="macchiato"
 theme_state="$XDG_CONFIG_HOME/dotfiles/theme"
