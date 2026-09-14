@@ -18,11 +18,15 @@ argument_log="$test_root/arguments"
 mkdir -p "$windows_root" "$work_root/directory with spaces"
 touch "$work_root/æøå-文件.txt"
 
+# wsl-open invokes Explorer once per argument, so the log must accumulate.
+# Real explorer.exe also exits nonzero even on success; mirror that here.
 cat >"$windows_root/explorer.exe" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\0' "$@" >"$EXPLORER_ARGUMENT_LOG"
+printf '%s\0' "$@" >>"$EXPLORER_ARGUMENT_LOG"
+exit 1
 EOF
 chmod +x "$windows_root/explorer.exe"
+: >"$argument_log"
 
 url='https://example.invalid/path?q=one two'
 EXPLORER_ARGUMENT_LOG="$argument_log" WINDOWS_SYSTEM_ROOT="$windows_root" \
