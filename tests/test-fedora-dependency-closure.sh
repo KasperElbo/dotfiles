@@ -13,7 +13,8 @@ test_root="$TEST_ROOT"
 
 duplicate_manifest="$test_root/duplicate.tsv"
 cp "$repo_root/config/fedora-command-providers.tsv" "$duplicate_manifest"
-sed -n '2p' "$duplicate_manifest" >>"$duplicate_manifest"
+duplicate_row="$(sed -n '2p' "$duplicate_manifest")"
+printf '%s\n' "$duplicate_row" >>"$duplicate_manifest"
 run_capture env FEDORA_COMMAND_PROVIDER_MANIFEST="$duplicate_manifest" \
   python3 "$repo_root/scripts/validate-fedora-dependency-closure.py"
 assert_failure
