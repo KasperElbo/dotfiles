@@ -62,36 +62,10 @@ function Test-PathWithinRoot {
 
     if (-not $Path -or -not $Root) { return $false }
     try {
-        $normalize = {
-            param([string]$Value)
-
-            if ($Value -notmatch '^[A-Za-z]:[\\/]') {
-                return [IO.Path]::GetFullPath($Value)
-            }
-
-            $windowsValue = $Value.Replace('/', '\')
-            $drive = $windowsValue.Substring(0, 3)
-            $segments = [Collections.Generic.List[string]]::new()
-            foreach ($segment in $windowsValue.Substring(3).Split('\')) {
-                if (-not $segment -or $segment -eq '.') { continue }
-                if ($segment -eq '..') {
-                    if ($segments.Count -gt 0) {
-                        $segments.RemoveAt($segments.Count - 1)
-                    }
-                    continue
-                }
-                $segments.Add($segment)
-            }
-            if ($segments.Count -eq 0) {
-                return $drive
-            }
-            return $drive + ($segments -join '\')
-        }
-
-        $isWindowsPath = $Path -match '^[A-Za-z]:[\\/]'
-        $fullPath = (& $normalize $Path).TrimEnd([char[]]@('\\', '/'))
-        $fullRoot = (& $normalize $Root).TrimEnd([char[]]@('\\', '/'))
-        $separator = if ($isWindowsPath) { '\' } else { [IO.Path]::DirectorySeparatorChar }
+        $trimCharacters = [char[]]@('\\', '/')
+        $fullPath = [IO.Path]::GetFullPath($Path).TrimEnd($trimCharacters)
+        $fullRoot = [IO.Path]::GetFullPath($Root).TrimEnd($trimCharacters)
+        $separator = [IO.Path]::DirectorySeparatorChar
         if ($fullPath.Equals($fullRoot, [StringComparison]::OrdinalIgnoreCase)) {
             return $true
         }
