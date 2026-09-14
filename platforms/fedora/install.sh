@@ -49,6 +49,9 @@ Options:
   --ai/--no-ai       Claude Code and Herdr profile
   --codex/--no-codex, --firstmate/--no-firstmate
   --gnhf/--no-gnhf, --backpass/--no-backpass
+                     AI subcomponents are additive: omitting one leaves it
+                     installed. --no-<component> is the only thing that
+                     removes one, and it confirms first.
   --hardware MODEL   ga402xz or ga402rk
   --secure-boot      Require Secure Boot for selected hardware
   --charge-limit N   ASUS battery limit (40-100)

@@ -39,6 +39,9 @@ Options:
   --ai/--no-ai       Optional Claude Code and Herdr profile
   --codex/--no-codex, --firstmate/--no-firstmate
   --gnhf/--no-gnhf, --backpass/--no-backpass
+                     AI subcomponents are additive: omitting one leaves it
+                     installed. --no-<component> is the only thing that
+                     removes one, and it confirms first.
   --smoke-test
   --dry-run          Show the resolved plan without changing anything
   --non-interactive  Use defaults without prompting (requires cached sudo)
