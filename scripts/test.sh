@@ -79,6 +79,7 @@ default_tests=(
   tests/test-sway-config.sh
   tests/test-cheatsheet-bindings.sh
   tests/test-neovim-tool-ownership.sh
+  tests/test-dotnet-debugger-contract.sh
   tests/test-neovim-bootstrap.sh
   tests/test-markdown-workflow.sh
   tests/test-latex-profile.sh

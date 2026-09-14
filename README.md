@@ -2967,7 +2967,6 @@ canonical package names live in `nvim-lazyvim/.config/nvim/mason-packages.txt`:
 | `json-lsp` | LazyVim JSON extra | JSON language support |
 | `lua-language-server` | LazyVim core | Lua language support for Neovim configuration |
 | `marksman` | LazyVim Markdown extra | Markdown links, references and document navigation |
-| `netcoredbg` | `lua/plugins/dotnet.lua` | Debug adapter binary used by EasyDotnet |
 | `pyright` | LazyVim Python extra | Python language server and type checking |
 | `roslyn` | `lua/plugins/dotnet.lua` | C# language server used by `roslyn.nvim` |
 | `ruff` | LazyVim Python extra | Editor diagnostics and formatting using project configuration |
@@ -2976,6 +2975,12 @@ canonical package names live in `nvim-lazyvim/.config/nvim/mason-packages.txt`:
 | `texlab` | LazyVim TeX extra | TeX language support |
 | `vtsls` | LazyVim TypeScript extra, imported by Angular | TypeScript language server using the workspace TypeScript SDK |
 | `yaml-language-server` | LazyVim YAML extra | YAML language support |
+
+The .NET debugger is deliberately not in this inventory. EasyDotnet 3.4.25
+bundles the official `netcoredbg` builds for each supported runtime platform,
+including native `osx-arm64`, and its project-aware DAP integration launches
+that bundled binary. Keeping Mason's `netcoredbg` out prevents the registry's
+Intel-only macOS asset from shadowing the native Apple Silicon provider.
 
 The installer first restores the locked lazy.nvim plugin set and then runs a
 blocking, time-limited `:MasonInstall` for any missing packages. This avoids
@@ -3726,21 +3731,23 @@ roslyn.nvim
 EasyDotnet
     solution/project awareness
     native MTP/xUnit test runner
+    project-aware DAP registration and bundled netcoredbg
 
 nvim-dap
-    generic debugger framework
+    generic debugger framework and UI
 
-Mason netcoredbg
-    .NET debugger backend
+Mason
+    Roslyn and other editor-only tooling, but not the .NET debugger
 
 mise
-    .NET SDK/runtime
+    .NET SDK/runtime and the pinned EasyDotnet companion tool
 ```
 
 EasyDotnet's own LSP integration is disabled; `roslyn.nvim` owns LSP client
 configuration and Mason owns the Roslyn binary. The mise-managed
 `dotnet:EasyDotnet` global tool is the companion server required by the
-`easy-dotnet.nvim` plugin; it does not replace Roslyn or `netcoredbg`.
+`easy-dotnet.nvim` plugin. EasyDotnet 3.4.25 owns and selects the bundled
+`netcoredbg` for the current runtime platform.
 
 ## Testing
 
@@ -3768,12 +3775,20 @@ It is configured as a right-side vertical split.
 
 ## Debugging
 
-EasyDotnet owns the project-aware DAP registration, while Mason owns the
-`netcoredbg` executable. The configured `bin_path` points EasyDotnet at Mason's
-package, preventing EasyDotnet's companion server from downloading a second
-debugger. Mason's generic `NetCoreDbg: Launch` configuration is suppressed so
-only EasyDotnet appears in the C# debug picker. `nvim-dap` remains the generic
-debugger framework.
+EasyDotnet owns the project-aware DAP registration and launches its bundled
+`netcoredbg` engine. On Apple Silicon the resolved path must be
+`tools/netcoredbg/osx-arm64/netcoredbg`; it must not point at Mason's
+Intel-only `netcoredbg` package. Mason's generic `NetCoreDbg: Launch`
+configuration is suppressed so only EasyDotnet appears in the C# debug picker.
+`nvim-dap` remains the generic debugger framework.
+
+The repository does not install Rosetta as a workaround. Other than the
+EasyDotnet bundle selected for the current runtime platform, macOS tools must
+remain native arm64. The macOS verifier checks the EasyDotnet health output,
+the resolved path, and the binary architecture. CI also runs a disposable
+breakpoint/evaluate session against a native arm64 .NET process; a separate
+probe records whether Mason's legacy x86_64 binary starts under the runner's
+existing Rosetta installation and whether mixed-architecture debugging works.
 
 Repository-specific `.vscode/launch.json` files are considered project configuration rather than workstation configuration.
 

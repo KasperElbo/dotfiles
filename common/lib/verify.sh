@@ -331,3 +331,58 @@ check_mise_owned() {
     fail "$name resolves outside mise: $resolved (mise manages $mise_resolved)"
   fi
 }
+
+# Verify the debugger provider selected by easy-dotnet.nvim. EasyDotnet's
+# machine-readable health command resolves the same bundled engine/path that
+# its Neovim RPC client launches. The path must never fall back to a custom or
+# Mason-owned debugger, because that would bypass the declared provider.
+check_easy_dotnet_debugger() {
+  local expected_platform="$1"
+  local health engine source platform debugger_path
+
+  EASY_DOTNET_DEBUGGER_PATH=""
+
+  if ! health="$(dotnet-easydotnet healthcheck --format json --debugger-engine netcoredbg 2>/dev/null)"; then
+    fail "EasyDotnet debugger healthcheck failed"
+    return 1
+  fi
+
+  engine="$(printf '%s\n' "$health" | jq -r '.[] | select(.name == "debugger.engine") | .value' 2>/dev/null)"
+  source="$(printf '%s\n' "$health" | jq -r '.[] | select(.name == "debugger.source") | .value' 2>/dev/null)"
+  platform="$(printf '%s\n' "$health" | jq -r '.[] | select(.name == "debugger.platform") | .value' 2>/dev/null)"
+  debugger_path="$(printf '%s\n' "$health" | jq -r '.[] | select(.name == "debugger.path") | .value' 2>/dev/null)"
+
+  if [[ "$engine" == netcoredbg ]]; then
+    pass "EasyDotnet debugger engine is netcoredbg"
+  else
+    fail "EasyDotnet debugger engine is ${engine:-unknown}; expected netcoredbg"
+  fi
+
+  if [[ "$source" == bundled ]]; then
+    pass "EasyDotnet owns the bundled debugger"
+  else
+    fail "EasyDotnet debugger source is ${source:-unknown}; expected bundled"
+  fi
+
+  if [[ "$platform" == "$expected_platform" ]]; then
+    pass "EasyDotnet debugger platform is $expected_platform"
+  else
+    fail "EasyDotnet debugger platform is ${platform:-unknown}; expected $expected_platform"
+  fi
+
+  if [[ -x "$debugger_path" && "$debugger_path" == */tools/netcoredbg/"$expected_platform"/netcoredbg ]]; then
+    pass "EasyDotnet bundled debugger path is executable: $debugger_path"
+  else
+    fail "EasyDotnet bundled debugger path is invalid or missing: ${debugger_path:-unknown}"
+  fi
+
+  if [[ "$debugger_path" == *'/nvim/mason/'* ]]; then
+    fail "EasyDotnet unexpectedly resolved a Mason-owned debugger: $debugger_path"
+  else
+    pass "EasyDotnet debugger does not resolve through Mason"
+  fi
+
+  EASY_DOTNET_DEBUGGER_PATH="$debugger_path"
+
+  ((VERIFY_FAILURES == 0))
+}

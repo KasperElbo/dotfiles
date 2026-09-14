@@ -74,7 +74,7 @@ jobs:
   macos:
     name: macOS 26 arm64 validation
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -82,6 +82,14 @@ jobs:
 
       - name: Install validation dependencies
         run: brew install bash ripgrep shellcheck stow
+
+      - name: Install native .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Exercise the Apple Silicon .NET debugger contract
+        run: ./tests/integration/macos-dotnet-debug.sh
 
       - name: Validate shell scripts
         run: /opt/homebrew/bin/bash ./scripts/lint.sh

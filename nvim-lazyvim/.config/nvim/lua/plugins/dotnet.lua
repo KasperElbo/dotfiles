@@ -19,7 +19,6 @@ return {
 
       for _, package in ipairs({
         "roslyn",
-        "netcoredbg",
       }) do
         if not vim.tbl_contains(opts.ensure_installed, package) then
           table.insert(opts.ensure_installed, package)
@@ -67,14 +66,11 @@ return {
         enabled = false,
       },
 
-      -- EasyDotnet owns project-aware DAP registration and uses the
-      -- Mason-owned netcoredbg binary instead of downloading another copy.
+      -- EasyDotnet owns project-aware DAP registration and the bundled,
+      -- platform-native netcoredbg binary. In particular, Apple Silicon must
+      -- resolve osx-arm64 here rather than Mason's legacy x86_64 package.
       debugger = {
-        bin_path = LazyVim.get_pkg_path(
-          "netcoredbg",
-          "/libexec/netcoredbg/netcoredbg",
-          { warn = false }
-        ),
+        engine = "netcoredbg",
         auto_register_dap = true,
       },
 

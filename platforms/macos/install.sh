@@ -65,7 +65,7 @@ preflight_macos() {
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   local specs=() spec
-  local selected=(base)
+  local selected=(base dotnet-debug)
   [[ "$install_ocaml" != true ]] || selected+=(ocaml)
   [[ "$install_containers" != true ]] || selected+=(containers)
   [[ "$install_tailscale" != true ]] || selected+=(tailscale)
@@ -146,7 +146,7 @@ if [[ "$interactive" == true ]]; then
   fi
 fi
 plan_preflight
-capabilities=base
+capabilities=base,dotnet-debug
 [[ "$install_ocaml" != true ]] || capabilities+=,ocaml
 [[ "$install_containers" != true ]] || capabilities+=,containers
 [[ "$install_tailscale" != true ]] || capabilities+=,tailscale

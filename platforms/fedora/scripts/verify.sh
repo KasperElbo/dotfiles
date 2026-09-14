@@ -407,6 +407,12 @@ if [[ -n "$mise_command" ]]; then
   for cmd in "${mise_tools[@]}"; do
     check_mise_owned "$cmd"
   done
+
+  case "$(uname -m)" in
+  aarch64 | arm64) check_easy_dotnet_debugger linux-arm64 ;;
+  x86_64 | amd64) check_easy_dotnet_debugger linux-x64 ;;
+  *) fail "Unsupported .NET debugger architecture: $(uname -m)" ;;
+  esac
 else
   fail "mise not found"
 fi

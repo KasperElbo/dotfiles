@@ -5,7 +5,6 @@ js-debug-adapter
 json-lsp
 lua-language-server
 marksman
-netcoredbg
 pyright
 roslyn
 ruff

@@ -67,7 +67,7 @@ mise_command="$(command -v mise 2>/dev/null || true)"
 if [[ -n "$mise_command" ]]; then
   eval "$("$mise_command" activate bash)"
 fi
-commands=(aerospace ast-grep bat delta dotnet eza fd fzf gh git lazygit mise node npm nvim python rg scp sftp shellcheck sqlite3 ssh starship stow tmux tree-sitter uv zoxide zsh)
+commands=(aerospace ast-grep bat delta dotnet dotnet-easydotnet eza fd fzf gh git jq lazygit mise node npm nvim python rg scp sftp shellcheck sqlite3 ssh starship stow tmux tree-sitter uv zoxide zsh)
 for name in "${commands[@]}"; do check_command "$name"; done
 
 for name in brew nvim node python dotnet; do
@@ -83,8 +83,8 @@ done
 
 check_arm64_file "Ghostty" /Applications/Ghostty.app/Contents/MacOS/ghostty
 check_arm64_file "AeroSpace" /Applications/AeroSpace.app/Contents/MacOS/AeroSpace
-netcoredbg="$XDG_DATA_HOME/nvim/mason/packages/netcoredbg/libexec/netcoredbg/netcoredbg"
-check_arm64_file "Mason netcoredbg" "$netcoredbg"
+check_easy_dotnet_debugger osx-arm64
+check_arm64_file "EasyDotnet bundled netcoredbg" "$EASY_DOTNET_DEBUGGER_PATH"
 
 python_arch="$(python -c 'import platform; print(platform.machine())' 2>/dev/null || true)"
 if [[ "$python_arch" == arm64 ]]; then
