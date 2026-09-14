@@ -22,7 +22,7 @@ preflight_platform_command_providers() {
 
   command_specs="$(capability_preflight_command_specs "$platform")" || return 1
   [[ -n "$command_specs" ]] || return 0
-  while IFS=
+  while IFS=$'\t' read -r command provider classification; do
     command_exists "$command" || {
       printf 'Missing %s command: %s (provider: %s)\n' \
         "$classification" "$command" "$provider" >&2
