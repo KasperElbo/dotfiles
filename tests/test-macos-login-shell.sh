@@ -50,6 +50,7 @@ run_ensure() {
   [[ -n "$start_shell" ]] || : >"$shell_state"
   : >"$root/logs/sudo.log"
 
+  # shellcheck disable=SC2016 # The payload expands in the child bash, not here.
   run_capture env \
     PATH="$root/bin:$PATH" \
     TEST_STUB_ROOT="$root" \
