@@ -16,13 +16,15 @@ explorer="$windows_root/explorer.exe"
 
 converted_arguments=()
 for argument in "$@"; do
-  scheme="${argument%%:*}"
-  case "${scheme,,}" in
-  http | https | ftp | ftps | mailto | file)
-    converted_arguments+=("$argument")
-    continue
-    ;;
-  esac
+  if [[ "$argument" =~ ^[[:alpha:]][[:alnum:].+-]*: ]]; then
+    scheme="${argument%%:*}"
+    case "${scheme,,}" in
+    http | https | ftp | ftps | mailto | file)
+      converted_arguments+=("$argument")
+      continue
+      ;;
+    esac
+  fi
 
   if [[ ! -e "$argument" ]]; then
     if [[ "$argument" == *:* ]]; then
@@ -47,4 +49,6 @@ for argument in "$@"; do
   converted_arguments+=("$windows_path")
 done
 
-exec "$explorer" "${converted_arguments[@]}"
+for converted_argument in "${converted_arguments[@]}"; do
+  "$explorer" "$converted_argument"
+done
