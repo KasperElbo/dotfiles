@@ -108,8 +108,10 @@ For an unattended run after reviewing the plan:
 ```
 
 Use `--no-defaults` to deploy tools and configuration without changing macOS
-preferences. Use `--workflows` to also run the network-dependent disposable
-.NET, Angular, and Python projects described below.
+preferences. Use `--dev-workflows` to also run the network-dependent
+disposable .NET, Angular, Python and JSON workflows described below.
+`--workflows`/`--no-workflows` are deprecated spellings that still resolve to
+identical behaviour and warn.
 
 ## 3. Package ownership
 
@@ -137,7 +139,7 @@ legacy Intel behavior without installing Rosetta.
 bootstrap:
 
 ```bash
-./install.sh --platform macos --workflows
+./install.sh --platform macos --dev-workflows
 ```
 
 Or run them separately:
@@ -146,6 +148,7 @@ Or run them separately:
 ./scripts/test-dev-workflows.sh --dotnet
 ./scripts/test-dev-workflows.sh --angular
 ./scripts/test-dev-workflows.sh --python
+./scripts/test-dev-workflows.sh --json
 ./scripts/test-dev-workflows.sh --latex
 ```
 

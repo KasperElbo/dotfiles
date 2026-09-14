@@ -318,7 +318,8 @@ The complete OCaml development environment is explicitly opt-in:
 
 The Fedora WSL installer exposes `--theme`, `--ocaml`, `--latex`,
 `--containers`, `--containers-api-socket`, `--ai`, `--codex`, `--firstmate`,
-`--gnhf`, `--backpass`, `--smoke-test`, `--dry-run`, and `--non-interactive`.
+`--gnhf`, `--backpass`, `--dev-workflows`, `--dry-run`, and
+`--non-interactive`.
 Fedora desktop, Sway, VM and hardware flags are rejected rather than
 silently ignored; see "Podman containers under WSL" below for what
 `--containers` actually requires and changes on this platform, and
@@ -893,12 +894,15 @@ commits will sign locally but still show as unverified there. In short:
 
 The normal installer verifies `command -v` ownership and starts representative
 `.NET`, Node/npm/npx, Python/uv and optional OCaml commands. For disposable,
-network-dependent project tests covering .NET, Angular/TypeScript, Python and
-the installed OCaml profile, run:
+network-dependent project tests covering .NET, Angular/TypeScript, Python,
+JSON and the installed OCaml profile, run:
 
 ```bash
-./install.sh --platform fedora-wsl --smoke-test
+./install.sh --platform fedora-wsl --dev-workflows
 ```
+
+`--smoke-test` is the deprecated spelling of `--dev-workflows`; it still
+resolves to identical behaviour and warns.
 
 The optional AI profile (`--ai`, `--codex`, `--firstmate`; see "AI-assisted
 development toolchain" below) is portable CLI tooling with no GUI or hardware
@@ -3165,6 +3169,7 @@ canonical package names live in `nvim-lazyvim/.config/nvim/mason-packages.txt`:
 | `json-lsp` | LazyVim JSON extra | JSON language support |
 | `lua-language-server` | LazyVim core | Lua language support for Neovim configuration |
 | `marksman` | LazyVim Markdown extra | Markdown links, references and document navigation |
+| `prettier` | LazyVim Prettier extra | Editor-owned formatter for JSON, JSONC, YAML, Markdown and the web filetypes |
 | `pyright` | LazyVim Python extra | Python language server and type checking |
 | `roslyn` | `lua/plugins/dotnet.lua` | C# language server used by `roslyn.nvim` |
 | `ruff` | LazyVim Python extra | Editor diagnostics and formatting using project configuration |
@@ -3994,6 +3999,30 @@ Repository-specific `.vscode/launch.json` files are considered project configura
 
 C# formatting uses project-local CSharpier through Conform.
 
+CSharpier is declared by the repository being edited, in its local tool
+manifest (`.config/dotnet-tools.json`), and Conform invokes it through the .NET
+SDK entry point:
+
+```text
+dotnet csharpier format --stdin-path <file>
+```
+
+Conform runs that command in the nearest directory above the edited file that
+declares a tool manifest, so the project's pinned CSharpier is used regardless
+of the directory Neovim was started in. Outside such a project the formatter is
+simply unavailable: the editor never falls back to a `csharpier` executable it
+finds on `PATH`, and neither mise, Mason, npm, nor the system package manager
+installs a second copy.
+
+Restore the tool once per clone:
+
+```bash
+dotnet tool restore
+```
+
+Until then, formatting reports `Run "dotnet tool restore" to make the
+"csharpier" command available.`
+
 ---
 
 # Angular / TypeScript development
@@ -4049,8 +4078,8 @@ The split is intentional:
   JavaScript debug adapter
 - VTSLS is configured to use the workspace TypeScript SDK
 
-JSON and YAML language servers remain Mason-owned. Their formatting falls back
-to the language server unless a project-local Prettier executable is available.
+JSON and YAML language servers remain Mason-owned, and so does the Prettier
+that formats them; see "JSON and JSONC" below for the ownership rule.
 
 ## Debugging
 
@@ -4287,34 +4316,116 @@ because it depends on the editor session.
 
 ---
 
-# Disposable development workflow validation
+# Development workflow smoke tests
 
-The repository includes network-dependent fixtures that exercise real project
-tooling in temporary directories:
+`./scripts/test-dev-workflows.sh` validates an **installed machine** by
+exercising real project tooling in temporary directories. It is deliberately
+separate from `./scripts/test.sh`, which runs the repository's own offline
+unit, contract and mocked-installer suites and never touches the network or
+the installed toolchain.
 
 ```bash
-./scripts/test-dev-workflows.sh
+./scripts/test-dev-workflows.sh            # .NET, Angular, Python, JSON
 ./scripts/test-dev-workflows.sh --dotnet
 ./scripts/test-dev-workflows.sh --angular
 ./scripts/test-dev-workflows.sh --python
+./scripts/test-dev-workflows.sh --json
 ./scripts/test-dev-workflows.sh --ocaml
 ./scripts/test-dev-workflows.sh --latex
 ```
 
+Selectors combine, so `--python --json` runs exactly those two.
+
+The installers forward to the same script through one canonical flag,
+`--dev-workflows`:
+
+```bash
+./install.sh --platform fedora --dev-workflows
+./install.sh --platform fedora-wsl --dev-workflows
+./install.sh --platform macos --dev-workflows
+```
+
+The earlier platform-specific spellings still work and resolve to identical
+behaviour, but they are deprecated and warn: `--smoke-test` on Fedora WSL and
+`--workflows`/`--no-workflows` on macOS. (The unrelated VM-host
+`--smoke-test`, which renders a guest definition without creating it, is a
+different option and is unchanged.) The reduced Parrot CTF profile rejects
+`--dev-workflows` explicitly: it has no workstation language runtimes, and
+installing them only so the flag exists would defeat the point of the profile.
+
+Each workflow reports independently as `PASS`, `FAIL`, or `SKIP` with a
+reason, and the command exits non-zero only when a workflow actually failed. A
+missing runtime is a skip rather than a failure, so the same command is
+meaningful on machines with different optional profiles installed. Generated
+projects live only below one temporary directory and are removed as soon as
+each workflow finishes, including when it fails part-way through.
+
 The .NET check creates a disposable console and xUnit project, then restores,
-builds, tests, and runs them.
+builds, tests, and runs them, and formats a fixture with the project-local
+CSharpier.
 The Angular check installs only fixture-local dependencies, formats, lints,
 tests, exercises both the modern and debug builds with source maps, starts the
 debug server, and probes it.
 The Python check resolves an isolated environment, runs the package and tests,
-lints, checks formatting, and builds both source and wheel distributions. The
-OCaml check resolves the fixture through opam and exercises Dune build, run,
-test, format, and bytecode targets using the configured profile switch. The
-LaTeX check formats and builds a multi-file document, resolves a BibLaTeX
+lints, checks formatting, and builds both source and wheel distributions.
+The JSON check opens disposable `.json` and `.jsonc` files in the installed
+Neovim and verifies filetypes, Tree-sitter parsing, `jsonls` diagnostics,
+SchemaStore schemas, and Conform formatting, including that a shadowing
+`prettier` on `PATH` is not used and that JSONC comments survive.
+The OCaml check resolves the fixture through opam and exercises Dune build,
+run, test, format, and bytecode targets using the configured profile switch.
+The LaTeX check formats and builds a multi-file document, resolves a BibLaTeX
 citation through Biber, verifies its PDF, and checks a deliberate compile
-error. These larger checks are intentionally separate from `scripts/test.sh`;
-the normal repository suite validates their configuration without fetching
-language ecosystems.
+error.
+
+---
+
+# JSON and JSONC
+
+JSON and JSONC editing is part of the default shared LazyVim profile. Opening
+a `.json` or `.jsonc` file gives Tree-sitter syntax support, `jsonls`
+diagnostics and completion, SchemaStore-backed schemas for well-known files,
+and deterministic formatting through Conform.
+
+Ownership:
+
+| Piece | Owner |
+|---|---|
+| Language support and schemas | `lazyvim.plugins.extras.lang.json` |
+| Language server | Mason `json-lsp` |
+| Formatter | Mason `prettier`, mapped by `lazyvim.plugins.extras.formatting.prettier` |
+
+Formatting uses the normal LazyVim format action (`<leader>cf`) and the normal
+repository-wide format-on-save policy. There is no JSON-specific save hook, so
+the usual LazyVim toggle still governs it.
+
+Prettier is the one editor-side exception to the project-only tooling rule,
+and the exception is narrow. Conform resolves `prettier` from the project's
+`node_modules` first, so a repository that declares its own Prettier still
+formats with its own pinned version and its own `.prettierrc`. The Mason copy
+exists only so that a standalone JSON, YAML or Markdown file is formattable on
+a clean install, without depending on a globally installed npm Prettier that
+the repository never declared. `vim.g.lazyvim_prettier_needs_config` is left
+at `false` for that reason.
+
+Because the installer provisions the tracked Mason inventory directly rather
+than through Mason's asynchronous `ensure_installed` loop, `prettier` is
+listed in `nvim-lazyvim/.config/nvim/mason-packages.txt`. That file is the
+single list the bootstrap installs and the verifiers check, so enabling the
+extra alone would not have been enough.
+
+The reduced Parrot CTF profile deliberately excludes this workflow. It has no
+JSON extra, no `json-lsp` and no `prettier`: that profile exists to stay small
+around Python and Lua scripting, and a language server plus a Node-based
+formatter is exactly the workstation weight it avoids. JSON files still open
+and edit there with core Neovim; they simply have no language server or
+Prettier.
+
+Verify the installed behaviour with:
+
+```bash
+./scripts/test-dev-workflows.sh --json
+```
 
 ---
 
@@ -4470,7 +4581,7 @@ its Windows handler without putting Windows launch logic in the shared editor
 configuration. That Windows-handler fallback does not currently provide
 forward or inverse SyncTeX. Verify the optional WSL toolchain separately with
 `platforms/fedora-wsl/scripts/verify.sh --latex`; combining `--latex` with the
-installer's `--smoke-test` also runs the disposable multi-file build below.
+installer's `--dev-workflows` also runs the disposable multi-file build below.
 
 The LazyVim TeX extra installs the LaTeX and BibTeX Tree-sitter parsers. It
 intentionally leaves LaTeX highlighting to VimTeX's more complete syntax

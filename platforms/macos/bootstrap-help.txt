@@ -6,7 +6,9 @@ Options:
   --containers/--no-containers
   --tailscale/--no-tailscale
   --defaults/--no-defaults
-  --workflows/--no-workflows
+  --dev-workflows/--no-dev-workflows
+                     Disposable development workflow smoke tests
+                     (--workflows/--no-workflows are deprecated spellings)
   --dry-run          Show the resolved plan without changing anything
   --non-interactive  Use selected options without prompting
   -h, --help         Show this help

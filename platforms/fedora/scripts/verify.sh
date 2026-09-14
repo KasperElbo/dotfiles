@@ -490,8 +490,11 @@ if [[ -d "$mason_root" ]]; then
   done
 fi
 
+# A Lua error raised from an Ex command does not become Neovim's exit status,
+# so the baseline check must turn a failed version test into `cquit` itself.
+# Otherwise the trailing +qa would report success on an unsupported Neovim.
 if nvim --headless \
-  '+lua assert(vim.fn.has("nvim-0.12") == 1)' \
+  '+lua if vim.fn.has("nvim-0.12") ~= 1 then vim.cmd("cquit 1") end' \
   +qa >/dev/null 2>&1; then
   pass "Neovim >= 0.12"
 else

@@ -23,7 +23,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/macos.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/install-actions.sh"
 
 theme=macchiato; install_ocaml=false; install_containers=false
-install_tailscale=false; apply_defaults=true; run_workflows=false
+install_tailscale=false; apply_defaults=true; run_dev_workflows=false
 interactive=true; dry_run=false
 
 usage() {
@@ -38,7 +38,9 @@ while (($#)); do
   --containers) install_containers=true; shift ;; --no-containers) install_containers=false; shift ;;
   --tailscale) install_tailscale=true; shift ;; --no-tailscale) install_tailscale=false; shift ;;
   --defaults) apply_defaults=true; shift ;; --no-defaults) apply_defaults=false; shift ;;
-  --workflows) run_workflows=true; shift ;; --no-workflows) run_workflows=false; shift ;;
+  --dev-workflows) run_dev_workflows=true; shift ;; --no-dev-workflows) run_dev_workflows=false; shift ;;
+  --workflows) warn '--workflows is deprecated; use --dev-workflows instead.'; run_dev_workflows=true; shift ;;
+  --no-workflows) warn '--no-workflows is deprecated; use --no-dev-workflows instead.'; run_dev_workflows=false; shift ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
   -h | --help) usage; exit 0 ;;
@@ -81,7 +83,7 @@ apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh"; }
 apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
 apply_ocaml() { "$DOTFILES_ROOT/common/install-ocaml.sh"; }
 apply_macos_defaults() { "$DOTFILES_ROOT/platforms/macos/scripts/apply-defaults.sh"; }
-apply_workflows() { "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --all; [[ "$install_ocaml" != true ]] || "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --ocaml; }
+apply_dev_workflows() { local args=(--all); [[ "$install_ocaml" != true ]] || args+=(--ocaml); "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" "${args[@]}"; }
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
 apply_aerospace() { open -a AeroSpace || warn 'Open AeroSpace manually from /Applications'; }
 verify_macos() {
@@ -99,7 +101,10 @@ plan_add nvim 'Restore LazyVim and Mason tools' apply : apply_nvim : 'common/ins
 plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
 [[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and platform tools' apply : apply_ocaml : 'common/install-ocaml.sh'
 [[ "$apply_defaults" != true ]] || plan_add defaults 'Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults' apply : apply_macos_defaults : 'platforms/macos/scripts/apply-defaults.sh'
-[[ "$run_workflows" != true ]] || plan_add workflows 'Run disposable .NET, Angular, and Python workflow tests' apply : apply_workflows : 'scripts/test-dev-workflows.sh'
+if [[ "$run_dev_workflows" == true ]]; then
+  dev_workflows_note='scripts/test-dev-workflows.sh --all'; [[ "$install_ocaml" != true ]] || dev_workflows_note+=' --ocaml'
+  plan_add dev-workflows 'Run the disposable development workflow smoke tests' verify : apply_dev_workflows : "$dev_workflows_note"
+fi
 plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme"
 plan_add aerospace 'Launch AeroSpace' apply : apply_aerospace : 'macOS may request Accessibility access.'
 plan_add verify 'Verify installation and native architecture' verify : verify_macos : 'platforms/macos/scripts/verify.sh'
@@ -115,7 +120,7 @@ macOS defaults:     $apply_defaults
 OCaml profile:      $install_ocaml
 Containers profile: $install_containers
 Tailscale profile:  $install_tailscale
-Development tests:  $run_workflows
+Development workflow smoke tests: $run_dev_workflows
 AI tooling profile: unavailable until repository issue #16 lands
 
 EOF

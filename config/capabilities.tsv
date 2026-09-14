@@ -60,3 +60,7 @@ gnhf	fedora	workstation	--gnhf	disabled	ai	-	mise-npm	gnhf	-	common/verify-ai.sh
 gnhf	fedora-wsl	workstation	--gnhf	disabled	ai	-	mise-npm	gnhf	-	common/verify-ai.sh	ai	README.md#ai-assisted-development-toolchain	ecosystem	implemented
 backpass	fedora	workstation	--backpass	disabled	ai	-	mise-npm	backpass,acpx	-	common/verify-ai.sh	ai	README.md#ai-assisted-development-toolchain	ecosystem	implemented
 backpass	fedora-wsl	workstation	--backpass	disabled	ai	-	mise-npm	backpass,acpx	-	common/verify-ai.sh	ai	README.md#ai-assisted-development-toolchain	ecosystem	implemented
+dev-workflows	fedora	workstation	--dev-workflows	disabled	base	-	repository	-	-	scripts/test-dev-workflows.sh	-	README.md#development-workflow-smoke-tests	repository	implemented
+dev-workflows	fedora-wsl	workstation	--dev-workflows	disabled	base	-	repository	-	-	scripts/test-dev-workflows.sh	-	README.md#development-workflow-smoke-tests	repository	implemented
+dev-workflows	macos	workstation	--dev-workflows	disabled	base	-	repository	-	-	scripts/test-dev-workflows.sh	-	docs/macos.md	repository	implemented
+dev-workflows	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	README.md#parrot-security-edition-ctf-vm	intentional-absence	unsupported
