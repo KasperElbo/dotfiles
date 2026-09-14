@@ -18,15 +18,20 @@ mise_shims="$mise_data/shims"
 mise_installs="$mise_data/installs"
 mkdir -p "$mise_shims" "$mise_installs" "$config" "$data"
 
-# Mocks mise closely enough to exercise install-ai.sh/verify-ai.sh without a
-# real mise install: 'mise --yes install' materializes a shim for each tool
-# declared in the AI profile's untracked conf.d file (so codex only appears
-# when actually declared). A command resolves through mise's shim directory,
-# while 'mise which' reports the underlying installed executable, matching
-# real mise behavior.
+# Stateful mise behavior stays local to this suite, but its command surface is
+# deliberately fail-closed: only argv shapes exercised by install-ai/verify-ai
+# are accepted. This keeps the fixture realistic without turning it into a
+# permissive fake that can hide command-contract regressions.
 cat >"$mock_bin/mise" <<'EOF'
 #!/usr/bin/env bash
 conf_file="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
+
+reject() {
+  printf 'strict mise fixture rejected unsupported argv:' >&2
+  printf ' %q' "$@" >&2
+  printf '\n' >&2
+  exit 96
+}
 
 make_shim() {
   install_bin="$MISE_INSTALLS_DIR/$1/latest/bin/$1"
@@ -50,95 +55,119 @@ SCRIPT
 
 case "${1:-}" in
 --yes)
-  if [[ "${2:-}" == install ]]; then
-    if [[ "${3:-}" == npm:@anthropic-ai/claude-code &&
-      "${CLAUDE_REPAIR_RESULT:-success}" == success ]]; then
-      rm -f -- "${CLAUDE_NATIVE_BROKEN_FILE:-}"
-    fi
-    mkdir -p "$MISE_SHIMS_DIR"
-    grep -Fq 'claude-code' "$conf_file" 2>/dev/null && make_shim claude
-    grep -Fq 'herdr' "$conf_file" 2>/dev/null && make_shim herdr
-    grep -Fq 'openai/codex' "$conf_file" 2>/dev/null && make_shim codex
-    grep -Fq '"npm:gnhf"' "$conf_file" 2>/dev/null && make_shim gnhf
-    grep -Fq '"npm:gh-axi"' "$conf_file" 2>/dev/null && make_shim gh-axi
-    grep -Fq '"npm:chrome-devtools-axi"' "$conf_file" 2>/dev/null && make_shim chrome-devtools-axi
-    grep -Fq '"npm:lavish-axi"' "$conf_file" 2>/dev/null && make_shim lavish-axi
-    grep -Fq '"npm:tasks-axi"' "$conf_file" 2>/dev/null && make_shim tasks-axi
-    grep -Fq '"npm:quota-axi"' "$conf_file" 2>/dev/null && make_shim quota-axi
-    grep -Fq '"npm:backpass"' "$conf_file" 2>/dev/null && make_shim backpass
-    grep -Fq '"npm:acpx"' "$conf_file" 2>/dev/null && make_shim acpx
+  [[ "${2:-}" == install ]] || reject "$@"
+  if [[ $# -ne 2 && ! ( $# -eq 3 && "${3:-}" == npm:@anthropic-ai/claude-code ) ]]; then
+    reject "$@"
   fi
+  if [[ "${3:-}" == npm:@anthropic-ai/claude-code &&
+    "${CLAUDE_REPAIR_RESULT:-success}" == success ]]; then
+    rm -f -- "${CLAUDE_NATIVE_BROKEN_FILE:-}"
+  fi
+  mkdir -p "$MISE_SHIMS_DIR"
+  grep -Fq 'claude-code' "$conf_file" 2>/dev/null && make_shim claude
+  grep -Fq 'herdr' "$conf_file" 2>/dev/null && make_shim herdr
+  grep -Fq 'openai/codex' "$conf_file" 2>/dev/null && make_shim codex
+  grep -Fq '"npm:gnhf"' "$conf_file" 2>/dev/null && make_shim gnhf
+  grep -Fq '"npm:gh-axi"' "$conf_file" 2>/dev/null && make_shim gh-axi
+  grep -Fq '"npm:chrome-devtools-axi"' "$conf_file" 2>/dev/null && make_shim chrome-devtools-axi
+  grep -Fq '"npm:lavish-axi"' "$conf_file" 2>/dev/null && make_shim lavish-axi
+  grep -Fq '"npm:tasks-axi"' "$conf_file" 2>/dev/null && make_shim tasks-axi
+  grep -Fq '"npm:quota-axi"' "$conf_file" 2>/dev/null && make_shim quota-axi
+  grep -Fq '"npm:backpass"' "$conf_file" 2>/dev/null && make_shim backpass
+  grep -Fq '"npm:acpx"' "$conf_file" 2>/dev/null && make_shim acpx
   exit 0
   ;;
 exec)
-  [[ "${2:-}" == -- ]] || exit 2
+  [[ "${2:-}" == -- && $# -ge 3 ]] || reject "$@"
   shift 2
-  PATH="$MISE_SHIMS_DIR:$PATH" exec "$@"
+  case "$*" in
+  'claude --version' | 'npm config get ignore-scripts' | 'npm config get omit')
+    PATH="$MISE_SHIMS_DIR:$PATH" exec "$@"
+    ;;
+  *)
+    reject exec -- "$@"
+    ;;
+  esac
   ;;
 uninstall)
-  if [[ "${2:-}" == npm:@anthropic-ai/claude-code ]]; then
-    printf 'claude-uninstall\n' >>"${MISE_OPERATION_LOG:-/dev/null}"
-    rm -rf -- "$MISE_INSTALLS_DIR/claude" "$MISE_SHIMS_DIR/claude"
-  fi
+  [[ $# -eq 2 && "${2:-}" == npm:@anthropic-ai/claude-code ]] || reject "$@"
+  printf 'claude-uninstall\n' >>"${MISE_OPERATION_LOG:-/dev/null}"
+  rm -rf -- "$MISE_INSTALLS_DIR/claude" "$MISE_SHIMS_DIR/claude"
   exit 0
   ;;
 which)
-  name="${2:-}"
+  [[ $# -eq 2 ]] || reject "$@"
+  name="$2"
+  case "$name" in
+  claude | herdr | codex | gnhf | gh-axi | chrome-devtools-axi | lavish-axi | \
+    tasks-axi | quota-axi | backpass | acpx) ;;
+  *) reject "$@" ;;
+  esac
   install_bin="$MISE_INSTALLS_DIR/$name/latest/bin/$name"
   if [[ -x "$install_bin" ]]; then
     printf '%s\n' "$install_bin"
     exit 0
-  else
-    exit 1
   fi
+  exit 1
+  ;;
+*)
+  reject "$@"
   ;;
 esac
-exit 0
 EOF
 chmod +x "$mock_bin/mise"
 
 cat >"$mock_bin/npm" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == config && "${2:-}" == get ]]; then
-  case "${3:-}" in
-  ignore-scripts) printf '%s\n' "${MOCK_NPM_IGNORE_SCRIPTS:-false}" ;;
-  omit) printf '%s\n' "${MOCK_NPM_OMIT:-}" ;;
+if [[ $# -eq 3 && "$1" == config && "$2" == get ]]; then
+  case "$3" in
+  ignore-scripts) printf '%s\n' "${MOCK_NPM_IGNORE_SCRIPTS:-false}"; exit 0 ;;
+  omit) printf '%s\n' "${MOCK_NPM_OMIT:-}"; exit 0 ;;
   esac
 fi
+printf 'strict npm fixture rejected unsupported argv: %s\n' "$*" >&2
+exit 96
 EOF
 chmod +x "$mock_bin/npm"
 
+# These tools are prerequisites only; this scenario intentionally never invokes
+# them. If production starts doing so, the fixture must explicitly model the
+# new contract instead of silently succeeding.
 for command_name in gh tmux jq; do
   cat >"$mock_bin/$command_name" <<'EOF'
 #!/usr/bin/env bash
-exit 0
+printf 'strict prerequisite fixture rejected unexpected invocation: %s %s\n' \
+  "${0##*/}" "$*" >&2
+exit 96
 EOF
   chmod +x "$mock_bin/$command_name"
 done
 
 # Mocks Treehouse's and No Mistakes' real install scripts closely enough to
-# exercise install-ai.sh without the network: given a URL containing the
-# tool's name, print a tiny installer script to stdout, which install-ai.sh
-# pipes into 'sh' itself (matching the real 'curl ... | sh' invocation).
+# exercise install-ai.sh without the network, while rejecting any curl shape
+# other than the exact curl|sh contract used by install_via_own_script.
 cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
-url=""
-for arg in "$@"; do
-  case "$arg" in
-  http*) url="$arg" ;;
-  esac
-done
+if [[ $# -ne 5 || "$1" != --fail || "$2" != --show-error ||
+  "$3" != --silent || "$4" != --location ]]; then
+  printf 'strict curl fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+fi
+url="$5"
 emit_installer() {
   printf '#!/usr/bin/env sh\n'
   printf 'mkdir -p "$HOME/.local/bin"\n'
   printf 'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$HOME/.local/bin/%s"\n' "$1"
   printf 'chmod +x "$HOME/.local/bin/%s"\n' "$1"
 }
-if [[ "$url" == *treehouse* ]]; then
-  emit_installer treehouse
-elif [[ "$url" == *no-mistakes* ]]; then
-  emit_installer no-mistakes
-fi
+case "$url" in
+*treehouse*) emit_installer treehouse ;;
+*no-mistakes*) emit_installer no-mistakes ;;
+*)
+  printf 'strict curl fixture rejected unexpected URL: %s\n' "$url" >&2
+  exit 96
+  ;;
+esac
 EOF
 chmod +x "$mock_bin/curl"
 
@@ -168,6 +197,17 @@ test_environment=(
   "MISE_INSTALLS_DIR=$mise_installs"
   "FIRSTMATE_REPO_URL=$firstmate_origin"
 )
+
+# Prove these local stateful mocks fail closed independently of the generic
+# strict-stub meta-test.
+run_capture env XDG_CONFIG_HOME="$config" MISE_DATA_DIR="$mise_data" \
+  MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
+  PATH="$mock_bin:$PATH" mise install unexpected
+assert_status 96
+run_capture env PATH="$mock_bin:$PATH" curl --silent https://example.invalid
+assert_status 96
+run_capture env PATH="$mock_bin:$PATH" gh auth status
+assert_status 96
 
 # FirstMate prerequisites are checked before the installer writes any profile
 # state or asks mise to install tools. Platform installers normally provide
