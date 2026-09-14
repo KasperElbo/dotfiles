@@ -130,9 +130,9 @@ printf 'Rosetta package: %s\nLegacy x86_64 start: %s\nLegacy x86_64 -> arm64 DAP
   "$rosetta_package" "$legacy_start" "$legacy_dap"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  summary_dotnet='`dotnet`'
-  summary_platform='`osx-arm64`'
-  summary_value='`value == 42`'
+  summary_dotnet="$(printf '\\140dotnet\\140')"
+  summary_platform="$(printf '\\140osx-arm64\\140')"
+  summary_value="$(printf '\\140value == 42\\140')"
   {
     printf '## Apple Silicon .NET debugger evidence\n\n'
     printf -- '- %s: arm64\n' "$summary_dotnet"
