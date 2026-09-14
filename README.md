@@ -3165,6 +3165,7 @@ canonical package names live in `nvim-lazyvim/.config/nvim/mason-packages.txt`:
 | `json-lsp` | LazyVim JSON extra | JSON language support |
 | `lua-language-server` | LazyVim core | Lua language support for Neovim configuration |
 | `marksman` | LazyVim Markdown extra | Markdown links, references and document navigation |
+| `prettier` | LazyVim Prettier extra | Editor-owned formatter for JSON, JSONC, YAML, Markdown and the web filetypes |
 | `pyright` | LazyVim Python extra | Python language server and type checking |
 | `roslyn` | `lua/plugins/dotnet.lua` | C# language server used by `roslyn.nvim` |
 | `ruff` | LazyVim Python extra | Editor diagnostics and formatting using project configuration |
@@ -4073,8 +4074,8 @@ The split is intentional:
   JavaScript debug adapter
 - VTSLS is configured to use the workspace TypeScript SDK
 
-JSON and YAML language servers remain Mason-owned. Their formatting falls back
-to the language server unless a project-local Prettier executable is available.
+JSON and YAML language servers remain Mason-owned, and so does the Prettier
+that formats them; see "JSON and JSONC" below for the ownership rule.
 
 ## Debugging
 

@@ -1,0 +1,6 @@
+{
+  // A JSONC comment that formatting must preserve.
+      "name":"dotfiles-jsonc-smoke",
+  /* A block comment that formatting must preserve. */
+   "values":[1,   2,3]
+}

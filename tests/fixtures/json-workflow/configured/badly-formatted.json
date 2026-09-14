@@ -1,0 +1,5 @@
+{
+"name":"dotfiles-project-config",
+   "nested":{"values":[1,2,3]},
+ "enabled":true
+}

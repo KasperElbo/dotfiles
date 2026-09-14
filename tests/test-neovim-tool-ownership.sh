@@ -22,6 +22,7 @@ assert_contains() {
 
 lazyvim_extras=(
   lazyvim.plugins.extras.dap.core
+  lazyvim.plugins.extras.formatting.prettier
   lazyvim.plugins.extras.lang.angular
   lazyvim.plugins.extras.lang.json
   lazyvim.plugins.extras.lang.markdown
@@ -127,7 +128,6 @@ assert_contains "$formatting_config" 'cs = { "csharpier" }'
 assert_contains "$formatting_config" 'require("config.csharpier").formatter()'
 assert_contains "$lazyvim_config/lua/config/csharpier.lua" 'command = "dotnet"'
 assert_contains "$lazyvim_config/lua/config/csharpier.lua" 'require_cwd = true'
-assert_contains "$formatting_config" 'typescript = { "prettier" }'
 assert_contains "$formatting_config" 'htmlangular = { "prettier" }'
 assert_contains "$formatting_config" 'python = { "ruff_format" }'
 assert_contains "$lazyvim_config/lua/config/options.lua" \
@@ -170,6 +170,7 @@ expected_mason_packages=(
   json-lsp
   lua-language-server
   marksman
+  prettier
   pyright
   roslyn
   ruff
@@ -197,7 +198,7 @@ expected_parrot_mason=(
 [[ "${parrot_mason_inventory[*]}" == "${expected_parrot_mason[*]}" ]] ||
   fail "Parrot Mason inventory does not match the reduced package set"
 for excluded in angular-language-server eslint-lsp js-debug-adapter json-lsp \
-  marksman netcoredbg pyright roslyn texlab vtsls yaml-language-server; do
+  marksman netcoredbg prettier pyright roslyn texlab vtsls yaml-language-server; do
   if grep -Fxq "$excluded" "$parrot_mason_inventory_file"; then
     fail "workstation Mason package leaked into Parrot profile: $excluded"
   fi
@@ -259,11 +260,14 @@ if printf '%s\n' "${mason_inventory[@]}" | grep -Fxq 'ocaml-lsp' ||
   fail "OCaml switch tooling must not be Mason-managed"
 fi
 
+# Prettier is the one deliberate exception to the project-only rule below: a
+# project's own Prettier still wins through Conform's node_modules resolution,
+# and the Mason copy exists so a standalone JSON, YAML or Markdown file is
+# formattable on a clean install. Every other project tool stays project-owned.
 project_tools=(
   csharpier
   dotnet-ef
   eslint
-  prettier
   pytest
   trx2junit
   typescript

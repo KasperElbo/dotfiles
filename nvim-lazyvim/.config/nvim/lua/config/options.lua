@@ -14,5 +14,10 @@ end
 
 vim.g.lazyvim_eslint_auto_format = false
 
+-- Prettier formats a supported filetype even without a project configuration,
+-- so a standalone JSON or Markdown file is formattable straight after install.
+-- A project's own .prettierrc still wins when one exists.
+vim.g.lazyvim_prettier_needs_config = false
+
 vim.g.loaded_ruby_provider = 0
 vim.g.loaded_perl_provider = 0

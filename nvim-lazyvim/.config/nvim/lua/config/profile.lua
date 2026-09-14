@@ -6,6 +6,11 @@ local profiles = {
     lockfile = "lazy-lock.json",
     extras = {
       "lazyvim.plugins.extras.dap.core",
+      -- Owns the editor-side Prettier: it supplies Conform's filetype mapping
+      -- and its parser/config conditions. The tracked Mason inventory installs
+      -- the executable, because the installer provisions that list directly
+      -- instead of running Mason's asynchronous ensure loop.
+      "lazyvim.plugins.extras.formatting.prettier",
       "lazyvim.plugins.extras.lang.angular",
       "lazyvim.plugins.extras.lang.json",
       "lazyvim.plugins.extras.lang.markdown",
@@ -18,6 +23,10 @@ local profiles = {
     plugins = "plugins",
     mason_inventory = "mason-packages.txt",
   },
+  -- The reduced CTF profile deliberately stays at Python/Lua scripting. JSON
+  -- language support and the Prettier toolchain are workstation capabilities:
+  -- they would add a language server and a Node-based formatter to a profile
+  -- whose point is to stay small.
   ["parrot-ctf"] = {
     checker_enabled = false,
     lockfile = "profiles/parrot-ctf/lazy-lock.json",
