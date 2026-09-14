@@ -131,8 +131,14 @@ else
   pass "Zsh login environment activates Homebrew, Starship, and mise"
 fi
 
-login_shell="$(dscl . -read "/Users/$USER" UserShell 2>/dev/null | awk '{print $2}')"
-if [[ "$login_shell" == /bin/zsh ]]; then pass "Account login shell is /bin/zsh"; else fail "Account login shell is ${login_shell:-unknown}"; fi
+# Apple's /bin/zsh and a deliberately selected Homebrew Zsh are both supported,
+# so this asserts registration in /etc/shells rather than one exact path.
+login_shell="$(macos_login_shell_for_user "$USER" || true)"
+if macos_login_shell_is_compliant "$login_shell"; then
+  pass "Account login shell is a registered Zsh: $login_shell"
+else
+  fail "Account login shell is not a registered Zsh: ${login_shell:-unknown}"
+fi
 
 section "Configuration links"
 check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/"

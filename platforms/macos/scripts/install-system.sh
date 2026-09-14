@@ -47,4 +47,9 @@ activate_homebrew_path
 info "Installing Homebrew-owned workstation packages"
 "$brew_bin" bundle --file="$DOTFILES_ROOT/platforms/macos/Brewfile"
 
+ensure_macos_zsh_login_shell
+if [[ "${ZSH_LOGIN_SHELL_CHANGED:-false}" == "true" ]]; then
+  warn "Login shell changed; open a new terminal session before expecting Zsh."
+fi
+
 success "macOS system packages installed"
