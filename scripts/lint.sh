@@ -32,6 +32,8 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 printf 'Validating network-source provenance...\n'
+python3 ./scripts/validate-capabilities.py
+python3 ./scripts/validate-fedora-dependency-closure.py
 python3 ./scripts/validate-network-sources.py
 python3 ./scripts/render-supply-chain.py --check
 

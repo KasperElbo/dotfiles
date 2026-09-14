@@ -185,6 +185,10 @@ cat >"$mock_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
+cat >"$mock_bin/wslpath" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
 cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 output=""
@@ -439,7 +443,7 @@ bootstrap_commands=(
   ast-grep bat biber curl delta dotnet dotnet-easydotnet eza fd fzf gh
   latex latexindent latexmk lazygit lualatex neovim-node-host node npm npx
   pdflatex python rg rpm shellcheck sqlite3 starship tmux tree-sitter uv
-  xelatex zoxide zsh
+  wslpath xelatex zoxide zsh
 )
 for command_name in "${bootstrap_commands[@]}"; do
   ln -s mock-command "$bootstrap_bin/$command_name"

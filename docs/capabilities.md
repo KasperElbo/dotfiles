@@ -32,3 +32,22 @@ provider reaches the network must have its sources registered there, and
 The manifest is declarative ownership metadata. It deliberately does not
 generate package-manager commands or replace the independently useful
 component installers.
+
+## Fedora command-provider closure
+
+`config/fedora-command-providers.tsv` closes the narrower bootstrap boundary
+for the Fedora workstation and official Fedora WSL profiles. It maps each
+native command used by bootstrap, installation, or base/Sway verification to
+one owning capability and provider, and classifies availability as:
+
+- `bootstrap-prerequisite`: required before the installer can mutate the host;
+- `supported-base`: guaranteed by the documented supported Fedora image but
+  still checked before mutation;
+- `baseline-package`: installed by exactly one capability package owner before
+  the command is used;
+- `repository-file`: installed or linked from one named file in this checkout.
+
+The table does not duplicate language-runtime or repository-script ownership.
+Those remain with mise, Mason, Stow, and the capability manifest. Run
+`./scripts/validate-fedora-dependency-closure.py` after changing either Fedora
+baseline, the Sway packages, or their command requirements.

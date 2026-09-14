@@ -120,6 +120,10 @@ jobs:
         shell: pwsh
         run: ./tests/test-windows-bootstrap.ps1
 
+      - name: Test read-only Windows verifier boundary
+        shell: pwsh
+        run: ./tests/test-windows-verifier.ps1
+
       - name: Probe hosted WSL capability without pretending it is Fedora WSL
         shell: pwsh
         run: |
@@ -257,6 +261,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Disposable Fedora WSL distro did not restart successfully."
           }
+
+      - name: Exercise real WSL path conversion boundary
+        shell: pwsh
+        env:
+          WSL_USER: ${{ inputs.wsl_user }}
+        run: |
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "cd ~/src/dotfiles-ci && ./tests/integration/wsl-open-real.sh"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Independent post-restart verifier and idempotent rerun
         shell: pwsh

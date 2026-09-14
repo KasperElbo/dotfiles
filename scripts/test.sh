@@ -63,6 +63,7 @@ default_tests=(
   tests/test-test-support.sh
   tests/test-test-runner.sh
   tests/test-capabilities.sh
+  tests/test-fedora-dependency-closure.sh
   tests/test-supply-chain.sh
   tests/test-profile-state.sh
   tests/test-execution-plan.sh
@@ -102,6 +103,7 @@ default_tests=(
   tests/test-containers-wsl.sh
   tests/test-tailscale.sh
   tests/test-wsl-interop.sh
+  tests/test-wsl-open.sh
   tests/test-fedora-wsl.sh
   tests/test-parrot-ctf.sh
   tests/test-parrot-isolation.sh

@@ -75,6 +75,14 @@ jobs:
         shell: pwsh
         run: ./tests/test-windows-bootstrap.ps1
 
+      - name: Test Windows installed-state verifier fixtures
+        shell: pwsh
+        run: ./tests/test-windows-verifier.ps1
+
+      - name: Smoke-test top-level Windows verification
+        shell: pwsh
+        run: ./verify.ps1 -FixturePath ./tests/fixtures/windows-verifier/healthy.json
+
   macos:
     name: macOS 26 arm64 validation
     runs-on: macos-26

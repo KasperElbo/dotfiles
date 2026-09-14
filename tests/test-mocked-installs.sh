@@ -24,9 +24,10 @@ test_stub_install "$test_root" dnf
 test_stub_install "$test_root" sudo
 test_stub_install "$test_root" systemctl
 test_stub_allow "$test_root" dnf install -y \
-  bat curl eza fd-find fzf gh git git-delta jq libicu neovim openssh-clients \
-  ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow tmux wl-clipboard \
-  xdg-utils zoxide zsh zsh-autosuggestions zsh-syntax-highlighting
+  bat curl eza fd-find fzf firewalld gh git git-delta gnupg2 jq libicu neovim \
+  openssh-clients ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow \
+  tmux wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
+  zsh-syntax-highlighting
 test_stub_allow "$test_root" dnf install -y ghostty mise starship
 test_stub_allow "$test_root" dnf install -y \
   --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise \
@@ -46,9 +47,10 @@ test_stub_allow "$test_root" dnf install -y \
   amd-gpu-firmware mesa-dri-drivers mesa-va-drivers mesa-vulkan-drivers
 
 test_stub_allow "$test_root" sudo dnf install -y \
-  bat curl eza fd-find fzf gh git git-delta jq libicu neovim openssh-clients \
-  ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow tmux wl-clipboard \
-  xdg-utils zoxide zsh zsh-autosuggestions zsh-syntax-highlighting
+  bat curl eza fd-find fzf firewalld gh git git-delta gnupg2 jq libicu neovim \
+  openssh-clients ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow \
+  tmux wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
+  zsh-syntax-highlighting
 test_stub_allow "$test_root" sudo dnf install -y ghostty mise starship
 test_stub_allow "$test_root" sudo dnf install -y \
   --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise \
@@ -76,6 +78,7 @@ test_stub_allow "$test_root" sudo install -Dm644 \
 
 for systemctl_argv in \
   'is-enabled asusd.service' \
+  'cat firewalld.service' \
   'cat asus-shutdown.service' \
   'is-enabled power-profiles-daemon.service' \
   'is-enabled tuned-ppd.service' \
@@ -84,6 +87,7 @@ for systemctl_argv in \
   'is-active --quiet power-profiles-daemon.service' \
   'is-active --quiet tuned-ppd.service' \
   'is-active --quiet tuned.service' \
+  'enable --now firewalld.service' \
   'start asusd.service' \
   'enable --now asusd.service' \
   'enable --now asus-shutdown.service' \
@@ -93,6 +97,7 @@ for systemctl_argv in \
   read -r -a argv <<<"$systemctl_argv"
   test_stub_allow "$test_root" systemctl "${argv[@]}"
 done
+test_stub_allow "$test_root" sudo systemctl enable --now firewalld.service
 test_stub_allow "$test_root" sudo systemctl start asusd.service
 test_stub_allow "$test_root" sudo systemctl enable --now asusd.service
 test_stub_allow "$test_root" sudo systemctl enable --now asus-shutdown.service
@@ -121,6 +126,7 @@ cat >"$test_root/handlers/systemctl" <<'EOF'
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 case "$*" in
 'is-enabled asusd.service') printf 'static\n' ;;
+'cat firewalld.service' | \
 'cat asus-shutdown.service') exit 0 ;;
 'is-enabled power-profiles-daemon.service') printf 'enabled\n' ;;
 'is-enabled tuned-ppd.service') printf 'not-found\n'; exit 1 ;;
@@ -131,8 +137,9 @@ case "$*" in
 'is-active --quiet tuned.service')
   exit 1
   ;;
-'start asusd.service' | \
+'enable --now firewalld.service' | \
 'enable --now asusd.service' | \
+'start asusd.service' | \
 'enable --now asus-shutdown.service' | \
 'mask --now power-profiles-daemon.service' | \
 'mask --now tuned-ppd.service' | \
@@ -237,7 +244,7 @@ printf '[fedora]\nenabled=1\n' >"$test_root/yum.repos.d/fedora.repo"
   --model ga402rk --charge-limit 80 --non-interactive >/dev/null
 
 assert_file_contains "$command_log" 'sudo dnf install -y bat curl eza'
-assert_file_contains "$command_log" 'gh git git-delta jq libicu'
+assert_file_contains "$command_log" 'gh git git-delta gnupg2 jq libicu'
 assert_file_contains "$command_log" 'neovim openssh-clients ripgrep'
 assert_file_contains "$command_log" 'ShellCheck shadow-utils sqlite'
 expected_zsh_path="$(PATH="$mock_bin:$PATH" command -v zsh)"

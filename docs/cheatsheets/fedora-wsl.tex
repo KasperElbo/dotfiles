@@ -11,11 +11,11 @@
 \begin{multicols}{2}
 
 \cssection{Windows / Linux boundary}
-\csnote{\texttt{/etc/wsl.conf}'s \texttt{[interop]} block sets \texttt{enabled=true} and \texttt{appendWindowsPath=false}: no Windows directory leaks into \texttt{PATH} (Linux tools stay authoritative), but an explicit full path to a Windows executable still runs. There is no KDE/Sway desktop here --- no keyboard-layout switch either; Windows owns the keyboard.}
+\csnote{\texttt{/etc/wsl.conf}'s \texttt{[interop]} block sets \texttt{enabled=true} and \texttt{appendWindowsPath=false}: after restarting the distribution or running \texttt{wsl --shutdown}, no Windows directory leaks into \texttt{PATH}, but an explicit full path to a Windows executable still runs. Extensionless Linux lookup is separate from explicit \texttt{*.exe} lookup. There is no KDE/Sway desktop here --- Windows owns the keyboard.}
 
 \cssection{Windows interop helpers}
 \begin{cskeys}{0.34\linewidth}
-\csrow{wsl-open <url\textbar path>}{Open with the Windows handler (browser, viewer, Explorer)}
+\csrow{wsl-open <url\textbar path> [...] }{Open existing Linux paths or supported URIs with Windows handlers}
 \csrow{wsl-copy}{Send stdin to the Windows clipboard}
 \csrow{wsl-paste}{Write the Windows clipboard to stdout}
 \end{cskeys}

@@ -53,8 +53,16 @@ The optional guest profiles target Fedora 44 and Parrot Security Edition 7.3
 KVM/QEMU guests managed by libvirt, with virt-manager as the normal graphical
 client. Parrot is a CTF/lab guest, not a general-purpose workstation target.
 
-The supported bootstraps are a normal Fedora workstation and the official
-Fedora distribution running under WSL 2. The WSL variant is a Linux development
+The supported Linux bootstraps are Fedora 44 Workstation-class installed
+systems (Fedora Workstation or Fedora KDE Plasma Desktop) and the official
+Fedora distribution running under WSL 2. Minimal, CoreOS, cloud, and container
+images are not workstation bootstrap targets. A supported Fedora workstation
+must provide the normal installed-system foundation: Bash, DNF/RPM, sudo,
+systemd, GNU core utilities, Gawk, findutils, grep, sed, and Git. The installer
+checks that foundation before its first mutation, then explicitly installs
+every remaining baseline provider, including firewalld and GnuPG. The official
+Fedora WSL image additionally owns `wslpath`; Windows owns the explicitly
+invoked `.exe` interop endpoints. The WSL variant is a Linux development
 runtime: it deliberately does not reproduce the Fedora desktop, laptop, GPU or
 virtualization-host setup inside WSL.
 
@@ -442,6 +450,23 @@ User-authored Noctty settings remain below the block and therefore stay
 separate from the shared Ghostty source. Noctty is still a young project, so
 keep another working Windows terminal available while evaluating it.
 
+After the Windows bootstrap completes, run the read-only installed-state
+verifier from the repository root:
+
+```powershell
+.\verify.ps1
+```
+
+It reads `%LOCALAPPDATA%\dotfiles\windows-selection.json` and reports pass,
+warning, and fail outcomes. A failed repository-owned invariant returns a
+nonzero exit code. When Noctty was selected, verification requires its bucket,
+package, current executable, and resolved command to remain Scoop-owned. It
+also compares every managed Noctty copy to the current checkout and detects
+broken or stale checkout links. The WSL check is limited to Windows ownership:
+the proven WSL package version and the recorded Fedora distribution on WSL 2.
+It does not launch the distribution, inspect Linux packages, update Scoop or
+WSL, write configuration, or authenticate any service.
+
 Theme switching works from inside Fedora WSL using the same command as a
 normal workstation:
 
@@ -498,11 +523,14 @@ Node dependency trees and build output.
 
 ## PATH and Windows interoperability
 
-Windows commonly appends its PATH to a WSL process. This can make a missing
-Linux command silently resolve to `node.exe`, `dotnet.exe`, `python.exe` or a
-Windows-installed `codex`. The WSL platform hook removes `/mnt/<drive>/...`
-entries before `.zshrc` executes any tools. mise then activates only the
-Linux-native runtimes installed inside Fedora.
+Windows commonly appends its PATH to a WSL process. That inherited PATH adds
+noise and makes explicitly named Windows commands such as `node.exe`,
+`dotnet.exe`, `python.exe`, `claude.exe`, or `codex.exe` available from Linux.
+Ordinary extensionless Linux lookup does not normally treat `codex.exe` as a
+candidate for `codex`, so the mere presence of a same-base `.exe` does not
+shadow an extensionless Linux command. The WSL platform hook removes
+`/mnt/<drive>/...` entries before `.zshrc` executes any tools. mise then
+activates only the Linux-native runtimes installed inside Fedora.
 
 This profile treats "no Windows directories in `PATH`" and "explicit Windows
 executables still run" as two independent properties (issue #104), each
@@ -554,7 +582,15 @@ helpers rather than through every Windows executable being on `PATH`:
 |---|---|
 | `wsl-copy` | Send standard input to the Windows clipboard |
 | `wsl-paste` | Write the Windows clipboard to standard output |
-| `wsl-open URL_OR_PATH` | Open a URL or file with its Windows handler |
+| `wsl-open URL_OR_PATH [...]` | Open one or more URLs, files, or directories with their Windows handlers |
+
+`wsl-open` passes `http`, `https`, `ftp`, `ftps`, `mailto`, and `file` URIs
+through unchanged. Every other argument must name an existing Linux file or
+directory. Relative paths are resolved and each path is converted with
+`wslpath -w` before Explorer is invoked, so spaces, Unicode, and argument
+boundaries survive the WSL-to-Windows transition. A nonexistent path or an
+unsupported URI scheme is an error; unknown strings are never guessed to be
+URLs.
 
 `BROWSER=wsl-open` lets Linux-native tools such as `gh auth login --web` open
 the Windows browser. Set `WINDOWS_SYSTEM_ROOT` only if Windows is not available
@@ -2863,9 +2899,9 @@ rerunning the AI profile recreates it.
   flags. The desktop, hardware, Sway, and VM-host/guest profiles remain out
   of scope for WSL, but the AI profile has no GUI or hardware dependency.
   Fedora WSL's existing PATH policy (see "PATH and Windows interoperability"
-  above) already ensures a Windows-installed `claude.exe`/`codex.exe` cannot
-  shadow the Linux-native, mise-managed copy; `verify-ai.sh` additionally
-  checks for exactly that.
+  above) keeps explicitly named `claude.exe`/`codex.exe` out of command lookup.
+  Extensionless `claude` and `codex` remain ordinary Linux command lookups and
+  are verified as Linux-native, mise-managed commands independently.
 - **macOS** (#11): not implemented here. `common/install-ai.sh` and
   `common/verify-ai.sh` contain no Fedora-specific commands (checked by
   `tests/test-platform-boundary.sh`), so a macOS installer can call them

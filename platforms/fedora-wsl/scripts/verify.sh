@@ -42,6 +42,18 @@ check_linux_command() {
   fi
 }
 
+check_windows_path_command_absent() {
+  local command_name="$1"
+  local command_path
+
+  command_path="$(PATH="$login_path" command -v "$command_name" 2>/dev/null || true)"
+  if [[ -z "$command_path" ]]; then
+    pass "$command_name is not inherited through PATH"
+  else
+    fail "$command_name resolves through inherited Windows PATH: $command_path"
+  fi
+}
+
 if ! require_fedora_wsl; then
   exit 1
 fi
@@ -92,6 +104,19 @@ else
   if [[ "$path_has_windows_entry" == "false" ]]; then
     pass "Zsh PATH contains only Linux filesystem entries"
   fi
+fi
+
+section "Inherited Windows PATH isolation"
+
+# Without a login PATH these lookups would run against an empty PATH and report
+# vacuous passes. The probe failure is already recorded above.
+if [[ -n "$login_path" ]]; then
+  for command_name in node.exe dotnet.exe python.exe claude.exe codex.exe; do
+    check_windows_path_command_absent "$command_name"
+  done
+  pass "Explicit .exe lookup was checked in the fresh Zsh login PATH"
+else
+  warn "Skipping explicit .exe lookup: the Zsh login PATH could not be inspected"
 fi
 
 selected_theme="macchiato"
