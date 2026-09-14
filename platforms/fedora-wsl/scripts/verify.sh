@@ -108,12 +108,15 @@ fi
 
 section "Inherited Windows PATH isolation"
 
-for command_name in node.exe dotnet.exe python.exe claude.exe codex.exe; do
-  check_windows_path_command_absent "$command_name"
-done
-
+# Without a login PATH these lookups would run against an empty PATH and report
+# vacuous passes. The probe failure is already recorded above.
 if [[ -n "$login_path" ]]; then
+  for command_name in node.exe dotnet.exe python.exe claude.exe codex.exe; do
+    check_windows_path_command_absent "$command_name"
+  done
   pass "Explicit .exe lookup was checked in the fresh Zsh login PATH"
+else
+  warn "Skipping explicit .exe lookup: the Zsh login PATH could not be inspected"
 fi
 
 selected_theme="macchiato"
