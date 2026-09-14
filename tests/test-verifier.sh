@@ -145,10 +145,12 @@ for library in common/lib/*.sh; do
 
     if ! bash --noprofile --norc -c '
       option_state() {
-        local e=off u=off p
+        local e=off u=off p=off
         case "$-" in *e*) e=on ;; esac
         case "$-" in *u*) u=on ;; esac
-        p="$(set -o pipefail)"
+        if shopt -qo pipefail; then
+          p=on
+        fi
         printf "%s|%s|%s\\n" "$e" "$u" "$p"
       }
       DOTFILES_ROOT="$1"
