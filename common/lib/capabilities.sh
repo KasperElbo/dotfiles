@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 CAPABILITY_MANIFEST="${CAPABILITY_MANIFEST:-$DOTFILES_ROOT/config/capabilities.tsv}"
+FEDORA_COMMAND_PROVIDER_MANIFEST="${FEDORA_COMMAND_PROVIDER_MANIFEST:-$DOTFILES_ROOT/config/fedora-command-providers.tsv}"
 
 capability_field_number() {
   case "$1" in
@@ -71,4 +72,32 @@ capability_stow_specs() {
       printf '%s::%s\n' "$package_root" "$package"
     done
   done
+}
+
+# Print pre-mutation command requirements as command<TAB>provider<TAB>class.
+# The manifest is deliberately narrow: it closes only the Fedora workstation
+# and official Fedora WSL bootstrap boundary. Package ownership remains in the
+# capability manifest rather than being duplicated here.
+capability_preflight_command_specs() {
+  local wanted_platform="$1"
+  local header=true platform command provider _owner _required_by classification
+
+  [[ -r "$FEDORA_COMMAND_PROVIDER_MANIFEST" ]] || {
+    printf 'Command provider manifest is not readable: %s\n' \
+      "$FEDORA_COMMAND_PROVIDER_MANIFEST" >&2
+    return 1
+  }
+
+  while IFS=$'\t' read -r platform command provider _owner _required_by classification; do
+    if [[ "$header" == true ]]; then
+      header=false
+      continue
+    fi
+    [[ "$platform" == "$wanted_platform" ]] || continue
+    case "$classification" in
+    bootstrap-prerequisite | supported-base)
+      printf '%s\t%s\t%s\n' "$command" "$provider" "$classification"
+      ;;
+    esac
+  done <"$FEDORA_COMMAND_PROVIDER_MANIFEST"
 }

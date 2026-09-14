@@ -81,7 +81,7 @@ case "$theme" in latte | frappe | macchiato | mocha) ;; *) die "Invalid Catppucc
 
 preflight_wsl() {
   require_regular_user; require_fedora_wsl
-  preflight_commands awk date dnf find git readlink sudo; preflight_sudo "$interactive"
+  preflight_platform_command_providers fedora-wsl; preflight_sudo "$interactive"
   [[ "$install_containers" != true ]] || require_wsl_containers_prereqs
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"

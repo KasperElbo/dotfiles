@@ -24,9 +24,10 @@ test_stub_install "$test_root" dnf
 test_stub_install "$test_root" sudo
 test_stub_install "$test_root" systemctl
 test_stub_allow "$test_root" dnf install -y \
-  bat curl eza fd-find fzf gh git git-delta jq libicu neovim openssh-clients \
-  ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow tmux wl-clipboard \
-  xdg-utils zoxide zsh zsh-autosuggestions zsh-syntax-highlighting
+  bat curl eza fd-find fzf firewalld gh git git-delta gnupg2 jq libicu neovim \
+  openssh-clients ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow \
+  tmux wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
+  zsh-syntax-highlighting
 test_stub_allow "$test_root" dnf install -y ghostty mise starship
 test_stub_allow "$test_root" dnf install -y \
   --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise \
@@ -46,9 +47,10 @@ test_stub_allow "$test_root" dnf install -y \
   amd-gpu-firmware mesa-dri-drivers mesa-va-drivers mesa-vulkan-drivers
 
 test_stub_allow "$test_root" sudo dnf install -y \
-  bat curl eza fd-find fzf gh git git-delta jq libicu neovim openssh-clients \
-  ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow tmux wl-clipboard \
-  xdg-utils zoxide zsh zsh-autosuggestions zsh-syntax-highlighting
+  bat curl eza fd-find fzf firewalld gh git git-delta gnupg2 jq libicu neovim \
+  openssh-clients ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow \
+  tmux wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
+  zsh-syntax-highlighting
 test_stub_allow "$test_root" sudo dnf install -y ghostty mise starship
 test_stub_allow "$test_root" sudo dnf install -y \
   --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise \
@@ -237,7 +239,7 @@ printf '[fedora]\nenabled=1\n' >"$test_root/yum.repos.d/fedora.repo"
   --model ga402rk --charge-limit 80 --non-interactive >/dev/null
 
 assert_file_contains "$command_log" 'sudo dnf install -y bat curl eza'
-assert_file_contains "$command_log" 'gh git git-delta jq libicu'
+assert_file_contains "$command_log" 'gh git git-delta gnupg2 jq libicu'
 assert_file_contains "$command_log" 'neovim openssh-clients ripgrep'
 assert_file_contains "$command_log" 'ShellCheck shadow-utils sqlite'
 expected_zsh_path="$(PATH="$mock_bin:$PATH" command -v zsh)"

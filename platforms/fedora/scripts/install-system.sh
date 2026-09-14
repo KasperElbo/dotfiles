@@ -13,9 +13,11 @@ packages=(
   eza
   fd-find
   fzf
+  firewalld
   gh
   git
   git-delta
+  gnupg2
   jq
   libicu
   neovim

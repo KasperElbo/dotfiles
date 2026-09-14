@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-[[ $# -eq 1 ]] || {
-  printf 'Usage: wsl-open URL_OR_PATH\n' >&2
+(( $# > 0 )) || {
+  printf 'Usage: wsl-open URL_OR_PATH [URL_OR_PATH ...]\n' >&2
   exit 2
 }
 
@@ -14,4 +14,37 @@ explorer="$windows_root/explorer.exe"
   exit 1
 }
 
-exec "$explorer" "$1"
+converted_arguments=()
+for argument in "$@"; do
+  scheme="${argument%%:*}"
+  case "${scheme,,}" in
+  http | https | ftp | ftps | mailto | file)
+    converted_arguments+=("$argument")
+    continue
+    ;;
+  esac
+
+  if [[ ! -e "$argument" ]]; then
+    if [[ "$argument" == *:* ]]; then
+      printf 'Unsupported URI or nonexistent path: %s\n' "$argument" >&2
+    else
+      printf 'Path does not exist: %s\n' "$argument" >&2
+    fi
+    exit 1
+  fi
+
+  if [[ -d "$argument" ]]; then
+    absolute_path="$(cd -P -- "$argument" && pwd)"
+  else
+    parent="$(cd -P -- "$(dirname -- "$argument")" && pwd)"
+    absolute_path="$parent/$(basename -- "$argument")"
+  fi
+
+  windows_path="$(wslpath -w "$absolute_path")" || {
+    printf 'Could not convert Linux path for Windows: %s\n' "$argument" >&2
+    exit 1
+  }
+  converted_arguments+=("$windows_path")
+done
+
+exec "$explorer" "${converted_arguments[@]}"

@@ -150,9 +150,10 @@ test_stub_init "$stub_root"
 test_stub_install "$stub_root" sudo
 test_stub_allow "$stub_root" sudo -n -v
 test_stub_allow "$stub_root" sudo dnf install -y \
-  bat curl eza fd-find fzf gh git git-delta jq libicu neovim openssh-clients \
-  ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow tmux wl-clipboard \
-  xdg-utils zoxide zsh zsh-autosuggestions zsh-syntax-highlighting
+  bat curl eza fd-find fzf firewalld gh git git-delta gnupg2 jq libicu neovim \
+  openssh-clients ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow \
+  tmux wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
+  zsh-syntax-highlighting
 test_stub_allow "$stub_root" sudo dnf install -y ghostty mise starship
 test_stub_allow "$stub_root" sudo usermod --shell "$mock_bin/zsh" fedora-test
 test_stub_allow "$stub_root" sudo dnf install -y \

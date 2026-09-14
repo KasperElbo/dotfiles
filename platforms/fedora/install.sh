@@ -161,7 +161,7 @@ build_rerun_command() {
 
 preflight_fedora() {
   require_regular_user; require_fedora
-  preflight_commands awk date dnf find git readlink sudo; preflight_sudo "$interactive"
+  preflight_platform_command_providers fedora; preflight_sudo "$interactive"
   [[ "$install_vm_guest" != true ]] || "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-guest.sh" --preflight
   [[ -z "$hardware_model" ]] || "$DOTFILES_ROOT/platforms/fedora/scripts/install-asus-hardware.sh" "${hardware_args[@]}" --preflight
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
