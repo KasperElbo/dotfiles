@@ -299,9 +299,9 @@ check_mise_owned() {
   configured_resolved="$(PATH="$configured_path" command -v "$name" 2>/dev/null || true)"
 
   if [[ -n "$configured_resolved" ]] &&
-    ! shell_paths_match "$caller_resolved" "$mise_resolved" &&
-    ! shell_paths_match "$caller_resolved" "$mise_shim"; then
-    fail "$name resolves outside mise in the configured login PATH: $caller_resolved (mise manages $mise_resolved)"
+    ! shell_paths_match "$configured_resolved" "$mise_resolved" &&
+    ! shell_paths_match "$configured_resolved" "$mise_shim"; then
+    fail "$name resolves outside mise in the configured login PATH: $configured_resolved (mise manages $mise_resolved)"
     return 1
   fi
 
