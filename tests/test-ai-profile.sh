@@ -313,9 +313,9 @@ assert_file_line "$state_file" 'gnhf=mise-npm'
 assert_file_line "$state_file" 'backpass=mise-npm'
 assert_file_line "$state_file" 'acpx=mise-npm'
 assert_path_exists "$data/firstmate/.git"
-assert_path_exists "$treehouse_target"
+assert_path_executable "$treehouse_target"
 no_mistakes_target="$home/.local/bin/no-mistakes"
-assert_path_exists "$no_mistakes_target"
+assert_path_executable "$no_mistakes_target"
 
 if ! verify_full_output="$("${test_environment[@]}" "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf '%s\n' "$verify_full_output" >&2
