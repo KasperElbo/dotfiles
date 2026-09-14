@@ -9,11 +9,13 @@
 VERIFY_PASSES=${VERIFY_PASSES:-0}
 VERIFY_FAILURES=${VERIFY_FAILURES:-0}
 VERIFY_WARNINGS=${VERIFY_WARNINGS:-0}
+VERIFY_NOT_OBSERVED=${VERIFY_NOT_OBSERVED:-0}
 
 verify_reset() {
   VERIFY_PASSES=0
   VERIFY_FAILURES=0
   VERIFY_WARNINGS=0
+  VERIFY_NOT_OBSERVED=0
 }
 
 section() {
@@ -38,17 +40,31 @@ warning() {
   return 0
 }
 
+# Record a host precondition that this verifier cannot observe or change in the
+# current context. This is deliberately distinct from warning and fail.
+not_observed() {
+  printf '\033[1;36m?\033[0m NOT OBSERVED: %s\n' "$*" >&2
+  VERIFY_NOT_OBSERVED=$((VERIFY_NOT_OBSERVED + 1))
+  return 0
+}
+
 finish_verification() {
   local label="${1:-Verification}"
 
   printf '\n'
   if ((VERIFY_FAILURES > 0)); then
-    printf '\033[1;31m%s failed:\033[0m %d failure(s), %d warning(s)\n' \
-      "$label" "$VERIFY_FAILURES" "$VERIFY_WARNINGS" >&2
+    printf '\033[1;31m%s failed:\033[0m %d failure(s), %d warning(s), %d unobserved check(s)\n' \
+      "$label" "$VERIFY_FAILURES" "$VERIFY_WARNINGS" "$VERIFY_NOT_OBSERVED" >&2
     return 1
   fi
 
-  if ((VERIFY_WARNINGS > 0)); then
+  if ((VERIFY_WARNINGS > 0 && VERIFY_NOT_OBSERVED > 0)); then
+    printf '\033[1;36m%s completed with warnings and unobserved checks:\033[0m %d warning(s), %d unobserved check(s)\n' \
+      "$label" "$VERIFY_WARNINGS" "$VERIFY_NOT_OBSERVED"
+  elif ((VERIFY_NOT_OBSERVED > 0)); then
+    printf '\033[1;36m%s completed with unobserved checks:\033[0m %d unobserved check(s)\n' \
+      "$label" "$VERIFY_NOT_OBSERVED"
+  elif ((VERIFY_WARNINGS > 0)); then
     printf '\033[1;33m%s passed with warnings:\033[0m %d warning(s)\n' \
       "$label" "$VERIFY_WARNINGS"
   else
@@ -251,7 +267,7 @@ check_user_service_active() {
 # supplied by a verifier; otherwise the normal repository resolver is used.
 check_mise_owned() {
   local name="$1"
-  local resolved mise_resolved mise_shim caller_path caller_resolved mise_command
+  local resolved mise_resolved mise_shim configured_path configured_resolved mise_command
   local mise_data_dir mise_shims_dir
 
   resolved="$(command -v "$name" 2>/dev/null || true)"
@@ -278,13 +294,32 @@ check_mise_owned() {
   mise_data_dir="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
   mise_shims_dir="${MISE_SHIMS_DIR:-$mise_data_dir/shims}"
   mise_shim="$mise_shims_dir/$name"
-  caller_path="${VERIFY_CALLER_PATH:-${PATH:-}}"
-  caller_resolved="$(PATH="$caller_path" command -v "$name" 2>/dev/null || true)"
+  # Prefer the path a fresh login would actually configure. The legacy
+  # VERIFY_CALLER_PATH remains supported for hermetic tests and callers that
+  # intentionally provide an explicit pre-mutation PATH.
+  if [[ -n "${VERIFY_CONFIGURED_LOGIN_PATH+x}" ]]; then
+    configured_path="$VERIFY_CONFIGURED_LOGIN_PATH"
+  elif [[ -n "${VERIFY_CALLER_PATH+x}" ]]; then
+    configured_path="$VERIFY_CALLER_PATH"
+  elif command_exists zsh; then
+    configured_path="$(zsh -lic 'printf "%s\\n" "$PATH"' 2>/dev/null || true)"
+  else
+    configured_path="${PATH:-}"
+  fi
+  if [[ -z "$configured_path" ]]; then
+    fail "configured login PATH is unavailable; cannot prove that $name is usable after login"
+    return 1
+  fi
+  configured_resolved="$(PATH="$configured_path" command -v "$name" 2>/dev/null || true)"
 
-  if [[ -n "$caller_resolved" ]] &&
-    ! shell_paths_match "$caller_resolved" "$mise_resolved" &&
-    ! shell_paths_match "$caller_resolved" "$mise_shim"; then
-    fail "$name resolves outside mise in the caller PATH: $caller_resolved (mise manages $mise_resolved)"
+  if [[ -z "$configured_resolved" ]]; then
+    fail "$name not found in the configured login PATH"
+    return 1
+  fi
+
+  if ! shell_paths_match "$configured_resolved" "$mise_resolved" &&
+    ! shell_paths_match "$configured_resolved" "$mise_shim"; then
+    fail "$name resolves outside mise in the configured login PATH: $configured_resolved (mise manages $mise_resolved)"
     return 1
   fi
 

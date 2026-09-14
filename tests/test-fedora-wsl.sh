@@ -504,7 +504,9 @@ cat >"$bootstrap_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
 printf '\033[H\033[2J\033[3J'
 PATH="$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
-if [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then
+if [[ "$*" == *'printf "%s\\n" "$PATH"'* ]]; then
+  printf '%s\n' "$PATH"
+elif [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then
   printf '\n__DOTFILES_VERIFY_PATH__%s\n' "$PATH"
 elif [[ "$*" == *'__DOTFILES_VERIFY_STARSHIP__'* ]]; then
   printf '\n__DOTFILES_VERIFY_STARSHIP__%s\n' \

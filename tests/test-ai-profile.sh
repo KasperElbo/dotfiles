@@ -142,6 +142,19 @@ exit 96
 EOF
 chmod +x "$mock_bin/npm"
 
+# Model the PATH produced by the installed Zsh configuration independently of
+# the stale shell PATH that launches the installer/verifier.
+cat >"$mock_bin/zsh" <<'EOF'
+#!/usr/bin/env bash
+if [[ $# -eq 2 && "$1" == -lic && "$2" == 'printf "%s\\n" "$PATH"' ]]; then
+  printf '%s\n' "$HOME/.local/bin:$MISE_SHIMS_DIR:$PATH"
+  exit 0
+fi
+printf 'strict zsh fixture rejected unsupported argv: %s\n' "$*" >&2
+exit 96
+EOF
+chmod +x "$mock_bin/zsh"
+
 # These tools are prerequisites only; this scenario intentionally never invokes
 # them. If production starts doing so, the fixture must explicitly model the
 # new contract instead of silently succeeding.
@@ -400,6 +413,7 @@ if shadow_output="$(env \
   MISE_DATA_DIR="$mise_data" MISE_SHIMS_DIR="$mise_shims" \
   MISE_INSTALLS_DIR="$mise_installs" \
   PATH="$shadow_bin:$home/.local/bin:$mise_shims:$mock_bin:$PATH" \
+  VERIFY_CONFIGURED_LOGIN_PATH="$shadow_bin:$home/.local/bin:$mise_shims:$mock_bin:$PATH" \
   "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf 'verify-ai.sh accepted a command shadowing mise: %s\n' \
     "$shadow_bin/claude" >&2

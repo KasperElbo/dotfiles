@@ -53,7 +53,13 @@ else
   pass "No Intel Homebrew executable found"
 fi
 
-if csrutil status 2>/dev/null | grep -Fqi enabled; then pass "System Integrity Protection is enabled"; else fail "System Integrity Protection is not enabled"; fi
+if csrutil status 2>/dev/null | grep -Fqi enabled; then
+  pass "System Integrity Protection is enabled"
+elif macos_is_github_hosted_runner; then
+  not_observed "System Integrity Protection is not observable as enabled on hosted macOS; verify it on a real machine"
+else
+  fail "System Integrity Protection is not enabled"
+fi
 if spctl --status 2>/dev/null | grep -Fqi enabled; then pass "Gatekeeper is enabled"; else fail "Gatekeeper is not enabled"; fi
 
 section "Commands"

@@ -377,6 +377,11 @@ section "mise"
 
 mise_command="$(resolve_mise_command 2>/dev/null || true)"
 if [[ -n "$mise_command" ]]; then
+  # Verify the PATH a fresh Zsh login will receive, rather than the
+  # possibly stale Bash PATH used to invoke this verifier.
+  VERIFY_CONFIGURED_LOGIN_PATH="$(
+    zsh -lic 'printf "%s\\n" "$PATH"' 2>/dev/null || true
+  )"
   VERIFY_CALLER_PATH="$PATH"
   VERIFY_MISE_COMMAND="$mise_command"
   establish_user_tool_environment

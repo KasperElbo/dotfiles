@@ -8,6 +8,11 @@ macos_architecture() {
   printf '%s\n' "${DOTFILES_TEST_UNAME_M:-$(uname -m)}"
 }
 
+macos_is_github_hosted_runner() {
+  [[ "${GITHUB_ACTIONS:-false}" == true ]] &&
+    [[ "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]
+}
+
 require_apple_silicon_macos() {
   [[ "$(macos_kernel_name)" == Darwin ]] ||
     die "The macOS profile must run on macOS."
