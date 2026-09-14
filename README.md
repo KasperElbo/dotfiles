@@ -4351,10 +4351,12 @@ The guest harness additionally proves that bare metal and unsupported
 hypervisors fail before package mutation, no ASUS/NVIDIA, power, bridge, or
 NetworkManager command is issued, and repeated guest setup preserves stable
 local state.
-The macOS harness validates the root-platform route, dry-run options, Homebrew
-versus mise ownership, AeroSpace/Sway-equivalent bindings, the wrapped 3×3
-workspace helper, reversible defaults, the macOS-native VimTeX PDF-viewer
-override, and the absence of yabai/skhd.
+The macOS harness validates the Bash 3.2-compatible root bootstrap and its
+modern-Homebrew-Bash re-exec boundary, exact argument forwarding, empty
+system/verifier argument cases, dry-run options, Homebrew versus mise ownership,
+AeroSpace/Sway-equivalent bindings, the wrapped 3×3 workspace helper,
+reversible defaults, the macOS-native VimTeX PDF-viewer override, and the
+absence of yabai/skhd.
 
 Every integration-style test uses temporary home, XDG, OS-release, and DMI
 state. Package managers, firmware tooling, and service commands are either

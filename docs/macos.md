@@ -38,6 +38,31 @@ Status labels in this guide mean:
 
 ## 2. Inspect and run the bootstrap
 
+### System-Bash compatibility boundary
+
+`install.sh` is deliberately a small Bash 3.2-compatible entry point. It reads
+only `--platform` while retaining the original `"$@"` vector. For the macOS
+profile it explicitly asks native Homebrew for the installed `bash` formula
+prefix, then re-executes `scripts/install-main.sh` with Bash 4.4 or newer and
+the original arguments. The real dispatcher keeps that interpreter when it
+starts `platforms/macos/install.sh`; all #185 capability, preflight, execution
+plan, lifecycle-state, apply, and verification behavior remains on the modern
+side of this boundary.
+
+If native Homebrew or its Bash formula is absent, an applying run uses
+Homebrew's supported installer and installs the `bash` formula before the
+normal lifecycle can begin. This small, explicitly reported bootstrap mutation
+cannot be represented as an ordinary execution-plan step because the plan
+requires modern Bash. A bootstrap failure therefore writes no misleading
+lifecycle success state. `--help` and `--dry-run` never perform this bootstrap
+mutation; without modern Bash, dry-run reports the prerequisite bootstrap plan
+and explains that rerunning it after the interpreter exists will show the full
+resolved plan.
+
+Apple's Bash 3.2 is supported only for `install.sh` and
+`scripts/bootstrap-macos.sh`. The real installer and direct platform entry
+point continue to require Bash 4.4 or newer.
+
 **Automated:** Preview the exact plan without changing the machine:
 
 ```bash
