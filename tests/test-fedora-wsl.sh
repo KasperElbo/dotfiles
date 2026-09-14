@@ -361,13 +361,17 @@ bootstrap_config="$bootstrap_home/.config"
 bootstrap_data="$bootstrap_home/.local/share"
 bootstrap_stub_root="$test_root/bootstrap-stubs"
 bootstrap_bin="$bootstrap_stub_root/bin"
+debugger_path="$test_root/easydotnet/tools/netcoredbg/linux-x64/netcoredbg"
 bootstrap_shell_state="$test_root/bootstrap-login-shell"
 bootstrap_command_log="$test_root/bootstrap-commands.log"
 mkdir -p \
   "$bootstrap_config/git" \
   "$bootstrap_data/tmux/plugins" \
-  "$bootstrap_bin"
+  "$bootstrap_bin" \
+  "$(dirname "$debugger_path")"
 printf '/bin/bash\n' >"$bootstrap_shell_state"
+touch "$debugger_path"
+chmod +x "$debugger_path"
 
 test_stub_init "$bootstrap_stub_root"
 test_stub_install "$bootstrap_stub_root" dnf
@@ -439,6 +443,16 @@ bootstrap_commands=(
 for command_name in "${bootstrap_commands[@]}"; do
   ln -s mock-command "$bootstrap_bin/$command_name"
 done
+
+rm -- "$bootstrap_bin/dotnet-easydotnet"
+cat >"$bootstrap_bin/dotnet-easydotnet" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == healthcheck ]]; then
+  printf '[{"name":"debugger.engine","value":"netcoredbg"},{"name":"debugger.source","value":"bundled"},{"name":"debugger.platform","value":"linux-x64"},{"name":"debugger.path","value":"%s"}]\n' \
+    "$MOCK_EASY_DOTNET_DEBUGGER"
+fi
+EOF
+chmod +x "$bootstrap_bin/dotnet-easydotnet"
 
 cat >"$bootstrap_bin/mise" <<'EOF'
 #!/usr/bin/env bash
@@ -546,6 +560,7 @@ bootstrap_environment=(
   "WSL_DISTRO_NAME=FedoraLinux"
   "OS_RELEASE_FILE=$test_root/os-release"
   "SHELL_STATE=$bootstrap_shell_state"
+  "MOCK_EASY_DOTNET_DEBUGGER=$debugger_path"
   "BOOTSTRAP_COMMAND_LOG=$bootstrap_command_log"
   "TEST_STUB_ROOT=$bootstrap_stub_root"
   "WINDOWS_SYSTEM_ROOT=$windows_root"
