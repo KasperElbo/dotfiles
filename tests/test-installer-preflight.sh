@@ -56,6 +56,7 @@ mkdir -p "$integration_home" "$integration_config" "$mock_bin"
 test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
 test_stub_install "$test_root" sudo
+test_stub_install "$test_root" systemctl
 test_stub_allow "$test_root" sudo -n -v
 late_source="$(find "$repo_root/platforms/fedora/stow/theme-assets" -type f | head -n 1)"
 late_relative="${late_source#"$repo_root/platforms/fedora/stow/theme-assets/"}"

@@ -15,6 +15,7 @@ mkdir -p "$test_root/xdg"
 test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
 test_stub_install "$test_root" sudo
+test_stub_install "$test_root" systemctl
 test_stub_allow "$test_root" sudo -n -v
 
 cat >"$mock_bin/rpm" <<'EOF'
