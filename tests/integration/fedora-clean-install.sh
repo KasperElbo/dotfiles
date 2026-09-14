@@ -20,7 +20,7 @@ docker build \
   --build-arg "BASE_IMAGE=$base_image" \
   --tag "$runtime_image" \
   - <<'EOF_DOCKERFILE' >/dev/null
-ARG BASE_IMAGE
+ARG BASE_IMAGE=fedora:44
 FROM ${BASE_IMAGE}
 RUN dnf --assumeyes --setopt=install_weak_deps=False install systemd && \
     dnf clean all
@@ -59,8 +59,22 @@ docker exec "$container" systemctl enable --now firewalld.service >/dev/null
 create_test_user() {
   local user="$1"
   docker exec "$container" useradd --create-home --shell /bin/bash "$user"
+
+  # useradd leaves a locked password in this minimal container. sudo still runs
+  # PAM account checks for NOPASSWD users, so make the disposable account valid
+  # in the same way a normal workstation login account is valid. Authentication
+  # remains disabled by the NOPASSWD sudoers rule below.
+  docker exec "$container" passwd --delete "$user" >/dev/null
   docker exec "$container" bash -c \
     "printf '%s\\n' '$user ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/$user && chmod 0440 /etc/sudoers.d/$user"
+
+  # Fail here with a fixture-specific error instead of letting the installer
+  # appear to fail before its package-manager path.
+  if ! docker exec --user "$user" --env HOME="/home/$user" \
+    "$container" sudo -n -v; then
+    printf 'Disposable Fedora user %s does not have working non-interactive sudo.\n' "$user" >&2
+    return 1
+  fi
 }
 
 create_test_user dotfiles
