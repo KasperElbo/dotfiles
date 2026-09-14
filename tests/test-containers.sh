@@ -94,40 +94,38 @@ EOF
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 
-if [[ "${1:-}" != --user ]]; then
+if [[ $# -eq 4 && "$1" == --user && "$2" == enable &&
+  "$3" == --now && "$4" == podman.socket ]]; then
+  grep -qx podman.socket "$USER_ENABLED_UNITS" 2>/dev/null ||
+    printf 'podman.socket\n' >>"$USER_ENABLED_UNITS"
+  grep -qx podman.socket "$USER_ACTIVE_UNITS" 2>/dev/null ||
+    printf 'podman.socket\n' >>"$USER_ACTIVE_UNITS"
   exit 0
 fi
-shift
-cmd="${1:-}"
-shift || true
 
-case "$cmd" in
-enable)
-  for arg in "$@"; do
-    case "$arg" in --*) continue ;; esac
-    grep -qx "$arg" "$USER_ENABLED_UNITS" 2>/dev/null ||
-      printf '%s\n' "$arg" >>"$USER_ENABLED_UNITS"
-    grep -qx "$arg" "$USER_ACTIVE_UNITS" 2>/dev/null ||
-      printf '%s\n' "$arg" >>"$USER_ACTIVE_UNITS"
-  done
-  ;;
-is-enabled)
-  args=("$@")
-  grep -qx "${args[-1]}" "$USER_ENABLED_UNITS" 2>/dev/null
+if [[ $# -eq 4 && "$1" == --user && "$2" == is-enabled &&
+  "$3" == --quiet && "$4" == podman.socket ]]; then
+  grep -qx podman.socket "$USER_ENABLED_UNITS" 2>/dev/null
   exit $?
-  ;;
-is-active)
-  args=("$@")
-  grep -qx "${args[-1]}" "$USER_ACTIVE_UNITS" 2>/dev/null
+fi
+
+if [[ $# -eq 4 && "$1" == --user && "$2" == is-active &&
+  "$3" == --quiet && "$4" == podman.socket ]]; then
+  grep -qx podman.socket "$USER_ACTIVE_UNITS" 2>/dev/null
   exit $?
-  ;;
-esac
-exit 0
+fi
+
+printf 'strict systemctl fixture rejected unsupported argv: %s\n' "$*" >&2
+exit 96
 EOF
 
   cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 printf 'curl %s\n' "$*" >>"$COMMAND_LOG"
+if [[ $# -ne 2 || "$1" != -fsS || "$2" != http://127.0.0.1:*/* ]]; then
+  printf 'strict curl fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+fi
 if [[ "${MOCK_CURL_EXIT:-0}" == 0 ]]; then
   printf '%s' "${MOCK_CURL_OUTPUT-dotfiles-podman-smoke}"
 fi
@@ -363,6 +361,10 @@ fi
 assert_file_line "$test_root/user-enabled-units" 'podman.socket'
 assert_file_line "$test_root/config/dotfiles/containers.conf" 'api_socket=enabled'
 
+run_capture env "${test_environment[@]}" systemctl enable --now podman.socket
+assert_status 96
+assert_contains "$TEST_OUTPUT" 'strict systemctl fixture rejected unsupported argv'
+
 verify_socket_output="$(env "${test_environment[@]}" \
   "$repo_root/scripts/verify-containers.sh" --skip-smoke-test 2>&1)"
 assert_contains "$verify_socket_output" 'podman.socket is enabled'
@@ -455,6 +457,10 @@ assert_file_contains "$test_root/commands.log" ':Z'
 assert_file_contains "$test_root/commands.log" '-p 127.0.0.1:'
 assert_file_contains "$test_root/commands.log" '--network'
 assert_file_contains "$test_root/commands.log" 'podman compose'
+
+run_capture env "${test_environment[@]}" curl --head http://127.0.0.1:1/
+assert_status 96
+assert_contains "$TEST_OUTPUT" 'strict curl fixture rejected unsupported argv'
 
 printf 'PASS: full smoke test exercises every rootless workflow and cleans up\n'
 
