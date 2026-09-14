@@ -188,7 +188,10 @@ def run(adapter: pathlib.Path, assembly: pathlib.Path, source: pathlib.Path, tim
             raise RuntimeError(f"debug evaluation returned {result!r}, expected '42'")
 
         client.request("continue", {"threadId": thread_id})
-        client.event("terminated")
+        client.wait_for(
+            lambda message: message.get("type") == "event"
+            and message.get("event") in {"exited", "terminated"}
+        )
         print("DAP breakpoint/evaluate smoke passed (value == 42).")
     except Exception:
         print(client.diagnostics(), file=sys.stderr)
