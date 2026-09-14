@@ -3994,6 +3994,30 @@ Repository-specific `.vscode/launch.json` files are considered project configura
 
 C# formatting uses project-local CSharpier through Conform.
 
+CSharpier is declared by the repository being edited, in its local tool
+manifest (`.config/dotnet-tools.json`), and Conform invokes it through the .NET
+SDK entry point:
+
+```text
+dotnet csharpier format --stdin-path <file>
+```
+
+Conform runs that command in the nearest directory above the edited file that
+declares a tool manifest, so the project's pinned CSharpier is used regardless
+of the directory Neovim was started in. Outside such a project the formatter is
+simply unavailable: the editor never falls back to a `csharpier` executable it
+finds on `PATH`, and neither mise, Mason, npm, nor the system package manager
+installs a second copy.
+
+Restore the tool once per clone:
+
+```bash
+dotnet tool restore
+```
+
+Until then, formatting reports `Run "dotnet tool restore" to make the
+"csharpier" command available.`
+
 ---
 
 # Angular / TypeScript development

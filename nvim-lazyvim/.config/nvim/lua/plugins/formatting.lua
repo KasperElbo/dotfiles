@@ -3,6 +3,11 @@ return {
     "stevearc/conform.nvim",
     optional = true,
     opts = {
+      formatters = {
+        -- CSharpier stays owned by the .NET project's local tool manifest and
+        -- is invoked through `dotnet csharpier`; see lua/config/csharpier.lua.
+        csharpier = require("config.csharpier").formatter(),
+      },
       formatters_by_ft = {
         cs = { "csharpier" },
 

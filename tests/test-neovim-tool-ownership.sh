@@ -122,6 +122,11 @@ fi
 
 formatting_config="$lazyvim_config/lua/plugins/formatting.lua"
 assert_contains "$formatting_config" 'cs = { "csharpier" }'
+# CSharpier must resolve through the project's local tool manifest rather than
+# Conform's built-in fallback to a bare executable; see tests/test-csharpier-*.
+assert_contains "$formatting_config" 'require("config.csharpier").formatter()'
+assert_contains "$lazyvim_config/lua/config/csharpier.lua" 'command = "dotnet"'
+assert_contains "$lazyvim_config/lua/config/csharpier.lua" 'require_cwd = true'
 assert_contains "$formatting_config" 'typescript = { "prettier" }'
 assert_contains "$formatting_config" 'htmlangular = { "prettier" }'
 assert_contains "$formatting_config" 'python = { "ruff_format" }'
