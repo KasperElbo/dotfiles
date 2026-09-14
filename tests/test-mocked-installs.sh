@@ -25,6 +25,7 @@ test_stub_allow "$test_root" dnf install -y \
   bat curl eza fd-find fzf gh git git-delta jq libicu neovim openssh-clients \
   ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow tmux wl-clipboard \
   xdg-utils zoxide zsh zsh-autosuggestions zsh-syntax-highlighting
+test_stub_allow "$test_root" dnf install -y ghostty mise starship
 test_stub_allow "$test_root" dnf install -y \
   --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise \
   ghostty mise starship
@@ -173,7 +174,14 @@ test_environment=(
   "OS_RELEASE_FILE=$test_root/os-release"
   "DMI_ROOT=$test_root/dmi"
   "KERNEL_RELEASE=7.1.0-test"
+  "DNF_REPO_DIR=$test_root/yum.repos.d"
 )
+
+# A clean Fedora machine has never enabled the jdxcode/mise COPR. dnf5 rejects
+# --disablerepo for a repo it does not know, so the default install must not
+# pass the flag at all.
+mkdir -p "$test_root/yum.repos.d"
+printf '[fedora]\nenabled=1\n' >"$test_root/yum.repos.d/fedora.repo"
 
 "${test_environment[@]}" "$repo_root/scripts/install-system.sh" >/dev/null
 "${test_environment[@]}" "$repo_root/scripts/install-system.sh" >/dev/null
@@ -196,8 +204,17 @@ assert_file_contains "$command_log" "sudo usermod --shell $expected_zsh_path fed
 assert_eq "$expected_zsh_path" "$(<"$shell_state")" 'login shell state'
 assert_eq 1 "$(grep -Fc 'sudo usermod --shell ' "$command_log")" \
   'login shell should only be changed once'
+assert_file_contains "$command_log" 'sudo dnf install -y ghostty mise starship'
+assert_file_not_contains "$command_log" '--disablerepo'
+
+# The exclusion must still be applied on a machine that did enable the COPR,
+# where Terra's mise would otherwise lose to the COPR's conflicting build.
+printf '[copr:copr.fedorainfracloud.org:jdxcode:mise]\nenabled=1\n' \
+  >"$test_root/yum.repos.d/_copr:copr.fedorainfracloud.org:jdxcode:mise.repo"
+"${test_environment[@]}" "$repo_root/scripts/install-terra.sh" >/dev/null
 assert_file_contains "$command_log" \
   'sudo dnf install -y --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise ghostty mise starship'
+rm -f -- "$test_root/yum.repos.d/_copr:copr.fedorainfracloud.org:jdxcode:mise.repo"
 assert_file_contains "$command_log" \
   'sudo dnf install -y bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config unzip'
 assert_file_contains "$command_log" \
