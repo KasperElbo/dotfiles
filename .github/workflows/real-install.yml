@@ -231,6 +231,7 @@ jobs:
           WSL_USER: ${{ inputs.wsl_user }}
           SHA: ${{ github.sha }}
         run: |
+          # network-source: dotfiles-repository
           & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "mkdir -p ~/src && git clone https://github.com/KasperElbo/dotfiles.git ~/src/dotfiles-ci && cd ~/src/dotfiles-ci && git checkout '$env:SHA'"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

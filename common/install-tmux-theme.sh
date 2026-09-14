@@ -15,6 +15,7 @@ ensure_dir "$(dirname "$install_dir")"
 if [[ ! -d "$install_dir/.git" ]]; then
   info "Installing Catppuccin tmux $version"
 
+  # network-source: catppuccin-tmux
   git clone \
     --branch "$version" \
     --depth 1 \
@@ -23,6 +24,7 @@ if [[ ! -d "$install_dir/.git" ]]; then
 else
   info "Updating Catppuccin tmux to $version"
 
+  # network-source: catppuccin-tmux
   git -C "$install_dir" fetch \
     --depth 1 \
     origin \

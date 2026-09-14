@@ -19,6 +19,16 @@ To add or change a capability:
    `./scripts/render-capability-matrix.py`, then run `./scripts/lint.sh`, and
    `./scripts/test.sh`.
 
+`config/capabilities.tsv` records which capability owns a provider and
+packages. Its companion, `config/network-sources.tsv`, records where each
+network source comes from, its provenance tier, privilege level, integrity
+mechanism, update cadence, and rollback strategy. Together they are the
+authoritative source/ownership model; see
+[supply-chain.md](supply-chain.md) and the generated
+[network-source inventory](supply-chain-sources.md). A capability whose
+provider reaches the network must have its sources registered there, and
+`./scripts/lint.sh` fails if one is missing.
+
 The manifest is declarative ownership metadata. It deliberately does not
 generate package-manager commands or replace the independently useful
 component installers.

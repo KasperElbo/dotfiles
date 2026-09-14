@@ -12,6 +12,7 @@ failures=0
 
 # Overridable so tests can point these at a mocked podman without touching a
 # real registry, port range, or filesystem.
+# network-source: smoke-image-busybox
 smoke_image="${PODMAN_SMOKE_IMAGE:-docker.io/library/busybox:stable}"
 port_base="${PODMAN_SMOKE_PORT_BASE:-18000}"
 subuid_file="${SUBUID_FILE:-/etc/subuid}"
@@ -239,7 +240,7 @@ if podman run -d --rm --name "$smoke_container" \
   -p "127.0.0.1:$smoke_port:8080" "$smoke_image" \
   sh -c "$serve_smoke_content" >/dev/null 2>&1; then
   if wait_for_content 10 "dotfiles-podman-smoke" \
-    curl -fsS "http://127.0.0.1:$smoke_port/"; then
+    curl -fsS "http://127.0.0.1:$smoke_port/"; then # network-source: local-only
     pass "localhost port publishing: 127.0.0.1:$smoke_port reachable"
   else
     fail "published port 127.0.0.1:$smoke_port never became reachable"
@@ -254,7 +255,7 @@ if podman network create "$smoke_network" >/dev/null 2>&1 &&
     "$smoke_image" sh -c "$serve_smoke_content" >/dev/null 2>&1; then
   if wait_for_content 10 "dotfiles-podman-smoke" \
     podman run --rm --network "$smoke_network" "$smoke_image" \
-    wget -qO- "http://$smoke_server:8080/"; then
+    wget -qO- "http://$smoke_server:8080/"; then # network-source: local-only
     pass "container networking: name resolution and connectivity via $smoke_network"
   else
     fail "container-to-container networking test failed"
@@ -292,7 +293,7 @@ EOF
 
 if podman compose -f "$smoke_compose_dir/compose.yaml" up -d >/dev/null 2>&1; then
   if wait_for_content 10 "dotfiles-podman-smoke" \
-    curl -fsS "http://127.0.0.1:$smoke_compose_port/"; then
+    curl -fsS "http://127.0.0.1:$smoke_compose_port/"; then # network-source: local-only
     pass "compose: multi-service project reachable on 127.0.0.1:$smoke_compose_port"
   else
     fail "compose project never became reachable"

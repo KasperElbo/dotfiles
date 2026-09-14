@@ -26,4 +26,13 @@ fi
 printf 'Running ShellCheck...\n'
 shellcheck -x -P SCRIPTDIR -s bash "${shell_files[@]}"
 
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'python3 is required but was not found in PATH.\n' >&2
+  exit 1
+fi
+
+printf 'Validating network-source provenance...\n'
+python3 ./scripts/validate-network-sources.py
+python3 ./scripts/render-supply-chain.py --check
+
 printf 'Shell validation passed.\n'

@@ -1,0 +1,19 @@
+# Pinned Terra repository signing keys, one per Fedora release.
+#
+# Terra publishes a per-release key at
+# https://repos.fyralabs.com/terra<releasever>/key.asc. The installer fetches
+# that key over HTTPS and refuses to import it unless the fingerprint matches
+# the value pinned here, so a later compromise of the distribution host cannot
+# silently substitute a different signing key.
+#
+# Verified against the published keys on 2026-09-14. To add a release, fetch
+# the key and record the *primary* key fingerprint:
+#   curl -fsS https://repos.fyralabs.com/terra<N>/key.asc | \
+#     gpg --show-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }'
+#
+# releasever	fingerprint
+41	13C97683122B3B4C28E5D4133B922F8474A2DEA2
+42	63FBD5230A95AACC5F9D2A19CD9A823AD6A7A542
+43	47F7A5060E38FC07F674D11BE43DBFE05C4F92A3
+44	AE09157A4DE88B497EA1D5D300CDAB43DE226D6F
+45	C2AC02124AF114F086592E3C8DDE7D14C1C23D8C

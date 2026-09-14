@@ -26,6 +26,7 @@ ensure_dir "$(dirname "$workdir")"
 
 info "Downloading Catppuccin KDE $version"
 
+# network-source: catppuccin-kde
 git clone \
   --branch "$version" \
   --depth 1 \

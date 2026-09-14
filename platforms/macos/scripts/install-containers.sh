@@ -27,6 +27,7 @@ fi
 info "Checking rootless ARM64 container execution"
 podman info >/dev/null
 # shellcheck disable=SC2016 # Expansion belongs inside the container shell.
+# network-source: smoke-image-alpine
 podman run --rm docker.io/library/alpine:latest sh -c \
   'test "$(uname -m)" = aarch64 && printf "Podman ARM64 smoke test passed\n"'
 podman-compose version >/dev/null

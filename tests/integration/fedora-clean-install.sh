@@ -3,7 +3,11 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 container="dotfiles-fedora-${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-0}"
-base_image="${DOTFILES_FEDORA_IMAGE:-fedora:44}"
+# Pinned by digest: this job proves a clean install against one exact base
+# image rather than whatever the tag points at today. Bump it together
+# with config/network-sources.tsv (validation-image-fedora).
+# network-source: validation-image-fedora
+base_image="${DOTFILES_FEDORA_IMAGE:-docker.io/library/fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80}"
 runtime_image="dotfiles-fedora-systemd-${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-0}"
 
 cleanup() {
@@ -20,7 +24,8 @@ docker build \
   --build-arg "BASE_IMAGE=$base_image" \
   --tag "$runtime_image" \
   - <<'EOF_DOCKERFILE' >/dev/null
-ARG BASE_IMAGE=fedora:44
+# network-source: validation-image-fedora
+ARG BASE_IMAGE=docker.io/library/fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
 FROM ${BASE_IMAGE}
 RUN dnf --assumeyes --setopt=install_weak_deps=False install systemd && \
     dnf clean all
