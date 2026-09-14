@@ -70,6 +70,43 @@ fi
 commands=(aerospace ast-grep bat delta dotnet dotnet-easydotnet eza fd fzf gh git jq lazygit mise node npm nvim python rg scp sftp shellcheck sqlite3 ssh starship stow tmux tree-sitter uv zoxide zsh)
 for name in "${commands[@]}"; do check_command "$name"; done
 
+# ---------------------------------------------------------------------------
+# SFTP client baseline
+#
+# macOS deliberately declares no SSH package: the Brewfile installs none, and
+# the client this repository promises is Apple's own system OpenSSH in
+# /usr/bin. Checking only that an "sftp" command exists would accept a
+# Homebrew or third-party client that silently replaced it, which is exactly
+# the second SSH implementation this platform is documented as not having.
+# ---------------------------------------------------------------------------
+
+section "SFTP client baseline"
+
+for name in sftp scp ssh; do
+  resolved="$(command -v "$name" 2>/dev/null || true)"
+  if [[ -z "$resolved" ]]; then
+    fail "$name not found; macOS ships it in /usr/bin"
+    continue
+  fi
+  # Compare the real path, so neither a symlinked PATH entry nor a Homebrew
+  # shim decides the answer by spelling.
+  canonical="$(verify_canonical_existing_path "$resolved" 2>/dev/null || true)"
+  if [[ "${canonical:-$resolved}" == /usr/bin/"$name" ]]; then
+    pass "$name is Apple's system OpenSSH: ${canonical:-$resolved}"
+  else
+    fail "$name resolves to ${canonical:-$resolved}, not Apple's system" \
+      "OpenSSH at /usr/bin/$name; this platform installs no second SSH" \
+      "implementation"
+  fi
+done
+
+ssh_version="$(ssh -V 2>&1 || true)"
+if [[ "$ssh_version" == *OpenSSH* ]]; then
+  pass "ssh -V: $ssh_version"
+else
+  fail "ssh -V did not report an OpenSSH client: ${ssh_version:-no output}"
+fi
+
 for name in brew nvim node python dotnet; do
   path="$(command -v "$name" 2>/dev/null || true)"
   [[ -n "$path" ]] || continue

@@ -64,6 +64,18 @@ run_scenario() {
   test_stub_allow "$test_root" sudo sysctl -p \
     /etc/sysctl.d/90-dotfiles-hardening.conf
   test_stub_allow "$test_root" sudo auditctl -l
+  # Verification reads owned drop-ins it cannot see unprivileged. These are
+  # reads and stats only; no write form of sudo is ever allowed here.
+  for owned_path in \
+    /etc/security/faillock.conf.d/90-dotfiles-hardening.conf \
+    /etc/sudoers.d/90-dotfiles-hardening \
+    /etc/audit/rules.d/90-dotfiles-hardening.rules \
+    /etc/sysctl.d/90-dotfiles-hardening.conf \
+    /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf; do
+    test_stub_allow "$test_root" sudo stat -c '%a' "$owned_path"
+    test_stub_allow "$test_root" sudo cat -- "$owned_path"
+    test_stub_allow "$test_root" sudo test -f "$owned_path"
+  done
   test_stub_allow "$test_root" sudo systemctl enable --now auditd.service
   test_stub_allow "$test_root" sudo systemctl enable --now dnf5-automatic.timer
 
@@ -259,7 +271,11 @@ EOF
   cat >"$mock_bin/auditctl" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$1" == -l ]]; then
-  cat "$FAKE_ROOT/etc/audit/rules.d/90-dotfiles-hardening.rules" 2>/dev/null
+  # MOCK_AUDITCTL_EMPTY models the real failure mode this check exists for:
+  # the rules file on disk is intact, but augenrules never loaded it, so the
+  # running kernel is watching nothing.
+  [[ "${MOCK_AUDITCTL_EMPTY:-false}" == true ]] ||
+    cat "$FAKE_ROOT/etc/audit/rules.d/90-dotfiles-hardening.rules" 2>/dev/null
 fi
 exit 0
 EOF
@@ -281,7 +297,7 @@ EOF
 
   cat >"$mock_bin/mokutil" <<'EOF'
 #!/usr/bin/env bash
-printf 'SecureBoot enabled\n'
+printf 'SecureBoot %s\n' "${MOCK_SECURE_BOOT:-enabled}"
 exit 0
 EOF
 
@@ -319,7 +335,7 @@ cmp)
   right="$(rewrite "$3")"
   [[ -f "$left" && -f "$right" && "$(cat -- "$left")" == "$(cat -- "$right")" ]]
   ;;
-test | rm | grep | sed | cat)
+test | rm | grep | sed | cat | stat)
   args=()
   for a in "$@"; do args+=("$(rewrite "$a")"); done
   "$cmd" "${args[@]}"
@@ -458,6 +474,20 @@ SUDO_EOF
 
   assert_contains "$verify_output" 'SELinux is enforcing'
   assert_contains "$verify_output" 'firewalld is active'
+  # Every repository-owned control is actually inspected on the happy path,
+  # not skipped: mode and content are asserted, not just existence.
+  assert_contains "$verify_output" \
+    'faillock policy drop-in is present, mode 644, and unmodified'
+  assert_contains "$verify_output" \
+    'sudo logfile drop-in is present, mode 440, and unmodified'
+  assert_contains "$verify_output" \
+    'auditd watch rules is present, mode 640, and unmodified'
+  assert_contains "$verify_output" \
+    'hardening sysctl drop-in is present, mode 644, and unmodified'
+  assert_contains "$verify_output" 'dotfiles watch rules are loaded'
+  # Manual-assurance areas are labelled as such instead of counted as proof.
+  assert_contains "$verify_output" 'manual assurance:'
+  assert_contains "$verify_output" 'Mount options (manual assurance, not verified)'
   assert_contains "$verify_output" 'kernel.yama.ptrace_scope = 1'
   assert_contains "$verify_output" 'kernel.kptr_restrict = 2'
   assert_contains "$verify_output" 'kernel.dmesg_restrict = 1'
@@ -472,6 +502,116 @@ SUDO_EOF
     ENABLED_UNITS="$enabled_units" PATH="$mock_bin:$PATH" \
     systemctl daemon-reload
   assert_status 96
+
+  # -------------------------------------------------------------------------
+  # Negative mutations
+  #
+  # A machine that selected the hardening profile and later lost a control
+  # used to keep verifying clean, because missing owned artifacts were only
+  # warnings. Each mutation below reverts exactly one repository-owned control
+  # on an otherwise-passing machine and must make verification exit non-zero.
+  # Mutations run on the richer sshd-active fixture and are reverted
+  # afterwards so the cases stay independent.
+  # -------------------------------------------------------------------------
+
+  if [[ "$seed_sshd" == "true" ]]; then
+    local faillock_dropin="$fake_root/etc/security/faillock.conf.d/90-dotfiles-hardening.conf"
+    local sudoers_dropin="$fake_root/etc/sudoers.d/90-dotfiles-hardening"
+    local sysctl_dropin="$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf"
+    local ssh_dropin="$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
+    local backup="$test_root/state/mutation-backup"
+
+    run_verify() {
+      run_capture "${test_environment[@]}" "$@" \
+        "$repo_root/platforms/fedora/scripts/verify-hardening.sh"
+    }
+
+    # 1. A deleted owned artifact.
+    cp -p "$sysctl_dropin" "$backup"
+    rm -f -- "$sysctl_dropin"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'hardening sysctl drop-in is missing'
+    assert_contains "$TEST_OUTPUT" 'install-hardening.sh'
+    cp -p "$backup" "$sysctl_dropin"
+
+    # 2. Altered content: the file is still there, the policy is not.
+    cp -p "$faillock_dropin" "$backup"
+    sed -i 's/^unlock_time = 900$/unlock_time = 5/' "$faillock_dropin"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      "faillock policy drop-in no longer contains 'unlock_time = 900'"
+    cp -p "$backup" "$faillock_dropin"
+
+    # 3. Wrong file mode: a group/other-readable sudoers drop-in.
+    local original_mode
+    original_mode="$(stat -c '%a' "$sudoers_dropin")"
+    chmod 0644 "$sudoers_dropin"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'sudo logfile drop-in has mode 644, expected 440'
+    chmod "0$original_mode" "$sudoers_dropin"
+
+    # 4. An owned service that was switched off after installation.
+    sed -i '/^auditd.service$/d' "$active_units"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'auditd is not active'
+    assert_contains "$TEST_OUTPUT" 'recorded'
+    printf 'auditd.service\n' >>"$active_units"
+
+    # 5. An owned control that is present on disk but ineffective: the rules
+    #    file is intact, yet the running kernel has no dotfiles watches.
+    run_verify MOCK_AUDITCTL_EMPTY=true
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'not loaded in the running kernel'
+    assert_contains "$TEST_OUTPUT" 'present but ineffective'
+
+    # 6. An owned drop-in whose policy line was reverted.
+    cp -p "$ssh_dropin" "$backup"
+    sed -i 's/^PermitRootLogin no$/PermitRootLogin yes/' "$ssh_dropin"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" "no longer contains 'PermitRootLogin no'"
+    cp -p "$backup" "$ssh_dropin"
+
+    # 7. An owned timer that was disabled after installation.
+    sed -i '/^dnf5-automatic.timer$/d' "$enabled_units"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'dnf5-automatic.timer is not enabled'
+    assert_contains "$TEST_OUTPUT" 'dnf_automatic=notifyonly'
+    printf 'dnf5-automatic.timer\n' >>"$enabled_units"
+
+    # 8. Corrupt recorded state is not something to verify around.
+    cp -p "$state_file" "$backup"
+    printf 'profile=hardening\nselinux_mode=enforcing\n' >"$state_file"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'recorded state is'
+    cp -p "$backup" "$state_file"
+
+    # 9. An unmet *recommendation* stays a warning: disabled Secure Boot is
+    #    firmware state this profile never touches.
+    run_verify MOCK_SECURE_BOOT=disabled
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'Secure Boot is disabled'
+    assert_contains "$TEST_OUTPUT" 'never changes'
+
+    # 10. An unselected profile must not fail merely because the optional
+    #     artifacts it never installed are absent.
+    rm -f -- "$state_file" "$faillock_dropin" "$sudoers_dropin" \
+      "$sysctl_dropin" "$ssh_dropin" \
+      "$fake_root/etc/audit/rules.d/90-dotfiles-hardening.rules"
+    run_verify
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'no hardening profile selection is recorded'
+    assert_not_contains "$TEST_OUTPUT" 'is missing:'
+
+    printf 'PASS: broken repository-owned hardening controls fail verification\n'
+  fi
 
   printf 'PASS: %s\n' "$scenario_name"
 }

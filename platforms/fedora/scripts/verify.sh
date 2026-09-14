@@ -62,6 +62,32 @@ else
   fail "openssh-clients package is not installed"
 fi
 
+# "a command called sftp exists" is not the claim this repository makes: the
+# claim is that the SFTP client comes from Fedora's own openssh-clients
+# package, so there is never a second SSH implementation to manage. Ask RPM
+# which package owns the binary that actually resolves, rather than trusting
+# whatever happens to be first on PATH.
+for cmd in sftp scp ssh; do
+  resolved="$(command -v "$cmd" 2>/dev/null || true)"
+  if [[ -z "$resolved" ]]; then
+    fail "$cmd not found; openssh-clients should provide it"
+    continue
+  fi
+  # RPM records the real path, and Fedora's /usr/sbin is a symlink to
+  # /usr/bin, so PATH order alone decides whether "command -v" hands back a
+  # spelling the package database can match. Canonicalize first, or the query
+  # reports "no owning package" for a perfectly correct installation.
+  canonical="$(verify_canonical_existing_path "$resolved" 2>/dev/null || true)"
+  owner="$(rpm -qf --queryformat '%{NAME}' "${canonical:-$resolved}" \
+    2>/dev/null || true)"
+  if [[ "$owner" == openssh-clients ]]; then
+    pass "$cmd is provided by openssh-clients: ${canonical:-$resolved}"
+  else
+    fail "$cmd resolves to ${canonical:-$resolved}, owned by" \
+      "${owner:-no RPM package}; expected Fedora's openssh-clients"
+  fi
+done
+
 ssh_version="$(ssh -V 2>&1 || true)"
 if [[ "$ssh_version" == *OpenSSH* ]]; then
   pass "ssh -V: $ssh_version"
