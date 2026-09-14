@@ -86,6 +86,13 @@ jobs:
       - name: Validate shell scripts
         run: /opt/homebrew/bin/bash ./scripts/lint.sh
 
+      - name: Test system-Bash bootstrap compatibility
+        run: |
+          /bin/bash ./tests/test-execution-plan.sh
+          /bin/bash ./platforms/macos/install.sh \
+            --theme macchiato --no-ocaml --no-containers --no-tailscale \
+            --no-defaults --dry-run --non-interactive >/dev/null
+
       - name: Test portable verifier and shell-test primitives
         run: |
           /opt/homebrew/bin/bash ./tests/test-verifier.sh

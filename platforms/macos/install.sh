@@ -74,7 +74,14 @@ preflight_macos() {
   preflight_stow_packages "${specs[@]}"
 }
 
-apply_system() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interactive); "$DOTFILES_ROOT/platforms/macos/scripts/install-system.sh" "${args[@]}"; activate_homebrew_path; }
+apply_system() {
+  if [[ "$interactive" == true ]]; then
+    "$DOTFILES_ROOT/platforms/macos/scripts/install-system.sh"
+  else
+    "$DOTFILES_ROOT/platforms/macos/scripts/install-system.sh" --non-interactive
+  fi
+  activate_homebrew_path
+}
 apply_ocaml_native() { "$DOTFILES_ROOT/platforms/macos/scripts/install-ocaml.sh"; }
 apply_containers() { "$DOTFILES_ROOT/platforms/macos/scripts/install-containers.sh"; }
 apply_tailscale() { "$DOTFILES_ROOT/platforms/macos/scripts/install-tailscale.sh"; }
@@ -88,7 +95,13 @@ apply_macos_defaults() { "$DOTFILES_ROOT/platforms/macos/scripts/apply-defaults.
 apply_workflows() { "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --all; [[ "$install_ocaml" != true ]] || "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --ocaml; }
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
 apply_aerospace() { open -a AeroSpace || warn 'Open AeroSpace manually from /Applications'; }
-verify_macos() { local args=(); [[ "$apply_defaults" != true ]] || args+=(--defaults); [[ "$install_containers" != true ]] || args+=(--containers); [[ "$install_tailscale" != true ]] || args+=(--tailscale); "$DOTFILES_ROOT/platforms/macos/scripts/verify.sh" "${args[@]}"; }
+verify_macos() {
+  set --
+  [[ "$apply_defaults" != true ]] || set -- "$@" --defaults
+  [[ "$install_containers" != true ]] || set -- "$@" --containers
+  [[ "$install_tailscale" != true ]] || set -- "$@" --tailscale
+  "$DOTFILES_ROOT/platforms/macos/scripts/verify.sh" "$@"
+}
 
 plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' apply preflight_macos apply_system : 'Install native Homebrew at /opt/homebrew, Brewfile machine tools, Ghostty, and AeroSpace.'
 [[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Homebrew OCaml prerequisites' apply : apply_ocaml_native : 'platforms/macos/scripts/install-ocaml.sh'

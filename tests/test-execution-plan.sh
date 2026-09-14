@@ -15,7 +15,7 @@ REPO_ROOT="$repo_root" bash -c '
 source "$repo_root/common/lib/common.sh"
 # shellcheck source=../common/lib/execution-plan.sh
 source "$repo_root/common/lib/execution-plan.sh"
-log="$(mktemp)"; trap 'rm -f -- "$log" "$log.failure"' EXIT
+log="$(mktemp)"; trap 'rm -f -- "$log" "$log.failure" "$log.first-failure"' EXIT
 one() { printf 'one\n' >>"$log"; }
 two() { printf 'two\n' >>"$log"; }
 plan_add one 'First step' apply : one : rerunnable
@@ -27,6 +27,16 @@ plan_execute >/dev/null
 printf 'Shared execution plan ordering passed.\n'
 
 fail_step() { return 23; }
+plan_reset
+plan_add first-broken 'First injected failure' apply : fail_step : rerunnable
+plan_add first-pending 'Still pending' apply : two : rerunnable
+if plan_execute >"$log.first-failure" 2>&1; then
+  printf 'First-step execution-plan failure unexpectedly passed.\n' >&2; exit 1
+fi
+grep -Fq 'Completed steps: none' "$log.first-failure"
+grep -Fq 'Pending steps: first-pending' "$log.first-failure"
+printf 'Execution-plan empty-completed diagnostics passed.\n'
+
 plan_reset
 plan_add 'done' 'Completed step' apply : one : rerunnable
 plan_add broken 'Injected failure' apply : fail_step : rerunnable

@@ -3,28 +3,51 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 container="dotfiles-fedora-${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-0}"
-image="${DOTFILES_FEDORA_IMAGE:-fedora:44}"
+base_image="${DOTFILES_FEDORA_IMAGE:-fedora:44}"
+runtime_image="dotfiles-fedora-systemd-${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-0}"
 
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
+  docker image rm -f "$runtime_image" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
-printf 'Starting disposable Fedora systemd environment from %s\n' "$image"
+# The official Fedora container image is intentionally minimal and does not
+# contain systemd or /sbin/init. Build a disposable derivative instead of
+# assuming a workstation-like init system is present in the transport image.
+printf 'Building disposable systemd image from %s\n' "$base_image"
+docker build \
+  --build-arg "BASE_IMAGE=$base_image" \
+  --tag "$runtime_image" \
+  - <<'EOF_DOCKERFILE' >/dev/null
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN dnf --assumeyes --setopt=install_weak_deps=False install systemd && \
+    dnf clean all
+STOPSIGNAL SIGRTMIN+3
+EOF_DOCKERFILE
+
+printf 'Starting disposable Fedora systemd environment from %s\n' "$runtime_image"
 docker run --detach --name "$container" \
   --privileged --cgroupns=host \
   --tmpfs /run --tmpfs /run/lock \
   --volume /sys/fs/cgroup:/sys/fs/cgroup:rw \
   --volume "$repo_root:/workspace:ro" \
-  "$image" /sbin/init >/dev/null
+  "$runtime_image" /usr/lib/systemd/systemd >/dev/null
 
+systemd_ready=false
 for _ in {1..30}; do
   if docker exec "$container" systemctl show --property=Version >/dev/null 2>&1; then
+    systemd_ready=true
     break
   fi
   sleep 1
 done
-docker exec "$container" systemctl show --property=Version >/dev/null
+if [[ "$systemd_ready" != true ]]; then
+  printf 'Fedora systemd environment did not become ready. Container log follows:\n' >&2
+  docker logs "$container" >&2 || true
+  exit 1
+fi
 
 # The Fedora container is intentionally only the transport. Seed the pieces a
 # normal Fedora workstation image already owns so the repository installer is
