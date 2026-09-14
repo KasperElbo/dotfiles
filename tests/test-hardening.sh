@@ -480,4 +480,3 @@ run_scenario "hardening install/verify with sshd absent (default Fedora Workstat
 run_scenario "hardening install/verify with sshd active" true
 
 printf '\nFedora hardening install/verify and idempotency tests passed.\n'
-w®\mÇ_Ù×6ó^{Ó:Û¾Ÿ}Ö›ñİº§Ûw½ö
