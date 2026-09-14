@@ -21,6 +21,8 @@ printf '/bin/bash\n' >"$shell_state"
 # silently accepted by a permissive fake.
 test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
+test_stub_install "$test_root" sudo
+test_stub_install "$test_root" systemctl
 test_stub_allow "$test_root" dnf install -y \
   bat curl eza fd-find fzf gh git git-delta jq libicu neovim openssh-clients \
   ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow tmux wl-clipboard \
@@ -43,6 +45,61 @@ test_stub_allow "$test_root" dnf install -y \
 test_stub_allow "$test_root" dnf install -y \
   amd-gpu-firmware mesa-dri-drivers mesa-va-drivers mesa-vulkan-drivers
 
+test_stub_allow "$test_root" sudo dnf install -y \
+  bat curl eza fd-find fzf gh git git-delta jq libicu neovim openssh-clients \
+  ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow tmux wl-clipboard \
+  xdg-utils zoxide zsh zsh-autosuggestions zsh-syntax-highlighting
+test_stub_allow "$test_root" sudo dnf install -y ghostty mise starship
+test_stub_allow "$test_root" sudo dnf install -y \
+  --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise \
+  ghostty mise starship
+test_stub_allow "$test_root" sudo dnf install -y \
+  bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config unzip
+test_stub_allow "$test_root" sudo dnf install -y \
+  texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent
+test_stub_allow "$test_root" sudo dnf install -y \
+  blueman brightnessctl cliphist dex-autostart fuzzel grim libnotify \
+  lxqt-policykit mako nm-connection-editor pavucontrol playerctl slurp sway \
+  swaybg swayidle swaylock sway-systemd swappy waybar wireplumber \
+  xdg-desktop-portal-gtk xdg-desktop-portal-wlr
+test_stub_allow "$test_root" sudo dnf install -y \
+  asusctl asusctl-rog-gui fwupd mokutil pciutils
+test_stub_allow "$test_root" sudo dnf install -y \
+  amd-gpu-firmware mesa-dri-drivers mesa-va-drivers mesa-vulkan-drivers
+test_stub_allow "$test_root" sudo usermod --shell "$mock_bin/zsh" fedora-test
+test_stub_allow "$test_root" sudo install -Dm755 \
+  "$repo_root/platforms/fedora/assets/dotfiles-sway" \
+  /usr/local/bin/dotfiles-sway
+test_stub_allow "$test_root" sudo install -Dm644 \
+  "$repo_root/platforms/fedora/assets/dotfiles-sway.desktop" \
+  /usr/share/wayland-sessions/dotfiles-sway.desktop
+
+for systemctl_argv in \
+  'is-enabled asusd.service' \
+  'cat asus-shutdown.service' \
+  'is-enabled power-profiles-daemon.service' \
+  'is-enabled tuned-ppd.service' \
+  'is-enabled tuned.service' \
+  'is-active --quiet asusd.service' \
+  'is-active --quiet power-profiles-daemon.service' \
+  'is-active --quiet tuned-ppd.service' \
+  'is-active --quiet tuned.service' \
+  'start asusd.service' \
+  'enable --now asusd.service' \
+  'enable --now asus-shutdown.service' \
+  'mask --now power-profiles-daemon.service' \
+  'mask --now tuned-ppd.service' \
+  'mask --now tuned.service'; do
+  read -r -a argv <<<"$systemctl_argv"
+  test_stub_allow "$test_root" systemctl "${argv[@]}"
+done
+test_stub_allow "$test_root" sudo systemctl start asusd.service
+test_stub_allow "$test_root" sudo systemctl enable --now asusd.service
+test_stub_allow "$test_root" sudo systemctl enable --now asus-shutdown.service
+test_stub_allow "$test_root" sudo systemctl mask --now power-profiles-daemon.service
+test_stub_allow "$test_root" sudo systemctl mask --now tuned-ppd.service
+test_stub_allow "$test_root" sudo systemctl mask --now tuned.service
+
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$1" == -q && "$2" == terra-release && $# -eq 2 ]]; then
@@ -59,7 +116,7 @@ fi
 printf 'strict mokutil fixture rejected unsupported argv: %s\n' "$*" >&2
 exit 96
 EOF
-cat >"$mock_bin/systemctl" <<'EOF'
+cat >"$test_root/handlers/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 case "$*" in
@@ -88,35 +145,19 @@ case "$*" in
   ;;
 esac
 EOF
-cat >"$mock_bin/sudo" <<'EOF'
+cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 case "${1:-}" in
 usermod)
-  if [[ "${2:-}" == --shell && $# -eq 4 ]]; then
-    printf '%s\n' "$3" >"$SHELL_STATE"
-    exit 0
-  fi
-  ;;
-dnf)
-  shift
-  exec dnf "$@"
+  printf '%s\n' "$3" >"$SHELL_STATE"
+  exit 0
   ;;
 install)
-  case "$*" in
-  'install -Dm755 '*'/platforms/fedora/assets/dotfiles-sway /usr/local/bin/dotfiles-sway' | \
-  'install -Dm644 '*'/platforms/fedora/assets/dotfiles-sway.desktop /usr/share/wayland-sessions/dotfiles-sway.desktop')
-    exit 0
-    ;;
-  esac
-  ;;
-systemctl)
-  shift
-  exec systemctl "$@"
+  exit 0
   ;;
 esac
-printf 'strict sudo fixture rejected unsupported argv: %s\n' "$*" >&2
-exit 96
+exec "$@"
 EOF
 cat >"$mock_bin/id" <<'EOF'
 #!/usr/bin/env bash
@@ -158,7 +199,7 @@ case "$*" in
   ;;
 esac
 EOF
-chmod +x "$mock_bin"/*
+chmod +x "$mock_bin"/* "$test_root/handlers"/*
 
 printf 'ID=fedora\n' >"$test_root/os-release"
 printf 'GA402RK\n' >"$test_root/dmi/board_name"

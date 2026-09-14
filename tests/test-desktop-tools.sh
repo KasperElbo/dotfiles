@@ -2,12 +2,16 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 mock_bin="$test_root/bin"
 command_log="$test_root/commands.log"
-mkdir -p "$mock_bin" "$test_root/home" "$test_root/xdg" "$test_root/data/applications"
+mkdir -p "$test_root/xdg" "$test_root/data/applications"
 
 # Fixture .desktop files: set_default_mime_type only claims a mimetype when a
 # matching desktop entry actually exists, so create the ones this profile uses.
@@ -20,7 +24,23 @@ done
 mime_store="$test_root/mimeapps.store"
 : >"$mime_store"
 
-cat >"$mock_bin/dnf" <<'EOF'
+test_stub_init "$test_root"
+test_stub_install "$test_root" dnf
+test_stub_install "$test_root" sudo
+test_stub_allow "$test_root" dnf install -y ark gwenview okular
+test_stub_allow "$test_root" dnf install -y gimp pdfarranger skanpage xdg-utils
+test_stub_allow "$test_root" dnf install -y \
+  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-.noarch.rpm \
+  https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-.noarch.rpm
+test_stub_allow "$test_root" dnf install -y mpv
+test_stub_allow "$test_root" sudo dnf install -y ark gwenview okular
+test_stub_allow "$test_root" sudo dnf install -y gimp pdfarranger skanpage xdg-utils
+test_stub_allow "$test_root" sudo dnf install -y \
+  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-.noarch.rpm \
+  https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-.noarch.rpm
+test_stub_allow "$test_root" sudo dnf install -y mpv
+
+cat >"$test_root/handlers/dnf" <<'EOF'
 #!/usr/bin/env bash
 printf 'dnf %s\n' "$*" >>"$COMMAND_LOG"
 EOF
@@ -36,13 +56,10 @@ fi
 exit 0
 EOF
 
-cat >"$mock_bin/sudo" <<'EOF'
+cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
-if [[ "$1" == dnf ]]; then
-  exit 0
-fi
-"$@"
+exec "$@"
 EOF
 
 cat >"$mock_bin/xdg-mime" <<'EOF'
@@ -67,7 +84,7 @@ default)
 esac
 EOF
 
-chmod +x "$mock_bin"/*
+chmod +x "$mock_bin"/* "$test_root/handlers"/*
 
 printf 'ID=fedora\n' >"$test_root/os-release"
 

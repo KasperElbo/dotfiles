@@ -2,14 +2,35 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 mock_bin="$test_root/bin"
 command_log="$test_root/commands.log"
 mkdir -p "$mock_bin" "$test_root/home" "$test_root/xdg" "$test_root/kvm"
 
-cat >"$mock_bin/dnf" <<'EOF'
+test_stub_init "$test_root"
+for command_name in dnf sudo systemctl; do
+  test_stub_install "$test_root" "$command_name"
+done
+vm_host_packages=(
+  edk2-ovmf libvirt-client libvirt-daemon-config-network
+  libvirt-daemon-driver-qemu qemu-img qemu-kvm spice-gtk spice-server swtpm
+  swtpm-tools virt-install virt-manager virt-viewer
+)
+test_stub_allow "$test_root" dnf install -y "${vm_host_packages[@]}"
+test_stub_allow "$test_root" sudo dnf install -y "${vm_host_packages[@]}"
+test_stub_allow "$test_root" systemctl cat libvirtd.service
+test_stub_allow "$test_root" systemctl enable --now libvirtd.service
+test_stub_allow "$test_root" sudo systemctl enable --now libvirtd.service
+test_stub_allow "$test_root" sudo virsh -c qemu:///system net-autostart default
+test_stub_allow "$test_root" sudo virsh -c qemu:///system pool-autostart default
+
+cat >"$test_root/handlers/dnf" <<'EOF'
 #!/usr/bin/env bash
 printf 'dnf %s\n' "$*" >>"$COMMAND_LOG"
 EOF
@@ -19,19 +40,16 @@ cat >"$mock_bin/rpm" <<'EOF'
 exit 0
 EOF
 
-cat >"$mock_bin/systemctl" <<'EOF'
+cat >"$test_root/handlers/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 exit 0
 EOF
 
-cat >"$mock_bin/sudo" <<'EOF'
+cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
-if [[ "$1" == dnf || "$1" == usermod ]]; then
-  exit 0
-fi
-"$@"
+exec "$@"
 EOF
 
 cat >"$mock_bin/getent" <<'EOF'
@@ -82,7 +100,7 @@ for command_name in qemu-img virt-manager virt-viewer; do
   ln -s virt-host-validate "$mock_bin/$command_name"
 done
 
-chmod +x "$mock_bin"/*
+chmod +x "$mock_bin"/* "$test_root/handlers"/*
 printf 'ID=fedora\n' >"$test_root/os-release"
 touch "$test_root/kvm/device"
 

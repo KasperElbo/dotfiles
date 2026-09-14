@@ -23,7 +23,17 @@ new_test_root() {
   # package-manager flags fail this high-risk installer suite immediately.
   test_stub_init "$test_root"
   test_stub_install "$test_root" dnf
+  test_stub_install "$test_root" sudo
+  test_stub_install "$test_root" systemctl
   test_stub_allow "$test_root" dnf install -y podman podman-compose
+  test_stub_allow "$test_root" sudo dnf install -y podman podman-compose
+  test_stub_allow "$test_root" sudo usermod --add-subuids 100000-165535 tester
+  test_stub_allow "$test_root" sudo usermod --add-subgids 100000-165535 tester
+  test_stub_allow "$test_root" sudo usermod --add-subuids 165536-231071 tester
+  test_stub_allow "$test_root" sudo usermod --add-subgids 165536-231071 tester
+  test_stub_allow "$test_root" systemctl --user enable --now podman.socket
+  test_stub_allow "$test_root" systemctl --user is-enabled --quiet podman.socket
+  test_stub_allow "$test_root" systemctl --user is-active --quiet podman.socket
 
   cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
@@ -76,21 +86,13 @@ if [[ -n "$subgid_range" ]]; then
 fi
 EOF
 
-  cat >"$mock_bin/sudo" <<'EOF'
+  cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
-case "${1:-}" in
-dnf | usermod)
-  "$@"
-  ;;
-*)
-  printf 'strict sudo fixture rejected unsupported argv: %s\n' "$*" >&2
-  exit 96
-  ;;
-esac
+exec "$@"
 EOF
 
-  cat >"$mock_bin/systemctl" <<'EOF'
+  cat >"$test_root/handlers/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 
@@ -195,7 +197,7 @@ run)
 esac
 EOF
 
-  chmod +x "$mock_bin"/*
+  chmod +x "$mock_bin"/* "$test_root/handlers"/*
   printf 'ID=fedora\n' >"$test_root/os-release"
 }
 
@@ -363,7 +365,7 @@ assert_file_line "$test_root/config/dotfiles/containers.conf" 'api_socket=enable
 
 run_capture env "${test_environment[@]}" systemctl enable --now podman.socket
 assert_status 96
-assert_contains "$TEST_OUTPUT" 'strict systemctl fixture rejected unsupported argv'
+assert_contains "$TEST_OUTPUT" 'strict stub rejected unsupported argv: systemctl'
 
 verify_socket_output="$(env "${test_environment[@]}" \
   "$repo_root/scripts/verify-containers.sh" --skip-smoke-test 2>&1)"

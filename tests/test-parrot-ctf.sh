@@ -2,15 +2,12 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
 
-assert_contains() {
-  [[ "$1" == *"$2"* ]] || {
-    printf 'Expected output to contain %q:\n%s\n' "$2" "$1" >&2
-    exit 1
-  }
-}
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 dry_run="$("$repo_root/install.sh" --platform parrot-ctf --dry-run)"
 assert_contains "$dry_run" 'Parrot Security Edition CTF VM plan'
@@ -56,7 +53,34 @@ printf '/bin/bash\n' >"$shell_state"
 printf '/usr/bin/zsh\n' >"$shells_file"
 touch "$channels/org.qemu.guest_agent.0" "$channels/com.redhat.spice.0"
 
-cat >"$mock_bin/apt-get" <<'EOF'
+test_stub_init "$test_root"
+for command_name in apt-get sudo systemctl; do
+  test_stub_install "$test_root" "$command_name"
+done
+parrot_packages=(
+  bat build-essential ca-certificates curl eza fd-find fontconfig fzf gh git
+  git-delta jq konsole lazygit pipx python-is-python3 python3 python3-dev
+  python3-pip python3-venv ripgrep shellcheck sqlite3 starship stow tmux unzip
+  xclip xdg-utils xxd xz-utils zoxide zsh zsh-autosuggestions
+  zsh-syntax-highlighting
+)
+test_stub_allow "$test_root" apt-get update
+test_stub_allow "$test_root" apt-get install -y --no-install-recommends \
+  "${parrot_packages[@]}"
+test_stub_allow "$test_root" apt-get install -y --no-install-recommends \
+  qemu-guest-agent spice-vdagent
+test_stub_allow "$test_root" sudo apt-get update
+test_stub_allow "$test_root" sudo apt-get install -y --no-install-recommends \
+  "${parrot_packages[@]}"
+test_stub_allow "$test_root" sudo apt-get install -y --no-install-recommends \
+  qemu-guest-agent spice-vdagent
+test_stub_allow "$test_root" sudo usermod --shell /usr/bin/zsh parrot-test
+test_stub_allow "$test_root" sudo systemctl start qemu-guest-agent.service
+test_stub_allow "$test_root" sudo systemctl start spice-vdagentd.socket
+test_stub_allow "$test_root" systemctl start qemu-guest-agent.service
+test_stub_allow "$test_root" systemctl start spice-vdagentd.socket
+
+cat >"$test_root/handlers/apt-get" <<'EOF'
 #!/usr/bin/env bash
 printf 'apt-get %s\n' "$*" >>"$COMMAND_LOG"
 EOF
@@ -69,7 +93,7 @@ cat >"$mock_bin/systemd-detect-virt" <<'EOF'
 printf '%s\n' "${MOCK_VM_TYPE:-kvm}"
 [[ "${MOCK_VM_TYPE:-kvm}" != none ]]
 EOF
-cat >"$mock_bin/systemctl" <<'EOF'
+cat >"$test_root/handlers/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 EOF
@@ -78,10 +102,10 @@ cat >"$mock_bin/usermod" <<'EOF'
 printf 'usermod %s\n' "$*" >>"$COMMAND_LOG"
 printf '%s\n' "$2" >"$SHELL_STATE"
 EOF
-cat >"$mock_bin/sudo" <<'EOF'
+cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
-"$@"
+exec "$@"
 EOF
 cat >"$mock_bin/id" <<'EOF'
 #!/usr/bin/env bash
@@ -121,7 +145,7 @@ if "-r" in sys.argv:
 else:
     sys.stdout.write(data.hex() + "\n")
 EOF
-chmod +x "$mock_bin"/*
+chmod +x "$mock_bin"/* "$test_root/handlers"/*
 
 test_environment=(
   env

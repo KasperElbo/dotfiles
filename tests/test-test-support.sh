@@ -61,4 +61,20 @@ for command_name in git curl mise; do
   assert_contains "$TEST_OUTPUT" "strict stub rejected unsupported argv: $command_name"
 done
 
+printf 'Allowed commands may use suite-local state handlers\n'
+cat >"$root/handlers/systemctl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >"$TEST_STUB_ROOT/state/systemctl-handler"
+exit 23
+EOF
+chmod +x "$root/handlers/systemctl"
+test_stub_allow "$root" systemctl restart handler-test.service
+run_capture env TEST_STUB_ROOT="$root" PATH="$path" \
+  systemctl restart handler-test.service
+assert_status 23
+assert_file_line "$root/state/systemctl-handler" 'restart handler-test.service'
+run_capture env TEST_STUB_ROOT="$root" PATH="$path" \
+  systemctl stop handler-test.service
+assert_status 96
+
 printf 'Shared test-support tests passed.\n'

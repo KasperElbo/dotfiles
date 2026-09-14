@@ -18,11 +18,23 @@ mise_shims="$mise_data/shims"
 mise_installs="$mise_data/installs"
 mkdir -p "$mise_shims" "$mise_installs" "$config" "$data"
 
-# Stateful mise behavior stays local to this suite, but its command surface is
-# deliberately fail-closed: only argv shapes exercised by install-ai/verify-ai
-# are accepted. This keeps the fixture realistic without turning it into a
-# permissive fake that can hide command-contract regressions.
-cat >"$mock_bin/mise" <<'EOF'
+# Stateful mise behavior stays local to this suite behind the shared exact-argv
+# contract. This keeps the fixture realistic without allowing a new mise call
+# to pass merely because the handler happens to understand its subcommand.
+test_stub_init "$test_root"
+test_stub_install "$test_root" mise
+test_stub_allow "$test_root" mise --yes install
+test_stub_allow "$test_root" mise --yes install npm:@anthropic-ai/claude-code
+test_stub_allow "$test_root" mise exec -- claude --version
+test_stub_allow "$test_root" mise exec -- npm config get ignore-scripts
+test_stub_allow "$test_root" mise exec -- npm config get omit
+test_stub_allow "$test_root" mise uninstall npm:@anthropic-ai/claude-code
+for mise_tool in claude herdr codex gnhf gh-axi chrome-devtools-axi \
+  lavish-axi tasks-axi quota-axi backpass acpx; do
+  test_stub_allow "$test_root" mise which "$mise_tool"
+done
+
+cat >"$test_root/handlers/mise" <<'EOF'
 #!/usr/bin/env bash
 conf_file="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
 
@@ -115,7 +127,7 @@ which)
   ;;
 esac
 EOF
-chmod +x "$mock_bin/mise"
+chmod +x "$test_root/handlers/mise"
 
 cat >"$mock_bin/npm" <<'EOF'
 #!/usr/bin/env bash
@@ -198,8 +210,8 @@ test_environment=(
   "FIRSTMATE_REPO_URL=$firstmate_origin"
 )
 
-# Prove these local stateful mocks fail closed independently of the generic
-# strict-stub meta-test.
+# Prove the suite's stateful commands still fail closed at their shared/local
+# contract boundaries.
 run_capture env XDG_CONFIG_HOME="$config" MISE_DATA_DIR="$mise_data" \
   MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
   PATH="$mock_bin:$PATH" mise install unexpected

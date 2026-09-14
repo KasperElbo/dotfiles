@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
 
 fail_with_context() {
   local message="$1"
@@ -86,23 +88,30 @@ new_test_root() {
   test_root="$(mktemp -d)"
 
   local mock_bin="$test_root/bin"
-  mkdir -p "$mock_bin"
+  mkdir -p "$mock_bin" "$test_root/handlers"
   : >"$test_root/commands.log"
 
-  cat >"$mock_bin/dnf" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
+  test_stub_init "$test_root"
+  test_stub_install "$test_root" dnf
+  test_stub_install "$test_root" sudo
+  test_stub_allow "$test_root" sudo install -m 0644 \
+    "$test_root/generated-wsl.conf" "$test_root/wsl.conf"
+
   cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-  cat >"$mock_bin/sudo" <<'EOF'
+  cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
-"$@"
+exec "$@"
 EOF
-  chmod +x "$mock_bin"/*
+  cat >"$mock_bin/mktemp" <<'EOF'
+#!/usr/bin/env bash
+: >"$TEST_STUB_ROOT/generated-wsl.conf"
+printf '%s\n' "$TEST_STUB_ROOT/generated-wsl.conf"
+EOF
+  chmod +x "$mock_bin"/* "$test_root/handlers"/*
   printf 'ID=fedora\n' >"$test_root/os-release"
 
   printf '%s\n' "$test_root"
@@ -113,6 +122,7 @@ base_environment() {
 
   printf '%s\n' \
     "PATH=$test_root/bin:$PATH" \
+    "TEST_STUB_ROOT=$test_root" \
     "COMMAND_LOG=$test_root/commands.log" \
     "OS_RELEASE_FILE=$test_root/os-release" \
     "WSL_CONF_FILE=$test_root/wsl.conf" \

@@ -10,8 +10,11 @@ test_install_cleanup_trap
 test_new_root
 test_root="$TEST_ROOT"
 
-mkdir -p "$test_root/guard-bin"
-guard_dir="$test_root/guard-bin"
+guard_dir="$test_root/bin"
+test_stub_init "$test_root"
+for command_name in curl dnf mise sudo systemctl; do
+  test_stub_install "$test_root" "$command_name"
+done
 
 cat >"$guard_dir/mutation-guard" <<'EOF'
 #!/usr/bin/env bash
@@ -20,8 +23,7 @@ exit 97
 EOF
 chmod +x "$guard_dir/mutation-guard"
 
-for command_name in akmods asusctl curl dnf kmodgenca mise mokutil opam \
-  reboot rpm stow sudo systemctl; do
+for command_name in akmods asusctl kmodgenca mokutil opam reboot rpm stow; do
   ln -s mutation-guard "$guard_dir/$command_name"
 done
 

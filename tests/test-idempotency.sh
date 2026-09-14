@@ -2,8 +2,12 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 command -v stow >/dev/null 2>&1 || {
   printf 'GNU Stow is required for idempotency tests.\n' >&2
@@ -128,7 +132,8 @@ bootstrap_home="$test_root/bootstrap-home"
 bootstrap_config="$bootstrap_home/.config"
 bootstrap_data="$bootstrap_home/.local/share"
 bootstrap_cache="$bootstrap_home/.cache"
-mock_bin="$test_root/mock-bin"
+stub_root="$test_root/bootstrap-stubs"
+mock_bin="$stub_root/bin"
 shell_state="$test_root/login-shell"
 mkdir -p \
   "$bootstrap_config/git" \
@@ -136,6 +141,21 @@ mkdir -p \
   "$bootstrap_cache" \
   "$mock_bin"
 printf '/bin/bash\n' >"$shell_state"
+
+test_stub_init "$stub_root"
+test_stub_install "$stub_root" sudo
+test_stub_allow "$stub_root" sudo -n -v
+test_stub_allow "$stub_root" sudo dnf install -y \
+  bat curl eza fd-find fzf gh git git-delta jq libicu neovim openssh-clients \
+  ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow tmux wl-clipboard \
+  xdg-utils zoxide zsh zsh-autosuggestions zsh-syntax-highlighting
+test_stub_allow "$stub_root" sudo dnf install -y ghostty mise starship
+test_stub_allow "$stub_root" sudo usermod --shell "$mock_bin/zsh" fedora-test
+test_stub_allow "$stub_root" sudo dnf install -y \
+  qemu-guest-agent spice-vdagent xclip
+test_stub_allow "$stub_root" sudo systemctl enable --now \
+  qemu-guest-agent.service
+test_stub_allow "$stub_root" sudo systemctl start spice-vdagentd.socket
 
 cat >"$mock_bin/mock-command" <<'EOF'
 #!/usr/bin/env bash
@@ -150,7 +170,7 @@ esac
 exit 1
 EOF
 
-cat >"$mock_bin/sudo" <<'EOF'
+cat >"$stub_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$1" == usermod && "$2" == --shell ]]; then
   printf '%s\n' "$3" >"$SHELL_STATE"
@@ -180,9 +200,9 @@ EOF
 chmod +x \
   "$mock_bin/mock-command" \
   "$mock_bin/rpm" \
-  "$mock_bin/sudo" \
   "$mock_bin/id" \
-  "$mock_bin/getent"
+  "$mock_bin/getent" \
+  "$stub_root/handlers/sudo"
 
 mock_commands=(
   ast-grep
@@ -310,6 +330,7 @@ bootstrap_environment=(
   "QEMU_AGENT_CHANNEL=$virtio_ports/org.qemu.guest_agent.0"
   "SPICE_AGENT_CHANNEL=$virtio_ports/com.redhat.spice.0"
   "SHELL_STATE=$shell_state"
+  "TEST_STUB_ROOT=$stub_root"
   "PATH=$mock_bin:$PATH"
 )
 
