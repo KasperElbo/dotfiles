@@ -85,8 +85,16 @@ The installer:
    bat, eza, ripgrep, fd, zoxide, mise, and Catppuccin packages through Stow;
 5. installs the existing mise-owned .NET, Node/JS, Python, and portable CLI
    inventory;
-6. applies the small reversible defaults set below; and
-7. launches AeroSpace and runs architecture/configuration verification.
+6. sets a registered Zsh as the account login shell when the account does not
+   already use one;
+7. applies the small reversible defaults set below; and
+8. launches AeroSpace and runs architecture/configuration verification.
+
+Any Zsh listed in `/etc/shells` is supported, so Apple's `/bin/zsh` and a
+deliberately selected Homebrew Zsh are both left alone. The shell is changed
+only when the current one is not a registered Zsh, using `chsh` through `sudo`,
+and the change is verified afterwards. Root invocations refuse to touch it. Open
+a new terminal session after a change before expecting Zsh.
 
 Homebrew's path is placed before Apple's system paths. The GNU coreutils
 `gnubin` path is also added because the shared LazyVim bootstrap uses GNU

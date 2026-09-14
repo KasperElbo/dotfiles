@@ -88,7 +88,7 @@ verify_macos() {
   macos_run_verifier "$apply_defaults" "$install_containers" "$install_tailscale"
 }
 
-plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' apply preflight_macos apply_system : 'Install native Homebrew at /opt/homebrew, Brewfile machine tools, Ghostty, and AeroSpace.'
+plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' apply preflight_macos apply_system : 'Install native Homebrew at /opt/homebrew, Brewfile machine tools, Ghostty, and AeroSpace. Sets a registered Zsh as the login shell when the account does not already use one.'
 [[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Homebrew OCaml prerequisites' apply : apply_ocaml_native : 'platforms/macos/scripts/install-ocaml.sh'
 [[ "$install_containers" != true ]] || plan_add containers 'Install and start a rootless Podman machine' apply : apply_containers : 'Run an ARM64 smoke test with the Podman machine.'
 [[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale profile (Homebrew cask, interactive login).' apply : apply_tailscale : 'Authentication and Network Extension approval remain interactive.'
