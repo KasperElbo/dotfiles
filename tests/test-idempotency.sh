@@ -160,6 +160,7 @@ test_stub_allow "$stub_root" sudo dnf install -y \
   qemu-guest-agent spice-vdagent xclip
 test_stub_allow "$stub_root" sudo systemctl enable --now \
   qemu-guest-agent.service
+test_stub_allow "$stub_root" sudo systemctl enable --now firewalld.service
 test_stub_allow "$stub_root" sudo systemctl start spice-vdagentd.socket
 
 cat >"$mock_bin/mock-command" <<'EOF'
