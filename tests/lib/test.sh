@@ -104,6 +104,29 @@ assert_file_contains() {
     _test_die "expected $path to contain '$needle'"
 }
 
+assert_file_line() {
+  local path="$1"
+  local expected="$2"
+  [[ -r "$path" ]] || _test_die "file is not readable: $path" || return 1
+  grep -Fxq -- "$expected" "$path" ||
+    _test_die "expected $path to contain exact line '$expected'"
+}
+
+assert_file_not_contains() {
+  local path="$1"
+  local needle="$2"
+  [[ -e "$path" ]] || return 0
+  if grep -Fq -- "$needle" "$path"; then
+    _test_die "expected $path not to contain '$needle'"
+  fi
+}
+
+assert_file_empty() {
+  local path="$1"
+  [[ -e "$path" ]] || return 0
+  [[ ! -s "$path" ]] || _test_die "expected file to be empty: $path"
+}
+
 assert_path_exists() {
   [[ -e "$1" || -L "$1" ]] || _test_die "expected path to exist: $1"
 }
