@@ -46,4 +46,11 @@ assert_failure
 assert_contains "$TEST_OUTPUT" \
   'Missing bootstrap-prerequisite command: dotfiles-command-that-must-not-exist (provider: dotfiles-prerequisite-package)'
 
+# A platform key that does not match the manifest must fail closed rather than
+# silently running zero pre-mutation checks.
+run_capture preflight_platform_command_providers fedora-not-a-platform
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'No preflight command specification for platform: fedora-not-a-platform'
+
 printf 'Fedora and Fedora WSL command-provider closure tests passed.\n'

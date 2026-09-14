@@ -21,7 +21,12 @@ preflight_platform_command_providers() {
   local command_specs
 
   command_specs="$(capability_preflight_command_specs "$platform")" || return 1
-  [[ -n "$command_specs" ]] || return 0
+  # Fail closed: an empty specification means the platform key does not match
+  # the manifest, which would silently skip every pre-mutation check.
+  [[ -n "$command_specs" ]] || {
+    printf 'No preflight command specification for platform: %s\n' "$platform" >&2
+    return 1
+  }
   while IFS=$'\t' read -r command provider classification; do
     command_exists "$command" || {
       printf 'Missing %s command: %s (provider: %s)\n' \
