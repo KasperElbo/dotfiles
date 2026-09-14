@@ -78,6 +78,7 @@ test_stub_allow "$test_root" sudo install -Dm644 \
 
 for systemctl_argv in \
   'is-enabled asusd.service' \
+  'cat firewalld.service' \
   'cat asus-shutdown.service' \
   'is-enabled power-profiles-daemon.service' \
   'is-enabled tuned-ppd.service' \
@@ -125,6 +126,7 @@ cat >"$test_root/handlers/systemctl" <<'EOF'
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 case "$*" in
 'is-enabled asusd.service') printf 'static\n' ;;
+'cat firewalld.service' | \
 'cat asus-shutdown.service') exit 0 ;;
 'is-enabled power-profiles-daemon.service') printf 'enabled\n' ;;
 'is-enabled tuned-ppd.service') printf 'not-found\n'; exit 1 ;;
