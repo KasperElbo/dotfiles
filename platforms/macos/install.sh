@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  printf 'ERROR: The macOS installer requires Bash 4.4 or newer. Start it through ./install.sh --platform macos.\n' >&2
+  exit 2
+fi
+
 set -euo pipefail
 
 # shellcheck source=../../common/lib/common.sh
@@ -13,28 +19,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/capabilities.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
 # shellcheck source=lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/macos.sh"
+# shellcheck source=lib/install-actions.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/install-actions.sh"
 
 theme=macchiato; install_ocaml=false; install_containers=false
 install_tailscale=false; apply_defaults=true; run_workflows=false
 interactive=true; dry_run=false
 
 usage() {
-  cat <<'EOF'
-Usage: ./install.sh --platform macos [options]
-
-Direct entry point: ./platforms/macos/install.sh [options]
-
-Options:
-  --theme FLAVOUR    latte, frappe, macchiato, or mocha (default: macchiato)
-  --ocaml/--no-ocaml
-  --containers/--no-containers
-  --tailscale/--no-tailscale
-  --defaults/--no-defaults
-  --workflows/--no-workflows
-  --dry-run          Show the resolved plan without changing anything
-  --non-interactive  Use selected options without prompting
-  -h, --help         Show this help
-EOF
+  cat "$(dirname "${BASH_SOURCE[0]}")/bootstrap-help.txt"
+  printf '\nDirect entry point (modern Bash only): ./platforms/macos/install.sh [options]\n'
 }
 
 while (($#)); do
@@ -75,12 +69,7 @@ preflight_macos() {
 }
 
 apply_system() {
-  if [[ "$interactive" == true ]]; then
-    "$DOTFILES_ROOT/platforms/macos/scripts/install-system.sh"
-  else
-    "$DOTFILES_ROOT/platforms/macos/scripts/install-system.sh" --non-interactive
-  fi
-  activate_homebrew_path
+  macos_run_system_installer "$interactive"
 }
 apply_ocaml_native() { "$DOTFILES_ROOT/platforms/macos/scripts/install-ocaml.sh"; }
 apply_containers() { "$DOTFILES_ROOT/platforms/macos/scripts/install-containers.sh"; }
@@ -96,11 +85,7 @@ apply_workflows() { "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --all; [[ "$i
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
 apply_aerospace() { open -a AeroSpace || warn 'Open AeroSpace manually from /Applications'; }
 verify_macos() {
-  set --
-  [[ "$apply_defaults" != true ]] || set -- "$@" --defaults
-  [[ "$install_containers" != true ]] || set -- "$@" --containers
-  [[ "$install_tailscale" != true ]] || set -- "$@" --tailscale
-  "$DOTFILES_ROOT/platforms/macos/scripts/verify.sh" "$@"
+  macos_run_verifier "$apply_defaults" "$install_containers" "$install_tailscale"
 }
 
 plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' apply preflight_macos apply_system : 'Install native Homebrew at /opt/homebrew, Brewfile machine tools, Ghostty, and AeroSpace.'

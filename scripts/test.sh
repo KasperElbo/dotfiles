@@ -105,6 +105,7 @@ default_tests=(
   tests/test-parrot-terminal.sh
   tests/test-parrot-verification.sh
   tests/test-windows-bootstrap.sh
+  tests/test-macos-bootstrap.sh
   tests/test-macos.sh
 )
 

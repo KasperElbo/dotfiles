@@ -1,0 +1,12 @@
+Usage: ./install.sh --platform macos [options]
+
+Options:
+  --theme FLAVOUR    latte, frappe, macchiato, or mocha (default: macchiato)
+  --ocaml/--no-ocaml
+  --containers/--no-containers
+  --tailscale/--no-tailscale
+  --defaults/--no-defaults
+  --workflows/--no-workflows
+  --dry-run          Show the resolved plan without changing anything
+  --non-interactive  Use selected options without prompting
+  -h, --help         Show this help

@@ -1,85 +1,48 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
 
-repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Compatibility entry point. Keep this file within Apple's Bash 3.2 syntax:
+# the real installer starts only after the macOS bootstrap has found or
+# established the repository's supported Bash.
+set -e
 
-if [[ "${1:-}" == doctor ]]; then
-  shift
-  exec "$repo_root/scripts/doctor.sh" "$@"
-fi
-
+repo_root="$(cd "$(dirname "$0")" && pwd)"
 platform="fedora"
-forwarded_args=()
+expect_platform="false"
 
-while (($#)); do
-  case "$1" in
-  --platform)
-    [[ $# -ge 2 ]] || {
+# Inspect only the platform selector. Do not shift or rebuild "$@": the exact
+# original argument vector is forwarded across the interpreter boundary.
+for argument in "$@"; do
+  if [ "$expect_platform" = "true" ]; then
+    if [ -z "$argument" ]; then
       printf 'ERROR: --platform requires a value\n' >&2
       exit 1
-    }
-    platform="$2"
-    shift 2
-    ;;
-  --platform=*)
-    platform="${1#*=}"
-    [[ -n "$platform" ]] || {
-      printf 'ERROR: --platform requires a value\n' >&2
-      exit 1
-    }
-    shift
-    ;;
-  *)
-    forwarded_args+=("$1")
-    shift
-    ;;
+    fi
+    platform="$argument"
+    expect_platform="false"
+    continue
+  fi
+
+  case "$argument" in
+    --platform)
+      expect_platform="true"
+      ;;
+    --platform=*)
+      platform="${argument#*=}"
+      if [ -z "$platform" ]; then
+        printf 'ERROR: --platform requires a value\n' >&2
+        exit 1
+      fi
+      ;;
   esac
 done
 
-supported_platforms="$(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
-  "$repo_root/config/capabilities.tsv" | sort -u | paste -sd'|' -)"
-if ! awk -F '\t' -v platform="$platform" \
-  'NR > 1 && $1 == "base" && $2 == platform && $15 == "implemented" {found=1} END {exit !found}' \
-  "$repo_root/config/capabilities.tsv"; then
-  printf 'ERROR: Unsupported platform: %s (expected one of %s)\n' \
-    "$platform" "$supported_platforms" >&2
+if [ "$expect_platform" = "true" ]; then
+  printf 'ERROR: --platform requires a value\n' >&2
   exit 1
 fi
 
-print_platform_options() {
-  local line
-  local options_seen="false"
+if [ "$platform" = "macos" ]; then
+  exec /bin/bash "$repo_root/scripts/bootstrap-macos.sh" "$@"
+fi
 
-  while IFS= read -r line; do
-    if [[ "$options_seen" == "true" ]]; then
-      printf '%s\n' "$line"
-    elif [[ "$line" == "Options:" ]]; then
-      options_seen="true"
-    fi
-  done
-
-  if [[ "$options_seen" != "true" ]]; then
-    printf 'ERROR: Platform help did not contain an Options section.\n' >&2
-    return 1
-  fi
-}
-
-for forwarded_arg in "${forwarded_args[@]}"; do
-  if [[ "$forwarded_arg" == "-h" || "$forwarded_arg" == "--help" ]]; then
-    cat <<EOF
-Usage: ./install.sh [--platform NAME|--platform=NAME] [options]
-       ./install.sh doctor
-
-Options (platform '$platform'):
-  --platform NAME    Target platform: fedora (default), fedora-wsl, macos,
-                     or parrot-ctf. Selects which platforms/NAME/install.sh
-                     runs; all other options below are that platform's own
-                     and are simply forwarded to it.
-EOF
-    "$repo_root/platforms/$platform/install.sh" "${forwarded_args[@]}" |
-      print_platform_options
-    exit 0
-  fi
-done
-
-exec "$repo_root/platforms/$platform/install.sh" "${forwarded_args[@]}"
+exec "${BASH:-/bin/bash}" "$repo_root/scripts/install-main.sh" "$@"
