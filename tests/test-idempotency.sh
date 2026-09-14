@@ -171,6 +171,18 @@ cat >"$mock_bin/rpm" <<'EOF'
 case "$1 $2" in
   '-q terra-release' | '-q qemu-guest-agent' | '-q spice-vdagent' | '-q xclip' | '-q openssh-clients') exit 0 ;;
 esac
+
+# File-ownership queries: verification asks which package owns the command
+# that actually resolved, so the stub answers for the OpenSSH client binaries
+# exactly as Fedora's package database would. Any other path stays unowned.
+if [[ "$1" == -qf ]]; then
+  case "${!#}" in
+  */ssh | */scp | */sftp)
+    printf 'openssh-clients'
+    exit 0
+    ;;
+  esac
+fi
 exit 1
 EOF
 
