@@ -4,10 +4,12 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/verify.sh"
 # shellcheck source=lib/profile-state.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/profile-state.sh"
 
-failures=0
+verify_reset
 
 state_file="$XDG_CONFIG_HOME/dotfiles/ai.conf"
 conf_file="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
@@ -18,23 +20,6 @@ codex_home="${CODEX_HOME:-$HOME/.codex}"
 claude_md_target="$HOME/.claude/CLAUDE.md"
 codex_agents_target="$codex_home/AGENTS.md"
 opencode_agents_target="$XDG_CONFIG_HOME/opencode/AGENTS.md"
-
-pass() {
-  printf '\033[1;32m✓\033[0m %s\n' "$*"
-}
-
-fail() {
-  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
-  failures=$((failures + 1))
-}
-
-warning() {
-  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
-}
-
-section() {
-  printf '\n\033[1m%s\033[0m\n' "$1"
-}
 
 [[ -f "$state_file" ]] || {
   printf 'AI profile state is missing: %s\n' "$state_file" >&2
@@ -51,8 +36,9 @@ lavish_axi_state="$(profile_state_read "$state_file" lavish_axi ai)"
 gnhf_state="$(profile_state_read "$state_file" gnhf ai)"
 backpass_state="$(profile_state_read "$state_file" backpass ai)"
 
-caller_path="$PATH"
+VERIFY_CALLER_PATH="$PATH"
 mise_command="$(resolve_mise_command || true)"
+VERIFY_MISE_COMMAND="$mise_command"
 mise_data_dir="${MISE_DATA_DIR:-$XDG_DATA_HOME/mise}"
 mise_shims_dir="${MISE_SHIMS_DIR:-$mise_data_dir/shims}"
 
@@ -60,61 +46,7 @@ mise_shims_dir="${MISE_SHIMS_DIR:-$mise_data_dir/shims}"
 # even when called from a shell that predates the final Zsh configuration.
 establish_user_tool_environment
 
-# check_mise_owned <command>: confirms the command resolves on PATH, and that
-# it is either mise's shim or the executable mise reports managing. This
-# catches a second install (Homebrew, global npm, native installer) shadowing
-# the mise-owned copy while supporting mise's normal shim-based PATH setup.
-check_mise_owned() {
-  local name="$1"
-  local resolved mise_resolved mise_shim caller_resolved
-
-  resolved="$(command -v "$name" 2>/dev/null || true)"
-  if [[ -z "$resolved" ]]; then
-    fail "$name not found"
-    return
-  fi
-
-  if [[ -z "$mise_command" ]]; then
-    warning "mise not found; cannot confirm $name ($resolved) is mise-owned"
-    return
-  fi
-
-  mise_resolved="$("$mise_command" which "$name" 2>/dev/null || true)"
-  if [[ -z "$mise_resolved" ]]; then
-    warning "$name is on PATH ($resolved) but mise does not report managing it"
-    return
-  fi
-
-  if [[ ! -x "$mise_resolved" ]]; then
-    fail "$name's mise-managed executable is missing or not executable: $mise_resolved"
-    return
-  fi
-
-  mise_shim="$mise_shims_dir/$name"
-  caller_resolved="$(PATH="$caller_path" command -v "$name" 2>/dev/null || true)"
-  if [[ ":$caller_path:" == *":$mise_shims_dir:"* &&
-    -n "$caller_resolved" ]] &&
-    ! shell_paths_match "$caller_resolved" "$mise_resolved" &&
-    ! shell_paths_match "$caller_resolved" "$mise_shim"; then
-    fail "$name resolves outside mise, a possible duplicate install:" \
-      "$caller_resolved (mise manages $mise_resolved)"
-    return
-  fi
-
-  if shell_paths_match "$resolved" "$mise_resolved"; then
-    pass "$name is mise-managed: $resolved"
-  elif shell_paths_match "$resolved" "$mise_shim"; then
-    pass "$name is mise-managed via shim: $resolved -> $mise_resolved"
-  else
-    fail "$name resolves outside mise, a possible duplicate install:" \
-      "$resolved (mise manages $mise_resolved)"
-  fi
-}
-
-# check_command_runs <command> <arguments...>: catches an executable that was
-# installed but is unusable, such as Claude Code without its required npm
-# postinstall step linking the platform-native binary.
-check_command_runs() {
+check_mise_command_runs() {
   local name="$1"
   shift
 
@@ -152,11 +84,9 @@ check_own_script_owned() {
   fi
 }
 
-# check_symlink_owned <label> <target>: confirms <target> is a symlink
-# resolving to the shared common/assets/AGENTS.md this profile links, rather
-# than missing, a plain file, or a symlink some other tool/config pointed
-# elsewhere -- either of which means this profile did not link it (by
-# design: an existing file or symlink there always takes precedence).
+# Shared instruction files intentionally respect a pre-existing user-owned
+# file/link. That conflict is a warning rather than a repository-owned
+# invariant, but it must never be reported as verified ownership.
 check_symlink_owned() {
   local label="$1"
   local target="$2"
@@ -171,7 +101,13 @@ check_symlink_owned() {
     return
   fi
 
-  if [[ "$(resolve_symlink_target "$target" 2>/dev/null || true)" == "$agents_source" ]]; then
+  if [[ ! -e "$target" ]]; then
+    warning "$label ($target) is a dangling symlink, not owned by this profile"
+    return
+  fi
+
+  if [[ "$(verify_canonical_existing_path "$target" 2>/dev/null || true)" == \
+    "$(verify_canonical_existing_path "$agents_source" 2>/dev/null || true)" ]]; then
     pass "$label: $target -> $agents_source"
   else
     warning "$label ($target) is a symlink pointing elsewhere, not $agents_source"
@@ -252,7 +188,7 @@ fi
 section "Core agents"
 
 check_mise_owned claude
-check_command_runs claude --version
+check_mise_command_runs claude --version
 check_mise_owned herdr
 
 if [[ "$codex_state" == mise-npm ]]; then
@@ -362,11 +298,4 @@ else
   pass "backpass is not installed (optional subcomponent not selected)"
 fi
 
-printf '\n'
-if ((failures > 0)); then
-  printf '\033[1;31mAI profile verification failed:\033[0m %d failure(s)\n' \
-    "$failures"
-  exit 1
-fi
-
-printf '\033[1;32mAI profile verification passed.\033[0m\n'
+finish_verification "AI profile verification"

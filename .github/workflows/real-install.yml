@@ -1,0 +1,350 @@
+name: Real installation validation
+
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      run_self_hosted_wsl:
+        description: Run the disposable Fedora WSL job on the dotfiles-wsl self-hosted runner
+        required: false
+        default: false
+        type: boolean
+      wsl_base_tar:
+        description: Path on the self-hosted Windows runner to a clean Fedora WSL export tar
+        required: false
+        default: 'C:\dotfiles-ci\FedoraLinux-44-clean.tar'
+        type: string
+      wsl_user:
+        description: Non-root user contained in the clean Fedora WSL export
+        required: false
+        default: dotfiles
+        type: string
+      run_self_hosted_parrot:
+        description: Run the real Parrot KVM/QEMU VM job on the dotfiles-parrot-vm runner
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-install-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fedora:
+    name: Fedora disposable systemd install
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Run clean install, verifier, rerun and state transition
+        run: ./tests/integration/fedora-clean-install.sh
+
+      - name: Record evidence boundary
+        if: always()
+        run: |
+          cat >>"$GITHUB_STEP_SUMMARY" <<'EOF_SUMMARY'
+          ## Fedora evidence
+          This job runs the real Fedora installer in a fresh privileged Fedora
+          systemd userspace. It also injects a deliberately invalid package into
+          a disposable repository copy and requires the real installer to fail.
+          It is stronger than package-manager mocks, but it does not emulate
+          firmware, Secure Boot, GPU/display hardware, suspend, or a graphical
+          login on a physical workstation.
+          EOF_SUMMARY
+
+  macos:
+    name: Apple Silicon macOS real install
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Clean baseline installation
+        run: >-
+          ./install.sh --platform macos --theme macchiato
+          --no-ocaml --no-containers --no-tailscale --no-defaults
+          --non-interactive
+
+      - name: Independent verifier
+        run: ./platforms/macos/scripts/verify.sh
+
+      - name: Idempotent rerun
+        run: >-
+          ./install.sh --platform macos --theme macchiato
+          --no-ocaml --no-containers --no-tailscale --no-defaults
+          --non-interactive
+
+      - name: Optional-profile and selected-state transition
+        run: >-
+          ./install.sh --platform macos --theme mocha
+          --ocaml --no-containers --no-tailscale --defaults
+          --non-interactive
+
+      - name: Verify transitioned state
+        run: |
+          grep -Fxq mocha "${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/theme"
+          ./platforms/macos/scripts/verify.sh --defaults
+          ./common/verify-ocaml.sh
+
+      - name: Record evidence boundary
+        if: always()
+        run: |
+          cat >>"$GITHUB_STEP_SUMMARY" <<'EOF_SUMMARY'
+          ## macOS evidence
+          The runner is real Apple Silicon macOS and is disposable for every
+          job. It is not a factory-fresh Mac and CI cannot grant interactive
+          AeroSpace Accessibility or Tailscale approvals.
+          EOF_SUMMARY
+
+  windows-boundary:
+    name: Windows / WSL hosted boundary
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Test Windows bootstrap boundary
+        shell: pwsh
+        run: ./tests/test-windows-bootstrap.ps1
+
+      - name: Probe hosted WSL capability without pretending it is Fedora WSL
+        shell: pwsh
+        run: |
+          $wsl = Get-Command wsl.exe -ErrorAction Stop
+          "wsl.exe: $($wsl.Source)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          try {
+            $status = (& wsl.exe --status 2>&1 | Out-String).Trim()
+            "``````text`n$status`n``````" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          } catch {
+            "Hosted WSL status probe failed: $($_.Exception.Message)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
+          @'
+
+          GitHub-hosted Windows is real Windows boundary evidence, but it is not
+          counted as a clean Fedora WSL install. Use the disposable-import
+          self-hosted WSL job below for that evidence.
+          '@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+  parrot-image-boundary:
+    name: Parrot image boundary (not VM evidence)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Pull a disposable Parrot image
+        run: docker pull parrotsec/core:latest
+
+      - name: Confirm Parrot identity and APT availability
+        run: |
+          docker run --rm parrotsec/core:latest bash -lc \
+            "grep -Eiq 'parrot' /etc/os-release && apt-get update >/dev/null"
+
+      - name: Exercise Parrot plan without claiming guest integration
+        run: |
+          docker run --rm -v "$PWD:/workspace:ro" -w /workspace \
+            parrotsec/core:latest \
+            ./install.sh --platform parrot-ctf --dry-run
+
+      - name: Prove a non-QEMU container is rejected as a real Parrot guest
+        run: |
+          set -euo pipefail
+          set +e
+          output="$(docker run --rm --user 65534:65534 \
+            -e HOME=/tmp -e XDG_CONFIG_HOME=/tmp/.config \
+            -e XDG_DATA_HOME=/tmp/.local/share \
+            -v "$PWD:/workspace:ro" -w /workspace \
+            parrotsec/core:latest \
+            ./install.sh --platform parrot-ctf --non-interactive 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if ((status == 0)); then
+            printf 'Parrot installer unexpectedly accepted a non-QEMU container.\n' >&2
+            exit 1
+          fi
+          if ! grep -Fq 'The Parrot CTF profile must run inside a detected virtual machine.' <<<"$output" && \
+             ! grep -Fq 'The Parrot CTF profile supports KVM/QEMU guests; detected ' <<<"$output"; then
+            printf 'Parrot installer failed, but not at the KVM/QEMU guest preflight boundary.\n' >&2
+            exit 1
+          fi
+
+      - name: Record explicit VM gap
+        if: always()
+        run: |
+          cat >>"$GITHUB_STEP_SUMMARY" <<'EOF_SUMMARY'
+          ## Parrot evidence
+          The scheduled container is intentionally **not** counted as a Parrot
+          KVM/QEMU guest. It exercises Parrot/APT and platform-boundary behavior
+          and verifies that the real installer rejects the container specifically
+          at the VM preflight boundary. Full guest integration/isolation requires
+          the manual self-hosted VM job.
+          EOF_SUMMARY
+
+  fedora-wsl-real:
+    name: Fedora WSL disposable import install (self-hosted)
+    if: github.event_name == 'workflow_dispatch' && inputs.run_self_hosted_wsl
+    runs-on: [self-hosted, Windows, X64, dotfiles-wsl]
+    timeout-minutes: 90
+    steps:
+      - name: Import clean disposable Fedora WSL distro
+        shell: pwsh
+        env:
+          BASE_TAR: ${{ inputs.wsl_base_tar }}
+          WSL_USER: ${{ inputs.wsl_user }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path -LiteralPath $env:BASE_TAR)) {
+            throw "Clean WSL export not found: $env:BASE_TAR"
+          }
+          $distro = "dotfiles-ci-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $installDir = Join-Path $env:RUNNER_TEMP $distro
+          New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+          & wsl.exe --import $distro $installDir $env:BASE_TAR --version 2
+          if ($LASTEXITCODE -ne 0) {
+            throw "wsl --import failed with exit code $LASTEXITCODE"
+          }
+          "CI_WSL_DISTRO=$distro" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CI_WSL_INSTALL_DIR=$installDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & wsl.exe -d $distro -u $env:WSL_USER -- bash -lc 'test "$(id -u)" -ne 0 && sudo -n true'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Clean WSL export user '$env:WSL_USER' must exist, be non-root, and have non-interactive sudo."
+          }
+
+      - name: Resolve selected commit in the disposable WSL filesystem
+        shell: pwsh
+        env:
+          WSL_USER: ${{ inputs.wsl_user }}
+          SHA: ${{ github.sha }}
+        run: |
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "mkdir -p ~/src && git clone https://github.com/KasperElbo/dotfiles.git ~/src/dotfiles-ci && cd ~/src/dotfiles-ci && git checkout '$env:SHA'"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Clean install before WSL restart
+        shell: pwsh
+        env:
+          WSL_USER: ${{ inputs.wsl_user }}
+        run: |
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "cd ~/src/dotfiles-ci && ./install.sh --platform fedora-wsl --theme macchiato --non-interactive"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Restart disposable WSL distro to apply wsl.conf policy
+        shell: pwsh
+        env:
+          WSL_USER: ${{ inputs.wsl_user }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & wsl.exe --terminate $env:CI_WSL_DISTRO
+          if ($LASTEXITCODE -ne 0) {
+            throw "wsl --terminate failed with exit code $LASTEXITCODE"
+          }
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc 'true'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Disposable Fedora WSL distro did not restart successfully."
+          }
+
+      - name: Independent post-restart verifier and idempotent rerun
+        shell: pwsh
+        env:
+          WSL_USER: ${{ inputs.wsl_user }}
+        run: |
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "cd ~/src/dotfiles-ci && ./platforms/fedora-wsl/scripts/verify.sh"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "cd ~/src/dotfiles-ci && ./install.sh --platform fedora-wsl --theme macchiato --non-interactive"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "cd ~/src/dotfiles-ci && ./platforms/fedora-wsl/scripts/verify.sh"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Selected-state transition and verifier
+        shell: pwsh
+        env:
+          WSL_USER: ${{ inputs.wsl_user }}
+        run: |
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "cd ~/src/dotfiles-ci && ./install.sh --platform fedora-wsl --theme mocha --non-interactive"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & wsl.exe -d $env:CI_WSL_DISTRO -u $env:WSL_USER -- bash -lc "grep -Fxq mocha ~/.config/dotfiles/theme && cd ~/src/dotfiles-ci && ./platforms/fedora-wsl/scripts/verify.sh"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Remove disposable WSL distro
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:CI_WSL_DISTRO) {
+            & wsl.exe --terminate $env:CI_WSL_DISTRO 2>$null
+            & wsl.exe --unregister $env:CI_WSL_DISTRO 2>$null
+          }
+          if ($env:CI_WSL_INSTALL_DIR -and (Test-Path -LiteralPath $env:CI_WSL_INSTALL_DIR)) {
+            Remove-Item -LiteralPath $env:CI_WSL_INSTALL_DIR -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+  parrot-real-vm:
+    name: Parrot CTF real VM install (self-hosted)
+    if: github.event_name == 'workflow_dispatch' && inputs.run_self_hosted_parrot
+    runs-on: [self-hosted, Linux, X64, dotfiles-parrot-vm]
+    timeout-minutes: 120
+    steps:
+      - name: Check out repository in the guest
+        uses: actions/checkout@v7
+        with:
+          path: dotfiles-ci
+
+      - name: Prove invalid Parrot package fails through the real installer
+        working-directory: dotfiles-ci
+        run: |
+          set -euo pipefail
+          test_root="$(mktemp -d)"
+          trap 'rm -rf "$test_root"' EXIT
+          cp -a . "$test_root/repo"
+          sed -i '/^packages=(/a\  dotfiles-package-that-must-not-exist' \
+            "$test_root/repo/platforms/parrot-ctf/scripts/install-system.sh"
+          mkdir -p "$test_root/home/.config" "$test_root/home/.local/share" "$test_root/home/.local/state"
+          set +e
+          output="$(HOME="$test_root/home" \
+            XDG_CONFIG_HOME="$test_root/home/.config" \
+            XDG_DATA_HOME="$test_root/home/.local/share" \
+            XDG_STATE_HOME="$test_root/home/.local/state" \
+            "$test_root/repo/install.sh" --platform parrot-ctf --theme macchiato --non-interactive 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if ((status == 0)); then
+            printf 'Installer unexpectedly succeeded with a deliberately invalid Parrot package.\n' >&2
+            exit 1
+          fi
+          if ! grep -Fq 'dotfiles-package-that-must-not-exist' <<<"$output"; then
+            printf 'Installer failed before reaching the injected invalid Parrot package.\n' >&2
+            exit 1
+          fi
+
+      - name: Clean install and verify
+        working-directory: dotfiles-ci
+        run: |
+          ./install.sh --platform parrot-ctf --theme macchiato --non-interactive
+          ./platforms/parrot-ctf/scripts/verify.sh
+
+      - name: Idempotent rerun
+        working-directory: dotfiles-ci
+        run: ./install.sh --platform parrot-ctf --theme macchiato --non-interactive
+
+      - name: Selected-state transition and verifier
+        working-directory: dotfiles-ci
+        run: |
+          ./install.sh --platform parrot-ctf --theme mocha --non-interactive
+          grep -Fxq mocha "${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/theme"
+          ./platforms/parrot-ctf/scripts/verify.sh
+
+      - name: Remind maintainer to revert the VM snapshot
+        if: always()
+        run: |
+          echo 'Revert this Parrot guest to its clean snapshot before the next real-install run.' >>"$GITHUB_STEP_SUMMARY"

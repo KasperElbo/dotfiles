@@ -4,60 +4,14 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../lib/secure-boot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/secure-boot.sh"
 # shellcheck source=../lib/hardening.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/hardening.sh"
 
-failures=0
-warnings=0
-
-pass() {
-  printf '\033[1;32m✓\033[0m %s\n' "$*"
-}
-
-fail() {
-  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
-  failures=$((failures + 1))
-}
-
-warning() {
-  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
-  warnings=$((warnings + 1))
-}
-
-check_command() {
-  local command_name="$1"
-
-  if command -v "$command_name" >/dev/null 2>&1; then
-    pass "$command_name: $(command -v "$command_name")"
-  else
-    fail "$command_name not found"
-  fi
-}
-
-check_symlink() {
-  local target="$1"
-  local expected_prefix="$2"
-
-  if [[ ! -L "$target" ]]; then
-    fail "$target is not a symlink"
-    return
-  fi
-
-  local resolved
-  resolved="$(readlink -f "$target")"
-
-  if [[ "$resolved" == "$expected_prefix"* ]]; then
-    pass "$target -> $resolved"
-  else
-    fail "$target resolves outside dotfiles repo: $resolved"
-  fi
-}
-
-section() {
-  printf '\n\033[1m%s\033[0m\n' "$1"
-}
+verify_reset
 
 # ---------------------------------------------------------------------------
 # Core commands
@@ -115,9 +69,6 @@ else
   fail "ssh -V did not report an OpenSSH client: ${ssh_version:-no output}"
 fi
 
-# Dolphin/KIO already provides a native sftp:// workflow on Fedora's KDE
-# Plasma spin, which this baseline reuses instead of installing a dedicated
-# GUI SFTP client. Only checked when KDE Plasma is actually installed.
 if command_exists plasmashell; then
   section "KDE Dolphin/KIO SFTP integration"
 
@@ -151,11 +102,7 @@ unknown)
   ;;
 esac
 
-if systemctl is-active --quiet firewalld.service; then
-  pass "firewalld is active"
-else
-  fail "firewalld is not active"
-fi
+check_system_service_active firewalld.service
 
 case "$(secure_boot_state)" in
 enabled)
@@ -428,8 +375,13 @@ fi
 
 section "mise"
 
-if command -v mise >/dev/null 2>&1; then
-  if mise ls >/dev/null 2>&1; then
+mise_command="$(resolve_mise_command 2>/dev/null || true)"
+if [[ -n "$mise_command" ]]; then
+  VERIFY_CALLER_PATH="$PATH"
+  VERIFY_MISE_COMMAND="$mise_command"
+  establish_user_tool_environment
+
+  if "$mise_command" ls >/dev/null 2>&1; then
     pass "mise configuration loads successfully"
   else
     fail "mise could not load configured tools"
@@ -448,22 +400,10 @@ if command -v mise >/dev/null 2>&1; then
   )
 
   for cmd in "${mise_tools[@]}"; do
-    cmd_path="$(
-      mise exec -- bash -c "command -v \"\$1\"" _ "$cmd" 2>/dev/null
-    )" || true
-
-    # Preserve compatibility with explicitly system-owned commands and the
-    # isolated command mocks while preferring mise's freshly installed PATH.
-    if [[ -z "$cmd_path" ]]; then
-      cmd_path="$(command -v "$cmd" 2>/dev/null || true)"
-    fi
-
-    if [[ -n "$cmd_path" ]]; then
-      pass "$cmd: $cmd_path"
-    else
-      fail "mise-managed command missing: $cmd"
-    fi
+    check_mise_owned "$cmd"
   done
+else
+  fail "mise not found"
 fi
 
 # ---------------------------------------------------------------------------
@@ -658,10 +598,6 @@ containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
 if [[ -f "$containers_state" ]]; then
   section "Containers (Podman)"
 
-  # The full rootless pull/run/build/network/Compose smoke test is exercised
-  # right after install-containers.sh runs; skip it here so a routine full
-  # verify.sh run (and a routine ./install.sh run, which always ends with
-  # verify.sh) does not repeat a network-dependent smoke test every time.
   if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-containers.sh" \
     --skip-smoke-test; then
     pass "Containers profile verification completed"
@@ -760,21 +696,4 @@ else
   printf '%s\n' "$generated_files" >&2
 fi
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
-
-printf '\n'
-
-if ((failures > 0)); then
-  printf '\033[1;31mVerification failed:\033[0m %d failure(s), %d warning(s)\n' \
-    "$failures" "$warnings"
-  exit 1
-fi
-
-if ((warnings > 0)); then
-  printf '\033[1;33mVerification passed with warnings:\033[0m %d warning(s)\n' \
-    "$warnings"
-else
-  printf '\033[1;32mVerification passed.\033[0m\n'
-fi
+finish_verification "Fedora verification"

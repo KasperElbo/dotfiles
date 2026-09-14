@@ -2,8 +2,12 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 mock_bin="$test_root/bin"
 home="$test_root/home"
@@ -12,17 +16,22 @@ data="$home/.local/share"
 mise_data="$data/mise"
 mise_shims="$mise_data/shims"
 mise_installs="$mise_data/installs"
-mkdir -p "$mock_bin" "$mise_shims" "$mise_installs" "$home" "$config" "$data"
+mkdir -p "$mise_shims" "$mise_installs" "$config" "$data"
 
-# Mocks mise closely enough to exercise install-ai.sh/verify-ai.sh without a
-# real mise install: 'mise --yes install' materializes a shim for each tool
-# declared in the AI profile's untracked conf.d file (so codex only appears
-# when actually declared). A command resolves through mise's shim directory,
-# while 'mise which' reports the underlying installed executable, matching
-# real mise behavior.
+# Stateful mise behavior stays local to this suite, but its command surface is
+# deliberately fail-closed: only argv shapes exercised by install-ai/verify-ai
+# are accepted. This keeps the fixture realistic without turning it into a
+# permissive fake that can hide command-contract regressions.
 cat >"$mock_bin/mise" <<'EOF'
 #!/usr/bin/env bash
 conf_file="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
+
+reject() {
+  printf 'strict mise fixture rejected unsupported argv:' >&2
+  printf ' %q' "$@" >&2
+  printf '\n' >&2
+  exit 96
+}
 
 make_shim() {
   install_bin="$MISE_INSTALLS_DIR/$1/latest/bin/$1"
@@ -46,95 +55,119 @@ SCRIPT
 
 case "${1:-}" in
 --yes)
-  if [[ "${2:-}" == install ]]; then
-    if [[ "${3:-}" == npm:@anthropic-ai/claude-code &&
-      "${CLAUDE_REPAIR_RESULT:-success}" == success ]]; then
-      rm -f -- "${CLAUDE_NATIVE_BROKEN_FILE:-}"
-    fi
-    mkdir -p "$MISE_SHIMS_DIR"
-    grep -Fq 'claude-code' "$conf_file" 2>/dev/null && make_shim claude
-    grep -Fq 'herdr' "$conf_file" 2>/dev/null && make_shim herdr
-    grep -Fq 'openai/codex' "$conf_file" 2>/dev/null && make_shim codex
-    grep -Fq '"npm:gnhf"' "$conf_file" 2>/dev/null && make_shim gnhf
-    grep -Fq '"npm:gh-axi"' "$conf_file" 2>/dev/null && make_shim gh-axi
-    grep -Fq '"npm:chrome-devtools-axi"' "$conf_file" 2>/dev/null && make_shim chrome-devtools-axi
-    grep -Fq '"npm:lavish-axi"' "$conf_file" 2>/dev/null && make_shim lavish-axi
-    grep -Fq '"npm:tasks-axi"' "$conf_file" 2>/dev/null && make_shim tasks-axi
-    grep -Fq '"npm:quota-axi"' "$conf_file" 2>/dev/null && make_shim quota-axi
-    grep -Fq '"npm:backpass"' "$conf_file" 2>/dev/null && make_shim backpass
-    grep -Fq '"npm:acpx"' "$conf_file" 2>/dev/null && make_shim acpx
+  [[ "${2:-}" == install ]] || reject "$@"
+  if [[ $# -ne 2 && ! ( $# -eq 3 && "${3:-}" == npm:@anthropic-ai/claude-code ) ]]; then
+    reject "$@"
   fi
+  if [[ "${3:-}" == npm:@anthropic-ai/claude-code &&
+    "${CLAUDE_REPAIR_RESULT:-success}" == success ]]; then
+    rm -f -- "${CLAUDE_NATIVE_BROKEN_FILE:-}"
+  fi
+  mkdir -p "$MISE_SHIMS_DIR"
+  grep -Fq 'claude-code' "$conf_file" 2>/dev/null && make_shim claude
+  grep -Fq 'herdr' "$conf_file" 2>/dev/null && make_shim herdr
+  grep -Fq 'openai/codex' "$conf_file" 2>/dev/null && make_shim codex
+  grep -Fq '"npm:gnhf"' "$conf_file" 2>/dev/null && make_shim gnhf
+  grep -Fq '"npm:gh-axi"' "$conf_file" 2>/dev/null && make_shim gh-axi
+  grep -Fq '"npm:chrome-devtools-axi"' "$conf_file" 2>/dev/null && make_shim chrome-devtools-axi
+  grep -Fq '"npm:lavish-axi"' "$conf_file" 2>/dev/null && make_shim lavish-axi
+  grep -Fq '"npm:tasks-axi"' "$conf_file" 2>/dev/null && make_shim tasks-axi
+  grep -Fq '"npm:quota-axi"' "$conf_file" 2>/dev/null && make_shim quota-axi
+  grep -Fq '"npm:backpass"' "$conf_file" 2>/dev/null && make_shim backpass
+  grep -Fq '"npm:acpx"' "$conf_file" 2>/dev/null && make_shim acpx
   exit 0
   ;;
 exec)
-  [[ "${2:-}" == -- ]] || exit 2
+  [[ "${2:-}" == -- && $# -ge 3 ]] || reject "$@"
   shift 2
-  PATH="$MISE_SHIMS_DIR:$PATH" exec "$@"
+  case "$*" in
+  'claude --version' | 'npm config get ignore-scripts' | 'npm config get omit')
+    PATH="$MISE_SHIMS_DIR:$PATH" exec "$@"
+    ;;
+  *)
+    reject exec -- "$@"
+    ;;
+  esac
   ;;
 uninstall)
-  if [[ "${2:-}" == npm:@anthropic-ai/claude-code ]]; then
-    printf 'claude-uninstall\n' >>"${MISE_OPERATION_LOG:-/dev/null}"
-    rm -rf -- "$MISE_INSTALLS_DIR/claude" "$MISE_SHIMS_DIR/claude"
-  fi
+  [[ $# -eq 2 && "${2:-}" == npm:@anthropic-ai/claude-code ]] || reject "$@"
+  printf 'claude-uninstall\n' >>"${MISE_OPERATION_LOG:-/dev/null}"
+  rm -rf -- "$MISE_INSTALLS_DIR/claude" "$MISE_SHIMS_DIR/claude"
   exit 0
   ;;
 which)
-  name="${2:-}"
+  [[ $# -eq 2 ]] || reject "$@"
+  name="$2"
+  case "$name" in
+  claude | herdr | codex | gnhf | gh-axi | chrome-devtools-axi | lavish-axi | \
+    tasks-axi | quota-axi | backpass | acpx) ;;
+  *) reject "$@" ;;
+  esac
   install_bin="$MISE_INSTALLS_DIR/$name/latest/bin/$name"
   if [[ -x "$install_bin" ]]; then
     printf '%s\n' "$install_bin"
     exit 0
-  else
-    exit 1
   fi
+  exit 1
+  ;;
+*)
+  reject "$@"
   ;;
 esac
-exit 0
 EOF
 chmod +x "$mock_bin/mise"
 
 cat >"$mock_bin/npm" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == config && "${2:-}" == get ]]; then
-  case "${3:-}" in
-  ignore-scripts) printf '%s\n' "${MOCK_NPM_IGNORE_SCRIPTS:-false}" ;;
-  omit) printf '%s\n' "${MOCK_NPM_OMIT:-}" ;;
+if [[ $# -eq 3 && "$1" == config && "$2" == get ]]; then
+  case "$3" in
+  ignore-scripts) printf '%s\n' "${MOCK_NPM_IGNORE_SCRIPTS:-false}"; exit 0 ;;
+  omit) printf '%s\n' "${MOCK_NPM_OMIT:-}"; exit 0 ;;
   esac
 fi
+printf 'strict npm fixture rejected unsupported argv: %s\n' "$*" >&2
+exit 96
 EOF
 chmod +x "$mock_bin/npm"
 
+# These tools are prerequisites only; this scenario intentionally never invokes
+# them. If production starts doing so, the fixture must explicitly model the
+# new contract instead of silently succeeding.
 for command_name in gh tmux jq; do
   cat >"$mock_bin/$command_name" <<'EOF'
 #!/usr/bin/env bash
-exit 0
+printf 'strict prerequisite fixture rejected unexpected invocation: %s %s\n' \
+  "${0##*/}" "$*" >&2
+exit 96
 EOF
   chmod +x "$mock_bin/$command_name"
 done
 
 # Mocks Treehouse's and No Mistakes' real install scripts closely enough to
-# exercise install-ai.sh without the network: given a URL containing the
-# tool's name, print a tiny installer script to stdout, which install-ai.sh
-# pipes into 'sh' itself (matching the real 'curl ... | sh' invocation).
+# exercise install-ai.sh without the network, while rejecting any curl shape
+# other than the exact curl|sh contract used by install_via_own_script.
 cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
-url=""
-for arg in "$@"; do
-  case "$arg" in
-  http*) url="$arg" ;;
-  esac
-done
+if [[ $# -ne 5 || "$1" != --fail || "$2" != --show-error ||
+  "$3" != --silent || "$4" != --location ]]; then
+  printf 'strict curl fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+fi
+url="$5"
 emit_installer() {
   printf '#!/usr/bin/env sh\n'
   printf 'mkdir -p "$HOME/.local/bin"\n'
   printf 'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$HOME/.local/bin/%s"\n' "$1"
   printf 'chmod +x "$HOME/.local/bin/%s"\n' "$1"
 }
-if [[ "$url" == *treehouse* ]]; then
-  emit_installer treehouse
-elif [[ "$url" == *no-mistakes* ]]; then
-  emit_installer no-mistakes
-fi
+case "$url" in
+*treehouse*) emit_installer treehouse ;;
+*no-mistakes*) emit_installer no-mistakes ;;
+*)
+  printf 'strict curl fixture rejected unexpected URL: %s\n' "$url" >&2
+  exit 96
+  ;;
+esac
 EOF
 chmod +x "$mock_bin/curl"
 
@@ -165,13 +198,16 @@ test_environment=(
   "FIRSTMATE_REPO_URL=$firstmate_origin"
 )
 
-assert_contains() {
-  local haystack="$1" needle="$2"
-  [[ "$haystack" == *"$needle"* ]] || {
-    printf 'Expected output to contain %q:\n%s\n' "$needle" "$haystack" >&2
-    exit 1
-  }
-}
+# Prove these local stateful mocks fail closed independently of the generic
+# strict-stub meta-test.
+run_capture env XDG_CONFIG_HOME="$config" MISE_DATA_DIR="$mise_data" \
+  MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
+  PATH="$mock_bin:$PATH" mise install unexpected
+assert_status 96
+run_capture env PATH="$mock_bin:$PATH" curl --silent https://example.invalid
+assert_status 96
+run_capture env PATH="$mock_bin:$PATH" gh auth status
+assert_status 96
 
 # FirstMate prerequisites are checked before the installer writes any profile
 # state or asks mise to install tools. Platform installers normally provide
@@ -194,13 +230,13 @@ if missing_jq_output="$(env \
   MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
   FIRSTMATE_REPO_URL="$firstmate_origin" \
   "$repo_root/common/install-ai.sh" --firstmate 2>&1)"; then
-  printf 'install-ai.sh accepted --firstmate without jq\n' >&2
+  _test_die 'install-ai.sh accepted --firstmate without jq'
   exit 1
 fi
 assert_contains "$missing_jq_output" 'Required command not found: jq'
-[[ ! -e "$missing_jq_home/.config/mise/conf.d/ai.toml" ]]
-[[ ! -e "$missing_jq_home/.config/dotfiles/ai.conf" ]]
-[[ ! -e "$missing_jq_home/.claude/CLAUDE.md" ]]
+assert_path_missing "$missing_jq_home/.config/mise/conf.d/ai.toml"
+assert_path_missing "$missing_jq_home/.config/dotfiles/ai.conf"
+assert_path_missing "$missing_jq_home/.claude/CLAUDE.md"
 
 conf_file="$config/mise/conf.d/ai.toml"
 state_file="$config/dotfiles/ai.conf"
@@ -219,47 +255,36 @@ if ! "${test_environment[@]}" "$repo_root/common/install-ai.sh" \
   exit 1
 fi
 
-[[ -f "$conf_file" ]] || {
-  printf 'AI mise conf.d file missing: %s\n' "$conf_file" >&2
-  exit 1
-}
-grep -Fq '"npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false --include=optional" }' "$conf_file"
-grep -Fq 'herdr = "latest"' "$conf_file"
-if grep -Fq 'openai/codex' "$conf_file"; then
-  printf 'Codex declared without --codex\n' >&2
-  exit 1
-fi
+assert_path_exists "$conf_file"
+assert_file_contains "$conf_file" \
+  '"npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false --include=optional" }'
+assert_file_contains "$conf_file" 'herdr = "latest"'
+assert_file_not_contains "$conf_file" 'openai/codex'
 
-grep -Fqx 'profile=ai' "$state_file"
-grep -Fqx 'claude_code=mise-npm' "$state_file"
-grep -Fqx 'herdr=mise' "$state_file"
-grep -Fqx 'codex=disabled' "$state_file"
-grep -Fqx 'firstmate=disabled' "$state_file"
-grep -Fqx 'treehouse=disabled' "$state_file"
-grep -Fqx 'no_mistakes=disabled' "$state_file"
-grep -Fqx 'gh_axi=disabled' "$state_file"
-grep -Fqx 'chrome_devtools_axi=disabled' "$state_file"
-grep -Fqx 'lavish_axi=disabled' "$state_file"
-grep -Fqx 'tasks_axi=disabled' "$state_file"
-grep -Fqx 'quota_axi=disabled' "$state_file"
-grep -Fqx 'gnhf=disabled' "$state_file"
-grep -Fqx 'backpass=disabled' "$state_file"
-grep -Fqx 'acpx=disabled' "$state_file"
+assert_file_line "$state_file" 'profile=ai'
+assert_file_line "$state_file" 'claude_code=mise-npm'
+assert_file_line "$state_file" 'herdr=mise'
+assert_file_line "$state_file" 'codex=disabled'
+assert_file_line "$state_file" 'firstmate=disabled'
+assert_file_line "$state_file" 'treehouse=disabled'
+assert_file_line "$state_file" 'no_mistakes=disabled'
+assert_file_line "$state_file" 'gh_axi=disabled'
+assert_file_line "$state_file" 'chrome_devtools_axi=disabled'
+assert_file_line "$state_file" 'lavish_axi=disabled'
+assert_file_line "$state_file" 'tasks_axi=disabled'
+assert_file_line "$state_file" 'quota_axi=disabled'
+assert_file_line "$state_file" 'gnhf=disabled'
+assert_file_line "$state_file" 'backpass=disabled'
+assert_file_line "$state_file" 'acpx=disabled'
 
-[[ ! -e "$treehouse_target" ]] || {
-  printf 'Treehouse was installed without --firstmate: %s\n' "$treehouse_target" >&2
-  exit 1
-}
+assert_path_missing "$treehouse_target"
 
 for target in "$claude_md_target" "$codex_agents_target" "$opencode_agents_target"; do
   [[ -L "$target" ]] || {
     printf 'Expected a symlink at %s\n' "$target" >&2
     exit 1
   }
-  [[ "$(readlink "$target")" == "$agents_source" ]] || {
-    printf '%s does not link to %s\n' "$target" "$agents_source" >&2
-    exit 1
-  }
+  assert_eq "$agents_source" "$(readlink "$target")" "$target symlink target"
 done
 
 if ! verify_core_output="$("${test_environment[@]}" "$repo_root/common/verify-ai.sh" 2>&1)"; then
@@ -290,16 +315,11 @@ assert_contains "$verify_core_output" \
 first_sum="$(sha256sum "$conf_file" "$state_file")"
 "${test_environment[@]}" "$repo_root/common/install-ai.sh" >/dev/null
 second_sum="$(sha256sum "$conf_file" "$state_file")"
-[[ "$first_sum" == "$second_sum" ]] || {
-  printf 'Rerunning install-ai.sh (core) changed tracked state\n' >&2
-  exit 1
-}
+assert_eq "$first_sum" "$second_sum" 'rerunning install-ai.sh (core) changed tracked state'
 
 for target in "$claude_md_target" "$codex_agents_target" "$opencode_agents_target"; do
-  [[ "$(readlink "$target")" == "$agents_source" ]] || {
-    printf 'Rerunning install-ai.sh (core) changed the %s symlink\n' "$target" >&2
-    exit 1
-  }
+  assert_eq "$agents_source" "$(readlink "$target")" \
+    "rerunning install-ai.sh changed $target"
 done
 
 # --- Codex + FirstMate + GNHF + backpass subcomponents ----------------------
@@ -311,42 +331,31 @@ if ! "${test_environment[@]}" "$repo_root/common/install-ai.sh" \
   exit 1
 fi
 
-grep -Fq '"npm:@openai/codex" = "latest"' "$conf_file"
-grep -Fq '"npm:gnhf" = "latest"' "$conf_file"
+assert_file_contains "$conf_file" '"npm:@openai/codex" = "latest"'
+assert_file_contains "$conf_file" '"npm:gnhf" = "latest"'
 for tool in gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi backpass acpx; do
-  grep -Fq "\"npm:$tool\" = \"latest\"" "$conf_file"
+  assert_file_contains "$conf_file" "\"npm:$tool\" = \"latest\""
 done
 # lavish-axi is wanted by both --firstmate and --backpass; it must appear
 # exactly once in the generated TOML, not as a duplicate key.
-[[ "$(grep -Fc '"npm:lavish-axi"' "$conf_file")" == 1 ]] || {
-  printf 'lavish-axi declared more than once in %s\n' "$conf_file" >&2
-  exit 1
-}
-grep -Fqx 'codex=mise-npm' "$state_file"
-grep -Fqx 'firstmate=cloned' "$state_file"
-grep -Fqx 'treehouse=installed' "$state_file"
-grep -Fqx 'no_mistakes=installed' "$state_file"
-grep -Fqx 'gh_axi=mise-npm' "$state_file"
-grep -Fqx 'chrome_devtools_axi=mise-npm' "$state_file"
-grep -Fqx 'lavish_axi=mise-npm' "$state_file"
-grep -Fqx 'tasks_axi=mise-npm' "$state_file"
-grep -Fqx 'quota_axi=mise-npm' "$state_file"
-grep -Fqx 'gnhf=mise-npm' "$state_file"
-grep -Fqx 'backpass=mise-npm' "$state_file"
-grep -Fqx 'acpx=mise-npm' "$state_file"
-[[ -d "$data/firstmate/.git" ]] || {
-  printf 'FirstMate was not cloned to %s\n' "$data/firstmate" >&2
-  exit 1
-}
-[[ -x "$treehouse_target" ]] || {
-  printf 'Treehouse was not installed to %s\n' "$treehouse_target" >&2
-  exit 1
-}
+assert_eq 1 "$(grep -Fc '"npm:lavish-axi"' "$conf_file")" \
+  'lavish-axi declaration count'
+assert_file_line "$state_file" 'codex=mise-npm'
+assert_file_line "$state_file" 'firstmate=cloned'
+assert_file_line "$state_file" 'treehouse=installed'
+assert_file_line "$state_file" 'no_mistakes=installed'
+assert_file_line "$state_file" 'gh_axi=mise-npm'
+assert_file_line "$state_file" 'chrome_devtools_axi=mise-npm'
+assert_file_line "$state_file" 'lavish_axi=mise-npm'
+assert_file_line "$state_file" 'tasks_axi=mise-npm'
+assert_file_line "$state_file" 'quota_axi=mise-npm'
+assert_file_line "$state_file" 'gnhf=mise-npm'
+assert_file_line "$state_file" 'backpass=mise-npm'
+assert_file_line "$state_file" 'acpx=mise-npm'
+assert_path_exists "$data/firstmate/.git"
+assert_path_executable "$treehouse_target"
 no_mistakes_target="$home/.local/bin/no-mistakes"
-[[ -x "$no_mistakes_target" ]] || {
-  printf 'No Mistakes was not installed to %s\n' "$no_mistakes_target" >&2
-  exit 1
-}
+assert_path_executable "$no_mistakes_target"
 
 if ! verify_full_output="$("${test_environment[@]}" "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf '%s\n' "$verify_full_output" >&2
@@ -438,12 +447,13 @@ assert_contains "$repair_output" "platform-native binary is missing"
 assert_contains "$repair_output" "ignore-scripts=true; omit=optional"
 assert_contains "$repair_output" "NPM_CONFIG_IGNORE_SCRIPTS=true; NPM_CONFIG_OMIT=optional"
 assert_contains "$repair_output" "Claude Code native installation repaired"
-[[ "$(grep -Fc claude-uninstall "$repair_log")" == 1 ]]
-[[ ! -e "$repair_marker" ]]
+assert_eq 1 "$(grep -Fc claude-uninstall "$repair_log")" 'Claude repair uninstall count'
+assert_path_missing "$repair_marker"
 
 # Once healthy, an idempotent rerun must not uninstall Claude again.
 "${repair_environment[@]}" "$repo_root/common/install-ai.sh" >/dev/null
-[[ "$(grep -Fc claude-uninstall "$repair_log")" == 1 ]]
+assert_eq 1 "$(grep -Fc claude-uninstall "$repair_log")" \
+  'healthy rerun must not uninstall Claude again'
 
 # A failed repair is attempted once and then stops with the known recovery.
 failed_home="$test_root/failed-repair-home"
@@ -468,7 +478,7 @@ fi
 assert_contains "$failed_repair_output" "still broken after one repair attempt"
 assert_contains "$failed_repair_output" "mise uninstall npm:@anthropic-ai/claude-code"
 assert_contains "$failed_repair_output" "mise install"
-[[ "$(grep -Fc claude-uninstall "$failed_log")" == 1 ]]
+assert_eq 1 "$(grep -Fc claude-uninstall "$failed_log")" 'failed Claude repair uninstall count'
 
 # Rerunning updates (git pull --ff-only, and reruns the Treehouse installer)
 # rather than re-cloning or failing.
@@ -497,12 +507,9 @@ if ! "${backpass_only_environment[@]}" "$repo_root/common/install-ai.sh" \
   exit 1
 fi
 backpass_only_conf="$backpass_only_home/.config/mise/conf.d/ai.toml"
-grep -Fq '"npm:lavish-axi" = "latest"' "$backpass_only_conf"
-grep -Fq '"npm:backpass" = "latest"' "$backpass_only_conf"
-if grep -Fq '"npm:gh-axi"' "$backpass_only_conf"; then
-  printf 'FirstMate-only tools declared without --firstmate\n' >&2
-  exit 1
-fi
+assert_file_contains "$backpass_only_conf" '"npm:lavish-axi" = "latest"'
+assert_file_contains "$backpass_only_conf" '"npm:backpass" = "latest"'
+assert_file_not_contains "$backpass_only_conf" '"npm:gh-axi"'
 if ! backpass_only_verify="$("${backpass_only_environment[@]}" \
   "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf '%s\n' "$backpass_only_verify" >&2
@@ -536,18 +543,14 @@ if ! "${preexisting_environment[@]}" "$repo_root/common/install-ai.sh" \
   exit 1
 fi
 
-[[ "$(cat "$preexisting_home/.claude/CLAUDE.md")" == 'my own Claude instructions' ]] || {
-  printf 'install-ai.sh overwrote a pre-existing ~/.claude/CLAUDE.md\n' >&2
-  exit 1
-}
+assert_eq 'my own Claude instructions' "$(cat "$preexisting_home/.claude/CLAUDE.md")" \
+  'pre-existing CLAUDE.md contents'
 [[ ! -L "$preexisting_home/.claude/CLAUDE.md" ]] || {
   printf 'install-ai.sh replaced a pre-existing CLAUDE.md file with a symlink\n' >&2
   exit 1
 }
-[[ "$(readlink "$preexisting_home/.codex/AGENTS.md")" == "$agents_source" ]] || {
-  printf 'install-ai.sh did not link Codex AGENTS.md when only CLAUDE.md pre-existed\n' >&2
-  exit 1
-}
+assert_eq "$agents_source" "$(readlink "$preexisting_home/.codex/AGENTS.md")" \
+  'Codex AGENTS.md target when CLAUDE.md pre-exists'
 
 if ! preexisting_verify="$("${preexisting_environment[@]}" \
   "$repo_root/common/verify-ai.sh" 2>&1)"; then
@@ -602,13 +605,13 @@ if "${test_environment[@]}" "$repo_root/common/install-ai.sh" --dry-run \
   printf 'install-ai.sh accepted --dry-run and --validate together\n' >&2
   exit 1
 fi
-grep -Fq -- '--dry-run and --validate cannot be combined' "$test_root/combo.log"
+assert_file_contains "$test_root/combo.log" '--dry-run and --validate cannot be combined'
 
 if "${test_environment[@]}" "$repo_root/common/install-ai.sh" --bogus \
   >"$test_root/unknown.log" 2>&1; then
   printf 'install-ai.sh accepted an unknown option\n' >&2
   exit 1
 fi
-grep -Fq 'Unknown option: --bogus' "$test_root/unknown.log"
+assert_file_contains "$test_root/unknown.log" 'Unknown option: --bogus'
 
 printf 'AI profile install/verify/idempotency tests passed.\n'

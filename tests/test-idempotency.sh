@@ -230,6 +230,9 @@ cat >"$mock_bin/mise" <<'EOF'
 if [[ "${1:-}" == exec && "${2:-}" == -- ]]; then
   shift 2
   exec "$@"
+elif [[ "${1:-}" == which && -n "${2:-}" ]]; then
+  command -v "$2"
+  exit $?
 fi
 exit 0
 EOF

@@ -3,11 +3,12 @@ set -u
 
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/macos.sh"
 
-failures=0
-warnings=0
+verify_reset
 verify_defaults="false"
 verify_containers="false"
 verify_tailscale="false"
@@ -22,22 +23,6 @@ while (($#)); do
   shift
 done
 
-pass() { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
-fail() { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; failures=$((failures + 1)); }
-warning() { printf '\033[1;33m!\033[0m %s\n' "$*" >&2; warnings=$((warnings + 1)); }
-section() { printf '\n\033[1m%s\033[0m\n' "$1"; }
-
-check_command() {
-  local name="$1"
-  local path
-  path="$(command -v "$name" 2>/dev/null || true)"
-  if [[ -n "$path" ]]; then
-    pass "$name: $path"
-  else
-    fail "$name not found"
-  fi
-}
-
 check_arm64_file() {
   local name="$1"
   local path="$2"
@@ -51,22 +36,6 @@ check_arm64_file() {
     pass "$name is arm64/universal: $path"
   else
     fail "$name does not report arm64 or universal architecture: $architecture"
-  fi
-}
-
-check_link() {
-  local path="$1"
-  local prefix="$2"
-  local resolved
-  if [[ ! -L "$path" ]]; then
-    fail "$path is not a Stow symlink"
-    return
-  fi
-  resolved="$(resolve_symlink_target "$path" 2>/dev/null || true)"
-  if [[ "$resolved" == "$prefix"* ]]; then
-    pass "$path -> $resolved"
-  else
-    fail "$path resolves outside its owning package: $resolved"
   fi
 }
 
@@ -141,16 +110,16 @@ login_shell="$(dscl . -read "/Users/$USER" UserShell 2>/dev/null | awk '{print $
 if [[ "$login_shell" == /bin/zsh ]]; then pass "Account login shell is /bin/zsh"; else fail "Account login shell is ${login_shell:-unknown}"; fi
 
 section "Configuration links"
-check_link "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/"
-check_link "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh/"
-check_link "$XDG_CONFIG_HOME/zsh/platform-env.zsh" "$DOTFILES_ROOT/platforms/macos/stow/zsh-platform/"
-check_link "$XDG_CONFIG_HOME/zsh/platform.zsh" "$DOTFILES_ROOT/platforms/macos/stow/zsh-platform/"
-check_link "$XDG_CONFIG_HOME/aerospace/aerospace.toml" "$DOTFILES_ROOT/platforms/macos/stow/aerospace/"
-check_link "$HOME/.local/bin/aerospace-workspace-grid" "$DOTFILES_ROOT/platforms/macos/stow/aerospace/"
-check_link "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git/"
-check_link "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise/"
-check_link "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim/"
-check_link "$XDG_CONFIG_HOME/nvim/lua/plugins/macos.lua" "$DOTFILES_ROOT/platforms/macos/stow/nvim-macos/"
+check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/"
+check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh/"
+check_symlink "$XDG_CONFIG_HOME/zsh/platform-env.zsh" "$DOTFILES_ROOT/platforms/macos/stow/zsh-platform/"
+check_symlink "$XDG_CONFIG_HOME/zsh/platform.zsh" "$DOTFILES_ROOT/platforms/macos/stow/zsh-platform/"
+check_symlink "$XDG_CONFIG_HOME/aerospace/aerospace.toml" "$DOTFILES_ROOT/platforms/macos/stow/aerospace/"
+check_symlink "$HOME/.local/bin/aerospace-workspace-grid" "$DOTFILES_ROOT/platforms/macos/stow/aerospace/"
+check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git/"
+check_symlink "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise/"
+check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim/"
+check_symlink "$XDG_CONFIG_HOME/nvim/lua/plugins/macos.lua" "$DOTFILES_ROOT/platforms/macos/stow/nvim-macos/"
 
 if [[ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]]; then pass "Ghostty application is installed"; else fail "Ghostty application is missing"; fi
 if [[ -d /Applications/AeroSpace.app ]]; then pass "AeroSpace application is installed"; else fail "AeroSpace application is missing"; fi
@@ -248,8 +217,4 @@ if [[ "$verify_tailscale" == true ]]; then
   fi
 fi
 
-if ((failures > 0)); then
-  printf '\n%d macOS verification failure(s); %d warning(s).\n' "$failures" "$warnings" >&2
-  exit 1
-fi
-printf '\nmacOS verification passed with %d warning(s).\n' "$warnings"
+finish_verification "macOS verification"

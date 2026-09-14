@@ -167,8 +167,8 @@ ln -s "$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/lazy-lock.json" 
 ln -s "$repo_root/starship/.config/starship/catppuccin-macchiato.toml" \
   "$config/starship/catppuccin-macchiato.toml"
 printf 'macchiato\n' >"$config/dotfiles/theme"
-printf 'parrot-ctf\n' >"$test_root/neovim-profile-source"
-ln -s "$test_root/neovim-profile-source" "$config/dotfiles/neovim-profile"
+ln -s "$repo_root/platforms/parrot-ctf/stow/neovim-profile/.config/dotfiles/neovim-profile" \
+  "$config/dotfiles/neovim-profile"
 cat >"$config/dotfiles/parrot-ctf.conf" <<'EOF'
 profile=parrot-ctf
 hypervisor=kvm
