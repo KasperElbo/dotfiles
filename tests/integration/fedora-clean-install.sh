@@ -52,8 +52,17 @@ fi
 # The Fedora container is intentionally only the transport. Seed the pieces a
 # normal Fedora workstation image already owns so the repository installer is
 # tested against its actual system assumptions rather than weakened for CI.
+#
+# D-Bus is one of those pieces. systemd lets root talk to it over its private
+# socket, so root systemctl works without a bus, but an unprivileged client
+# needs the system bus. The installer's verifier runs as the normal test user,
+# so without D-Bus it could not query any system unit and reported firewalld
+# inactive. firewalld is itself a D-Bus service, so the broker is seeded and
+# started before it.
 docker exec "$container" dnf --assumeyes install \
-  firewalld git sudo shadow-utils >/dev/null
+  dbus-broker firewalld git sudo shadow-utils >/dev/null
+docker exec "$container" systemctl daemon-reload
+docker exec "$container" systemctl enable --now dbus-broker.service >/dev/null
 docker exec "$container" systemctl enable --now firewalld.service >/dev/null
 
 # sudo approves an account through pam_unix, which shells out to the setuid
@@ -97,6 +106,21 @@ create_test_user() {
 
 create_test_user dotfiles
 create_test_user dotfiles-negative
+
+# The verifier queries system units as the unprivileged install user. Fail here
+# with a fixture-specific error instead of letting that surface later as a
+# confusing "firewalld.service is not active" verification failure.
+if ! docker exec --user dotfiles --env HOME=/home/dotfiles "$container" \
+  systemctl is-active --quiet firewalld.service; then
+  printf 'Disposable Fedora container cannot query system units as a normal user.\n' >&2
+  printf 'Container D-Bus and service diagnostics follow.\n' >&2
+  docker exec "$container" ls -l /run/dbus >&2 || true
+  docker exec "$container" systemctl --no-pager --full status dbus-broker.service >&2 || true
+  docker exec "$container" systemctl --no-pager --full status firewalld.service >&2 || true
+  docker exec --user dotfiles --env HOME=/home/dotfiles "$container" \
+    systemctl is-active firewalld.service >&2 || true
+  exit 1
+fi
 
 docker exec --user dotfiles --env HOME=/home/dotfiles "$container" \
   git config --global --add safe.directory /workspace
