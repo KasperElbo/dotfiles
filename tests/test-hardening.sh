@@ -313,7 +313,13 @@ cmd="$1"
 shift || true
 
 case "$cmd" in
-test | cmp | rm | grep | sed | cat)
+cmp)
+  [[ "${1:-}" == -s && $# -eq 3 ]] || exit 96
+  left="$(rewrite "$2")"
+  right="$(rewrite "$3")"
+  [[ -f "$left" && -f "$right" && "$(cat -- "$left")" == "$(cat -- "$right")" ]]
+  ;;
+test | rm | grep | sed | cat)
   args=()
   for a in "$@"; do args+=("$(rewrite "$a")"); done
   "$cmd" "${args[@]}"
@@ -474,3 +480,4 @@ run_scenario "hardening install/verify with sshd absent (default Fedora Workstat
 run_scenario "hardening install/verify with sshd active" true
 
 printf '\nFedora hardening install/verify and idempotency tests passed.\n'
+w®\mÇ_Ù×6ó^{Ó:Û¾Ÿ}Ö›ñİº§Ûw½ö
