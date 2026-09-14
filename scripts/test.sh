@@ -63,6 +63,7 @@ default_tests=(
   tests/test-test-support.sh
   tests/test-test-runner.sh
   tests/test-capabilities.sh
+  tests/test-supply-chain.sh
   tests/test-profile-state.sh
   tests/test-execution-plan.sh
   tests/test-cli-contract.sh
@@ -91,6 +92,8 @@ default_tests=(
   tests/test-mocked-installs.sh
   tests/test-sftp-baseline.sh
   tests/test-ai-profile.sh
+  tests/test-ai-transitions.sh
+  tests/test-mise-context.sh
   tests/test-vm-host.sh
   tests/test-vm-guest.sh
   tests/test-hardening.sh

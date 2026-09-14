@@ -1,0 +1,6 @@
+# Fixture only. A caller's project-local mise configuration must never reach a
+# global or AI dotfiles bootstrap, so this declares a tool that exists nowhere
+# else in the repository. If it is ever installed or resolved, the isolation in
+# common/lib/common.sh (run_mise) has regressed.
+[tools]
+dotfiles-sentinel-tool = "9.9.9"

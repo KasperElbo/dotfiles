@@ -151,7 +151,8 @@ function Get-WslList {
 
 function Get-WebFedoraDistributions {
     try {
-        $catalog = Invoke-RestMethod -UseBasicParsing -Uri $WslDistributionCatalogUrl
+        # network-source: wsl-distribution-catalog
+        $catalog = Invoke-RestMethod -UseBasicParsing -Uri $WslDistributionCatalogUrl -TimeoutSec 60
         return @(
             $catalog.ModernDistributions.Fedora |
                 ForEach-Object { $_.Name } |
@@ -425,7 +426,8 @@ function Install-Scoop {
 
     try {
         Write-Step 'Downloading the official Scoop installer'
-        Invoke-WebRequest -UseBasicParsing -Uri 'https://get.scoop.sh' -OutFile $installerPath
+        # network-source: scoop-installer
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://get.scoop.sh' -OutFile $installerPath -TimeoutSec 120
         Invoke-NativeCommand -FilePath 'powershell.exe' -Arguments @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $installerPath
         )

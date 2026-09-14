@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/fetch.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/fetch.sh"
 # shellcheck source=../lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
@@ -23,10 +25,10 @@ if [[ ! -f "$font_file" ]]; then
   mkdir -p "$extracted" "$font_dir"
 
   info "Downloading Hack Nerd Font $font_version"
-  curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
-    "$font_url" --output "$archive"
-  printf '%s  %s\n' "$font_sha256" "$archive" | sha256sum --check --status ||
-    die "Hack Nerd Font archive checksum mismatch"
+  # network-source: hack-nerd-font
+  fetch_to_file "$font_url" "$archive" "the Hack Nerd Font $font_version archive"
+  fetch_verify_sha256 "$archive" "$font_sha256" \
+    "the Hack Nerd Font $font_version archive"
   tar --extract --xz --no-same-owner --file "$archive" --directory "$extracted" \
     --wildcards 'HackNerdFontMono-*.ttf'
   install -m 0644 "$extracted"/HackNerdFontMono-*.ttf "$font_dir/"
@@ -58,11 +60,12 @@ for flavour in Latte Frappe Macchiato Mocha; do
 
   temporary_theme="$(mktemp "$bat_theme_dir/.catppuccin.XXXXXX")"
   encoded_name="Catppuccin%20${flavour}.tmTheme"
-  curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
+  # network-source: catppuccin-bat-themes
+  fetch_to_file \
     "https://raw.githubusercontent.com/catppuccin/bat/${bat_theme_commit}/themes/${encoded_name}" \
-    --output "$temporary_theme"
-  printf '%s  %s\n' "$expected_hash" "$temporary_theme" |
-    sha256sum --check --status || die "Catppuccin $flavour bat theme checksum mismatch"
+    "$temporary_theme" "the Catppuccin $flavour bat theme"
+  fetch_verify_sha256 "$temporary_theme" "$expected_hash" \
+    "the Catppuccin $flavour bat theme"
   chmod 0644 "$temporary_theme"
   mv -- "$temporary_theme" "$theme_file"
 done

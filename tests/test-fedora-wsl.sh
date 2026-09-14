@@ -81,7 +81,8 @@ assert_contains "$ai_full_dry_run" 'common/install-ai.sh --codex --firstmate --g
 
 ai_backpass_only_dry_run="$("$repo_root/install.sh" --platform fedora-wsl \
   --dry-run --ai --backpass)"
-assert_contains "$ai_backpass_only_dry_run" 'AI FirstMate subcomponent: false'
+# Additive semantics: an omitted --firstmate is "leave it alone", not "remove".
+assert_contains "$ai_backpass_only_dry_run" 'AI FirstMate subcomponent: inherit'
 assert_contains "$ai_backpass_only_dry_run" 'AI backpass subcomponent:  true'
 assert_contains "$ai_backpass_only_dry_run" 'common/install-ai.sh --backpass'
 
@@ -90,28 +91,28 @@ if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   printf 'fedora-wsl accepted --codex without --ai.\n' >&2
   exit 1
 fi
-grep -Fq -- '--codex requires --ai' "$test_root/codex-without-ai.log"
+grep -Fq -- '--codex/--no-codex requires --ai' "$test_root/codex-without-ai.log"
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   --firstmate >"$test_root/firstmate-without-ai.log" 2>&1; then
   printf 'fedora-wsl accepted --firstmate without --ai.\n' >&2
   exit 1
 fi
-grep -Fq -- '--firstmate requires --ai' "$test_root/firstmate-without-ai.log"
+grep -Fq -- '--firstmate/--no-firstmate requires --ai' "$test_root/firstmate-without-ai.log"
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   --gnhf >"$test_root/gnhf-without-ai.log" 2>&1; then
   printf 'fedora-wsl accepted --gnhf without --ai.\n' >&2
   exit 1
 fi
-grep -Fq -- '--gnhf requires --ai' "$test_root/gnhf-without-ai.log"
+grep -Fq -- '--gnhf/--no-gnhf requires --ai' "$test_root/gnhf-without-ai.log"
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   --backpass >"$test_root/backpass-without-ai.log" 2>&1; then
   printf 'fedora-wsl accepted --backpass without --ai.\n' >&2
   exit 1
 fi
-grep -Fq -- '--backpass requires --ai' "$test_root/backpass-without-ai.log"
+grep -Fq -- '--backpass/--no-backpass requires --ai' "$test_root/backpass-without-ai.log"
 
 if "$repo_root/install.sh" --platform unknown --dry-run \
   >"$test_root/invalid.log" 2>&1; then

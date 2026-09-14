@@ -285,7 +285,13 @@ check_mise_owned() {
     return 1
   fi
 
-  mise_resolved="$("$mise_command" which "$name" 2>/dev/null || true)"
+  # Resolution must use the same deterministic context as installation, or a
+  # verifier run from inside a project could resolve that project's tool.
+  if declare -F run_mise >/dev/null 2>&1; then
+    mise_resolved="$(run_mise "$mise_command" which "$name" 2>/dev/null || true)"
+  else
+    mise_resolved="$("$mise_command" which "$name" 2>/dev/null || true)"
+  fi
   if [[ -z "$mise_resolved" || ! -x "$mise_resolved" ]]; then
     fail "$name is not backed by an executable reported by mise: ${mise_resolved:-<none>}"
     return 1

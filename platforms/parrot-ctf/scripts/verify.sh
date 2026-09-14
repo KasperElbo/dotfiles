@@ -98,7 +98,8 @@ for command_name in bat fd; do
 done
 
 mise_command="$(resolve_mise_command 2>/dev/null || true)"
-if [[ -n "$mise_command" ]] && "$mise_command" exec -- uv --version >/dev/null 2>&1; then
+if [[ -n "$mise_command" ]] &&
+  run_mise "$mise_command" exec -- uv --version >/dev/null 2>&1; then
   pass "mise-managed uv starts"
 else
   fail "mise-managed uv is unavailable"
@@ -126,7 +127,7 @@ fi
 
 nvim_path=""
 if [[ -n "$mise_command" ]]; then
-  nvim_path="$("$mise_command" which nvim 2>/dev/null || true)"
+  nvim_path="$(run_mise "$mise_command" which nvim 2>/dev/null || true)"
 fi
 mise_data_dir="${MISE_DATA_DIR:-$XDG_DATA_HOME/mise}"
 if [[ -x "$nvim_path" && "$nvim_path" == "$mise_data_dir/installs/"* ]]; then
@@ -139,7 +140,7 @@ fi
 nvim_version=""
 if [[ -n "$mise_command" ]]; then
   nvim_version="$(
-    "$mise_command" exec -- nvim --version 2>/dev/null |
+    run_mise "$mise_command" exec -- nvim --version 2>/dev/null |
       sed -n '1s/^NVIM v\([0-9][0-9.]*\).*/\1/p'
   )"
 fi

@@ -145,6 +145,7 @@ run_angular_workflow() {
 
   local _
   for _ in {1..60}; do
+    # network-source: local-only
     if curl --fail --silent --show-error \
       "http://127.0.0.1:$port" >"$response" 2>/dev/null; then
       break

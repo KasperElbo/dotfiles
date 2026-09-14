@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/fetch.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/fetch.sh"
 # shellcheck source=../lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
@@ -65,8 +67,9 @@ else
   installer="$(mktemp)"
   trap 'rm -f -- "$installer"' EXIT
   info "Downloading the official mise installer"
-  curl --fail --show-error --silent --location \
-    --proto '=https' --tlsv1.2 https://mise.run --output "$installer"
+  # network-source: mise-installer
+  fetch_to_file https://mise.run "$installer" 'the mise installer'
+  fetch_assert_shell_script "$installer" 'the mise installer'
   MISE_INSTALL_PATH="$HOME/.local/bin/mise" sh "$installer"
 fi
 

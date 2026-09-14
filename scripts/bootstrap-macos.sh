@@ -134,9 +134,18 @@ if [ -z "$brew_bin" ] || [ ! -x "$brew_bin" ]; then
 
   installer="$(mktemp -t dotfiles-homebrew-bootstrap.XXXXXX)"
   trap 'rm -f "$installer"' EXIT
+  # This entry point runs under Apple's Bash 3.2 before any repository library
+  # is available, so the bounded-transfer policy from common/lib/fetch.sh is
+  # written out here instead of being sourced.
+  # network-source: homebrew-installer
   curl --fail --location --proto '=https' --tlsv1.2 \
+    --connect-timeout 10 --max-time 120 \
     https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
     --output "$installer"
+  if [ ! -s "$installer" ]; then
+    printf 'ERROR: The Homebrew installer download was empty; nothing was executed.\n' >&2
+    exit 1
+  fi
   if [ "$non_interactive" = "true" ]; then
     NONINTERACTIVE=1 /bin/bash "$installer"
   else

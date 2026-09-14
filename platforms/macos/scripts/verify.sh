@@ -201,6 +201,7 @@ if [[ "$verify_containers" == true ]]; then
   else
     fail "Podman reports rootless=${rootless:-unknown}"
   fi
+  # network-source: smoke-image-alpine
   machine_arch="$(podman run --rm docker.io/library/alpine:latest uname -m 2>/dev/null || true)"
   if [[ "$machine_arch" == aarch64 ]]; then
     pass "Containers run as ARM64"

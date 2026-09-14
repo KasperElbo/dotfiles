@@ -95,7 +95,9 @@ fi
 legacy_archive="$test_root/netcoredbg-osx-amd64.tar.gz"
 legacy_root="$test_root/legacy"
 mkdir -p "$legacy_root"
+# network-source: netcoredbg-legacy-release
 curl --fail --location --silent --show-error \
+  --connect-timeout 10 --max-time 300 \
   --output "$legacy_archive" \
   https://github.com/Samsung/netcoredbg/releases/download/3.1.3-1062/netcoredbg-osx-amd64.tar.gz
 tar -xzf "$legacy_archive" -C "$legacy_root"

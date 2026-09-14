@@ -101,6 +101,13 @@ if [[ -n "$mise_command" ]]; then
   nvim_command=("$mise_command" exec -- nvim)
 fi
 
+# Bootstrap phases run from the deterministic mise context (see lib/common.sh),
+# so an installer started inside an unrelated project cannot have that
+# project's .mise.toml decide which Neovim or which runtimes Mason builds
+# against. Every phase argument is a "+command", never a path, so the neutral
+# working directory changes nothing else.
+mise_context="$(mise_prepare_context)"
+
 run_nvim_phase() {
   local bootstrap_mode="$1"
   local description="$2"
@@ -108,9 +115,13 @@ run_nvim_phase() {
   local status
 
   info "$description"
-  if DOTFILES_NVIM_PROFILE="$profile" DOTFILES_MASON_BOOTSTRAP="$bootstrap_mode" \
-    timeout --kill-after=30s \
-    "$bootstrap_timeout" "${nvim_command[@]}" --headless "$@"; then
+  if (
+    cd -- "$mise_context" || exit 1
+    DOTFILES_NVIM_PROFILE="$profile" DOTFILES_MASON_BOOTSTRAP="$bootstrap_mode" \
+      MISE_CEILING_PATHS="$mise_context" \
+      timeout --kill-after=30s \
+      "$bootstrap_timeout" "${nvim_command[@]}" --headless "$@"
+  ); then
     return
   else
     status=$?

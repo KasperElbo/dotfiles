@@ -2347,13 +2347,65 @@ are independent). The profile is also independently callable and safe to
 rerun:
 
 ```bash
-./scripts/install-ai.sh [--codex] [--firstmate] [--gnhf] [--backpass] [--dry-run] [--validate]
+./scripts/install-ai.sh [--codex] [--firstmate] [--gnhf] [--backpass] \
+  [--no-codex] [--no-firstmate] [--no-gnhf] [--no-backpass] \
+  [--non-interactive] [--dry-run] [--validate]
 ```
 
-`--dry-run` prints exactly which components would be installed and where,
-without touching the filesystem; `--validate` runs verification only. Nothing
-here authenticates any agent, pushes, merges, force-pushes, or deletes Git
-branches, or requests API credentials — see "Authentication" below.
+`--dry-run` prints exactly which components would be installed, kept, or
+removed and where, without touching the filesystem; `--validate` runs
+verification only. Nothing here authenticates any agent, pushes, merges,
+force-pushes, or deletes Git branches, or requests API credentials — see
+"Authentication" below.
+
+## Subcomponent transitions are additive
+
+Selection is **additive**, not desired-state. Omitting a sub-flag on a later
+run means *leave that subcomponent exactly as it is*; it never uninstalls
+anything and never rewrites the recorded state to `disabled` behind a
+component that is still on disk:
+
+```bash
+./install.sh --ai --codex     # Codex is installed
+./install.sh --ai             # Codex is still installed, and still recorded
+```
+
+Removal is always explicit:
+
+```bash
+./scripts/install-ai.sh --no-codex                    # asks first
+./scripts/install-ai.sh --no-codex --non-interactive  # unattended acknowledgement
+```
+
+A removal deletes only what the recorded provenance still proves this
+repository installed — a mise tool declared in the managed
+`~/.config/mise/conf.d/ai.toml`, a FirstMate checkout whose remote and commit
+still match what was recorded, or a Treehouse/No Mistakes binary whose
+SHA-256 still matches. If you replaced one of those yourself, the installer
+**refuses the whole removal before changing anything** and tells you which
+path to handle by hand. It never deletes credentials, project data, or an
+unowned path that merely looks like an installer target.
+
+`common/verify-ai.sh` fails when an enabled component is missing or broken,
+and reports — rather than silently rewriting — a component that is disabled
+but still present, naming the `--no-<component>` flag that would remove it.
+
+## How remote installers are handled
+
+No component is installed by piping a download into a shell. Remote installer
+content is downloaded into a mode-0600 temporary file under a bounded
+timeout/retry policy, rejected unless it survives validation (transport
+failure, empty body, wrong shape, or a digest mismatch where a digest
+exists), executed only then by an explicit interpreter, deleted immediately,
+and followed by verification of the exact expected target. The SHA-256 of the
+installer that actually ran, and of the binary it produced, are both recorded
+in the profile state. See [docs/supply-chain.md](docs/supply-chain.md) for
+the full policy, the provenance tiers, and why FirstMate, Treehouse, and No
+Mistakes remain deliberately rolling.
+
+Every mise call the profile makes runs in a deterministic context, so a
+`.mise.toml` in whatever directory you happened to start the installer from
+cannot change which tools get installed.
 
 ## Core agent: Claude Code
 
@@ -2521,6 +2573,34 @@ official install script for Treehouse/No Mistakes (neither has a mise
 registry entry or an OS package). `verify-ai.sh` checks all seven the same
 way it checks everything else in this profile — mise ownership for the
 mise-managed ones, PATH-resolution-to-the-installed-copy for the other two.
+
+### What "installed" means for the three non-package tools
+
+FirstMate publishes no releases, and neither Treehouse nor No Mistakes
+publishes a checksum for its install script, so all three sit in this
+repository's `reviewed-live`/rolling tiers rather than being pinned. What
+makes that accountable is that the installer records exactly what it got:
+
+| Tool | Channel | Recorded in `~/.config/dotfiles/ai.conf` |
+|---|---|---|
+| FirstMate | upstream default branch, deliberately rolling | `firstmate_source`, `firstmate_commit` |
+| Treehouse | live install script | `treehouse_source`, `treehouse_digest` (the script that ran), `treehouse_target_digest` (the binary it produced) |
+| No Mistakes | live install script | `no_mistakes_source`, `no_mistakes_digest`, `no_mistakes_target_digest` |
+
+To update, rerun `./scripts/install-ai.sh --firstmate`. To pin FirstMate to
+the revision you have today, `git -C ~/.local/share/firstmate checkout
+<commit>` using the recorded `firstmate_commit` — note that a later rerun
+will fast-forward it again. `verify-ai.sh` reports when a recorded digest or
+commit no longer matches what is on disk, because that is also the point at
+which a `--no-firstmate` removal will refuse to delete the file.
+
+The digests above are audit records of what was installed, **not** integrity
+pins: hashing a live, mutable URL at install time proves the download was not
+corrupted in flight, and nothing about what the next machine will receive. If
+an upstream later publishes a real checksum, set
+`TREEHOUSE_INSTALL_SCRIPT_SHA256` or `NO_MISTAKES_INSTALL_SCRIPT_SHA256` and
+the installer enforces it as a hard precondition. See
+[docs/supply-chain.md](docs/supply-chain.md).
 
 ## Optional: GNHF unattended overnight agent orchestrator
 
@@ -2765,6 +2845,17 @@ The saved local state file is:
 
 Avoid installing the same tool through multiple package managers.
 
+Package ownership answers *which tool installs what*. The companion question
+— *where does it come from, how strongly is it pinned, and what happens when
+that download fails* — is answered by
+[docs/supply-chain.md](docs/supply-chain.md) and the machine-readable
+registry in [`config/network-sources.tsv`](config/network-sources.tsv). That
+document is also where this repository states plainly what it does and does
+not claim: configuration reproducibility plus declared exact/rolling source
+tiers, not bit-for-bit machine reproduction. `./scripts/lint.sh` fails if a
+new download, remote script, Git clone, or validation image appears without
+a registry entry.
+
 ## macOS / Homebrew
 
 The Apple Silicon profile uses Homebrew only at `/opt/homebrew` for native
@@ -2846,6 +2937,22 @@ starship
 
 These remain RPM-owned. mise itself is **not** installed by mise.
 
+Terra's own documentation bootstraps the repository with `--nogpgcheck`,
+because the signing key ships inside the `terra-release` package it is about
+to install. This repository does not do that. Terra also publishes the
+per-release key at `https://repos.fyralabs.com/terra<releasever>/key.asc`, so
+the installer fetches that key first, refuses to import it unless its
+fingerprint matches the value pinned for that Fedora release in
+[`config/terra-keys.tsv`](config/terra-keys.tsv), and only then installs
+`terra-release` with GPG checking enabled.
+
+A Fedora release newer than the pinned set is the one remaining trust
+boundary: there is nothing to compare the key against, so the installer
+prints the downloaded fingerprint and stops unless you acknowledge it
+interactively or pass `TERRA_TRUST_KEY_FINGERPRINT=<fingerprint>`. Adding the
+release to `config/terra-keys.tsv` is the permanent fix. See
+[docs/supply-chain.md](docs/supply-chain.md).
+
 ## Tailscale package repository
 
 The optional `--tailscale` profile enables Tailscale's own DNF repository
@@ -2903,6 +3010,18 @@ pipx:pynvim
 ```
 
 `mise install` installs what is declared in the tracked config; the install script does not duplicate the tool list.
+
+Every mise invocation the installers and verifiers make runs from an empty,
+repository-owned context directory under
+`$XDG_STATE_HOME/dotfiles/mise-context`, with `MISE_CEILING_PATHS` set to
+that same directory. mise otherwise composes its configuration from the
+global config *and* every `mise.toml`/`.mise.toml` between the working
+directory and the filesystem root, so running `./install.sh` from inside an
+unrelated project would otherwise install that project's tools during a
+global bootstrap. The global config and its `conf.d` fragments still apply —
+that is the manifest a global bootstrap is meant to install — and
+`MISE_DATA_DIR`/shim behaviour is unchanged. `--dry-run` and verbose output
+print which logical config is in play.
 
 ## AI agent tooling
 

@@ -12,8 +12,11 @@ config="$XDG_CONFIG_HOME/mise/config.toml"
 [[ -f "$config" ]] || die "mise config not found: $config"
 
 info "Installing tools declared in $config"
+if [[ "${DOTFILES_VERBOSE:-false}" == "true" ]]; then
+  mise_config_summary | while IFS= read -r line; do info "  mise $line"; done
+fi
 
-"$mise_command" --yes install
+run_mise "$mise_command" --yes install
 
 establish_user_tool_environment
 
