@@ -104,12 +104,31 @@ else
   fail ".NET host/SDK does not report arm64"
 fi
 
+# gnubin exists to supply GNU tools macOS does not ship — timeout, used by the
+# shared Neovim bootstrap — and deliberately does not shadow Apple's coreutils.
+# Assert that resolution rather than a PATH position: /etc/zprofile runs
+# path_helper after .zshenv, so no entry from .zshenv keeps a fixed index in a
+# login shell, and mise-managed tools legitimately take the front.
+# Assert the promise Homebrew coreutils is here to keep, not a PATH position:
+# a GNU timeout for the shared Neovim bootstrap, with Apple's own coreutils
+# left in front. Position cannot be asserted because /etc/zprofile runs
+# path_helper after .zshenv, and mise-managed tools legitimately take the
+# front; the provider is not asserted either, since any Homebrew path may
+# supply timeout as long as it is the GNU one.
 # shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
-login_check="$(zsh -lic 'printf "%s|%s" "${PATH%%:*}" "$(starship --version >/dev/null && mise --version >/dev/null && printf ready)"' 2>/dev/null || true)"
-if [[ "$login_check" == '/opt/homebrew/opt/coreutils/libexec/gnubin|ready' ]]; then
-  pass "Zsh login environment activates Homebrew, Starship, and mise"
+login_check="$(zsh -lic 'printf "%s|%s|%s" "$(timeout --version 2>/dev/null | head -n1)" "$(command -v ls)" "$(starship --version >/dev/null && mise --version >/dev/null && printf ready)"' 2>/dev/null || true)"
+login_timeout="${login_check%%|*}"
+login_rest="${login_check#*|}"
+login_ls="${login_rest%%|*}"
+login_tools="${login_check##*|}"
+if [[ "$login_tools" != ready ]]; then
+  fail "Zsh login environment does not activate Starship and mise: ${login_check:-no output}"
+elif [[ "$login_timeout" != *"GNU coreutils"* ]]; then
+  fail "Zsh login shell does not provide GNU timeout: ${login_timeout:-not found}"
+elif [[ "$login_ls" == *"/coreutils/libexec/gnubin/"* ]]; then
+  fail "Zsh login shell shadows Apple's coreutils with gnubin: $login_ls"
 else
-  fail "Zsh login environment is incomplete: ${login_check:-no output}"
+  pass "Zsh login environment activates Homebrew, Starship, and mise"
 fi
 
 login_shell="$(dscl . -read "/Users/$USER" UserShell 2>/dev/null | awk '{print $2}')"

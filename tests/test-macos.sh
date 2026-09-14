@@ -197,4 +197,35 @@ grep -Fq 'nvim-macos' "$macos_root/scripts/stow.sh"
 grep -Fq 'nvim-macos' "$macos_root/scripts/verify.sh"
 grep -Fq './scripts/test-dev-workflows.sh --latex' "$repo_root/docs/macos.md"
 
+# gnubin supplies GNU tools macOS does not ship without shadowing Apple's
+# coreutils. /etc/zprofile runs path_helper after .zshenv, so nothing set there
+# keeps a fixed PATH index in a login shell: the verifier must assert tool
+# resolution, and the PATH itself must leave Apple's tools in front.
+platform_env="$macos_root/stow/zsh-platform/.config/zsh/platform-env.zsh"
+grep -Fq 'timeout --version' "$macos_root/scripts/verify.sh" || {
+  printf 'macOS verifier must assert a GNU timeout is available.\n' >&2
+  exit 1
+}
+grep -Fq "shadows Apple's coreutils" "$macos_root/scripts/verify.sh" || {
+  printf 'macOS verifier must assert Apple coreutils are not shadowed.\n' >&2
+  exit 1
+}
+# shellcheck disable=SC2016 # Matching the literal expression in verify.sh.
+if grep -Fq '${PATH%%:*}' "$macos_root/scripts/verify.sh"; then
+  printf 'macOS verifier must not assert a fixed first PATH entry.\n' >&2
+  exit 1
+fi
+
+gnubin_line="$(grep -n 'coreutils/libexec/gnubin' "$platform_env" | grep -v '^[0-9]*:#' | head -n1 | cut -d: -f1)"
+# shellcheck disable=SC2016 # Matching the literal zsh array entry.
+inherited_line="$(grep -n '^  \$path$' "$platform_env" | head -n1 | cut -d: -f1)"
+if [[ -z "$gnubin_line" || -z "$inherited_line" ]]; then
+  printf 'platform-env.zsh must list both the inherited path entry and gnubin.\n' >&2
+  exit 1
+fi
+if ((gnubin_line < inherited_line)); then
+  printf 'platform-env.zsh must append gnubin last so Apple coreutils win.\n' >&2
+  exit 1
+fi
+
 printf 'macOS profile configuration checks passed.\n'
