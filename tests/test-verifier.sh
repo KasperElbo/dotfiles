@@ -31,15 +31,30 @@ assert_verifier_counts 0 0 1
 
 verify_reset
 not_observed "hosted CI cannot change this host precondition"
-finish_verification "Fixture" >/dev/null
+summary="$(finish_verification "Fixture")"
 assert_verifier_counts 0 0 0 1
+assert_contains "$summary" "Fixture completed with unobserved checks:"
+assert_contains "$summary" "1 unobserved check(s)"
+assert_not_contains "$summary" "Fixture passed"
+
+verify_reset
+warning "informational drift"
+not_observed "hosted CI cannot change this host precondition"
+summary="$(finish_verification "Fixture")"
+assert_verifier_counts 0 0 1 1
+assert_contains "$summary" "Fixture completed with warnings and unobserved checks:"
+assert_contains "$summary" "1 warning(s), 1 unobserved check(s)"
 
 verify_reset
 fail "owned invariant failed" || true
-if finish_verification "Fixture" >/dev/null 2>&1; then
+not_observed "another host precondition is unavailable"
+run_capture finish_verification "Fixture"
+if ((TEST_STATUS == 0)); then
   _test_die "a failed owned invariant must make the final result non-zero"
 fi
-assert_verifier_counts 0 1 0
+assert_verifier_counts 0 1 0 1
+assert_contains "$TEST_OUTPUT" "Fixture failed:"
+assert_contains "$TEST_OUTPUT" "1 failure(s), 0 warning(s), 1 unobserved check(s)"
 
 printf 'Portable Stow ownership\n'
 mkdir -p "$root/repo/pkg/config" "$root/other/pkg/config" \
@@ -102,6 +117,17 @@ VERIFY_CALLER_PATH="$PATH"
 verify_reset
 check_mise_owned tool
 assert_verifier_counts 1 0 0
+
+mkdir -p "$root/configured-login-bin"
+VERIFY_CONFIGURED_LOGIN_PATH="$root/configured-login-bin"
+verify_reset
+check_mise_owned tool || true
+assert_verifier_counts 0 1 0
+VERIFY_CONFIGURED_LOGIN_PATH=""
+verify_reset
+check_mise_owned tool || true
+assert_verifier_counts 0 1 0
+unset VERIFY_CONFIGURED_LOGIN_PATH
 
 printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise-data/shims/tool"
 chmod +x "$root/mise-data/shims/tool"

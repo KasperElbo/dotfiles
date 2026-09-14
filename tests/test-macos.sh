@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 macos_root="$repo_root/platforms/macos"
+# shellcheck source=../platforms/macos/lib/macos.sh
+source "$macos_root/lib/macos.sh"
 config="$macos_root/stow/aerospace/.config/aerospace/aerospace.toml"
 grid="$macos_root/stow/aerospace/.local/bin/aerospace-workspace-grid"
 brewfile="$macos_root/Brewfile"
@@ -17,6 +19,19 @@ assert_contains() {
     exit 1
   }
 }
+
+# Only GitHub-hosted runners may treat an unobservable SIP state as an
+# evidence-boundary outcome. Self-hosted Actions machines are real hosts and
+# must retain the normal invariant check.
+GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted macos_is_github_hosted_runner
+if GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted macos_is_github_hosted_runner; then
+  printf 'A self-hosted GitHub Actions runner was mistaken for a hosted runner.\n' >&2
+  exit 1
+fi
+if GITHUB_ACTIONS=false RUNNER_ENVIRONMENT=github-hosted macos_is_github_hosted_runner; then
+  printf 'A non-Actions process was mistaken for a GitHub-hosted runner.\n' >&2
+  exit 1
+fi
 
 dry_run="$("$repo_root"/install.sh --platform macos --dry-run --ocaml --containers --workflows)"
 assert_contains "$dry_run" 'Apple Silicon macOS installation plan'

@@ -55,7 +55,7 @@ fi
 
 if csrutil status 2>/dev/null | grep -Fqi enabled; then
   pass "System Integrity Protection is enabled"
-elif [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
+elif macos_is_github_hosted_runner; then
   not_observed "System Integrity Protection is not observable as enabled on hosted macOS; verify it on a real machine"
 else
   fail "System Integrity Protection is not enabled"

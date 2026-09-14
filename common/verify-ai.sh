@@ -36,6 +36,14 @@ lavish_axi_state="$(profile_state_read "$state_file" lavish_axi ai)"
 gnhf_state="$(profile_state_read "$state_file" gnhf ai)"
 backpass_state="$(profile_state_read "$state_file" backpass ai)"
 
+# Capture the environment configured for a fresh interactive login before the
+# verifier adds mise's shims to its own process. An explicit value remains
+# supported for hermetic callers and tests.
+if [[ -z "${VERIFY_CONFIGURED_LOGIN_PATH+x}" ]]; then
+  VERIFY_CONFIGURED_LOGIN_PATH="$(
+    zsh -lic 'printf "%s\\n" "$PATH"' 2>/dev/null || true
+  )"
+fi
 VERIFY_CALLER_PATH="$PATH"
 mise_command="$(resolve_mise_command || true)"
 VERIFY_MISE_COMMAND="$mise_command"
