@@ -32,6 +32,8 @@ touch "$work_root/æøå-文件.txt"
 touch "$work_root/http"
 
 run_open() {
+  : >"$argument_log"
+  : >"$wslpath_log"
   EXPLORER_ARGUMENT_LOG="$argument_log" \
     WSLPATH_ARGUMENT_LOG="$wslpath_log" \
     WINDOWS_SYSTEM_ROOT="$windows_root" \
