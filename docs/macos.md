@@ -149,8 +149,11 @@ Or run them separately:
 ./scripts/test-dev-workflows.sh --angular
 ./scripts/test-dev-workflows.sh --python
 ./scripts/test-dev-workflows.sh --json
-./scripts/test-dev-workflows.sh --latex
 ```
+
+`--latex` is deliberately absent from that list: this installer provisions no
+TeX distribution on macOS. See "LaTeX is externally managed on macOS" below
+before running it.
 
 - .NET creates a console and xUnit project, then restores, builds, tests, and
   runs them. LazyVim uses Mason-owned Roslyn and EasyDotnet 3.4.25's bundled
@@ -162,18 +165,50 @@ Or run them separately:
 - Python resolves an isolated uv environment, runs, tests with pytest, lints,
   formats, and builds a wheel. LazyVim's shared Pyright/Ruff/debugpy setup is
   used; Python packages are not installed globally.
-- LaTeX uses the shared VimTeX/texlab setup. The shared editor configuration
-  only falls back to Okular or `xdg-open` for the PDF viewer, neither of which
-  exists on macOS, so a small `platforms/macos/stow/nvim-macos` package
-  overrides `vimtex_view_general_viewer` to macOS's native `open` before that
-  fallback runs, the same pattern `platforms/fedora-wsl/stow/nvim-wsl` uses for
-  `wsl-open`. `open` has no SyncTeX forward-search support of its own, matching
-  the same trade-off already accepted for Fedora WSL.
 
 Interactive breakpoints and editor navigation still require a real Neovim UI:
 open each fixture or a normal project, run `:checkhealth`, use definition and
 references, and place one breakpoint. The automated fixture verifies the
 underlying build/debug shapes but cannot assert a human editor interaction.
+
+### LaTeX is externally managed on macOS
+
+This installer does not own a TeX distribution on macOS, and `--latex` is not a
+macOS installer flag — passing it fails with that message rather than silently
+doing nothing. macOS bootstrap is not "LaTeX-complete": nothing here installs
+`latexmk`, `pdflatex`, `biber`, or `latexindent`.
+
+The editor configuration is kept anyway, as dormant compatibility
+configuration. It does nothing until you install TeX yourself, and then the
+same VimTeX/TexLab workflow documented in the README works unchanged.
+
+| Component | Owner on macOS | Provisioned by `install.sh`? |
+| --- | --- | --- |
+| TeX distribution, `latexmk`, `pdflatex`, `biber`, `latexindent` | You — MacTeX or BasicTeX, installed and updated outside this repository | No |
+| `texlab` (LSP) | Mason, from the shared `nvim-lazyvim/.config/nvim/mason-packages.txt` inventory | Yes, as part of the base capability |
+| VimTeX editor plugin | LazyVim, from the shared TeX extra | Yes, as part of the base capability |
+| PDF viewer | macOS itself, through `open` | No — `platforms/macos/stow/nvim-macos` only points VimTeX at it |
+
+`platforms/macos/stow/nvim-macos` exists because the shared VimTeX fallback
+reaches only Okular or `xdg-open`, neither of which exists on macOS. It
+overrides `vimtex_view_general_viewer` to `open` before that fallback runs, the
+same pattern `platforms/fedora-wsl/stow/nvim-wsl` uses for `wsl-open`. `open`
+has no SyncTeX forward-search support of its own, matching the trade-off
+already accepted for Fedora WSL.
+
+`config/capabilities.tsv` records this as `latex`/`macos` with the provider
+`user-managed`, so the generated support matrix shows the absence and its owner
+rather than implying parity with Fedora.
+
+If you do install TeX yourself, the disposable smoke test works:
+
+```bash
+./scripts/test-dev-workflows.sh --latex
+```
+
+Without a TeX installation it reports `SKIP` and names the missing tools and
+who owns them. It never reports a repository defect for a prerequisite this
+platform was never asked to install.
 
 ### Optional OCaml
 
@@ -185,6 +220,25 @@ underlying build/debug shapes but cannot assert a human editor interaction.
 Homebrew owns only `opam` and native build prerequisites. The shared opam
 installer creates the same pinned switch and editor workflow used on Fedora;
 there is no second macOS OCaml environment.
+
+The macOS verifier runs the same shared `common/verify-ocaml.sh` as every other
+platform; there is no macOS-only OCaml check. It reads whether the profile was
+selected from the install lifecycle state, so it does not need a forwarded flag
+and reaches the same verdict whether it runs inside the installer or on its own
+later:
+
+- profile not selected and opam absent — pass, reported as not applicable;
+- profile selected and healthy — pass;
+- profile selected but missing or broken — fail.
+
+On a selected profile it proves that `opam` resolves inside the Homebrew prefix
+rather than merely answering on `PATH`, that the recorded switch exists and is
+the selected one, that the compiler inside it matches
+`~/.config/dotfiles/ocaml.conf` exactly (including an `OCAML_COMPILER_VERSION`
+override), that dune, `ocamlearlybird`, `ocamllsp`, OCamlFormat, and utop are
+installed in the switch, that opam's generated Zsh hook exists and parses, and
+that a throwaway program compiles and runs. Every command runs through
+`opam exec --switch`, so nothing here depends on restarting your login shell.
 
 ### Optional containers
 
@@ -214,8 +268,51 @@ rm ~/.config/dotfiles/macos-containers.conf
 `podman machine rm` deletes that VM and its container/image/volume storage, so
 export anything needed before running it.
 
-The optional AI profile from issue #16 was not present on `main` when this
-profile was added. No independent Codex/Claude installer is added here.
+### AI-assisted development toolchain
+
+```bash
+./install.sh --platform macos --ai
+./install.sh --platform macos --ai --codex --firstmate
+./install.sh --platform macos --ai --gnhf --backpass
+```
+
+macOS uses the shared `common/install-ai.sh` and `common/verify-ai.sh`. There
+is no macOS-specific AI installer, and nothing here is installed through
+Homebrew or a global npm prefix: the AI step runs after the mise environment is
+active, and mise owns every command. The step is planned after `mise` for
+exactly that reason.
+
+`--ai` installs Claude Code and Herdr. The subcomponents are additive and
+behave identically to every other platform: omitting `--codex` leaves an
+already-installed Codex alone, and only `--no-codex` removes it, after a
+confirmation and only when recorded provenance still proves this repository
+installed it. See the README's "AI-assisted development toolchain" for what
+each component is and which ones need manual, deliberate setup afterwards.
+
+| Component | Flag | Provider | Apple Silicon support |
+| --- | --- | --- | --- |
+| Claude Code | `--ai` | mise (npm backend) | supported |
+| Herdr | `--ai` | mise (registry backend) | supported |
+| Codex | `--codex` | mise (npm backend) | supported |
+| FirstMate | `--firstmate` | git clone to `~/.local/share/firstmate` | supported |
+| Treehouse | `--firstmate` | staged upstream install script | supported |
+| No Mistakes | `--firstmate` | staged upstream install script | supported |
+| gh-axi, chrome-devtools-axi, tasks-axi, quota-axi | `--firstmate` | mise (npm backend) | supported |
+| lavish-axi | `--firstmate` or `--backpass` | mise (npm backend) | supported |
+| GNHF | `--gnhf` | mise (npm backend) | supported |
+| backpass, acpx | `--backpass` | mise (npm backend) | supported |
+
+Support here means the component was installed and executed on a real Apple
+Silicon runner by the `macos` job in `.github/workflows/real-install.yml`, not
+that a mocked test passed. `config/capabilities.tsv` is the authority: if a
+component is demoted to `unsupported` there, the macOS installer rejects that
+one sub-flag with an actionable message and leaves the rest of the profile
+installable. Losing one optional component never disables `--ai`.
+
+macOS verification adds two checks the shared verifier cannot make: every
+advertised command must be arm64-native or a script running under the arm64
+Node runtime — an Intel-only binary that would need Rosetta fails — and none of
+them may resolve to a Homebrew path or appear in a global npm prefix.
 
 ### Optional Tailscale
 

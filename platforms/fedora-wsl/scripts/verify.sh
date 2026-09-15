@@ -408,13 +408,13 @@ else
 fi
 
 ocaml_state="$XDG_CONFIG_HOME/dotfiles/ocaml.conf"
-if [[ -f "$ocaml_state" ]]; then
-  section "OCaml profile"
-  if "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
-    pass "OCaml compiler and Platform tools start inside WSL"
-  else
-    fail "OCaml profile verification failed"
-  fi
+# Unconditional: the shared verifier reports an unselected profile as not
+# applicable, and only it can tell that apart from a selected but broken one.
+section "OCaml profile"
+if DOTFILES_NATIVE_PREFIX=/usr "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+  pass "OCaml compiler and Platform tools start inside WSL"
+else
+  fail "OCaml profile verification failed"
 fi
 
 containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"

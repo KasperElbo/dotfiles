@@ -88,7 +88,7 @@ def main() -> int:
             elif docs_anchor and docs_anchor not in markdown_anchors(full_docs_path):
                 fail(f"line {line}: documentation anchor does not exist: {row['docs']}")
                 errors += 1
-        elif row["provider"] not in {"unsupported", "windows-host"}:
+        elif row["provider"] not in {"unsupported", "windows-host", "user-managed"}:
             fail(f"line {line}: unsupported {key} needs an explicit absence owner")
             errors += 1
 

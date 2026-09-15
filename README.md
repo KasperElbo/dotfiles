@@ -139,8 +139,9 @@ xcode-select --install
 ```
 
 The [macOS guide](docs/macos.md) covers permissions, AeroSpace keys,
-multi-monitor behavior, deliberate defaults, development smoke tests, optional
-OCaml/Podman profiles, security, and rollback.
+multi-monitor behavior, deliberate defaults, development smoke tests, the
+optional OCaml, Podman, Tailscale and AI profiles, which parts of the LaTeX
+workflow macOS deliberately does not own, security, and rollback.
 
 The installer makes Zsh the invoking user's default login shell. Reboot after
 the first installation so Plasma, the systemd user manager, and D-Bus discard
@@ -247,7 +248,7 @@ The complete OCaml development environment is explicitly opt-in:
 --kde              install Catppuccin KDE integration
 --no-kde           skip KDE integration
 
---latex            install the LaTeX toolchain
+--latex            install the LaTeX toolchain (Fedora and Fedora WSL only)
 --no-latex         skip the LaTeX toolchain
 
 --ocaml            install the optional OCaml development profile
@@ -2527,6 +2528,22 @@ rejected otherwise (`--backpass` does not require `--firstmate` — the two
 are independent). The profile is also independently callable and safe to
 rerun:
 
+### Platform scope
+
+Fedora, Fedora WSL, and macOS all expose `--ai` and every subcomponent flag,
+and all three run the same `common/install-ai.sh` and `common/verify-ai.sh`.
+There is no platform-specific AI installer, and no platform adds a Homebrew,
+DNF, or global-npm copy of a tool mise already owns. On macOS the AI step is
+planned after mise so every command resolves through the same mise environment;
+see [the macOS guide](docs/macos.md#ai-assisted-development-toolchain) for the
+per-component Apple Silicon support table and the real-runner evidence behind
+it. The Parrot CTF profile declares the AI profile unsupported.
+
+Support for a component is per platform, and losing one never disables `--ai`:
+if `config/capabilities.tsv` demotes a component on a platform, that
+platform's installer rejects exactly that sub-flag with an actionable message
+and installs the rest of the profile normally.
+
 ```bash
 ./scripts/install-ai.sh [--codex] [--firstmate] [--gnhf] [--backpass] \
   [--no-codex] [--no-firstmate] [--no-gnhf] [--no-backpass] \
@@ -4292,7 +4309,31 @@ OCAML_COMPILER_VERSION=5.4.1 ./install.sh --ocaml
 ```
 
 The version becomes a separate named opam switch. Existing switches are not
-deleted or overwritten.
+deleted or overwritten. The override round-trips: `ocaml.conf` records both the
+switch and the exact compiler, and verification fails if the switch, the
+recorded compiler, and the compiler actually inside the switch ever disagree.
+
+### What OCaml verification proves
+
+`common/verify-ocaml.sh` is the single OCaml verifier on every platform, and
+every platform verifier runs it. It reads whether the profile was selected from
+the install lifecycle state rather than from a forwarded flag, so it reaches
+three distinct verdicts:
+
+| Machine | Verdict |
+| --- | --- |
+| Profile not selected, opam absent | pass, reported as not applicable |
+| Profile selected and healthy | pass |
+| Profile selected and missing or broken | fail |
+
+When the profile is selected it proves that opam lives inside the platform's
+native package prefix rather than merely answering on `PATH`, that the recorded
+switch exists and is the selected one, that the compiler inside it is exactly
+the recorded version, that dune, `ocamlearlybird`, `ocamllsp`, OCamlFormat, and
+utop are present, that opam's generated Zsh hook exists and parses, and that a
+throwaway program compiles and runs. Every command runs through
+`opam exec --switch`, so the result never depends on restarting a login shell
+and is valid in the same process that just installed the profile.
 
 ## Project workflow
 
@@ -4576,7 +4617,7 @@ support without a common-config change.
 
 # LaTeX
 
-LaTeX support is optional:
+LaTeX support is optional, and `--latex` is a Fedora and Fedora WSL flag only:
 
 ```bash
 # Native Fedora
@@ -4598,6 +4639,16 @@ Mason owns `texlab`.
 
 LazyVim owns the VimTeX editor plugin. TeX project build configuration remains
 in the project.
+
+On macOS the TeX distribution is externally managed: this repository installs
+no TeX, `--latex` is rejected by the macOS installer rather than silently
+ignored, and `config/capabilities.tsv` records the `latex`/`macos` provider as
+`user-managed`. Mason still owns `texlab` there, and
+`platforms/macos/stow/nvim-macos` still points VimTeX at macOS's `open`, so the
+editor workflow below becomes live as soon as you install MacTeX or BasicTeX
+yourself. See [docs/macos.md](docs/macos.md#latex-is-externally-managed-on-macos)
+for the full ownership table. The Parrot CTF profile has no LaTeX support at
+all.
 
 The optional component explicitly installs `latexmk`, `latexindent`, BibLaTeX,
 and Biber alongside the medium TeX Live scheme. It does not install any LaTeX
@@ -4681,6 +4732,12 @@ forward or inverse SyncTeX. Verify the optional WSL toolchain separately with
 `platforms/fedora-wsl/scripts/verify.sh --latex`; combining `--latex` with the
 installer's `--dev-workflows` also runs the disposable multi-file build below.
 
+On macOS, `platforms/macos/stow/nvim-macos` overrides the viewer with macOS's
+own `open` for the same reason, and `open` likewise provides no SyncTeX of its
+own. Because no TeX is installed there by this repository, `--dev-workflows`
+never runs the LaTeX build on macOS; run it explicitly once you have installed
+a TeX distribution.
+
 The LazyVim TeX extra installs the LaTeX and BibTeX Tree-sitter parsers. It
 intentionally leaves LaTeX highlighting to VimTeX's more complete syntax
 engine, while BibTeX uses Tree-sitter. Both use the active Catppuccin palette,
@@ -4693,6 +4750,12 @@ test is:
 ```bash
 ./scripts/test-dev-workflows.sh --latex
 ```
+
+Where a platform's installer owns TeX and the `latex` capability is recorded as
+installed, a missing `latexmk`, `pdflatex`, `biber`, or `latexindent` is a
+broken installation and the workflow FAILs. Where TeX is externally managed, as
+on macOS, the same absence is expected: the workflow SKIPs and names both the
+missing tools and who owns them.
 
 It formats and builds a disposable multi-file document, resolves a BibLaTeX
 citation through Biber, verifies the PDF, then introduces a deliberate compile

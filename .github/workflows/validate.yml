@@ -120,7 +120,10 @@ jobs:
           /opt/homebrew/bin/bash ./tests/test-test-support.sh
 
       - name: Test macOS profile configuration
-        run: /opt/homebrew/bin/bash ./tests/test-macos.sh
+        run: |
+          /opt/homebrew/bin/bash ./tests/test-macos.sh
+          /opt/homebrew/bin/bash ./tests/test-macos-ai.sh
+          /opt/homebrew/bin/bash ./tests/test-ocaml-verification.sh
 
       - name: Check whitespace
         run: git diff --check

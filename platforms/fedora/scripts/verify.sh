@@ -505,16 +505,16 @@ fi
 # Optional OCaml profile
 # ---------------------------------------------------------------------------
 
-ocaml_state="$XDG_CONFIG_HOME/dotfiles/ocaml.conf"
+# The shared verifier decides for itself whether the profile was selected, so
+# running it unconditionally is what makes "selected but never installed" fail
+# instead of silently skipping.
 
-if [[ -f "$ocaml_state" ]]; then
-  section "OCaml profile"
+section "OCaml profile"
 
-  if "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
-    pass "Optional OCaml profile"
-  else
-    fail "Optional OCaml profile verification failed"
-  fi
+if DOTFILES_NATIVE_PREFIX=/usr "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+  pass "Optional OCaml profile"
+else
+  fail "Optional OCaml profile verification failed"
 fi
 
 # ---------------------------------------------------------------------------

@@ -37,12 +37,22 @@ for platform in fedora fedora-wsl macos; do
     fail_test "$platform does not declare the EasyDotnet debugger provider"
 done
 
-for installer in platforms/fedora/install.sh platforms/fedora-wsl/install.sh platforms/macos/install.sh; do
+for installer in platforms/fedora/install.sh platforms/fedora-wsl/install.sh; do
   grep -Fq 'local selected=(base dotnet-debug)' "$repo_root/$installer" ||
     fail_test "$installer does not select the supported debugger capability during preflight"
   grep -Fq 'capabilities=base,dotnet-debug' "$repo_root/$installer" ||
     fail_test "$installer does not record the supported debugger capability in lifecycle state"
 done
+
+# macOS resolves its whole capability selection once and shares it between
+# preflight and the lifecycle record, so assert the always-on baseline and both
+# consumers rather than one literal list repeated twice.
+macos_installer="$repo_root/platforms/macos/install.sh"
+# shellcheck disable=SC2016 # Matching the literal printf in the installer.
+grep -Fq "printf '%s\\n' base dotnet-debug" "$macos_installer" ||
+  fail_test "platforms/macos/install.sh does not select the supported debugger capability unconditionally"
+[[ "$(grep -Fc 'macos_selected_capabilities' "$macos_installer")" -ge 3 ]] ||
+  fail_test "platforms/macos/install.sh does not share one resolved selection between preflight and lifecycle state"
 for verifier in platforms/fedora/scripts/verify.sh platforms/fedora-wsl/scripts/verify.sh platforms/macos/scripts/verify.sh; do
   grep -Fq 'check_easy_dotnet_debugger' "$repo_root/$verifier" ||
     fail_test "$verifier does not verify the EasyDotnet debugger provider"

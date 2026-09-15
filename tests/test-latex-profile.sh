@@ -55,4 +55,58 @@ assert_contains "$repo_root/scripts/test-dev-workflows.sh" \
 assert_contains "$repo_root/scripts/test-dev-workflows.sh" \
   'ThisCommandDeliberatelyDoesNotExist'
 
+# ---------------------------------------------------------------------------
+# Platform ownership contract
+#
+# The macOS model is "externally managed": the installer owns no TeX provider,
+# so it must say so rather than advertising a flag it does not implement, and
+# the smoke runner must distinguish an expected absence from a broken install.
+# ---------------------------------------------------------------------------
+
+manifest="$repo_root/config/capabilities.tsv"
+macos_latex_row="$(awk -F '\t' '$1 == "latex" && $2 == "macos" { print; exit }' "$manifest")"
+[[ -n "$macos_latex_row" ]] || fail "the capability manifest has no latex/macos row"
+IFS=$'\t' read -r _ _ _ macos_flag _ _ _ macos_provider _ _ _ _ macos_docs _ macos_status \
+  <<<"$macos_latex_row"
+[[ "$macos_status" == unsupported ]] ||
+  fail "latex/macos claims status $macos_status while no macOS TeX provider exists"
+[[ "$macos_provider" == user-managed ]] ||
+  fail "latex/macos must name its absence owner, found provider $macos_provider"
+[[ "$macos_flag" == - ]] ||
+  fail "latex/macos must declare no CLI flag, found $macos_flag"
+[[ "$macos_docs" == docs/macos.md* ]] ||
+  fail "latex/macos must point at the macOS ownership documentation"
+
+# The generated support table is what a reader consults; it must show the owner.
+matrix_latex_row="$(grep -E '^\| .latex. \|' "$repo_root/docs/capability-matrix.md")"
+[[ "$matrix_latex_row" == *'— user-managed'* ]] ||
+  fail "the generated matrix does not show the user-managed LaTeX absence"
+
+# An unimplemented flag must be refused with an actionable message, never
+# accepted and never reported as a generic unknown option.
+macos_installer_output="$("$repo_root/install.sh" --platform macos --latex 2>&1 || true)"
+case "$macos_installer_output" in
+*"not a macOS option"*"externally managed on macOS"*) ;;
+*) fail "macOS installer does not explain why --latex is unavailable: $macos_installer_output" ;;
+esac
+case "$macos_installer_output" in
+*"Unknown option"*) fail "macOS installer treats --latex as an unrecognized option" ;;
+esac
+macos_help="$("$repo_root/install.sh" --platform macos --help 2>&1)"
+case "$macos_help" in
+*--latex*) fail "macOS help advertises --latex, which the installer does not implement" ;;
+esac
+
+# The documented ownership answers must actually be in the documentation.
+macos_docs_file="$repo_root/docs/macos.md"
+assert_contains "$macos_docs_file" 'LaTeX is externally managed on macOS'
+assert_contains "$macos_docs_file" 'latexmk'
+assert_contains "$macos_docs_file" 'Mason, from the shared'
+assert_contains "$macos_docs_file" 'macOS itself, through'
+
+# The smoke runner distinguishes an expected absence from a broken install.
+dev_workflows="$repo_root/scripts/test-dev-workflows.sh"
+assert_contains "$dev_workflows" 'install_lifecycle_capability_selected latex'
+assert_contains "$dev_workflows" 'TeX is externally managed on macOS'
+
 printf 'Optional LaTeX ownership and workflow configuration passed.\n'

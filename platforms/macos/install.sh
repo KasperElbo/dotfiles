@@ -24,6 +24,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/install-actions.sh"
 
 theme=macchiato; install_ocaml=false; install_containers=false
 install_tailscale=false; apply_defaults=true; run_dev_workflows=false
+install_ai=false
+# Empty means the sub-flag was omitted. common/install-ai.sh treats that as
+# additive -- keep whatever is already installed -- so it must stay
+# distinguishable from an explicit --no-<component> removal request.
+ai_codex=''; ai_firstmate=''; ai_gnhf=''; ai_backpass=''
 interactive=true; dry_run=false
 
 usage() {
@@ -39,8 +44,18 @@ while (($#)); do
   --tailscale) install_tailscale=true; shift ;; --no-tailscale) install_tailscale=false; shift ;;
   --defaults) apply_defaults=true; shift ;; --no-defaults) apply_defaults=false; shift ;;
   --dev-workflows) run_dev_workflows=true; shift ;; --no-dev-workflows) run_dev_workflows=false; shift ;;
+  --ai) install_ai=true; shift ;; --no-ai) install_ai=false; shift ;;
+  --codex) ai_codex=true; shift ;; --no-codex) ai_codex=false; shift ;;
+  --firstmate) ai_firstmate=true; shift ;; --no-firstmate) ai_firstmate=false; shift ;;
+  --gnhf) ai_gnhf=true; shift ;; --no-gnhf) ai_gnhf=false; shift ;;
+  --backpass) ai_backpass=true; shift ;; --no-backpass) ai_backpass=false; shift ;;
   --workflows) warn '--workflows is deprecated; use --dev-workflows instead.'; run_dev_workflows=true; shift ;;
   --no-workflows) warn '--no-workflows is deprecated; use --no-dev-workflows instead.'; run_dev_workflows=false; shift ;;
+  --latex | --no-latex)
+    die "$1 is not a macOS option: this installer owns no TeX distribution.
+TeX is externally managed on macOS -- install MacTeX or BasicTeX yourself.
+See docs/macos.md, 'LaTeX is externally managed on macOS'."
+    ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
   --rerun) die '--rerun is owned by the root installer: run ./install.sh --rerun instead.' ;;
@@ -49,6 +64,56 @@ while (($#)); do
   esac
 done
 case "$theme" in latte | frappe | macchiato | mocha) ;; *) die "Invalid Catppuccin flavour: $theme" ;; esac
+[[ -z "$ai_codex" || "$install_ai" == true ]] || die '--codex/--no-codex requires --ai'
+[[ -z "$ai_firstmate" || "$install_ai" == true ]] || die '--firstmate/--no-firstmate requires --ai'
+[[ -z "$ai_gnhf" || "$install_ai" == true ]] || die '--gnhf/--no-gnhf requires --ai'
+[[ -z "$ai_backpass" || "$install_ai" == true ]] || die '--backpass/--no-backpass requires --ai'
+
+# One unsupported optional component must reject exactly its own sub-flag, not
+# the whole AI profile. The capability manifest is the authority on what this
+# platform actually implements, so a component demoted there stops being
+# installable here without any second list to keep in sync. A --no-<component>
+# removal stays available regardless, so an unsupported component can still be
+# cleaned up.
+macos_require_implemented_capability() {
+  local flag="$1" capability="$2" status
+  status="$(capability_field macos "$capability" status 2>/dev/null || printf 'undeclared')"
+  [[ "$status" != implemented ]] || return 0
+  die "$flag is not supported on Apple Silicon macOS.
+config/capabilities.tsv declares the '$capability' capability '$status' for
+macos, and this installer will not pretend to install it. The rest of the AI
+profile is unaffected: rerun without $flag.
+See docs/macos.md, 'AI-assisted development toolchain'."
+}
+if [[ "$install_ai" == true ]]; then
+  macos_require_implemented_capability --ai ai
+  [[ "$ai_codex" != true ]] || macos_require_implemented_capability --codex codex
+  [[ "$ai_firstmate" != true ]] || macos_require_implemented_capability --firstmate firstmate
+  [[ "$ai_gnhf" != true ]] || macos_require_implemented_capability --gnhf gnhf
+  [[ "$ai_backpass" != true ]] || macos_require_implemented_capability --backpass backpass
+fi
+
+# The selected capability set is resolved once and reused by preflight, the
+# lifecycle record, and the rerun hint, so those three can never disagree.
+macos_selected_capabilities() {
+  local selection
+  printf '%s\n' base dotnet-debug
+  for selection in "$install_ocaml:ocaml" "$install_containers:containers" \
+    "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" \
+    "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
+    [[ "${selection%%:*}" != true ]] || printf '%s\n' "${selection#*:}"
+  done
+}
+
+# The note the plan and dry-run show for the AI step, and the exact argument
+# vector apply_ai passes, are built from one function so a dry-run can never
+# describe a different command than the one that runs.
+macos_ai_args() {
+  case "$ai_codex" in true) printf '%s\n' --codex ;; false) printf '%s\n' --no-codex ;; esac
+  case "$ai_firstmate" in true) printf '%s\n' --firstmate ;; false) printf '%s\n' --no-firstmate ;; esac
+  case "$ai_gnhf" in true) printf '%s\n' --gnhf ;; false) printf '%s\n' --no-gnhf ;; esac
+  case "$ai_backpass" in true) printf '%s\n' --backpass ;; false) printf '%s\n' --no-backpass ;; esac
+}
 
 # The resolved persistent configuration of this run; transient controls
 # (--dry-run, --non-interactive, --dev-workflows) are deliberately excluded.
@@ -58,6 +123,14 @@ install_selection_set ocaml "$install_ocaml"
 install_selection_set containers "$install_containers"
 install_selection_set tailscale "$install_tailscale"
 install_selection_set defaults "$apply_defaults"
+install_selection_set ai "$install_ai"
+# Tristates: an omitted AI sub-flag is remembered as "inherit", so a rerun
+# reproduces the additive request the user actually made rather than hardening
+# it into an install or a removal.
+install_selection_set codex "${ai_codex:-inherit}"
+install_selection_set firstmate "${ai_firstmate:-inherit}"
+install_selection_set gnhf "${ai_gnhf:-inherit}"
+install_selection_set backpass "${ai_backpass:-inherit}"
 install_selection="$(install_selection_serialize)"
 
 preflight_macos() {
@@ -71,11 +144,9 @@ preflight_macos() {
   fi
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
-  local specs=() spec
-  local selected=(base dotnet-debug)
-  [[ "$install_ocaml" != true ]] || selected+=(ocaml)
-  [[ "$install_containers" != true ]] || selected+=(containers)
-  [[ "$install_tailscale" != true ]] || selected+=(tailscale)
+  local specs=() spec capability
+  local selected=()
+  while IFS= read -r capability; do selected+=("$capability"); done < <(macos_selected_capabilities)
   capability_validate_selection macos "${selected[@]}"
   while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs macos "${selected[@]}")
   preflight_stow_packages "${specs[@]}"
@@ -93,6 +164,12 @@ apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
 apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh"; }
 apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
 apply_ocaml() { "$DOTFILES_ROOT/common/install-ocaml.sh"; }
+apply_ai() {
+  local args=() argument
+  while IFS= read -r argument; do args+=("$argument"); done < <(macos_ai_args)
+  [[ "$interactive" == true ]] || args+=(--non-interactive)
+  "$DOTFILES_ROOT/common/install-ai.sh" "${args[@]}"
+}
 apply_macos_defaults() { "$DOTFILES_ROOT/platforms/macos/scripts/apply-defaults.sh"; }
 apply_dev_workflows() { local args=(--all); [[ "$install_ocaml" != true ]] || args+=(--ocaml); "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" "${args[@]}"; }
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
@@ -111,6 +188,14 @@ plan_add mise 'Install mise-managed runtimes' apply : apply_mise : 'common/insta
 plan_add nvim 'Restore LazyVim and Mason tools' apply : apply_nvim : 'common/install-neovim-tools.sh'
 plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
 [[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and platform tools' apply : apply_ocaml : 'common/install-ocaml.sh'
+if [[ "$install_ai" == true ]]; then
+  # After mise: the shared installer resolves every AI tool through the mise
+  # environment this platform has just activated, so macOS adds no Homebrew or
+  # global-npm copy of anything.
+  ai_note='common/install-ai.sh'
+  while IFS= read -r ai_argument; do ai_note+=" $ai_argument"; done < <(macos_ai_args)
+  plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$ai_note"
+fi
 [[ "$apply_defaults" != true ]] || plan_add defaults 'Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults' apply : apply_macos_defaults : 'platforms/macos/scripts/apply-defaults.sh'
 if [[ "$run_dev_workflows" == true ]]; then
   dev_workflows_note='scripts/test-dev-workflows.sh --all'; [[ "$install_ocaml" != true ]] || dev_workflows_note+=' --ocaml'
@@ -132,7 +217,11 @@ OCaml profile:      $install_ocaml
 Containers profile: $install_containers
 Tailscale profile:  $install_tailscale
 Development workflow smoke tests: $run_dev_workflows  (this run only)
-AI tooling profile: unavailable until repository issue #16 lands
+AI tooling profile: $install_ai
+AI Codex subcomponent:     ${ai_codex:-inherit}
+AI FirstMate subcomponent: ${ai_firstmate:-inherit}
+AI GNHF subcomponent:      ${ai_gnhf:-inherit}
+AI backpass subcomponent:  ${ai_backpass:-inherit}
 Recorded rerun selection: $install_selection
 
 EOF
@@ -148,10 +237,8 @@ if [[ "$interactive" == true ]]; then
   fi
 fi
 plan_preflight
-capabilities=base,dotnet-debug
-[[ "$install_ocaml" != true ]] || capabilities+=,ocaml
-[[ "$install_containers" != true ]] || capabilities+=,containers
-[[ "$install_tailscale" != true ]] || capabilities+=,tailscale
+capabilities=''
+while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(macos_selected_capabilities)
 DOTFILES_RERUN_COMMAND='./install.sh --platform macos --non-interactive'
 install_lifecycle_begin macos "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else

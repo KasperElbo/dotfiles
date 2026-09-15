@@ -222,3 +222,47 @@ install_remembered_load() {
   # shellcheck disable=SC2034
   INSTALL_REMEMBERED_AT="${recorded_at:-unknown}"
 }
+
+# ---------------------------------------------------------------------------
+# Resolved selection
+#
+# The install state records two capability sets: what the run was asked for and
+# what it finished. A verifier must consult the authoritative one for the run it
+# is describing, so that the same check works during an install (status
+# applying, observed still pending) and long after it (status installed).
+# ---------------------------------------------------------------------------
+
+install_lifecycle_resolved_capabilities() {
+  local path observed requested
+  path="$(install_state_path)"
+  [[ -f "$path" ]] || return 1
+  profile_state_validate_file "$path" install >/dev/null 2>&1 || return 1
+  observed="$(profile_state_read "$path" observed_capabilities install 2>/dev/null || true)"
+  requested="$(profile_state_read "$path" requested_capabilities install 2>/dev/null || true)"
+  case "$observed" in
+  pending | partial | '') printf '%s\n' "$requested" ;;
+  *) printf '%s\n' "$observed" ;;
+  esac
+}
+
+# 0 selected, 1 not selected, 2 no readable install state. The third answer is
+# deliberately distinct: "this machine never recorded an installation" is not
+# the same claim as "this capability was not chosen".
+install_lifecycle_capability_selected() {
+  local wanted="$1" capabilities entry
+  local -a entries=()
+
+  capabilities="$(install_lifecycle_resolved_capabilities)" || return 2
+  IFS=, read -r -a entries <<<"$capabilities"
+  for entry in ${entries[@]+"${entries[@]}"}; do
+    [[ "$entry" != "$wanted" ]] || return 0
+  done
+  return 1
+}
+
+install_lifecycle_platform() {
+  local path
+  path="$(install_state_path)"
+  [[ -f "$path" ]] || return 1
+  profile_state_read "$path" platform install 2>/dev/null
+}
