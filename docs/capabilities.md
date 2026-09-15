@@ -51,6 +51,23 @@ The manifest is declarative ownership metadata. It deliberately does not
 generate package-manager commands or replace the independently useful
 component installers.
 
+## Verifiers must name what they verify
+
+A row that names a verifier promises a check. `./scripts/validate-capabilities.py`
+therefore requires every `implemented` row whose verifier is a platform
+`platforms/<platform>/scripts/verify.sh` to mention that capability in the
+file; `base` is exempt, because a platform verifier is about the baseline from
+its first line. Where the section that performs the check does not name the
+capability in its own code, mark it with a one-line `# verifies: <capability>`
+comment in the section header. Separators are normalized when the file is
+searched, so `dotnet-debug` is also satisfied by `check_easy_dotnet_debugger`.
+
+The check is deliberately shallow: it cannot prove a check is correct, only
+that a verifier declared for a capability says something about it. A verifier
+that never mentions the capability it is declared for verifies nothing, and a
+selected profile then passes verification unconditionally — which is exactly
+what the README's "what is not verified is said to be not verified" forbids.
+
 ## Fedora command-provider closure
 
 `config/fedora-command-providers.tsv` closes the narrower bootstrap boundary

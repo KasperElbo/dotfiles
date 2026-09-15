@@ -20,6 +20,9 @@ The verifier checks:
 - expected Mason editor tooling and warnings for untracked Mason packages
 - Neovim startup/version
 - optional opam switch, compiler, and OCaml Platform tools
+- optional LaTeX toolchain when the `latex` capability was selected (`biber`,
+  `latex`, `latexindent`, `latexmk`, `lualatex`, `pdflatex`, `xelatex`), and a
+  warning when TeX is present without it
 - Catppuccin tmux installation/version
 - optional ASUS hardware profile, drivers, services, and Secure Boot state
 - optional Fedora VM-host backend, KVM, libvirt, network, and storage validation

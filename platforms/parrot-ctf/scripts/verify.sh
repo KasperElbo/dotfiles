@@ -299,6 +299,11 @@ else
   fail "Bat is missing Catppuccin themes: ${missing_bat_themes[*]}"
 fi
 
+# verifies: vm-guest
+#
+# The Parrot CTF profile owns the guest agents that config/capabilities.tsv
+# records as the vm-guest capability on this platform; the marker says so in
+# the spelling scripts/validate-capabilities.py checks for.
 check_system_service_active qemu-guest-agent.service
 check_system_service_active spice-vdagentd.socket
 

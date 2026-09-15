@@ -24,6 +24,11 @@ FIELDS = [
     "verifier", "state", "docs", "provenance", "status",
 ]
 PLATFORMS = {"fedora", "fedora-wsl", "macos", "parrot-ctf"}
+PLATFORM_VERIFIER = re.compile(r"^platforms/[^/]+/scripts/verify\.sh$")
+# A platform verifier is the baseline capability from its first line, so
+# requiring it to name "base" would only add noise. Every other capability it
+# is declared for must be findable in the file.
+VERIFIER_MENTION_EXEMPT = {"base"}
 
 OPTION_MANIFEST = pathlib.Path(
     os.environ.get("INSTALL_OPTION_MANIFEST", ROOT / "config" / "install-options.tsv")
@@ -125,6 +130,21 @@ def check_option_manifest(rows: list[dict[str, str]]) -> int:
     return errors
 
 
+def verifier_mentions(path: pathlib.Path, capability: str) -> bool:
+    """Does this verifier say anywhere that it checks `capability`?
+
+    A section that names the capability in its code or comments already says
+    so; where the name does not appear naturally, the section carries a
+    one-line `# verifies: <capability>` marker (see docs/capabilities.md).
+    Both spellings are found by the same search: separators are normalized, so
+    `dotnet-debug` is found in `check_easy_dotnet_debugger`, and a trailing
+    suffix is allowed while a leading one is not, so `latex` is not satisfied
+    by an unrelated `foolatex`.
+    """
+    text = re.sub(r"[^a-z0-9]+", "-", path.read_text(encoding="utf-8").lower())
+    return re.search(rf"(?:^|-){re.escape(capability.lower())}", text) is not None
+
+
 def main() -> int:
     errors = 0
     with MANIFEST.open(newline="", encoding="utf-8") as stream:
@@ -159,6 +179,18 @@ def main() -> int:
                     errors += 1
             if not (ROOT / row["verifier"]).is_file():
                 fail(f"line {line}: verifier does not exist: {row['verifier']}")
+                errors += 1
+            elif (
+                PLATFORM_VERIFIER.match(row["verifier"])
+                and row["capability"] not in VERIFIER_MENTION_EXEMPT
+                and not verifier_mentions(ROOT / row["verifier"], row["capability"])
+            ):
+                fail(
+                    f"line {line}: verifier {row['verifier']} never mentions "
+                    f"{row['capability']}, the capability it is declared for; "
+                    f"add the check, or mark the section that performs it with "
+                    f"'# verifies: {row['capability']}'"
+                )
                 errors += 1
             for package in split(row["stow"]):
                 portable = ROOT / package
