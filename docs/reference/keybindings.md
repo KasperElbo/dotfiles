@@ -6,18 +6,21 @@ actually useful while working on the machine, not every upstream keybinding
 each tool ships with.
 
 The complete, exhaustive table below is generated from `config/actions.tsv`,
-the canonical registry of every action this repository defines. Every binding
-and command this repository defines is in that table and nowhere else on this
-page: the prose around it is hand-written and covers only what a table cannot —
-what to reach for, which tool's own help to prefer over any static list, and
-what this repository deliberately does not configure.
+the canonical registry of every action this repository defines. Every binding,
+alias and command this repository defines lives in that one generated table and
+nowhere else on this page. The prose around it is hand-written and covers only
+what a table cannot: what to reach for, which tool's own help to prefer over any
+static list, and what this repository deliberately does not configure. It does
+not restate the table, because two hand-maintained copies of the same row is how
+a reference starts lying.
 
 It is deliberately larger than any printable sheet. The per-profile
 [cheat sheets](../cheatsheets/) are a curated subset sized for one or two
 printed A4 pages, written in their own LaTeX source (`common-workflow.tex`
-holds the shared block each workstation sheet `\input`s). This page and that
-source are separate artifacts with separate jobs: completeness here, a page
-budget there.
+holds the shared block every sheet `\input`s). This page and that source are
+separate artifacts with separate jobs: completeness here, a page budget
+there — but both are checked against `config/actions.tsv`, so neither can
+quietly describe a binding the configuration no longer has.
 
 Where this repository does not configure something, that is stated explicitly
 below, so an upstream default is never confused for a dotfiles binding.
@@ -51,9 +54,11 @@ Linux/Wayland, `Cmd+C/V` on macOS.
 
 ## Zsh
 
-`zsh/.zshenv` and `zsh/.config/zsh/.zshrc` are the tracked startup files. The
-aliases, functions and line-editing keys they define are in the generated table
-below, under `zsh`.
+`zsh/.zshenv` and `zsh/.config/zsh/.zshrc` are the tracked startup files.
+Their aliases, functions and key bindings are in the generated table below,
+under `zsh`. Typing a directory name on its own changes into it (`AUTO_CD`),
+and `#` starts an interactive comment so a documented command can be pasted
+with its notes intact.
 
 `theme` accepts `latte`, `frappe`, `macchiato`, or `mocha`, plus an optional
 `--preserve-wallpaper` flag. It updates tmux, Ghostty/Noctty, Starship,
@@ -67,8 +72,9 @@ anything.
 `Up`/`Down` use Zsh's `up-line-or-beginning-search` and
 `down-line-or-beginning-search`: with text already typed they walk only the
 history entries starting with it, and on an empty line they behave like plain
-history navigation. `Ctrl+R` is untouched, and stays fzf's — prefix search and
-fuzzy search are complementary, not alternatives.
+history navigation. `Ctrl-R` keeps fzf's own binding — prefix search and
+fuzzy search are complementary, not alternatives — but this repository does
+give it a preview pane, so it is `upstream-configured` rather than untouched.
 
 Each of these keys is bound to the sequence `terminfo` reports **and** to the
 documented xterm, application-cursor and vt220/rxvt fallbacks, because the
@@ -134,15 +140,16 @@ load-dependent.
 
 ## fzf
 
-The shared `.zshrc` sources `fzf --zsh` and only sets
-`FZF_CTRL_R_OPTS` (a preview pane); it does not rebind any key. The three
-default shell-integration bindings in the table below are therefore unmodified
-upstream defaults, confirmed against this config rather than assumed.
+The shared `.zshrc` sources `fzf --zsh` and does not rebind any key, so
+`Ctrl-T` and `Alt-C` are unmodified upstream defaults, confirmed against this
+config rather than assumed. `Ctrl-R` is the exception: the key is fzf's, but
+`FZF_CTRL_R_OPTS` gives it a bat-rendered preview pane, a height and a layout,
+which is why the registry records it as `upstream-configured`.
 
 ## zoxide
 
-`eval "$(zoxide init zsh)"` is the only configuration; both subcommands in the
-table below are zoxide's own.
+`eval "$(zoxide init zsh)"` is the only configuration; `z` and `zi` are
+zoxide's own subcommands.
 
 ## tmux
 
@@ -151,34 +158,45 @@ table below are zoxide's own.
 numbering, mouse support, a longer status refresh, and Catppuccin styling.
 tmux is for persistence, long-running processes, and remote/SSH sessions ---
 Ghostty remains the local tab/split/zoom manager, so tmux does not duplicate
-that here. `Prefix ?` lists every key binding the running tmux actually has,
+that here. `Prefix ?` lists every binding the running tmux actually has,
 which is the list to trust; the table below carries the handful worth knowing
 by heart.
 
 ## LazyVim / Neovim
 
 `nvim-lazyvim/.config/nvim/lua/config/keymaps.lua` adds no repository keymaps
-of its own. The LazyVim defaults in the table below are the ones worth knowing
-by heart, verified against the pinned LazyVim commit in `lazy-lock.json`;
-`Space` + WhichKey is the primary way to discover the rest.
+of its own, so almost everything in the table below is LazyVim's own default
+(verified against the pinned LazyVim commit in `lazy-lock.json`). That is why
+`Space` + WhichKey is the primary way to discover the rest: it reads the
+keymap the running editor has, and this page cannot.
 
-Which LazyVim extras are enabled is decided by the `extras` list in
-`nvim-lazyvim/.config/nvim/lua/config/profile.lua`, one per Neovim profile —
-not by `lazyvim.json`, whose own `extras` array is deliberately empty so the
-tracked profile is the only thing that selects them. `dap.core` is in the
-workstation profile's list, and its bindings in that table were checked
-against LazyVim's current `dap/core.lua`, not assumed.
+`<leader>cf` is the one shared exception. Conform's formatter map is extended
+in `lua/plugins/formatting.lua` (CSharpier for C#, Prettier for Angular
+templates, Ruff for Python), so the key is LazyVim's and the result is partly
+ours.
+
+The enabled LazyVim extras are listed in
+`nvim-lazyvim/.config/nvim/lua/config/profile.lua`, per profile — not in
+`lazyvim.json`, whose `extras` array is deliberately empty because this
+repository selects them in Lua. The workstation profile enables `dap.core`,
+whose bindings were checked against LazyVim's current `dap/core.lua`, not
+assumed. The reduced `parrot-ctf` profile enables far fewer, and imports
+`lua/ctf_plugins` instead of `lua/plugins`: the Markdown table editing, LaTeX
+and .NET bindings below do not exist on that guest.
 
 ### Markdown
 
 The Markdown extra is enabled; Marksman, GFM rendering, and browser preview
 are LazyVim's own. `markdown.lua` disables the extra's global
 markdownlint-cli2/markdown-toc integrations (project-local formatting wins
-instead) and adds `table-nvim` for table editing; its full set of row and
-column operations sits under `<leader>m` in WhichKey and in the table below.
+instead) and adds `table-nvim` for table editing. Its bindings are all under
+`<leader>m`, which WhichKey shows as a `markdown` group, and they are in the
+generated table below under the workstation platforms.
 
-On Fedora WSL, `gx` and preview URLs route through `wsl-open` to the Windows
-browser.
+`gd` (follow an internal link through Marksman), `gx` (open the URL under the
+cursor), `<leader>cp` (browser preview) and `<leader>um` (in-buffer rendering)
+are the extra's own. On Fedora WSL, `gx` and preview URLs route through
+`wsl-open` to the Windows browser.
 
 ### LaTeX
 
@@ -188,11 +206,15 @@ and `--latex` is rejected, but the bindings below work once you install MacTeX
 or BasicTeX yourself. VimTeX owns compilation, PDF viewing,
 and build-log errors; TexLab owns completion, navigation, diagnostics, and
 formatting (its own build/ChkTeX-on-save are disabled to avoid duplicating
-VimTeX). Bindings use the local leader `\`, shown under `\l` via WhichKey and
-listed in the table below.
+VimTeX). Bindings use the local leader `\`, shown under `\l` via WhichKey, and
+are in the generated table below; `<leader>cf` formats through TexLab and
+`latexindent` like any other buffer.
 
-`\lv` uses Okular (forward/inverse SyncTeX) on Fedora KDE, `wsl-open` on
-Fedora WSL, and macOS's `open` (no SyncTeX) elsewhere. See
+`\lv` picks its viewer per platform: `wsl-open` on Fedora WSL and macOS's own
+`open` (no SyncTeX) on macOS, both set by that platform's Neovim overlay. On
+Fedora the shared `latex.lua` uses Okular when it is installed, for forward and
+inverse SyncTeX, and falls back to `xdg-open` when it is not — which is what a
+Sway machine gets, since `install-latex.sh` does not install Okular. See
 [the LaTeX guide](../workflows/latex.md) for the full editing-workflow writeup.
 
 ## Lazygit
@@ -213,13 +235,15 @@ single portable command for switching the active Catppuccin flavour
 Ghostty/Noctty, tmux and `delta` — and so Git's own diffs — re-read it
 directly; Starship, bat, Lazygit and fzf are selected from it when Zsh starts,
 and Neovim reads `~/.config/dotfiles/theme` when it starts, so those three
-groups follow in shells and editor instances opened afterwards.
+groups follow in shells and editor instances opened afterwards. Ghostty picks a
+changed flavour up on a full restart rather than a config reload.
 
 Platform-specific hooks under `~/.config/dotfiles/theme-hooks.d/` extend it:
 the Fedora hook additionally re-themes KDE/Sway/Waybar and the flavour-matched
 wallpaper; the Fedora WSL hook updates Noctty's managed config through Windows
 PowerShell. There is no macOS theme hook, so `theme` there only changes the
-terminal/editor/CLI tooling above, not system appearance. Wallpaper and `--preserve-wallpaper` are
+terminal/editor/CLI tooling above, not system appearance. Wallpaper and
+`--preserve-wallpaper` are
 Fedora-desktop concepts: on Fedora WSL, macOS and the Parrot guest there is no
 repository-managed wallpaper to preserve.
 
@@ -233,12 +257,14 @@ The shell re-exec belongs to the Zsh wrapper, not to the command; see
 
 ## Complete action reference
 
-Every action this repository defines or deliberately puts in front of you: 137 entries, grouped by the platform they exist on.
+Every action this repository defines or deliberately puts in front of you: 154 entries, grouped by the platform they exist on.
 
 **Origin** is the distinction that matters when something behaves unexpectedly.
 `repository` means this repository binds it, and the `Source` column says where.
 `upstream` means the tool ships it and installing that tool is all this
-repository did — report those upstream, not here.
+repository did — report those upstream, not here. `upstream-configured` is the
+middle case: the key is the tool's own, but this repository changed what it does,
+so the `Source` column applies and a surprise may well be ours.
 
 **Print** says whether the action is on a printable cheat sheet. The sheets are
 curated to one or two A4 pages per profile, so `no` is a deliberate editorial
@@ -252,7 +278,7 @@ choice with a recorded reason, never an omission.
 |---|---|---|---|---|---|---|---|
 | `Alt+C` | Fuzzy cd into a directory | key | upstream | `base` | the tool's own help | yes | — |
 | `Ctrl+T` | Fuzzy file selection | key | upstream | `base` | the tool's own help | yes | — |
-| `Ctrl+R` | Fuzzy history search | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+R` | Fuzzy history search | key | upstream-configured | `base` | the tool's own help | yes | `zsh/.config/zsh/.zshrc` |
 
 #### lazygit
 
@@ -274,7 +300,7 @@ choice with a recorded reason, never an omission.
 | `]d / [d` | Next / previous diagnostic | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>xx` | Diagnostics list (Trouble) | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>ff` | Find files | key | upstream | `base` | WhichKey | yes | — |
-| `<lead>cf` | Format buffer | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>cf` | Format buffer | key | upstream-configured | `base` | WhichKey | yes | `nvim-lazyvim/.config/nvim/lua/plugins/formatting.lua` |
 | `gd / gr` | Go to definition / references | key | upstream | `base` | WhichKey | yes | — |
 | `K` | Hover documentation | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>gg` | Open Lazygit | key | upstream | `base` | WhichKey | yes | — |
@@ -282,28 +308,6 @@ choice with a recorded reason, never an omission.
 | `<lead>cr` | Rename symbol | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>ft` | Floating terminal | key | upstream | `base` | WhichKey | yes | — |
 | `Space` | WhichKey menu | key | upstream | `base` | WhichKey | yes | — |
-| `<leader>td` | EasyDotnet: debug the nearest test | key | repository | `dotnet-debug` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
-| `<leader>tt` | EasyDotnet: run the tests in this file | key | repository | `dotnet-debug` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
-| `<leader>tr` | EasyDotnet: run the nearest test | key | repository | `dotnet-debug` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
-| `<localleader>ll` | VimTeX: compile continuously | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
-| `<localleader>le` | VimTeX: build errors | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
-| `<localleader>li` | VimTeX: project info | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
-| `<localleader>lo` | VimTeX: compiler output | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
-| `<localleader>lt` | VimTeX: document table of contents | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
-| `<localleader>lv` | VimTeX: view the PDF / forward search | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
-| `<leader>md` | table-nvim: delete the column | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>m` | WhichKey group: markdown | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mC` | table-nvim: insert a column to the left | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mc` | table-nvim: insert a column to the right | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mr` | table-nvim: insert a row below | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mK` | table-nvim: insert a row above | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mt` | table-nvim: insert a table | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mh` | table-nvim: move the column left | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>ml` | table-nvim: move the column right | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mj` | table-nvim: move the row down | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mk` | table-nvim: move the row up | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<M-l>` | table-nvim: next table cell | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<M-h>` | table-nvim: previous table cell | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
 
 #### theme
 
@@ -317,6 +321,8 @@ choice with a recorded reason, never an omission.
 |---|---|---|---|---|---|---|---|
 | `Prefix [` | Scroll / copy mode | key | upstream | `base` | the tool's own help | yes | — |
 | `Prefix ?` | List every tmux key binding | key | upstream | `base` | the tool's own help | yes | — |
+| `Mouse scroll / click` | Scroll a pane's history and select panes and windows with the mouse | mouse | repository | `base` | the tool's own help | yes | `tmux/.tmux.conf` |
+| `Prefix 1..9` | Windows and panes are numbered from 1, matching the digits on the keyboard | mode | repository | `base` | the tool's own help | no | `tmux/.tmux.conf` |
 | `Prefix s` | Choose a session | key | upstream | `base` | the tool's own help | yes | — |
 | `Prefix d` | Detach from the session | key | upstream | `base` | the tool's own help | yes | — |
 | `tmux new -As X` | Create or attach session X | command | upstream | `base` | the tool's own help | yes | — |
@@ -344,8 +350,44 @@ choice with a recorded reason, never an omission.
 | `tar A.tar.gz P...` | Create an archive, compression chosen from the suffix | command | repository | `base` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
 | `theme <flavour>` | Zsh wrapper that re-execs the shell after a successful or partial theme change | command | repository | `base` | documentation only | no | `zsh/.config/zsh/.zshrc` |
 | `untar A.tar.gz` | Extract an archive | command | repository | `base` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
+| `<directory>` | Typing a directory name on its own changes into it (AUTO_CD) | mode | repository | `base` | the tracked config | no | `zsh/.config/zsh/.zshrc` |
+
+### Every workstation platform
+
+#### neovim
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `<leader>td` | EasyDotnet: debug the nearest test | key | repository | `dotnet-debug` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
+| `<leader>tt` | EasyDotnet: run the tests in this file | key | repository | `dotnet-debug` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
+| `<leader>tr` | EasyDotnet: run the nearest test | key | repository | `dotnet-debug` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
+| `<localleader>ll` | VimTeX: compile continuously | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<localleader>le` | VimTeX: build errors | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<localleader>li` | VimTeX: project info | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<localleader>lo` | VimTeX: compiler output | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<localleader>lt` | VimTeX: document table of contents | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<localleader>lv` | VimTeX: view the PDF / forward search | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<leader>md` | table-nvim: delete the column | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>m` | WhichKey group: markdown | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mC` | table-nvim: insert a column to the left | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mc` | table-nvim: insert a column to the right | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mr` | table-nvim: insert a row below | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mK` | table-nvim: insert a row above | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mt` | table-nvim: insert a table | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mh` | table-nvim: move the column left | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>ml` | table-nvim: move the column right | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mj` | table-nvim: move the row down | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mk` | table-nvim: move the row up | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<M-l>` | table-nvim: next table cell | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<M-h>` | table-nvim: previous table cell | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
 
 ### Fedora workstation
+
+#### installer
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `verify.sh` | Validate the installed Fedora workstation profile and its capabilities | command | repository | `base` | documentation only | no | `platforms/fedora/scripts/verify.sh` |
 
 #### kde
 
@@ -380,10 +422,15 @@ choice with a recorded reason, never an omission.
 | `Enter, Esc` | Resize mode: return to the default mode | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Shift+Print` | Save the whole output to ~/Pictures/Screenshots | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Print, Super+Shift+S` | Select a region and annotate it (sway-screenshot) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `cliphist store` | Clipboard watchers Sway starts for text and images, which are what the history picker lists | session | repository | `sway` | the tracked config | no | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Shift+E` | Exit-session confirmation (swaynag) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `swayidle` | Idle watcher Sway starts: lock at 10 minutes, blank the outputs at 15, and lock before sleep | session | repository | `sway` | the tracked config | no | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Shift+X` | Lock the session (swaylock) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `mako` | Notification daemon Sway starts, configured from the tracked mako.conf | session | repository | `sway` | the tracked config | no | `platforms/fedora/stow/sway/.config/sway/config` |
+| `lxqt-policykit-agent` | Authentication agent Sway starts, so a graphical privilege prompt has somewhere to appear | session | repository | `sway` | the tracked config | no | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Shift+R` | Reload the Sway configuration | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
-| `sway-session-start` | Session wrapper Sway's desktop entry launches (environment, Waybar, wallpaper) | command | repository | `sway` | the tracked config | no | `platforms/fedora/stow/sway/.local/bin/sway-session-start` |
+| `sway-session-start` | Session wrapper Sway execs at startup: the sway-systemd session, a portal restart and XDG autostart | session | repository | `sway` | the tracked config | no | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Drag / Right-drag` | Move a floating window with the left button held, resize it with the right | mouse | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+F` | Toggle fullscreen | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Shift+C` | Kill the focused window | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Ctrl+H/J/K/L` | Move through the wrapping 3x3 workspace grid (sway-workspace-grid) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
@@ -405,6 +452,7 @@ choice with a recorded reason, never an omission.
 | `Waybar layout click` | Switch between the US and Danish keyboard layouts | click | repository | `sway` | the status bar itself | yes | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
 | `Click: network module` | Open nm-connection-editor | click | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
 | `power-profile-status` | Status module showing the active asusd/power-profiles-daemon profile | command | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
+| `Waybar workspace scroll` | Deliberately disabled, so a stray scroll over the bar cannot change workspace | mouse | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
 
 #### zsh
 
@@ -413,6 +461,19 @@ choice with a recorded reason, never an omission.
 | `x-copy` | Copy standard input to the X11 clipboard inside an explicit Fedora VM guest | command | repository | `vm-guest` | documentation only | no | `platforms/fedora/stow/zsh-platform/.config/zsh/platform.zsh` |
 
 ### Fedora on WSL
+
+#### installer
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `verify.sh` | Validate the installed Fedora WSL profile and its Windows interoperability | command | repository | `base` | documentation only | no | `platforms/fedora-wsl/scripts/verify.sh` |
+
+#### neovim
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `"+y / "+p` | Yank to and put from the Windows clipboard, through wsl-copy and wsl-paste | key | repository | `base` | documentation only | no | `platforms/fedora-wsl/stow/nvim-wsl/.config/nvim/lua/plugins/wsl.lua` |
+| `gx` | Open the URL under the cursor, the Markdown preview and the built PDF with their Windows handler, through wsl-open | key | repository | `base` | documentation only | no | `platforms/fedora-wsl/stow/nvim-wsl/.config/nvim/lua/plugins/wsl.lua` |
 
 #### noctty
 
@@ -454,6 +515,12 @@ choice with a recorded reason, never an omission.
 | `Ctrl+Opt+Shift+1..9` | Move the focused window to workspace 1-9 | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
 | `Control+Option+1..9` | Switch to workspace 1-9 | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
 
+#### installer
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `verify.sh` | Validate the installed macOS profile and its managed defaults | command | repository | `base` | documentation only | no | `platforms/macos/scripts/verify.sh` |
+
 #### macos
 
 | Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
@@ -462,7 +529,20 @@ choice with a recorded reason, never an omission.
 | `Cmd+Shift+3/4/5` | Full / region / toolbar screenshot | key | upstream | `base` | the tool's own help | yes | — |
 | `Command+Space` | Native Spotlight | key | upstream | `base` | the tool's own help | yes | — |
 
+#### neovim
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `<localleader>lv` | VimTeX opens the built PDF with macOS's own open, which has no SyncTeX | key | repository | `latex` | WhichKey | no | `platforms/macos/stow/nvim-macos/.config/nvim/lua/plugins/macos.lua` |
+
 ### Parrot Security Edition CTF guest
+
+#### command-shims
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `bat` | Debian's batcat under the name every other platform uses | command | repository | `ctf-guest` | documentation only | yes | `platforms/parrot-ctf/stow/command-shims/.local/bin/bat` |
+| `fd` | Debian's fdfind under the name every other platform uses | command | repository | `ctf-guest` | documentation only | yes | `platforms/parrot-ctf/stow/command-shims/.local/bin/fd` |
 
 #### installer
 
@@ -483,12 +563,15 @@ choice with a recorded reason, never an omission.
 
 ### Why an action is not on a printable sheet
 
-31 of the 137 registered actions are deliberately kept off every sheet:
+44 of the 154 registered actions are deliberately kept off every sheet:
 
 | Action | Reason |
 |---|---|
 | `aerospace.layout.toggle-split` | The Sway analogue of Super+E; AeroSpace's own layout keys above cover the same need and the sheet keeps its Layout block to four rows |
+| `fedora-wsl.verify` | The workstation sheets are a desktop and shell reference; the platform guide is where an installer-time command belongs |
+| `fedora.verify` | The workstation sheets are a desktop and shell reference; the platform guide is where an installer-time command belongs |
 | `fedora.x-copy` | Only present inside the optional VM-guest profile; the workstation sheets would advertise a command most machines do not have |
+| `macos.verify` | The workstation sheets are a desktop and shell reference; the platform guide is where an installer-time command belongs |
 | `nvim.dotnet.debug-nearest` | Preserves LazyVim's own test keys in C# buffers, so it is discoverable exactly where a LazyVim user already looks |
 | `nvim.dotnet.run-file` | Preserves LazyVim's own test keys in C# buffers, so it is discoverable exactly where a LazyVim user already looks |
 | `nvim.dotnet.run-nearest` | Preserves LazyVim's own test keys in C# buffers, so it is discoverable exactly where a LazyVim user already looks |
@@ -498,6 +581,7 @@ choice with a recorded reason, never an omission.
 | `nvim.latex.output` | LaTeX editing is an optional profile; the workstation sheets stay a desktop and shell reference |
 | `nvim.latex.toc` | LaTeX editing is an optional profile; the workstation sheets stay a desktop and shell reference |
 | `nvim.latex.view` | LaTeX editing is an optional profile; the workstation sheets stay a desktop and shell reference |
+| `nvim.macos.latex-view` | LaTeX editing is an optional profile, and this row records a platform viewer rather than a different key |
 | `nvim.markdown.delete-column` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
 | `nvim.markdown.group` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
 | `nvim.markdown.insert-column-left` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
@@ -511,13 +595,47 @@ choice with a recorded reason, never an omission.
 | `nvim.markdown.move-row-up` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
 | `nvim.markdown.next-cell` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
 | `nvim.markdown.prev-cell` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.wsl.clipboard` | It gives Neovim's own clipboard registers a Windows provider rather than adding a key; the WSL sheet documents wsl-copy and wsl-paste |
+| `nvim.wsl.open` | It re-routes Neovim's own gx and preview rather than adding a key; the WSL sheet documents wsl-open once, for every caller |
 | `parrot.noglob` | A shell option rather than an invocable action; the Parrot sheet explains the policy in prose |
-| `sway.session.start` | Sway's desktop entry runs it at login; there is nothing for a user to invoke |
+| `sway.session.clipboard-watch` | A background session service Sway starts itself; the history picker it fills is registered separately |
+| `sway.session.idle` | A background session service Sway starts itself; the key that locks on demand is registered separately |
+| `sway.session.notifications` | A background session service Sway starts itself; the keys that dismiss and restore a notification are registered separately |
+| `sway.session.polkit` | A background session service Sway starts itself; there is nothing for a user to invoke |
+| `sway.session.start` | Sway's own config execs it at session startup; there is nothing for a user to invoke |
+| `tmux.option.numbering` | The numbering is visible in the status bar the moment tmux starts; the sheets' tmux block is for keys |
 | `waybar.audio.click` | Discoverable by clicking the module it sits on |
 | `waybar.bluetooth.click` | Discoverable by clicking the module it sits on |
 | `waybar.network.click` | Discoverable by clicking the module it sits on; the sheet documents only the layout click, which has no other entry point |
 | `waybar.power-profile.status` | A status display, not an action: there is nothing to invoke |
+| `waybar.workspaces.scroll` | It records a suppressed default rather than an action: there is nothing to press |
 | `zsh.function.theme-reexec` | The same user-facing command as zsh.command.theme; the re-exec is an implementation layer, documented in the theming guide |
+| `zsh.option.auto-cd` | A shell option rather than an invocable action; every sheet's shell block lists the commands and keys this repository adds |
+
+### Why a printed action is missing from a sheet it could appear on
+
+These 18 actions are printed somewhere, but not on every sheet whose platform has them. The registry records why, and `scripts/validate-actions.py` refuses a silent omission:
+
+| Action | Printed on | Reason |
+|---|---|---|
+| `lazygit.help` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: Lazygit is installed on the guest, but its Git workflow is the shared one and the sheet is a CTF operations reference |
+| `lazygit.open` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: Lazygit is installed on the guest, but its Git workflow is the shared one and the sheet is a CTF operations reference |
+| `lazyvim.buffer-cycle` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.buffers` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.code-action` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.dap-breakpoint` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.dap-continue` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.dap-ui` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.diagnostic-cycle` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.diagnostics` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.find-files` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.format` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.goto` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.hover` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.lazygit` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.live-grep` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.rename` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.terminal` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
 
 <!-- END GENERATED ACTION REFERENCE -->
 
@@ -530,6 +648,7 @@ desktop/runtime on top of everything above:
 - [Fedora Sway](../cheatsheets/fedora-sway.tex)
 - [Fedora WSL](../cheatsheets/fedora-wsl.tex)
 - [macOS (AeroSpace)](../cheatsheets/macos.tex)
+- [Parrot Security Edition CTF guest](../cheatsheets/parrot-ctf.tex)
 
 See [`cheatsheets/README.md`](../cheatsheets/README.md) for how to render them
 to PDF.

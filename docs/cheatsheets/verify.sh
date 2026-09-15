@@ -7,6 +7,8 @@
 # plain compile does not:
 #
 #   budget        each sheet stays within its declared page count, on A4
+#   orphan        the last page carries real content, not just the footer a
+#                 \vfill pushed onto a page of its own
 #   overflow      no overfull box wider than the tolerance below, which is
 #                 what clipped or bleeding content looks like in the log
 #   references    no undefined reference or citation
@@ -25,15 +27,20 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$script_dir"
 
-# sheet:maximum-pages. One page for a reduced profile, two where the shared
-# terminal/development block is included in full on its own page.
+# sheet:maximum-pages. One page wherever the profile's own material and the
+# shared terminal/development block fit together; two for the desktop sheets,
+# whose window-manager tables fill a page before the shared block starts.
 declare -A page_budget=(
   [fedora-kde]=1
   [fedora-sway]=2
-  [fedora-wsl]=2
+  [fedora-wsl]=1
   [macos]=2
   [parrot-ctf]=1
 )
+
+# A page with fewer extracted lines than this carries nothing but the footer
+# rule and its one sentence, which is a layout accident rather than a page.
+minimum_last_page_lines=12
 
 # An overfull box under this is normal LaTeX micro-typography; above it, content
 # is visibly outside the text block.
@@ -44,7 +51,7 @@ if (($# > 0)); then
   sheets=("$@")
 fi
 
-for tool in latexmk pdfinfo sha256sum; do
+for tool in latexmk pdfinfo pdftotext sha256sum; do
   command -v "$tool" >/dev/null 2>&1 || {
     printf 'ERROR: %s is required to verify the printable cheat sheets.\n' "$tool" >&2
     printf 'Fedora: sudo dnf install texlive-scheme-medium latexmk poppler-utils\n' >&2
@@ -90,6 +97,18 @@ for sheet in "${sheets[@]}"; do
     fail "$sheet renders $pages pages; the budget is $budget"
   else
     pass "$sheet: $pages page(s), budget $budget"
+  fi
+
+  # A sheet whose content ends exactly at a page boundary pushes its \csfoot
+  # onto a page of its own. That page is inside the budget and still wrong.
+  last_page_lines="$(
+    pdftotext -f "$pages" -l "$pages" "$sheet.pdf" - 2>/dev/null |
+      grep -c '[^[:space:]]' || true
+  )"
+  if ((last_page_lines < minimum_last_page_lines)); then
+    fail "$sheet page $pages carries only $last_page_lines line(s) -- an orphaned footer; use \\csfootflow inside the columns or trim a note"
+  else
+    pass "$sheet: page $pages carries real content, not just the footer"
   fi
 
   page_size="$(pdfinfo "$sheet.pdf" | sed -n 's/^Page size: *//p' | head -n 1)"

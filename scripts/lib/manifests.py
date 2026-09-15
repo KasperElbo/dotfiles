@@ -39,3 +39,32 @@ def supported_platforms(manifest: pathlib.Path | None = None) -> tuple[str, ...]
             if row["platform"] not in platforms:
                 platforms.append(row["platform"])
     return tuple(platforms)
+
+
+def platform_profiles(manifest: pathlib.Path | None = None) -> dict[str, str]:
+    """Each supported platform mapped to the profile its `base` row declares.
+
+    The registry of user actions uses the profile names on the right-hand side
+    as platform sentinels: an action recorded as `platform=workstation` exists
+    on every platform whose `base` row is a workstation, which today is every
+    platform except the reduced CTF guest.
+    """
+    path = manifest or CAPABILITY_MANIFEST
+    profiles: dict[str, str] = {}
+    with path.open(newline="", encoding="utf-8") as stream:
+        for row in csv.DictReader(stream, delimiter="\t"):
+            if row["capability"] != "base" or row["status"] != "implemented":
+                continue
+            profiles.setdefault(row["platform"], row["profile"])
+    return profiles
+
+
+def capability_names(manifest: pathlib.Path | None = None) -> tuple[str, ...]:
+    """Every capability name the manifest declares, in manifest order."""
+    path = manifest or CAPABILITY_MANIFEST
+    names: list[str] = []
+    with path.open(newline="", encoding="utf-8") as stream:
+        for row in csv.DictReader(stream, delimiter="\t"):
+            if row["capability"] not in names:
+                names.append(row["capability"])
+    return tuple(names)

@@ -18,21 +18,29 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import supported_platforms  # noqa: E402
+from manifests import platform_profiles, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "config" / "actions.tsv"
 
-# "all" is the registry's own sentinel for an action every platform carries; the
-# rest come from config/capabilities.tsv, so a new platform needs no edit here
-# beyond its human-authored title below.
-SECTION_PLATFORMS = ("all",) + supported_platforms()
+# "all" is the registry's own sentinel for an action every platform carries, and
+# a profile name is the sentinel for every platform whose `base` row declares
+# it. Both the profile names and the platforms come from
+# config/capabilities.tsv, so a new platform needs no edit here beyond its
+# human-authored title below.
+SECTION_PLATFORMS = (
+    ("all",)
+    + tuple(sorted(set(platform_profiles().values())))
+    + supported_platforms()
+)
 TARGET = ROOT / "docs" / "reference" / "keybindings.md"
 BEGIN = "<!-- BEGIN GENERATED ACTION REFERENCE -->"
 END = "<!-- END GENERATED ACTION REFERENCE -->"
 
 PLATFORM_TITLES = {
     "all": "Every platform",
+    "workstation": "Every workstation platform",
+    "ctf-guest": "Every CTF guest",
     "fedora": "Fedora workstation",
     "fedora-wsl": "Fedora on WSL",
     "macos": "Apple Silicon macOS",
@@ -70,7 +78,9 @@ def render() -> str:
         "**Origin** is the distinction that matters when something behaves unexpectedly.",
         "`repository` means this repository binds it, and the `Source` column says where.",
         "`upstream` means the tool ships it and installing that tool is all this",
-        "repository did — report those upstream, not here.",
+        "repository did — report those upstream, not here. `upstream-configured` is the",
+        "middle case: the key is the tool's own, but this repository changed what it does,",
+        "so the `Source` column applies and a surprise may well be ours.",
         "",
         "**Print** says whether the action is on a printable cheat sheet. The sheets are",
         "curated to one or two A4 pages per profile, so `no` is a deliberate editorial",
@@ -123,6 +133,24 @@ def render() -> str:
     lines.append("|---|---|")
     for row in sorted(excluded, key=lambda item: item["id"]):
         lines.append(f"| `{row['id']}` | {escape(row['print_reason'])} |")
+    lines.append("")
+
+    withheld = [
+        row for row in rows if row["print"] == "true" and row["print_reason"] != "-"
+    ]
+    lines.append("### Why a printed action is missing from a sheet it could appear on")
+    lines.append("")
+    lines.append(
+        f"These {len(withheld)} actions are printed somewhere, but not on every sheet whose "
+        "platform has them. The registry records why, and "
+        "`scripts/validate-actions.py` refuses a silent omission:"
+    )
+    lines.append("")
+    lines.append("| Action | Printed on | Reason |")
+    lines.append("|---|---|---|")
+    for row in sorted(withheld, key=lambda item: item["id"]):
+        sheets = ", ".join(f"`{sheet}`" for sheet in row["sheets"].split(","))
+        lines.append(f"| `{row['id']}` | {sheets} | {escape(row['print_reason'])} |")
     lines.append("")
     lines.append(END)
     return "\n".join(lines)

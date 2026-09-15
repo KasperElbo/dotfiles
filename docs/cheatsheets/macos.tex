@@ -73,12 +73,9 @@
 \end{cskeys}
 \csnote{Screenshot destination is managed to \textasciitilde/Pictures/Screenshots by the installer's deliberate defaults; the shortcuts themselves are unmodified macOS defaults.}
 
-\end{multicols}
-
-\clearpage
-\cssheettitle{macOS (AeroSpace, continued)}{Common terminal / development workflow --- shared with every profile}
-\begin{multicols}{2}
+\renewcommand{\cstermlegend}{\cslegend{\texttt{ghostty +list-keybinds --default} $\to$ exact tab/split/zoom/reload keys. Copy/paste: \texttt{Cmd+C/V}.}}
 \input{common-workflow}
+
 \end{multicols}
 \csfoot{Full keybindings reference: docs/reference/keybindings.md. AeroSpace config: platforms/macos/stow/aerospace, docs/platforms/macos.md \#6. Regenerate: docs/cheatsheets/generate.sh.}
 \end{document}
