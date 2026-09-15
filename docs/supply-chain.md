@@ -252,17 +252,37 @@ Failed to determine latest version
 ERROR: The Treehouse installer failed.
 ```
 
-The `macos` job in `.github/workflows/real-install.yml` therefore exports
-`GITHUB_TOKEN` (the workflow's own token) on the two steps that install the AI
-profile, which raises the limit to 5000 requests per hour.
+The `macos` job in `.github/workflows/real-install.yml` therefore exports the
+workflow's own token (as both `GITHUB_TOKEN` and `GH_TOKEN`) on the two steps
+that install the AI profile, which raises the limit to 5000 requests per hour.
 
-That is a deliberate exception to the rule below, and its boundaries are the
-reason it is acceptable: the token is scoped by `permissions: contents: read`,
-so it can read this repository and do nothing else; it exists only for the
-life of one CI job; and it is exported on exactly the two steps that run the
-staged installers, not job-wide. A real workstation install is unaffected —
-nothing here puts a token in a user's environment, and a user who hits the
-anonymous limit is hitting it on their own address.
+Exporting it is not enough on its own: which variable an upstream script reads
+is the upstream's choice, and these read neither. An install and a rerun a
+minute apart, both with `GITHUB_TOKEN` exported, resolved and then failed —
+which an authenticated caller's 5000 per hour cannot do. So `install-ai.sh`
+also offers the credential the one way `curl` scopes by host: a `netrc` in the
+staged installer's private `CURL_HOME` naming `api.github.com` and nothing
+else. Every other host the script contacts is sent no credential.
+
+The boundaries are the reason this is acceptable:
+
+- the token is scoped by `permissions: contents: read`, so it can read this
+  repository and do nothing else, and it exists for the life of one CI job;
+- it is exported on exactly the two steps that run the staged installers,
+  never job-wide;
+- offering it through `netrc` widens nothing — a token exported into a step is
+  already in the environment of every process that step runs, including these
+  scripts; this only makes it usable for the one request it was exported for;
+- the file is written `0600` inside the `0700` staging directory and is
+  deleted with it when the script returns.
+
+A real workstation install is unaffected. With no token in the environment the
+installer prepares nothing at all, so no credential file is ever created on a
+user's machine, and a user who hits the anonymous limit is hitting it on their
+own address. `tests/test-ai-profile.sh` holds both halves to that: with a token
+the staged installer is handed exactly one `netrc` entry, for that host, at
+that mode, in a directory that does not outlive the run; without one it is
+handed nothing.
 
 ## Secrets
 

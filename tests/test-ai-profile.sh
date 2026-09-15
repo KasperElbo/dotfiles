@@ -238,9 +238,38 @@ if [[ -n "${MOCK_CURL_GARBAGE_URL:-}" && "$url" == *"$MOCK_CURL_GARBAGE_URL"* ]]
   exit 0
 fi
 
+# What an upstream installer is handed. Recorded by the fixture because the
+# staging directory it lives in is deleted the moment the script returns, so
+# afterwards there is nothing left to inspect.
+emit_environment_report() {
+  printf 'report="$HOME/staged-%s-report"\n' "$1"
+  printf ': >"$report"\n'
+  printf 'printf "curl_home=%%s\\n" "${CURL_HOME:-unset}" >>"$report"\n'
+  printf 'if [ -f "${CURL_HOME:-/nonexistent}/netrc" ]; then\n'
+  # GNU first, then BSD, as elsewhere in this repository: GNU "stat -f" is
+  # filesystem status and succeeds, so a BSD-first probe never falls back.
+  printf '  printf "netrc_mode=%%s\\n" \\\n'
+  printf '    "$(stat -c %%a "$CURL_HOME/netrc" 2>/dev/null || stat -f %%Lp "$CURL_HOME/netrc")" >>"$report"\n'
+  # A verdict, never the value: the fixture compares against what the suite
+  # says it passed, so no secret-shaped string reaches a file or the log.
+  printf '  printf "netrc_hosts=%%s\\n" \\\n'
+  printf '    "$(awk "/^machine /{ printf \\"%%s \\", \\$2 }" "$CURL_HOME/netrc")" >>"$report"\n'
+  printf '  printf "netrc_lines=%%s\\n" "$(grep -c . "$CURL_HOME/netrc")" >>"$report"\n'
+  printf '  if grep -Fq -- "$MOCK_EXPECTED_SECRET" "$CURL_HOME/netrc"; then\n'
+  printf '    printf "netrc_value=as-passed\\n" >>"$report"\n'
+  printf '  else\n'
+  printf '    printf "netrc_value=mismatch\\n" >>"$report"\n'
+  printf '  fi\n'
+  printf '  if [ -f "$CURL_HOME/.curlrc" ]; then printf "curlrc=present\\n" >>"$report"; fi\n'
+  printf 'else\n'
+  printf '  printf "netrc=absent\\n" >>"$report"\n'
+  printf 'fi\n'
+}
+
 emit_installer() {
   {
     printf '#!/usr/bin/env sh\n'
+    emit_environment_report "$1"
     printf 'mkdir -p "$HOME/.local/bin"\n'
     printf 'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$HOME/.local/bin/%s"\n' "$1"
     printf 'chmod +x "$HOME/.local/bin/%s"\n' "$1"
@@ -797,6 +826,75 @@ assert_contains "$dangling_output" \
   'No Mistakes target does not resolve to an existing file'
 assert_file_not_contains "$dangling_home/.config/dotfiles/ai.conf" 'no_mistakes=installed'
 printf 'PASS: a launcher symlink with no binary behind it fails the component\n'
+
+# --- The API credential an upstream installer is offered --------------------
+#
+# These upstreams resolve their own latest release through api.github.com, and
+# read no token variable of their own, so a CI token in the environment is
+# useless to them and the install dies on an exhausted anonymous quota. The
+# installer offers it the one way curl scopes by host. What matters is the
+# scope: one host, one mode, and nothing left behind.
+
+credential_home="$test_root/credential-home"
+mkdir -p "$credential_home"
+credential_token='fixture-value-not-a-credential'
+if ! credential_output="$(env \
+  HOME="$credential_home" CODEX_HOME="$credential_home/.codex" \
+  XDG_CONFIG_HOME="$credential_home/.config" \
+  XDG_DATA_HOME="$credential_home/.local/share" \
+  XDG_STATE_HOME="$credential_home/.local/state" \
+  PATH="$mock_bin:$PATH" MISE_DATA_DIR="$mise_data" \
+  MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
+  FIRSTMATE_REPO_URL="$firstmate_origin" \
+  GITHUB_TOKEN="$credential_token" \
+  MOCK_EXPECTED_SECRET="$credential_token" \
+  "$repo_root/common/install-ai.sh" --firstmate 2>&1)"; then
+  printf '%s\n' "$credential_output" >&2
+  printf 'install-ai.sh failed with a token in the environment\n' >&2
+  exit 1
+fi
+
+credential_report="$credential_home/staged-treehouse-report"
+# One host and one line: every other host the script contacts is sent nothing.
+assert_file_contains "$credential_report" 'netrc_hosts=api.github.com '
+assert_file_contains "$credential_report" 'netrc_lines=1'
+assert_file_contains "$credential_report" 'netrc_value=as-passed'
+assert_file_contains "$credential_report" 'netrc_mode=600'
+assert_file_contains "$credential_report" 'curlrc=present'
+assert_contains "$credential_output" \
+  'Offering the GitHub API credential to Treehouse for api.github.com only'
+
+# The credential lives in the staging directory, which is deleted the moment
+# the installer returns -- so nothing on disk outlives the run that needed it.
+credential_staging="$(sed -n 's/^curl_home=//p' "$credential_report")"
+[[ -n "$credential_staging" && "$credential_staging" != unset ]] || {
+  printf 'the staged installer was given no CURL_HOME\n' >&2
+  exit 1
+}
+assert_path_missing "$credential_staging"
+printf 'PASS: a staged installer is offered the token for api.github.com only, in a directory that does not outlive it\n'
+
+# No token, nothing offered: a workstation install must not acquire a
+# credential file, or a mechanism that exists for CI would follow users home.
+plain_home="$test_root/plain-credential-home"
+mkdir -p "$plain_home"
+if ! env \
+  HOME="$plain_home" CODEX_HOME="$plain_home/.codex" \
+  XDG_CONFIG_HOME="$plain_home/.config" \
+  XDG_DATA_HOME="$plain_home/.local/share" \
+  XDG_STATE_HOME="$plain_home/.local/state" \
+  PATH="$mock_bin:$PATH" MISE_DATA_DIR="$mise_data" \
+  MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
+  FIRSTMATE_REPO_URL="$firstmate_origin" \
+  GITHUB_TOKEN='' GH_TOKEN='' \
+  "$repo_root/common/install-ai.sh" --firstmate >"$test_root/plain-credential.log" 2>&1; then
+  cat "$test_root/plain-credential.log" >&2
+  printf 'install-ai.sh failed without a token in the environment\n' >&2
+  exit 1
+fi
+assert_file_contains "$plain_home/staged-treehouse-report" 'netrc=absent'
+assert_file_not_contains "$test_root/plain-credential.log" 'Offering the GitHub API credential'
+printf 'PASS: with no token in the environment nothing is offered and nothing is written\n'
 
 # --- A failing download can never be masked by a successful consumer --------
 #
