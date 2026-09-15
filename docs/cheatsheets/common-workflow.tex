@@ -12,8 +12,24 @@ Ghostty owns tabs/splits/zoom locally; tmux does not duplicate this. Copy/paste 
 \csrow{tree}{eza --tree}
 \csrow{cat}{bat (syntax highlight)}
 \csrow{theme <f>}{switch Catppuccin flavour}
+\csrow{tar A.tar.gz P...}{create an archive from P...}
+\csrow{untar A.tar.gz}{extract an archive}
+\csrow{shell-integrations}{report optional tools this shell lacks}
 \end{cskeys}
 \csnote{<f> is one of latte, frappe, macchiato, mocha; add --preserve-wallpaper to keep the current desktop background.}
+\csnote{tar is a shorthand only when the first argument is an archive name; tar -tf, tar -xf, tar --help and command tar behave normally.}
+
+\cssection{Zsh line editing}
+\begin{cskeys}{0.25\linewidth}
+\csrow{Up / Down}{history entries matching the typed prefix}
+\csrow{Ctrl+R}{fuzzy history search (fzf)}
+\csrow{Tab}{open/select from the completion menu}
+\csrow{Home / End}{beginning / end of line}
+\csrow{Delete}{delete the character under the cursor}
+\csrow{Ctrl+Left / Right}{move one word backward / forward}
+\csrow{\#}{starts an interactive comment}
+\end{cskeys}
+\csnote{Bindings are taken from terminfo with xterm/application/vt220 fallbacks, so they work in Ghostty, Konsole, WSL, VM consoles, SSH and tmux.}
 
 \cssection{fzf (upstream defaults)}
 \begin{cskeys}{0.20\linewidth}

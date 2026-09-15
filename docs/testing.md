@@ -41,6 +41,43 @@ has logged and accepted an invocation, it executes an optional handler at
 shell changes or system/user service state; they do not widen the allow-list.
 This keeps command policy centralized while leaving domain fixtures auditable.
 
+### Shared shell startup and ergonomics
+
+`tests/test-shell-startup.sh` covers the shared Zsh profile (issues #157 and
+#168). It sources the tracked `zsh/.zshenv` and `zsh/.config/zsh/.zshrc` in a
+real `zsh -f` under a sandboxed HOME and asserts behavior, not configuration
+text:
+
+- sourcing startup three times leaves `PATH` byte-identical, with no duplicate
+  entries and `~/.local/bin` still in front, on its own and layered under the
+  Parrot and macOS platform PATH files;
+- macOS keeps Homebrew coreutils `gnubin` as the last entry;
+- a shell with none of zoxide/fzf/mise/Starship on `PATH` still starts, stays
+  silent, and reports the degradation only when `shell-integrations` is run;
+- `compinit` is called exactly once, still against the cached compdump, and no
+  platform file adds a second one;
+- `menu select`, `INTERACTIVE_COMMENTS` on, `CORRECT` off;
+- every editing/history key resolves to its intended widget under
+  `xterm-256color`, `xterm-ghostty`, `screen-256color`, `tmux-256color`,
+  `linux` and an unknown `TERM`, while plain `Left`/`Right` keep moving by
+  character and `Ctrl-R` stays fzf's;
+- `tar`/`untar` round-trip `.tar`, `.tar.gz`, `.tar.xz`, `.tgz` and `.txz`,
+  while `tar -tf`, `tar -xf`, `tar --help` and `command tar` keep native
+  behavior.
+
+Terminal escape sequences themselves cannot be exercised from a shell fixture:
+the suite asserts what each sequence is *bound* to, which is the part this
+repository controls. What still needs one manual pass per new terminal is that
+the terminal actually emits one of the bound sequences — press `Home`, `End`,
+`Delete`, `Ctrl+Left`, `Ctrl+Right` and prefix-filtered `Up`/`Down` once in
+that terminal.
+
+`./scripts/benchmark-shell-startup.sh` measures interactive and
+non-interactive startup and can enforce a budget with `--interactive-ms` /
+`--non-interactive-ms`. It is deliberately **not** in `./scripts/test.sh`:
+wall-clock timing is machine- and load-dependent, so a timing assertion in the
+fast suite would be a flaky gate rather than evidence.
+
 ### Supply-chain and transition suites
 
 Three suites carry the invariants from the AI/mise/supply-chain workstream:

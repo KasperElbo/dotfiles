@@ -24,7 +24,8 @@ The upstream files were identical for the behavior classified below.
 | Parrot prompt, terminal title and color setup | Generic/cosmetic | Excluded; Starship and Catppuccin own the prompt |
 | `ls`, `ll`, `la`, `l`, colored `grep` variants | Redundant or conflicting | Excluded; shared `eza`, `bat`, and shell conventions remain authoritative |
 | `em`, `_`, `_i`, `fucking`, `please`, `wget -c` | Surprising generic overrides | Excluded |
-| `tarnow`, `untar`, directory traversal aliases | Generic conveniences | Excluded from the Parrot layer; do not import Bash aliases wholesale |
+| `tarnow`, directory traversal aliases | Generic conveniences | Excluded from the Parrot layer; do not import Bash aliases wholesale |
+| `untar` (and a `tar` create shorthand) | Generic convenience | Not imported from Parrot Bash. The shared Zsh profile provides reviewed `tar`/`untar` helpers for every platform (issue #168); Parrot inherits them like any other profile rather than carrying its own |
 | `psmem`, `psmem10`, colored `man` wrapper | Generic conveniences | Excluded |
 | `hex-encode`, `hex-decode`, `rot13` | Useful CTF helpers | Preserved as explicit Zsh functions, backed by APT-owned `xxd`/`tr` |
 | Bash completion and `/etc/profile.d/*.sh` loading | Bash-only initialization | Excluded; Zsh completion and explicit platform hooks own this behavior |
@@ -52,6 +53,13 @@ when the target tool must always receive the exact bytes.
 The behavior is isolated to the Parrot profile in
 `platforms/parrot-ctf/stow/zsh-platform`; Fedora, WSL, and macOS retain normal
 Zsh `NOMATCH` behavior.
+
+The shared interactive ergonomics added by issue #168 — the completion menu,
+the prefix-history and editing keys, `INTERACTIVE_COMMENTS`, and the
+`tar`/`untar` helpers — do not touch globbing at all, and `platform.zsh` is
+still sourced last, so this decision remains the Parrot profile's own.
+`tests/test-shell-startup.sh` asserts that the shared helpers and bindings
+still behave once the Parrot platform file has unset `NOMATCH`.
 
 PATH policy runs earlier from `platform-env.zsh`, before shared startup
 activates mise. This keeps the distro security catalogue reachable without
