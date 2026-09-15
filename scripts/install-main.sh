@@ -136,11 +136,18 @@ if [[ "$rerun" == true && "$help_requested" != true ]]; then
   forwarded_args=("${remembered_args[@]}" "${transient_args[@]}")
 fi
 
+# The supported names are config/capabilities.tsv's implemented base rows,
+# read by column name (see common/lib/manifest.sh). A header that lacks a
+# column stops here, naming it, instead of reporting no supported platforms.
+# shellcheck source=../common/lib/manifest.sh
+source "$repo_root/common/lib/manifest.sh"
+supported_platform_rows="$(manifest_values \
+  "${CAPABILITY_MANIFEST:-$repo_root/config/capabilities.tsv}" platform \
+  capability base status implemented)" || exit 1
 supported_platform_names=()
 while IFS= read -r supported_platform_name; do
   supported_platform_names+=("$supported_platform_name")
-done < <(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
-  "$repo_root/config/capabilities.tsv" | sort -u)
+done < <(printf '%s\n' "$supported_platform_rows" | sed '/^$/d' | sort -u)
 supported_platforms="$(
   IFS='|'
   printf '%s' "${supported_platform_names[*]}"
@@ -153,9 +160,11 @@ for supported_platform_name in "${supported_platform_names[@]}"; do
   [[ "$supported_platform_name" != "$default_platform" ]] || entry+=" (default)"
   supported_platforms_sentence+="${supported_platforms_sentence:+, }$entry"
 done
-if ! awk -F '\t' -v platform="$platform" \
-  'NR > 1 && $1 == "base" && $2 == platform && $15 == "implemented" {found=1} END {exit !found}' \
-  "$repo_root/config/capabilities.tsv"; then
+platform_supported=false
+for supported_platform_name in "${supported_platform_names[@]}"; do
+  [[ "$supported_platform_name" != "$platform" ]] || platform_supported=true
+done
+if [[ "$platform_supported" != true ]]; then
   printf 'ERROR: Unsupported platform: %s (expected one of %s)\n' \
     "$platform" "$supported_platforms" >&2
   exit 1

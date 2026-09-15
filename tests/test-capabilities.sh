@@ -396,6 +396,26 @@ swap_columns() {
   CAPABILITY_MANIFEST="$fixture.status" expect_column_failure \
     'A selection check against a manifest without status' 'has no column: status' \
     capability_validate_selection fedora base
+  # Nor may a lost dependencies column read as "no dependencies".
+  sed '1s/\tdependencies\t/\tdeps\t/' "$repo_root/config/capabilities.tsv" >"$fixture.dependencies"
+  CAPABILITY_MANIFEST="$fixture.dependencies" expect_column_failure \
+    'A selection check against a manifest without dependencies' 'has no column: dependencies' \
+    capability_validate_selection fedora base
+
+  # The entry point resolves the platform from the same manifest by name: a
+  # moved status or capability column still finds fedora, and a lost column
+  # stops the installer naming it rather than listing no supported platforms.
+  swap_columns "$repo_root/config/capabilities.tsv" capability status >"$fixture.entry-swapped"
+  CAPABILITY_MANIFEST="$fixture.entry-swapped" "$repo_root/install.sh" --platform fedora --help \
+    >"$fixture.entry.out" 2>&1 || {
+    printf 'The installer entry point read a reordered capability manifest by position:\n' >&2
+    cat "$fixture.entry.out" >&2
+    exit 1
+  }
+  grep -Fq 'fedora (default)' "$fixture.entry.out"
+  CAPABILITY_MANIFEST="$fixture.status" expect_column_failure \
+    'The installer entry point against a manifest without status' 'has no column: status' \
+    "$repo_root/install.sh" --platform fedora --help
 
   swap_columns "$repo_root/config/install-options.tsv" on_flag off_flag >"$fixture.options-swapped"
   [[ "$(INSTALL_OPTION_MANIFEST="$fixture.options-swapped" install_option_field fedora kde on_flag)" == --kde &&

@@ -99,6 +99,21 @@ grep -Fq 'Stow conflict [theme-assets]' "$test_root/integration"
 assert_file_empty "$test_root/logs/dnf.log"
 [[ ! -e "$test_root/integration-state/dotfiles/install.conf" ]]
 grep -Fqx 'user-owned-late-conflict' "$integration_home/$late_relative"
+
+# The same late conflict against a manifest whose header lost the stow column
+# must stop preflight naming the column, not skip the conflict check and apply.
+sed '1s/\tstow\t/\tstow_packages\t/' "$repo_root/config/capabilities.tsv" >"$test_root/stow-renamed.tsv"
+if HOME="$integration_home" XDG_CONFIG_HOME="$integration_config" \
+  XDG_STATE_HOME="$test_root/stow-renamed-state" PATH="$mock_bin:$PATH" \
+  OS_RELEASE_FILE="$test_root/os-release" CAPABILITY_MANIFEST="$test_root/stow-renamed.tsv" \
+  "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
+  >"$test_root/stow-renamed" 2>&1; then
+  printf 'A capability manifest without a stow column unexpectedly passed preflight.\n' >&2; exit 1
+fi
+grep -Fq 'has no column: stow' "$test_root/stow-renamed"
+assert_file_empty "$test_root/logs/dnf.log"
+[[ ! -e "$test_root/stow-renamed-state/dotfiles/install.conf" ]]
+grep -Fqx 'user-owned-late-conflict' "$integration_home/$late_relative"
 printf 'Complete non-mutating Stow preflight passed.\n'
 
 # Each installer resolves its selected capability set in one function, read by

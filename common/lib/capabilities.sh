@@ -46,14 +46,14 @@ capability_validate_selection() {
     [[ "$status" == implemented ]] || {
       printf 'Capability %s is not implemented for %s.\n' "$capability" "$platform" >&2; return 1;
     }
-    values="$(capability_field "$platform" "$capability" dependencies)"
+    values="$(capability_field "$platform" "$capability" dependencies)" || return
     IFS=, read -r -a dependencies <<<"$values"
     for dependency in "${dependencies[@]}"; do
       [[ "$dependency" == - ]] || capability_is_selected "$dependency" "$@" || {
         printf 'Capability %s requires %s on %s.\n' "$capability" "$dependency" "$platform" >&2; return 1;
       }
     done
-    values="$(capability_field "$platform" "$capability" conflicts)"
+    values="$(capability_field "$platform" "$capability" conflicts)" || return
     IFS=, read -r -a conflicts <<<"$values"
     for conflict in "${conflicts[@]}"; do
       [[ "$conflict" == - ]] || ! capability_is_selected "$conflict" "$@" || {
@@ -68,7 +68,7 @@ capability_stow_specs() {
   local -a stow_packages=()
   shift
   for capability in "$@"; do
-    packages="$(capability_field "$platform" "$capability" stow)"
+    packages="$(capability_field "$platform" "$capability" stow)" || return
     [[ "$packages" != - ]] || continue
     IFS=, read -r -a stow_packages <<<"$packages"
     for package in "${stow_packages[@]}"; do
