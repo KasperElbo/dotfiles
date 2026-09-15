@@ -371,6 +371,7 @@ bootstrap_environment=(
   "XDG_DATA_HOME=$bootstrap_data"
   "XDG_CACHE_HOME=$bootstrap_cache"
   "OS_RELEASE_FILE=$test_root/os-release"
+  "DNF_REPO_DIR=$test_root/yum.repos.d"
   "QEMU_AGENT_CHANNEL=$virtio_ports/org.qemu.guest_agent.0"
   "SPICE_AGENT_CHANNEL=$virtio_ports/com.redhat.spice.0"
   "SHELL_STATE=$shell_state"
