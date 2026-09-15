@@ -183,7 +183,7 @@ restore_generated() {
   cp "$scratch/installer-options.md" "$options"
   cp "$scratch/verifiers.md" "$verifiers"
 }
-trap 'restore_generated; test_cleanup' EXIT INT TERM
+test_install_cleanup_trap restore_generated
 
 printf '\nAn edit the manifest does not justify.\n' >>"$matrix"
 run_capture python3 "$repo_root/scripts/render-capability-matrix.py" --check
@@ -211,7 +211,7 @@ restore_manifest() {
   cp "$manifest_copy" "$repo_root/config/install-options.tsv"
   restore_generated
 }
-trap 'restore_manifest; test_cleanup' EXIT INT TERM
+test_install_cleanup_trap restore_manifest
 
 printf 'fedora\tinvented\tboolean\t--invented\t--no-invented\tfalse\t-\t-\tAn option that was added without regenerating docs\n' \
   >>"$repo_root/config/install-options.tsv"
@@ -227,7 +227,7 @@ restore_capabilities() {
   cp "$capabilities_copy" "$repo_root/config/capabilities.tsv"
   restore_manifest
 }
-trap 'restore_capabilities; test_cleanup' EXIT INT TERM
+test_install_cleanup_trap restore_capabilities
 
 python3 - "$repo_root/config/capabilities.tsv" <<'PYTHON'
 import pathlib, sys
@@ -338,7 +338,7 @@ restore_mason() {
     "$repo_root/docs/architecture/package-ownership.md"
   restore_capabilities
 }
-trap 'restore_mason; test_cleanup' EXIT INT TERM
+test_install_cleanup_trap restore_mason
 
 printf 'an-invented-language-server\n' \
   >>"$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt"
@@ -355,7 +355,7 @@ restore_stow() {
   cp "$spliced_scratch/file-ownership.md" "$repo_root/docs/architecture/file-ownership.md"
   restore_mason
 }
-trap 'restore_stow; test_cleanup' EXIT INT TERM
+test_install_cleanup_trap restore_stow
 
 python3 - "$repo_root/platforms/macos/scripts/stow.sh" <<'PYTHON'
 import pathlib, sys
@@ -380,7 +380,7 @@ restore_installer() {
   cp "$spliced_scratch/installation.md" "$repo_root/docs/architecture/installation.md"
   restore_stow
 }
-trap 'restore_installer; test_cleanup' EXIT INT TERM
+test_install_cleanup_trap restore_installer
 
 python3 - "$repo_root/platforms/parrot-ctf/install.sh" <<'PYTHON'
 import pathlib, sys

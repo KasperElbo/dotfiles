@@ -123,6 +123,19 @@ VERIFY_CONFIGURED_LOGIN_PATH="$root/configured-login-bin"
 verify_reset
 check_mise_owned tool || true
 assert_verifier_counts 0 1 0
+
+# The current shell resolves through mise, but a fresh login would pick up a
+# non-mise duplicate first: that shadow must fail, not pass on the current PATH.
+printf '#!/usr/bin/env bash\nexit 0\n' >"$root/configured-login-bin/tool"
+chmod +x "$root/configured-login-bin/tool"
+VERIFY_CONFIGURED_LOGIN_PATH="$root/configured-login-bin:$root/mise-managed/bin"
+verify_reset
+check_mise_owned tool >"$root/login-shadow.out" 2>&1 || true
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/login-shadow.out" \
+  "tool resolves outside mise in the configured login PATH: $root/configured-login-bin/tool"
+rm -f "$root/configured-login-bin/tool"
+
 VERIFY_CONFIGURED_LOGIN_PATH=""
 verify_reset
 check_mise_owned tool || true

@@ -30,8 +30,11 @@ report() {
 
 check() {
   local description="$1"
+  local failures_before="$TEST_FAILURES"
   shift
-  if "$@"; then
+  # An assertion that failed inside a check fails it even if the check function
+  # still returned 0, so a PASS line never hides a TEST FAILURE.
+  if "$@" && ((TEST_FAILURES == failures_before)); then
     report pass "$description"
   else
     report fail "$description"

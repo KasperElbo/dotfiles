@@ -204,12 +204,14 @@ assert_failure
 assert_contains "$TEST_OUTPUT" 'Remembered option "quantum-foam" no longer exists'
 printf 'PASS: a removed or renamed remembered option fails instead of being ignored\n'
 
-added_record="${selection_b%,charge-limit:-}"
+# The record serializes in manifest order, so the newest Fedora option is last.
+last_option="$(install_option_names fedora | tail -n1)"
+added_record="${selection_b%,"$last_option":*}"
 [[ "$added_record" != "$selection_b" ]] || _test_die 'fixture did not drop a trailing option'
 record_success fedora base,dotnet-debug,ocaml "$added_record"
 run_capture "$repo_root/install.sh" --rerun --dry-run
 assert_success
-assert_contains "$TEST_OUTPUT" 'option --charge-limit was added after this configuration was recorded'
+assert_contains "$TEST_OUTPUT" "option --$last_option was added after this configuration was recorded"
 assert_contains "$TEST_OUTPUT" 'Battery limit:       unchanged'
 printf 'PASS: an option added after the record is reported, not silently dropped\n'
 

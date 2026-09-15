@@ -354,4 +354,16 @@ assert_file_not_contains "$repo_root/config/capabilities.tsv" \
   'parrot-ctf	ctf-guest	-	enabled	-	-	apt+upstream	-	-	theme-hooks'
 printf 'PASS: the Parrot profile installs no desktop theme hooks\n'
 
+# --- macOS owns no theme hooks either ----------------------------------------
+
+# docs/workflows/theming.md makes the same claim for macOS as for Parrot.
+macos_hooks="$repo_root/platforms/macos/stow/theme-hooks"
+[[ ! -e "$macos_hooks" ]] ||
+  _test_die 'macOS must not gain theme hooks; docs/workflows/theming.md says it installs none'
+macos_stow="$(awk -F '\t' '$1 == "base" && $2 == "macos" { print $10 }' \
+  "$repo_root/config/capabilities.tsv")"
+[[ -n "$macos_stow" ]] || _test_die 'no macOS base capability row with Stow packages'
+assert_not_contains ",$macos_stow," ',theme-hooks,'
+printf 'PASS: the macOS profile installs no theme hooks\n'
+
 printf 'Theme hook capability and failure-isolation tests passed.\n'

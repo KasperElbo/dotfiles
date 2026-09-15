@@ -80,6 +80,15 @@ has logged and accepted an invocation, it executes an optional handler at
 shell changes or system/user service state; they do not widen the allow-list.
 This keeps command policy centralized while leaving domain fixtures auditable.
 
+Every suite that sources the library calls `test_install_cleanup_trap` near the
+top. Its EXIT trap removes the test roots and fails the suite when any assertion
+failed, even if the suite runs without errexit or swallowed an assertion's
+status, so a `TEST FAILURE` line can never sit above a passing exit. Assertions
+still return 1, so errexit suites stop at the first failure. A suite that needs
+extra cleanup, such as restoring a tracked file a negative case edited in place,
+passes a function name to `test_install_cleanup_trap` instead of installing its
+own EXIT trap; `tests/test-test-support.sh` enforces both rules.
+
 ### Shared shell startup and ergonomics
 
 `tests/test-shell-startup.sh` covers the shared Zsh profile (issues #157 and
