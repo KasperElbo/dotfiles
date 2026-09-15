@@ -20,7 +20,7 @@ grep -Fq -- '--platform requires a value' "$test_root/empty"
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
 for accepted in y Y yes YES; do printf '%s\n' "$accepted" | confirm Continue n; done
-for rejected in n N no NO ''; do
+for rejected in n N no NO; do
   if printf '%s\n' "$rejected" | confirm Continue y; then
     printf 'Negative confirmation was accepted: %q\n' "$rejected" >&2; exit 1
   fi
@@ -29,6 +29,30 @@ if printf 'perhaps\n' | confirm Continue y 2>"$test_root/invalid"; then
   printf 'Invalid confirmation was accepted.\n' >&2; exit 1
 fi
 grep -Fq 'expected yes or no' "$test_root/invalid"
+
+# An empty answer is the declared default, and the rendered hint says which
+# one it is (#225, DOC-035): every caller that asks for "default yes" used to
+# be cancelled by pressing Enter.
+printf '\n' | confirm Continue y ||
+  { printf 'An empty answer did not take the "y" default.\n' >&2; exit 1; }
+if printf '\n' | confirm Continue n; then
+  printf 'An empty answer did not take the "n" default.\n' >&2; exit 1
+fi
+if printf '\n' | confirm Continue; then
+  printf 'An empty answer did not take the implicit "n" default.\n' >&2; exit 1
+fi
+default_yes_prompt="$(printf 'n\n' | confirm 'Continue' y 2>&1 || true)"
+assert_contains "$default_yes_prompt" '[Y/n]'
+default_no_prompt="$(printf 'y\n' | confirm 'Continue' n 2>&1 || true)"
+assert_contains "$default_no_prompt" '[y/N]'
+
+# A closed standard input is not an answer: the default must not be inherited
+# by a run nobody is watching.
+closed_stdin="$(confirm 'Continue' y <&- 2>&1 || true)"
+assert_contains "$closed_stdin" 'No answer is available on standard input'
+if confirm 'Continue' y <&- >/dev/null 2>&1; then
+  printf 'A closed standard input was accepted as a yes.\n' >&2; exit 1
+fi
 
 repeated="$("$repo_root/install.sh" --latex --no-latex --dry-run)"
 [[ "$repeated" != *'Install LaTeX'* ]]

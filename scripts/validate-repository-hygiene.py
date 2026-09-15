@@ -13,11 +13,16 @@ diff and expensive to notice later:
    the repository. The check never demands that a licence be chosen: an
    undecided repository is valid. It only requires that the page and the tree
    say the same thing.
-4. A reference to a repository *script* that no longer exists. Renaming one and
-   missing a caller leaves a path that reads as real in documentation, in a
-   comment, or in another script, and fails only when someone follows it.
-   ShellCheck already catches a broken `source` directive; this catches the
-   mentions it cannot see.
+4. A reference to a repository *script* that no longer exists, in any tracked
+   text file, and to a *documentation page* that no longer exists, in a script.
+   Renaming one and missing a caller leaves a path that reads as real in
+   documentation, in a comment, or in another script, and fails only when
+   someone follows it. ShellCheck already catches a broken `source` directive;
+   this catches the mentions it cannot see.
+5. A user-facing message that cites a README *section* by name. The README is
+   an index of `docs/`, not the place where a profile is documented, so a
+   quoted heading there is a pointer that either already rots or will: the
+   citation has to name the document that actually owns the subject.
 
 Usage:
     scripts/validate-repository-hygiene.py [--root DIR]
@@ -39,6 +44,17 @@ REFERENCE_SUFFIXES = (".sh", ".py", ".md", ".yml", ".yaml", ".tex", ".zsh", ".lu
 REPOSITORY_PATH = re.compile(
     r"(?<![\w./-])(?:common|scripts|platforms|tests)/[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:sh|py)"
 )
+# A documentation page named by a script. Checked only in scripts, where such a
+# path is this repository telling a user where to read: in prose, the same
+# shape routinely names an *upstream* project's own docs, which is exactly the
+# noise the narrow rule above avoids.
+DOCUMENTATION_PATH = re.compile(r"(?<![\w./-])docs/[A-Za-z0-9_][A-Za-z0-9_./-]*\.md")
+SCRIPT_SUFFIXES = (".sh", ".py")
+# A quoted README heading in a user-facing message: `README.md, "Something"`
+# and `README.md's "Something"`. Both forms shipped in this repository's
+# installer help and runtime hints, naming six headings the README no longer
+# had. The fix is always the same: cite the document that owns the subject.
+README_SECTION = re.compile(r"README\.md(?:,|'s)\s+[\"“]")
 # Placeholders in usage text, which name a shape rather than a file.
 REFERENCE_EXCEPTIONS = (
     "platforms/NAME/*",
@@ -155,8 +171,11 @@ def check_repository_references(root: pathlib.Path, problems: list[str]) -> None
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        patterns = [REPOSITORY_PATH]
+        if name.endswith(SCRIPT_SUFFIXES):
+            patterns.append(DOCUMENTATION_PATH)
         seen: set[str] = set()
-        for match in REPOSITORY_PATH.finditer(text):
+        for match in (found for pattern in patterns for found in pattern.finditer(text)):
             reference = match.group(0)
             if reference in seen:
                 continue
@@ -167,6 +186,36 @@ def check_repository_references(root: pathlib.Path, problems: list[str]) -> None
                 continue
             problems.append(
                 f"{name}: names a repository path that does not exist: {reference}"
+            )
+
+
+def check_readme_sections(root: pathlib.Path, problems: list[str]) -> None:
+    """No tracked shell file may cite a README section by name.
+
+    Only shell files are checked, because this is about what an installer
+    *says*: a Markdown page citing another page is an ordinary link, which
+    validate-docs.py already resolves against the target's headings.
+    """
+    try:
+        listing = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--", "*.sh"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return
+
+    for name in (entry for entry in listing.split("\0") if entry):
+        try:
+            lines = (root / name).read_text(encoding="utf-8").splitlines()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for number, line in enumerate(lines, start=1):
+            if not README_SECTION.search(line):
+                continue
+            problems.append(
+                f"{name}:{number}: cites a README section by name: {line.strip()}. "
+                "The README is an index of docs/; name the document that owns the "
+                "subject instead (for example docs/profiles/ai.md)."
             )
 
 
@@ -186,6 +235,7 @@ def main() -> int:
     check_third_party_notices(root, problems)
     check_license_decision(root, problems)
     check_repository_references(root, problems)
+    check_readme_sections(root, problems)
 
     for problem in problems:
         print(f"Repository hygiene: {problem}", file=sys.stderr)

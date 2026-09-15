@@ -147,4 +147,78 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "but no root licence file"
 printf 'PASS: deleting LICENSE while the page still claims MIT is rejected\n'
 
+# --- Messages must cite the document that owns the subject ------------------
+#
+# These two rules read the git index, so their fixture has to be a repository
+# of its own rather than the plain directory the rules above use.
+
+new_tracked_tree() {
+  new_clean_tree
+  tracked="$tree"
+  mkdir -p "$tracked/docs/profiles" "$tracked/scripts"
+  printf '# AI toolchain\n' >"$tracked/docs/profiles/ai.md"
+  git -C "$tracked" init -q
+}
+
+write_script() {
+  cat >"$tracked/scripts/install-thing.sh"
+  git -C "$tracked" add -A
+}
+
+new_tracked_tree
+write_script <<'EOF'
+#!/usr/bin/env bash
+printf 'see docs/profiles/ai.md for the manual steps\n'
+EOF
+run_capture python3 "$validator" --root "$tracked"
+assert_success
+printf 'PASS: a script citing a documentation page that exists is accepted\n'
+
+new_tracked_tree
+rm -- "$tracked/docs/profiles/ai.md"
+write_script <<'EOF'
+#!/usr/bin/env bash
+printf 'see docs/profiles/ai.md for the manual steps\n'
+EOF
+run_capture python3 "$validator" --root "$tracked"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'names a repository path that does not exist: docs/profiles/ai.md'
+printf 'PASS: a script naming a documentation page that does not exist is rejected\n'
+
+# Prose about an upstream project routinely names that project's own docs, so
+# the documentation rule deliberately stops at scripts. Every fixture citation
+# below is assembled at run time: spelled out here, it would be a violation in
+# this file, which the rules also govern.
+new_tracked_tree
+# shellcheck disable=SC2016 # Backticks are Markdown, not command substitution.
+printf 'Reads its own `docs/%s.md` for required tools.\n' configuration \
+  >"$tracked/docs/profiles/upstream.md"
+git -C "$tracked" add -A
+run_capture python3 "$validator" --root "$tracked"
+assert_success
+printf "PASS: prose naming an upstream project's own docs is left alone\n"
+
+readme='README.md'
+for separator in ',' "'s"; do
+  new_tracked_tree
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'echo %ssee %s%s "Optional: GNHF" first%s\n' "'" "$readme" "$separator" "'"
+  } | write_script
+  run_capture python3 "$validator" --root "$tracked"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" 'cites a README section by name'
+done
+printf 'PASS: a message citing a README section by name is rejected\n'
+
+# A plain mention of the README, with no section name, is not the defect.
+new_tracked_tree
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'echo %sthe index is %s%s\n' "'" "$readme" "'"
+} | write_script
+run_capture python3 "$validator" --root "$tracked"
+assert_success
+printf 'PASS: naming the README without quoting a section is accepted\n'
+
 printf '\nAll repository hygiene checks passed.\n'

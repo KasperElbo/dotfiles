@@ -46,7 +46,11 @@ TRANSIENT = [
     ("`--platform PLATFORM`", "Select the platform installer: `fedora` (default), `fedora-wsl`, `macos`, `parrot-ctf`."),
     ("`--rerun`", "Reapply this machine's last successful configuration. See [rerun.md](../workflows/rerun.md)."),
     ("`--dry-run`", "Resolve and print the plan; change nothing."),
-    ("`--non-interactive`", "Use defaults without prompting; requires cached sudo where sudo is needed."),
+    (
+        "`--non-interactive`",
+        "Never prompt; resolve every choice from the given options and their "
+        "defaults. Requires cached sudo (run `sudo -v` first) where the run needs it.",
+    ),
     ("`--dev-workflows`", "Run the disposable development-workflow smoke tests after installing."),
     ("`-h`, `--help`", "Print the platform installer's own help, which is authoritative for this checkout."),
 ]

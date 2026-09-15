@@ -344,6 +344,20 @@ printf 'PASS: persistent options agree with the capability manifest\n'
 # fixed './install.sh --platform <p> --non-interactive' would tell the user to
 # install the platform defaults rather than the machine they asked for.
 
+# Every platform renders it the same way. A hard-coded
+# './install.sh --platform <p> --non-interactive' used to send Fedora WSL and
+# Parrot users back to the platform defaults (#225, DOC-036).
+for platform in fedora fedora-wsl macos parrot-ctf; do
+  installer="$repo_root/platforms/$platform/install.sh"
+  grep -Fq "DOTFILES_RERUN_COMMAND=\"\$(install_lifecycle_rerun_command $platform \"\$install_selection\")\"" \
+    "$installer" ||
+    _test_die "$platform does not render its failure hint from the resolved selection"
+  if grep -Eq "DOTFILES_RERUN_COMMAND='|build_rerun_command" "$installer"; then
+    _test_die "$platform still hard-codes or hand-rolls its failure hint"
+  fi
+done
+printf 'PASS: every platform renders the failed-run hint from the shared selection\n'
+
 failed_selection="$(selection_of macos --theme mocha --ocaml --no-containers \
   --no-tailscale --defaults --ai --codex --no-gnhf)"
 failed_command="$(install_lifecycle_rerun_command macos "$failed_selection")"
