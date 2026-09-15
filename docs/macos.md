@@ -186,6 +186,25 @@ Homebrew owns only `opam` and native build prerequisites. The shared opam
 installer creates the same pinned switch and editor workflow used on Fedora;
 there is no second macOS OCaml environment.
 
+The macOS verifier runs the same shared `common/verify-ocaml.sh` as every other
+platform; there is no macOS-only OCaml check. It reads whether the profile was
+selected from the install lifecycle state, so it does not need a forwarded flag
+and reaches the same verdict whether it runs inside the installer or on its own
+later:
+
+- profile not selected and opam absent — pass, reported as not applicable;
+- profile selected and healthy — pass;
+- profile selected but missing or broken — fail.
+
+On a selected profile it proves that `opam` resolves inside the Homebrew prefix
+rather than merely answering on `PATH`, that the recorded switch exists and is
+the selected one, that the compiler inside it matches
+`~/.config/dotfiles/ocaml.conf` exactly (including an `OCAML_COMPILER_VERSION`
+override), that dune, `ocamlearlybird`, `ocamllsp`, OCamlFormat, and utop are
+installed in the switch, that opam's generated Zsh hook exists and parses, and
+that a throwaway program compiles and runs. Every command runs through
+`opam exec --switch`, so nothing here depends on restarting your login shell.
+
 ### Optional containers
 
 ```bash

@@ -209,6 +209,28 @@ else
   warning "AeroSpace CLI cannot reach the window manager; open it and grant Accessibility access"
 fi
 
+# ---------------------------------------------------------------------------
+# Optional OCaml profile
+#
+# Selection is read from the authoritative install/profile state rather than
+# forwarded as a flag, so a standalone verifier run reaches the same verdict as
+# one inside the installer, and an unselected profile is never failed for a
+# missing opam. The shared verifier is the only OCaml implementation; macOS
+# adds no second one.
+# ---------------------------------------------------------------------------
+
+section "Optional OCaml profile"
+
+# The platform, not the shared verifier, knows which prefix its native provider
+# owns. Passing it in keeps opam ownership provable without teaching portable
+# code about Homebrew.
+if DOTFILES_NATIVE_PREFIX="$("$(homebrew_path)" --prefix)" \
+  "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+  pass "OCaml profile verification completed"
+else
+  fail "OCaml profile verification failed"
+fi
+
 if [[ "$verify_defaults" == true ]]; then
   section "Managed macOS defaults"
   expected_defaults=(

@@ -4292,7 +4292,31 @@ OCAML_COMPILER_VERSION=5.4.1 ./install.sh --ocaml
 ```
 
 The version becomes a separate named opam switch. Existing switches are not
-deleted or overwritten.
+deleted or overwritten. The override round-trips: `ocaml.conf` records both the
+switch and the exact compiler, and verification fails if the switch, the
+recorded compiler, and the compiler actually inside the switch ever disagree.
+
+### What OCaml verification proves
+
+`common/verify-ocaml.sh` is the single OCaml verifier on every platform, and
+every platform verifier runs it. It reads whether the profile was selected from
+the install lifecycle state rather than from a forwarded flag, so it reaches
+three distinct verdicts:
+
+| Machine | Verdict |
+| --- | --- |
+| Profile not selected, opam absent | pass, reported as not applicable |
+| Profile selected and healthy | pass |
+| Profile selected and missing or broken | fail |
+
+When the profile is selected it proves that opam lives inside the platform's
+native package prefix rather than merely answering on `PATH`, that the recorded
+switch exists and is the selected one, that the compiler inside it is exactly
+the recorded version, that dune, `ocamlearlybird`, `ocamllsp`, OCamlFormat, and
+utop are present, that opam's generated Zsh hook exists and parses, and that a
+throwaway program compiles and runs. Every command runs through
+`opam exec --switch`, so the result never depends on restarting a login shell
+and is valid in the same process that just installed the profile.
 
 ## Project workflow
 

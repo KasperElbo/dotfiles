@@ -91,6 +91,7 @@ default_tests=(
   tests/test-markdown-workflow.sh
   tests/test-latex-profile.sh
   tests/test-ocaml-profile.sh
+  tests/test-ocaml-verification.sh
   tests/test-idempotency.sh
   tests/test-asus-preflight.sh
   tests/test-asus-verification.sh

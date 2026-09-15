@@ -229,4 +229,25 @@ if ((gnubin_line < inherited_line)); then
   exit 1
 fi
 
+# The macOS verifier must reach OCaml through the one shared verifier, and must
+# hand it the Homebrew prefix so opam ownership is provable rather than assumed
+# from a PATH hit. A macOS-only OCaml check would be a second implementation.
+macos_verifier="$macos_root/scripts/verify.sh"
+grep -Fq 'common/verify-ocaml.sh' "$macos_verifier" || {
+  printf 'macOS verifier does not run the shared OCaml verifier.\n' >&2
+  exit 1
+}
+grep -Fq 'DOTFILES_NATIVE_PREFIX=' "$macos_verifier" || {
+  printf 'macOS verifier does not pass its native prefix to the OCaml verifier.\n' >&2
+  exit 1
+}
+if grep -Eq 'opam (switch|exec|var)' "$macos_verifier"; then
+  printf 'macOS verifier duplicates OCaml checks instead of reusing the shared one.\n' >&2
+  exit 1
+fi
+if grep -Fq -- '--ocaml' "$macos_verifier"; then
+  printf 'macOS verifier takes a redundant --ocaml flag instead of reading state.\n' >&2
+  exit 1
+fi
+
 printf 'macOS profile configuration checks passed.\n'

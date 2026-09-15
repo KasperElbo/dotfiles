@@ -71,7 +71,9 @@ grep -Fxq \
   'install --switch dotfiles-ocaml-5.5.0 --yes dune earlybird ocaml-lsp-server ocamlformat utop' \
   "$command_log"
 
-"${test_environment[@]}" "$repo_root/common/verify-ocaml.sh" >/dev/null
+# This suite owns installation and idempotency. The verifier's own contract --
+# including running it in the same process immediately after this installer --
+# is covered by tests/test-ocaml-verification.sh against a fuller opam mock.
 "${test_environment[@]}" "$repo_root/common/install-ocaml.sh" >/dev/null
 
 [[ "$(grep -Fc 'switch create dotfiles-ocaml-5.5.0' "$command_log")" == 1 ]]
