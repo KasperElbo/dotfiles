@@ -72,9 +72,16 @@
 \csrow{Super+Shift+E}{Exit-session confirmation}
 \end{cskeys}
 
+\cssection{Theme}
+\begin{cskeys}{0.34\linewidth}
+\csrow{theme <f> --preserve-wallpaper}{Change flavour, keep the wallpaper}
+\end{cskeys}
+\csnote{Sway, Waybar, Fuzzel, Mako, swaylock and the cursor theme follow the flavour; the lock wallpaper always does.}
+
 \cssection{Keyboard layout}
 \begin{cskeys}{0.34\linewidth}
 \csrow{Super+Alt+K}{Switch US/Danish keyboard layout}
+\csrow{Waybar layout click}{Same switch, from the status bar}
 \end{cskeys}
 \csnote{Waybar's \texttt{sway/language} module shows the active code (\texttt{us} / \texttt{dk}) and switches layout when clicked. Applies to any keyboard connected after login (\texttt{xkb\_layout "us,dk"}).}
 

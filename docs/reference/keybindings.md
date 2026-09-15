@@ -5,6 +5,11 @@ workflow shared across every workstation profile. It documents what is
 actually useful while working on the machine, not every upstream keybinding
 each tool ships with.
 
+The complete, exhaustive table below is generated from `config/actions.tsv`,
+the canonical registry of every action this repository defines. The prose
+around it is hand-written: what to reach for, and which tool's own help to
+prefer over any static list.
+
 It is deliberately larger than any printable sheet. The per-profile
 [cheat sheets](../cheatsheets/) are a curated subset sized for one or two
 printed A4 pages, written in their own LaTeX source (`common-workflow.tex`
@@ -288,6 +293,301 @@ repository-managed wallpaper to preserve.
 
 The shell re-exec belongs to the Zsh wrapper, not to the command; see
 [which layer does what](../workflows/theming.md#which-layer-does-what).
+
+<!-- BEGIN GENERATED ACTION REFERENCE -->
+
+<!-- Generated from config/actions.tsv by scripts/render-action-reference.py.
+     Do not edit between these markers; edit the registry and regenerate. -->
+
+## Complete action reference
+
+Every action this repository defines or deliberately puts in front of you: 137 entries, grouped by the platform they exist on.
+
+**Origin** is the distinction that matters when something behaves unexpectedly.
+`repository` means this repository binds it, and the `Source` column says where.
+`upstream` means the tool ships it and installing that tool is all this
+repository did — report those upstream, not here.
+
+**Print** says whether the action is on a printable cheat sheet. The sheets are
+curated to one or two A4 pages per profile, so `no` is a deliberate editorial
+choice with a recorded reason, never an omission.
+
+### Every platform
+
+#### fzf
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `Alt+C` | Fuzzy cd into a directory | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+T` | Fuzzy file selection | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+R` | Fuzzy history search | key | upstream | `base` | the tool's own help | yes | — |
+
+#### lazygit
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `?` | Contextual key-binding help for the current panel | key | upstream | `base` | the tool's own help | yes | — |
+| `lazygit` | Open Lazygit from any Git repository | command | upstream | `base` | the tool's own help | yes | — |
+
+#### neovim
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `S-h/S-l` | Previous / next buffer | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>,` | Switch buffers | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>ca` | Code action | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>db` | Toggle breakpoint | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>dc` | Start / continue debugging | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>du` | Toggle the debug UI | key | upstream | `base` | WhichKey | yes | — |
+| `]d / [d` | Next / previous diagnostic | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>xx` | Diagnostics list (Trouble) | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>ff` | Find files | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>cf` | Format buffer | key | upstream | `base` | WhichKey | yes | — |
+| `gd / gr` | Go to definition / references | key | upstream | `base` | WhichKey | yes | — |
+| `K` | Hover documentation | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>gg` | Open Lazygit | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>/` | Live grep | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>cr` | Rename symbol | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>ft` | Floating terminal | key | upstream | `base` | WhichKey | yes | — |
+| `Space` | WhichKey menu | key | upstream | `base` | WhichKey | yes | — |
+| `<leader>td` | EasyDotnet: debug the nearest test | key | repository | `dotnet-debug` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
+| `<leader>tt` | EasyDotnet: run the tests in this file | key | repository | `dotnet-debug` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
+| `<leader>tr` | EasyDotnet: run the nearest test | key | repository | `dotnet-debug` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
+| `<localleader>ll` | VimTeX: compile continuously | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<localleader>le` | VimTeX: build errors | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<localleader>li` | VimTeX: project info | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<localleader>lo` | VimTeX: compiler output | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<localleader>lt` | VimTeX: document table of contents | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<localleader>lv` | VimTeX: view the PDF / forward search | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
+| `<leader>md` | table-nvim: delete the column | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>m` | WhichKey group: markdown | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mC` | table-nvim: insert a column to the left | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mc` | table-nvim: insert a column to the right | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mr` | table-nvim: insert a row below | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mK` | table-nvim: insert a row above | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mt` | table-nvim: insert a table | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mh` | table-nvim: move the column left | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>ml` | table-nvim: move the column right | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mj` | table-nvim: move the row down | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mk` | table-nvim: move the row up | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<M-l>` | table-nvim: next table cell | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<M-h>` | table-nvim: previous table cell | key | repository | `markdown` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+
+#### theme
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `theme <f>` | Switch the active Catppuccin flavour across the terminal, editor and CLI tools, plus the desktop where a hook is installed | command | repository | `base` | documentation only | yes | `bin/.local/bin/theme` |
+
+#### tmux
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `Prefix [` | Scroll / copy mode | key | upstream | `base` | the tool's own help | yes | — |
+| `Prefix ?` | List every tmux key binding | key | upstream | `base` | the tool's own help | yes | — |
+| `Prefix s` | Choose a session | key | upstream | `base` | the tool's own help | yes | — |
+| `Prefix d` | Detach from the session | key | upstream | `base` | the tool's own help | yes | — |
+| `tmux new -As X` | Create or attach session X | command | upstream | `base` | the tool's own help | yes | — |
+
+#### zoxide
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `z name / zi` | Jump to a ranked directory, or pick one interactively | command | upstream | `base` | the tool's own help | yes | — |
+
+#### zsh
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `cat` | bat, with syntax highlighting | command | repository | `base` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
+| `ls / ll / la` | eza: short / long with git status / all files | command | repository | `base` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
+| `tree` | eza --tree | command | repository | `base` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
+| `shell-integrations` | Report optional tooling this shell could not activate | command | repository | `base` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
+| `Tab` | Open and select from the completion menu | key | repository | `base` | the tracked config | yes | `zsh/.config/zsh/.zshrc` |
+| `Delete` | Delete the character under the cursor | key | repository | `base` | the tracked config | yes | `zsh/.config/zsh/.zshrc` |
+| `Up / Down` | History entries matching the typed prefix | key | repository | `base` | the tracked config | yes | `zsh/.config/zsh/.zshrc` |
+| `#` | Start an interactive comment | key | repository | `base` | the tracked config | yes | `zsh/.config/zsh/.zshrc` |
+| `Home / End` | Beginning / end of the command line | key | repository | `base` | the tracked config | yes | `zsh/.config/zsh/.zshrc` |
+| `Ctrl+Left / Right` | Move one word backward / forward | key | repository | `base` | the tracked config | yes | `zsh/.config/zsh/.zshrc` |
+| `tar A.tar.gz P...` | Create an archive, compression chosen from the suffix | command | repository | `base` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
+| `theme <flavour>` | Zsh wrapper that re-execs the shell after a successful or partial theme change | command | repository | `base` | documentation only | no | `zsh/.config/zsh/.zshrc` |
+| `untar A.tar.gz` | Extract an archive | command | repository | `base` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
+
+### Fedora workstation
+
+#### kde
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `Meta+Alt+K` | Plasma's own Switch to Next Keyboard Layout shortcut | key | upstream | `kde` | the tool's own help | yes | — |
+
+#### sway
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `Super+Shift+V` | Clipboard history picker (cliphist + Fuzzel) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+H/J/K/L` | Focus left/down/up/right | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Space` | Toggle focus between tiling and floating | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+A` | Focus the parent container | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Alt+K` | Switch between the US and Danish keyboard layouts | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+P` | Open Fuzzel (application launcher) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Enter` | Open Ghostty | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Shift+Space` | Toggle floating | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+B / Super+V` | Split horizontal / vertical | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+S / Super+W` | Stacking / tabbed layout | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+E` | Toggle split layout | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Bright Up/Down` | Adjust panel brightness by 5% (brightnessctl) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Mic Mute` | Toggle the default source (wpctl) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Play/Next/Prev` | Media control (playerctl) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Vol Up/Down/Mute` | Adjust or mute the default sink (wpctl) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+R` | Enter resize mode | mode | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Shift+H/J/K/L` | Move the focused container left/down/up/right | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+N` | Dismiss the current notification (Mako) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Shift+N` | Restore the last dismissed notification | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `H/J/K/L` | Resize mode: shrink width / grow height / shrink height / grow width | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Enter, Esc` | Resize mode: return to the default mode | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Shift+Print` | Save the whole output to ~/Pictures/Screenshots | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Print, Super+Shift+S` | Select a region and annotate it (sway-screenshot) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Shift+E` | Exit-session confirmation (swaynag) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Shift+X` | Lock the session (swaylock) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Shift+R` | Reload the Sway configuration | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `sway-session-start` | Session wrapper Sway's desktop entry launches (environment, Waybar, wallpaper) | command | repository | `sway` | the tracked config | no | `platforms/fedora/stow/sway/.local/bin/sway-session-start` |
+| `Super+F` | Toggle fullscreen | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Shift+C` | Kill the focused window | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Ctrl+H/J/K/L` | Move through the wrapping 3x3 workspace grid (sway-workspace-grid) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Shift+1..9` | Move the container to workspace 1-9 | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+1..9` | Switch to workspace 1-9 | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+
+#### theme
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `theme <f> --preserve-wallpaper` | Change the Catppuccin flavour while keeping the current desktop wallpaper (Fedora desktop only) | command | repository | `base` | documentation only | yes | `bin/.local/bin/theme` |
+
+#### waybar
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `Click: volume module` | Open pavucontrol | click | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
+| `Click: bluetooth module` | Open blueman-manager | click | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
+| `Waybar layout click` | Switch between the US and Danish keyboard layouts | click | repository | `sway` | the status bar itself | yes | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
+| `Click: network module` | Open nm-connection-editor | click | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
+| `power-profile-status` | Status module showing the active asusd/power-profiles-daemon profile | command | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
+
+#### zsh
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `x-copy` | Copy standard input to the X11 clipboard inside an explicit Fedora VM guest | command | repository | `vm-guest` | documentation only | no | `platforms/fedora/stow/zsh-platform/.config/zsh/platform.zsh` |
+
+### Fedora on WSL
+
+#### noctty
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `Ctrl+Shift+,` | Reload the Noctty configuration | key | upstream | `base` | the tool's own help | yes | — |
+
+#### wsl-interop
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `wsl-copy` | Send standard input to the Windows clipboard | command | repository | `base` | documentation only | yes | `platforms/fedora-wsl/stow/interop/.local/bin/wsl-copy` |
+| `wsl-open <url\|path> [...]` | Open existing Linux paths or supported URIs with their Windows handlers | command | repository | `base` | documentation only | yes | `platforms/fedora-wsl/stow/interop/.local/bin/wsl-open` |
+| `wsl-paste` | Write the Windows clipboard to standard output | command | repository | `base` | documentation only | yes | `platforms/fedora-wsl/stow/interop/.local/bin/wsl-paste` |
+
+### Apple Silicon macOS
+
+#### aerospace
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `Control+Option+Tab` | Focus the next display | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+Tab` | Move the focused window to the next display | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Cmd+Tab` | Move the whole workspace to the next display | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+H/J/K/L` | Focus left/down/up/right, across displays | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+Enter` | Open a new Ghostty window | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+S/W` | Vertical / horizontal accordion | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+Space` | Toggle floating/tiling | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+B/V` | Horizontal / vertical tiles | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+E` | Toggle horizontal/vertical tiles | key | repository | `base` | the tracked config | no | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+R` | Enter resize mode | mode | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+H/J/K/L` | Move the focused window left/down/up/right, across displays | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `H/J/K/L` | Resize mode: shrink or grow width and height | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Enter, Esc` | Resize mode: return to the main mode | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+R` | Reload the AeroSpace configuration | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+C` | Close the focused window | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+F` | Fullscreen within the current Space | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Cmd+H/J/K/L` | Move through the wrapping 3x3 workspace grid (aerospace-workspace-grid) | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+1..9` | Move the focused window to workspace 1-9 | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+1..9` | Switch to workspace 1-9 | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+
+#### macos
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `pbcopy / pbpaste` | Pipe to and from the system clipboard | command | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+Shift+3/4/5` | Full / region / toolbar screenshot | key | upstream | `base` | the tool's own help | yes | — |
+| `Command+Space` | Native Spotlight | key | upstream | `base` | the tool's own help | yes | — |
+
+### Parrot Security Edition CTF guest
+
+#### installer
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `verify.sh` | Validate the installed guest profile and its ownership boundary | command | repository | `ctf-guest` | documentation only | yes | `platforms/parrot-ctf/scripts/verify.sh` |
+
+#### zsh
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `hex-decode HEX` | Decode hexadecimal text | command | repository | `ctf-guest` | documentation only | yes | `platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh` |
+| `hex-encode TEXT` | Encode text as hexadecimal with xxd | command | repository | `ctf-guest` | documentation only | yes | `platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh` |
+| `exec zsh -l` | Start the installed login shell in the current terminal | command | upstream | `ctf-guest` | documentation only | yes | — |
+| `unsetopt NOMATCH` | Unmatched glob-looking arguments pass through to CTF tools instead of raising NOMATCH | mode | repository | `ctf-guest` | documentation only | no | `platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh` |
+| `rot13 TEXT` | Apply ROT13 | command | repository | `ctf-guest` | documentation only | yes | `platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh` |
+| `x-copy` | Copy standard input to the X11 clipboard | command | repository | `ctf-guest` | documentation only | yes | `platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh` |
+
+### Why an action is not on a printable sheet
+
+31 of the 137 registered actions are deliberately kept off every sheet:
+
+| Action | Reason |
+|---|---|
+| `aerospace.layout.toggle-split` | The Sway analogue of Super+E; AeroSpace's own layout keys above cover the same need and the sheet keeps its Layout block to four rows |
+| `fedora.x-copy` | Only present inside the optional VM-guest profile; the workstation sheets would advertise a command most machines do not have |
+| `nvim.dotnet.debug-nearest` | Preserves LazyVim's own test keys in C# buffers, so it is discoverable exactly where a LazyVim user already looks |
+| `nvim.dotnet.run-file` | Preserves LazyVim's own test keys in C# buffers, so it is discoverable exactly where a LazyVim user already looks |
+| `nvim.dotnet.run-nearest` | Preserves LazyVim's own test keys in C# buffers, so it is discoverable exactly where a LazyVim user already looks |
+| `nvim.latex.compile` | LaTeX editing is an optional profile; the workstation sheets stay a desktop and shell reference |
+| `nvim.latex.errors` | LaTeX editing is an optional profile; the workstation sheets stay a desktop and shell reference |
+| `nvim.latex.info` | LaTeX editing is an optional profile; the workstation sheets stay a desktop and shell reference |
+| `nvim.latex.output` | LaTeX editing is an optional profile; the workstation sheets stay a desktop and shell reference |
+| `nvim.latex.toc` | LaTeX editing is an optional profile; the workstation sheets stay a desktop and shell reference |
+| `nvim.latex.view` | LaTeX editing is an optional profile; the workstation sheets stay a desktop and shell reference |
+| `nvim.markdown.delete-column` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.group` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.insert-column-left` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.insert-column-right` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.insert-row-down` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.insert-row-up` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.insert-table` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.move-column-left` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.move-column-right` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.move-row-down` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.move-row-up` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.next-cell` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `nvim.markdown.prev-cell` | Markdown table editing is filetype-scoped and fully exposed through WhichKey's markdown group |
+| `parrot.noglob` | A shell option rather than an invocable action; the Parrot sheet explains the policy in prose |
+| `sway.session.start` | Sway's desktop entry runs it at login; there is nothing for a user to invoke |
+| `waybar.audio.click` | Discoverable by clicking the module it sits on |
+| `waybar.bluetooth.click` | Discoverable by clicking the module it sits on |
+| `waybar.network.click` | Discoverable by clicking the module it sits on; the sheet documents only the layout click, which has no other entry point |
+| `waybar.power-profile.status` | A status display, not an action: there is nothing to invoke |
+| `zsh.function.theme-reexec` | The same user-facing command as zsh.command.theme; the re-exec is an implementation layer, documented in the theming guide |
+
+<!-- END GENERATED ACTION REFERENCE -->
 
 ## Profile cheat sheets
 

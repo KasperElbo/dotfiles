@@ -4,13 +4,19 @@ One A4 (1-2 page) printable cheat sheet per primary workstation/lab profile,
 organized by task (Launch, Navigate, Move, Workspaces, ...) rather than by
 config-file order, so it works as an actual desk reference:
 
-| Source | Profile |
-|---|---|
-| `fedora-kde.tex` | Fedora KDE (normal Plasma/Wayland workstation) |
-| `fedora-sway.tex` | Fedora Sway (keyboard-first XMonad-like session) |
-| `fedora-wsl.tex` | Fedora WSL (Windows desktop + Linux dev runtime) |
-| `macos.tex` | Apple Silicon macOS (AeroSpace) |
-| `parrot-ctf.tex` | Parrot Security Edition CTF guest |
+| Source | Profile | Page budget |
+|---|---|---|
+| `fedora-kde.tex` | Fedora KDE (normal Plasma/Wayland workstation) | 1 |
+| `fedora-sway.tex` | Fedora Sway (keyboard-first XMonad-like session) | 2 |
+| `fedora-wsl.tex` | Fedora WSL (Windows desktop + Linux dev runtime) | 2 |
+| `macos.tex` | Apple Silicon macOS (AeroSpace) | 2 |
+| `parrot-ctf.tex` | Parrot Security Edition CTF guest | 1 |
+
+The budgets are enforced, not aspirational: `verify.sh` fails a sheet that
+grows past its page count. The reduced Parrot guest gets a real sheet rather
+than an excuse — a one-page operations reference covering its CTF helpers,
+globbing policy, ownership boundary and validation command — because those are
+exactly the things that differ from every other profile.
 
 `common-workflow.tex` is `\input` by the four workstation sheets so the shared
 terminal/editor workflow (Ghostty, Zsh, fzf, zoxide, tmux, LazyVim, Lazygit,
@@ -55,6 +61,38 @@ silently drift out of sync with it --- only the source in this directory is
 the source of truth. Run `generate.sh` yourself whenever you want a PDF to
 print or read; `git status` after running it should show nothing new, since
 `.gitignore` excludes the build output.
+
+## The sheets are curated, and that is enforced
+
+`config/actions.tsv` is the canonical registry of every action this repository
+defines. Each entry records whether it belongs on a printable sheet, which
+sheets, and — when it does not — why. `scripts/validate-actions.py` checks both
+directions:
+
+- an action marked `print=true` must actually appear on every sheet it names;
+- every `\csrow` on a sheet must be claimed by a registry entry for that sheet.
+
+The second direction is what keeps a shared block honest. A sheet cannot
+advertise a Fedora-only flag on macOS, or call the WSL terminal Ghostty,
+without a registry entry saying it should — and the registry knows which
+platform each action exists on.
+
+Completeness belongs to
+[`../reference/keybindings.md`](../reference/keybindings.md), whose action
+table is generated from the same registry and contains everything, including
+every `print=false` entry. These sheets deliberately contain less.
+
+## Verifying a sheet is still printable
+
+```bash
+docs/cheatsheets/verify.sh              # every sheet
+docs/cheatsheets/verify.sh fedora-sway  # just one
+```
+
+CI runs this on every pull request. It compiles each sheet, then checks what a
+successful compile does not: the page budget above, A4 page size, no overfull
+box wide enough to clip content, no undefined reference, and byte-identical
+output across two builds from unchanged source.
 
 ## Keeping the sheets accurate
 

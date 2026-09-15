@@ -87,6 +87,7 @@ default_tests=(
   tests/test-kde-theme.sh
   tests/test-sway-config.sh
   tests/test-cheatsheet-bindings.sh
+  tests/test-action-registry.sh
   tests/test-shell-startup.sh
   tests/test-neovim-tool-ownership.sh
   tests/test-csharpier-ownership.sh

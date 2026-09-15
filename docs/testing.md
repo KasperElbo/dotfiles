@@ -181,6 +181,23 @@ both fail, and the checker never silently repairs the tracked file. The suite
 also asserts that the README stays an entry point rather than growing back
 into the operating manual.
 
+### Custom actions and printable sheets
+
+`tests/test-action-registry.sh` owns `config/actions.tsv` and everything
+derived from it (issue #160). The registry is checked in both directions, and
+the suite proves each direction separately: renaming a tracked binding without
+updating the registry fails, and adding a binding without registering it fails
+— the latter through the real parsers (`tomllib` for AeroSpace, `json` for
+Waybar, Sway's own grammar, the shell's alias and function syntax), not a
+single regex over everything.
+
+It also pins the distinction the registry exists to make: every registered
+action appears in the generated full reference, every `print=false` action
+stays in that reference and off every sheet, and no sheet advertises a command
+or flag its platform does not have. `docs/cheatsheets/verify.sh`, run as its
+own CI job, compiles each sheet and checks the page budget, A4 size, overfull
+boxes, undefined references, and byte-identical output across two builds.
+
 ### Machine-local Git identity
 
 `tests/test-git-identity.sh` owns machine-local Git identity migration (issue

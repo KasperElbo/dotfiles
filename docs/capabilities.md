@@ -29,6 +29,14 @@ authoritative source/ownership model; see
 provider reaches the network must have its sources registered there, and
 `./scripts/lint.sh` fails if one is missing.
 
+`config/actions.tsv` is the third manifest in this family. It owns the
+repository's user-facing actions — keyboard bindings, status-bar clicks, shell
+helpers and editor mappings — with the same rules: one authoritative row per
+action, an explicit record of what is deliberately absent, and mechanical
+validation in both directions by `./scripts/validate-actions.py`. The full
+reference in [reference/keybindings.md](reference/keybindings.md) is generated
+from it; the printable cheat sheets are checked against it.
+
 The manifest is declarative ownership metadata. It deliberately does not
 generate package-manager commands or replace the independently useful
 component installers.
