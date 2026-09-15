@@ -398,6 +398,210 @@ def verifier_mentions(path: pathlib.Path, capability: str) -> bool:
     return re.search(rf"(?:^|-){re.escape(capability.lower())}", text) is not None
 
 
+# ---------------------------------------------------------------------------
+# The verify direction
+#
+# The checks above prove the manifest against the installers and the
+# documentation. These prove it against the verifiers: that a declared
+# verifier checks what its row installs, reads the registry instead of a copy
+# of it, reports through the shared library, and is actually run by CI.
+# ---------------------------------------------------------------------------
+
+VERIFY_LIBRARY = ROOT / "common" / "lib" / "verify.sh"
+REAL_INSTALL_WORKFLOW = ROOT / ".github" / "workflows" / "real-install.yml"
+TEST_RUNNER = ROOT / "scripts" / "test.sh"
+
+# Stow packages whose assets only work once something outside the package is
+# in place, and the reference a verifier must contain to show it checks that
+# thing: the machine-local theme state that selects the Catppuccin flavour
+# files, the tracked Mason inventory LazyVim's tools are installed from, and
+# the pinned plugin checkout .tmux.conf runs.
+STOW_COMPONENT_EVIDENCE = {
+    "starship": ("theme", "dotfiles/theme"),
+    "nvim-lazyvim": ("Mason", "mason-packages.txt"),
+    "tmux": ("Catppuccin tmux", "check_catppuccin_tmux"),
+}
+
+# Verifiers of profiles that no job in real-install.yml installs, and the
+# default fast suite that runs each one against a mocked machine instead. That
+# suite is their CI evidence, so it has to exist and run the verifier. Every
+# other declared verifier must be run by real-install.yml against a real
+# installation, directly or through a script the workflow runs.
+MOCKED_VERIFIERS = {
+    "platforms/fedora/scripts/verify-asus-hardware.sh": "tests/test-asus-verification.sh",
+    "platforms/fedora/scripts/verify-containers.sh": "tests/test-containers.sh",
+    "platforms/fedora/scripts/verify-desktop-tools.sh": "tests/test-desktop-tools.sh",
+    "platforms/fedora/scripts/verify-hardening.sh": "tests/test-hardening.sh",
+    "platforms/fedora/scripts/verify-tailscale.sh": "tests/test-tailscale.sh",
+    "platforms/fedora/scripts/verify-vm-guest.sh": "tests/test-vm-guest.sh",
+    "platforms/fedora/scripts/verify-vm-host.sh": "tests/test-vm-host.sh",
+    "platforms/fedora-wsl/scripts/verify-containers.sh": "tests/test-containers-wsl.sh",
+}
+
+VERIFIER_REFERENCE = re.compile(
+    r"(?<![\w-])((?:common|scripts|platforms/[\w-]+/scripts)/verify[\w-]*\.sh)(?![\w-])"
+)
+# The CI sequences a real-install step runs. Only these are followed: a
+# verifier or installer the workflow runs may name another script behind an
+# option the workflow never passes, which is not evidence that it runs.
+INTEGRATION_SCRIPT = re.compile(r"(?<![\w-])(tests/integration/[\w.-]+\.sh)(?![\w-])")
+SOURCE_LINE = re.compile(r'^\s*(?:source|\.)\s+"(.+)"\s*$')
+SOURCE_PREFIXES = ('$(dirname "${BASH_SOURCE[0]}")/', "$DOTFILES_ROOT/")
+
+
+def code_text(path: pathlib.Path) -> str:
+    """A shell or YAML file without its comment lines.
+
+    A path named in a comment is prose, not an invocation; only the lines that
+    run something count as evidence that it is run.
+    """
+    return "\n".join(
+        line for line in path.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+
+
+def mentions_path(text: str, path: str) -> bool:
+    return re.search(rf"(?<![\w-]){re.escape(path)}(?![\w-])", text) is not None
+
+
+def declared_verifiers(rows: list[dict[str, str]]) -> dict[str, set[str]]:
+    """Every distinct verifier path, with the capabilities that declare it."""
+    verifiers: dict[str, set[str]] = {}
+    for row in rows:
+        if row["status"] == "implemented" and row["verifier"] not in {"", "-", "none"}:
+            verifiers.setdefault(row["verifier"], set()).add(row["capability"])
+    return verifiers
+
+
+def check_verifier_components(rows: list[dict[str, str]]) -> int:
+    """A verifier must check the components its row's Stow packages rely on."""
+    errors = 0
+    for row in rows:
+        if row["status"] != "implemented" or not (ROOT / row["verifier"]).is_file():
+            continue
+        text = code_text(ROOT / row["verifier"])
+        for package in split(row["stow"]):
+            if package not in STOW_COMPONENT_EVIDENCE:
+                continue
+            component, evidence = STOW_COMPONENT_EVIDENCE[package]
+            if evidence not in text:
+                fail(
+                    f"{row['platform']}/{row['capability']}: Stow package {package!r} "
+                    f"relies on {component}, but {row['verifier']} never checks it "
+                    f"(expected a check referencing {evidence!r})"
+                )
+                errors += 1
+    return errors
+
+
+def check_verifier_package_arrays(verifiers: dict[str, set[str]]) -> int:
+    """A verifier reads declared packages from the manifest, never a copy."""
+    errors = 0
+    for verifier in sorted(verifiers):
+        path = ROOT / verifier
+        if not path.is_file():
+            continue
+        for name, entries in package_arrays(path).items():
+            if entries:
+                fail(
+                    f"{verifier}: verifier keeps its own {name}=(...) list "
+                    f"({' '.join(entries)}); read the row with capability_packages "
+                    f"from common/lib/capabilities.sh instead"
+                )
+                errors += 1
+    return errors
+
+
+def sources_verify_library(path: pathlib.Path) -> bool:
+    for line in code_text(path).splitlines():
+        match = SOURCE_LINE.match(line)
+        if not match:
+            continue
+        target = match.group(1)
+        for prefix in SOURCE_PREFIXES:
+            if target.startswith(prefix):
+                base = path.parent if prefix != "$DOTFILES_ROOT/" else ROOT
+                if (base / target[len(prefix):]).resolve() == VERIFY_LIBRARY:
+                    return True
+    return False
+
+
+def check_verifier_library(verifiers: dict[str, set[str]]) -> int:
+    """Declared verifiers, and the verifiers they run, source the library.
+
+    One pass/fail/warning contract is what makes every summary count the same
+    things, and it is what gives a verifier the shared ownership checks.
+    """
+    errors = 0
+    pending = sorted(verifiers)
+    seen: set[str] = set()
+    while pending:
+        verifier = pending.pop(0)
+        if verifier in seen:
+            continue
+        seen.add(verifier)
+        path = ROOT / verifier
+        if not path.is_file():
+            continue
+        if not sources_verify_library(path):
+            fail(
+                f"{verifier}: verifier does not source common/lib/verify.sh; "
+                f"report through the shared pass/fail/warning contract"
+            )
+            errors += 1
+        for referenced in VERIFIER_REFERENCE.findall(code_text(path)):
+            if referenced not in seen and (ROOT / referenced).is_file():
+                pending.append(referenced)
+    return errors
+
+
+def default_test_suites() -> set[str]:
+    match = re.search(r"^default_tests=\((.*?)^\)", TEST_RUNNER.read_text(encoding="utf-8"),
+                      re.M | re.S)
+    return set(match.group(1).split()) if match else set()
+
+
+def real_install_text() -> str:
+    """real-install.yml, plus every integration sequence one of its steps runs."""
+    workflow = code_text(REAL_INSTALL_WORKFLOW)
+    texts = [workflow]
+    for script in sorted(set(INTEGRATION_SCRIPT.findall(workflow))):
+        if (ROOT / script).is_file():
+            texts.append(code_text(ROOT / script))
+    return "\n".join(texts)
+
+
+def check_verifier_ci(verifiers: dict[str, set[str]]) -> int:
+    """Every declared verifier is run by the CI tier that can run it."""
+    errors = 0
+    real_install = real_install_text()
+    suites = default_test_suites()
+    for verifier, capabilities in sorted(verifiers.items()):
+        names = ", ".join(sorted(capabilities))
+        suite = MOCKED_VERIFIERS.get(verifier)
+        if suite is None:
+            if not mentions_path(real_install, verifier):
+                fail(
+                    f"{names}: verifier {verifier} is not run by "
+                    f".github/workflows/real-install.yml or any script it runs, so "
+                    f"no real installation ever proves it"
+                )
+                errors += 1
+        elif suite not in suites:
+            fail(f"{names}: {verifier} relies on {suite} for CI evidence, but "
+                 f"scripts/test.sh does not run that suite by default")
+            errors += 1
+        elif not (ROOT / suite).is_file() or not mentions_path(code_text(ROOT / suite), verifier):
+            fail(f"{names}: {suite} is recorded as the CI evidence for {verifier} "
+                 f"but never runs it")
+            errors += 1
+    for verifier in sorted(set(MOCKED_VERIFIERS) - set(verifiers)):
+        fail(f"MOCKED_VERIFIERS names {verifier}, which no capability declares")
+        errors += 1
+    return errors
+
+
 def main() -> int:
     errors = 0
     with MANIFEST.open(newline="", encoding="utf-8") as stream:
@@ -508,6 +712,11 @@ def main() -> int:
     errors += check_option_manifest(rows)
     errors += check_installer_packages(rows)
     errors += check_stow_ownership(rows)
+    verifiers = declared_verifiers(rows)
+    errors += check_verifier_components(rows)
+    errors += check_verifier_package_arrays(verifiers)
+    errors += check_verifier_library(verifiers)
+    errors += check_verifier_ci(verifiers)
     return 1 if errors else 0
 
 

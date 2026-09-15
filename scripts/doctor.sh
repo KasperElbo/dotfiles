@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The lifecycle health report behind ./doctor. It keeps its own pass, fail and
+# warning helpers on purpose instead of sourcing common/lib/verify.sh:
+#
+#   - It reports lifecycle state (the installation record, component state
+#     files, the remembered --rerun configuration), not capability state, and
+#     is not named in the verifier column of config/capabilities.tsv. It points
+#     at those verifiers instead of repeating them.
+#   - It runs under errexit, where the library's fail(), which returns 1, would
+#     end the report at its first finding instead of listing every one.
+#   - Its closing "Result: N failure(s), M warning(s). No changes made." line
+#     is its own contract (tests/test-doctor.sh), not finish_verification's.
+
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"

@@ -150,9 +150,7 @@ esac
 
 section "firewalld"
 
-if systemctl is-active --quiet firewalld.service; then
-  pass "firewalld is active"
-
+if check_system_service_enabled_and_active firewalld.service; then
   if command_exists firewall-cmd; then
     default_zone="$(firewall-cmd --get-default-zone 2>/dev/null || true)"
     if [[ -n "$default_zone" ]]; then
@@ -168,8 +166,6 @@ if systemctl is-active --quiet firewalld.service; then
         "judgement; this profile never changes firewalld zones"
     fi
   fi
-else
-  fail "firewalld is not active"
 fi
 
 # ---------------------------------------------------------------------------
@@ -258,9 +254,7 @@ else
       '-w /etc/shadow -p wa -k dotfiles-identity' \
       '-w /etc/sudoers -p wa -k dotfiles-sudoers'
 
-    if systemctl is-active --quiet auditd.service; then
-      pass "auditd is active"
-
+    if check_system_service_enabled_and_active auditd.service; then
       if ! command_exists auditctl; then
         not_observed "auditctl is unavailable, so whether the watch rules" \
           "are loaded into the running kernel audit subsystem could not be" \
@@ -273,9 +267,9 @@ else
           "augenrules --load"
       fi
     else
-      fail "auditd is not active, but the hardening profile recorded" \
-        "auditd=true; its watch rules record nothing -- run: sudo systemctl" \
-        "enable --now auditd.service"
+      note "the hardening profile recorded auditd=true, so its watch rules" \
+        "record nothing until auditd is enabled and running -- run: sudo" \
+        "systemctl enable --now auditd.service"
     fi
   else
     warning "the installer recorded auditd=${state_auditd:-unknown}; audit" \

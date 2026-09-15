@@ -34,17 +34,17 @@ while (($#)); do
   shift
 done
 
+# check_linux_command <name> [--probe [arguments]]: check_command, after first
+# refusing a command that resolves to a Windows executable.
 check_linux_command() {
   local command_name="$1"
   local command_path
 
   command_path="$(command -v "$command_name" 2>/dev/null || true)"
-  if [[ -z "$command_path" ]]; then
-    fail "$command_name not found"
-  elif is_windows_path "$command_path"; then
+  if [[ -n "$command_path" ]] && is_windows_path "$command_path"; then
     fail "$command_name resolves to a Windows executable: $command_path"
   else
-    pass "$command_name: $command_path"
+    check_command "$@"
   fi
 }
 
@@ -157,42 +157,62 @@ else
   fail "mise not found"
 fi
 
+# System commands come from dnf, an upstream installer or this repository.
+# Each is run as well as found, because a resolved path is not a working
+# command.
 commands=(
-  ast-grep
   bat
   delta
-  dotnet
-  dotnet-easydotnet
   eza
   fd
   fzf
   gh
   git
-  lazygit
   mise
-  neovim-node-host
-  node
-  npm
-  npx
   nvim
-  python
   rg
   shellcheck
   sqlite3
   starship
   stow
   tmux
-  tree-sitter
-  uv
-  wsl-copy
-  wsl-open
-  wsl-paste
   zoxide
   zsh
 )
 
 for command_name in "${commands[@]}"; do
+  check_linux_command "$command_name" --probe
+done
+
+# The interop helpers are this repository's own scripts, and running one
+# would reach Windows, so they are checked for resolution only.
+for command_name in wsl-copy wsl-open wsl-paste; do
   check_linux_command "$command_name"
+done
+
+# mise owns these runtimes, so being Linux-native is not enough: a dnf package
+# of the same name earlier on PATH is exactly the second copy check_mise_owned
+# exists to catch. It resolves them in the PATH the fresh Zsh login above
+# reported, which is what a new terminal will use.
+VERIFY_CONFIGURED_LOGIN_PATH="$login_path"
+VERIFY_CALLER_PATH="$PATH"
+VERIFY_MISE_COMMAND="$mise_command"
+mise_tools=(
+  ast-grep
+  dotnet
+  dotnet-easydotnet
+  lazygit
+  neovim-node-host
+  node
+  npm
+  npx
+  python
+  tree-sitter
+  uv
+)
+
+for command_name in "${mise_tools[@]}"; do
+  check_mise_owned "$command_name"
 done
 
 if [[ "$verify_latex" == "true" ]]; then
@@ -349,37 +369,11 @@ fi
 
 section "Neovim tooling"
 
-mason_root="${XDG_DATA_HOME}/nvim/mason/packages"
-mason_inventory="$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
-mason_packages=()
-if [[ -r "$mason_inventory" ]]; then
-  mapfile -t mason_packages < <(
-    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$mason_inventory"
-  )
-else
-  fail "Mason package inventory missing: $mason_inventory"
-fi
+check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
 
-((${#mason_packages[@]} > 0)) || fail "Mason package inventory is empty"
+section "Catppuccin tmux"
 
-for package in "${mason_packages[@]}"; do
-  if [[ -d "$mason_root/$package" ]]; then
-    pass "Mason: $package"
-  else
-    fail "Mason package not installed: $package"
-  fi
-done
-
-if [[ -d "$mason_root" ]]; then
-  for package_dir in "$mason_root"/*; do
-    [[ -d "$package_dir" ]] || continue
-
-    package="$(basename "$package_dir")"
-    if ! printf '%s\n' "${mason_packages[@]}" | grep -Fxq "$package"; then
-      warning "Unexpected Mason package (review ownership): $package"
-    fi
-  done
-fi
+check_catppuccin_tmux
 
 section "Configuration links"
 

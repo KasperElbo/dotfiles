@@ -231,6 +231,7 @@ chmod +x \
 mock_commands=(
   ast-grep
   bat
+  curl
   delta
   dnf
   dotnet
@@ -240,6 +241,7 @@ mock_commands=(
   fzf
   gh
   ghostty
+  gpg
   lazygit
   lookandfeeltool
   makoctl

@@ -4,12 +4,13 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 
 libvirt_uri="qemu:///system"
 network_name="default"
 pool_name="default"
 smoke_test="false"
-failures=0
 
 while (($#)); do
   case "$1" in
@@ -24,39 +25,17 @@ while (($#)); do
   esac
 done
 
-pass() {
-  printf '\033[1;32m✓\033[0m %s\n' "$*"
-}
-
-fail() {
-  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
-  failures=$((failures + 1))
-}
-
-warning() {
-  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
-}
-
-check_command() {
-  local command_name="$1"
-
-  if command -v "$command_name" >/dev/null 2>&1; then
-    pass "$command_name: $(command -v "$command_name")"
-  else
-    fail "$command_name not found"
-  fi
-}
-
-section() {
-  printf '\n\033[1m%s\033[0m\n' "$1"
-}
+verify_reset
 
 section "VM-host commands"
 for command_name in qemu-img virsh virt-host-validate virt-install virt-manager virt-viewer; do
   check_command "$command_name"
 done
 
-if ((failures > 0)); then
+# Every later check drives these commands, so stop here rather than report a
+# cascade of failures that all mean "not installed".
+if ((VERIFY_FAILURES > 0)); then
+  finish_verification "VM-host verification"
   exit 1
 fi
 
@@ -156,10 +135,4 @@ if [[ "$smoke_test" == "true" ]]; then
   fi
 fi
 
-printf '\n'
-if ((failures > 0)); then
-  printf '\033[1;31mVM-host verification failed:\033[0m %d failure(s)\n' "$failures"
-  exit 1
-fi
-
-printf '\033[1;32mVM-host verification passed.\033[0m\n'
+finish_verification "VM-host verification"

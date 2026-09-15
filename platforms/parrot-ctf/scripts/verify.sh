@@ -8,6 +8,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../../../common/lib/profile-state.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
+# shellcheck source=../../../common/lib/capabilities.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/capabilities.sh"
 # shellcheck source=../lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
@@ -65,27 +67,40 @@ else
   fail "Zsh login startup failed"
 fi
 
-packages=(
-  bat eza fd-find fontconfig fzf gh git git-delta jq konsole lazygit pipx python3
-  python3-venv ripgrep shellcheck spice-vdagent sqlite3 starship stow tmux
-  xclip xxd xz-utils zoxide zsh qemu-guest-agent
-)
-for package in "${packages[@]}"; do
-  status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)"
-  if [[ "$status" == "install ok installed" ]]; then
-    pass "$package is APT-owned"
-  else
-    fail "APT package missing: $package"
+# The APT packages this guest must own are read from config/capabilities.tsv,
+# the same rows the installers are checked against, so this list cannot drift
+# from what is installed. Both rows are Parrot's: base is the working
+# environment and vm-guest the guest agents. One declared package is not an
+# APT package: mise is installed by its official upstream installer into
+# ~/.local/bin, so dpkg has no record of it. It is excluded by name here, and
+# proven instead by the mise-managed uv and Neovim checks below.
+for capability in base vm-guest; do
+  if ! declared_packages="$(capability_packages parrot-ctf "$capability")"; then
+    fail "config/capabilities.tsv has no parrot-ctf $capability row to verify packages against"
+    continue
   fi
+  while IFS= read -r package; do
+    case "$package" in
+    "" | mise) continue ;;
+    esac
+    status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)"
+    if [[ "$status" == "install ok installed" ]]; then
+      pass "$package is APT-owned"
+    else
+      fail "APT package missing: $package"
+    fi
+  done <<<"$declared_packages"
 done
 
-commands=(bat eza fd fzf gh git jq lazygit nvim pipx python python3 rg sqlite3 starship stow tmux xclip xxd zoxide zsh)
+# Run each command rather than only finding it. xclip and xxd have no
+# --version, so they are checked for resolution only; nvim, bat and fd have
+# their own startup checks below.
+commands=(eza fzf gh git jq lazygit pipx python python3 rg sqlite3 starship stow tmux zoxide zsh)
 for command_name in "${commands[@]}"; do
-  if command_exists "$command_name"; then
-    pass "$command_name is available"
-  else
-    fail "Command missing: $command_name"
-  fi
+  check_command "$command_name" --probe
+done
+for command_name in bat fd nvim xclip xxd; do
+  check_command "$command_name"
 done
 
 for command_name in bat fd; do
@@ -299,11 +314,20 @@ else
   fail "Bat is missing Catppuccin themes: ${missing_bat_themes[*]}"
 fi
 
+# The pinned plugin checkout tmux/.tmux.conf runs.
+check_catppuccin_tmux
+
 # verifies: vm-guest
 #
 # The Parrot CTF profile owns the guest agents that config/capabilities.tsv
 # records as the vm-guest capability on this platform; the marker says so in
 # the spelling scripts/validate-capabilities.py checks for.
+#
+# Both are deliberately is-active checks, not enabled-and-active ones. Debian
+# and Parrot ship qemu-guest-agent.service as a static unit that its virtio
+# device activates, so there is no enablement to check, and the guest
+# installer only starts spice-vdagentd.socket, which listens on demand.
+# Requiring either to be enabled would fail a correct installation.
 check_system_service_active qemu-guest-agent.service
 check_system_service_active spice-vdagentd.socket
 

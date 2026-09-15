@@ -80,6 +80,14 @@ jobs:
       - name: Independent verifier
         run: ./platforms/macos/scripts/verify.sh
 
+      # The declared verifier of the dev-workflows capability. It drives the
+      # real per-language toolchains this installation provisioned, so it
+      # runs here and not in validate.yml, whose jobs have none of them. A
+      # fresh Zsh login is the environment a user runs it from; without mise
+      # activated every workflow would report SKIP instead of running.
+      - name: Development workflow smoke tests
+        run: zsh -lic './scripts/test-dev-workflows.sh --all'
+
       - name: Idempotent rerun
         run: >-
           ./install.sh --platform macos --theme macchiato

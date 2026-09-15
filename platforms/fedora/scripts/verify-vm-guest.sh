@@ -4,6 +4,8 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../lib/virtualization.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/virtualization.sh"
 
@@ -11,31 +13,13 @@ qemu_agent_channel="${QEMU_AGENT_CHANNEL:-/dev/virtio-ports/org.qemu.guest_agent
 spice_agent_channel="${SPICE_AGENT_CHANNEL:-/dev/virtio-ports/com.redhat.spice.0}"
 legacy_clipboard_bridge_unit="dotfiles-spice-wayland-clipboard.service"
 legacy_clipboard_bridge_path="$XDG_CONFIG_HOME/systemd/user/$legacy_clipboard_bridge_unit"
-failures=0
-warnings=0
 
 [[ $# -eq 0 ]] || {
   printf 'Unknown option: %s\n' "$1" >&2
   exit 2
 }
 
-pass() {
-  printf '\033[1;32m✓\033[0m %s\n' "$*"
-}
-
-fail() {
-  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
-  failures=$((failures + 1))
-}
-
-warning() {
-  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
-  warnings=$((warnings + 1))
-}
-
-section() {
-  printf '\n\033[1m%s\033[0m\n' "$1"
-}
+verify_reset
 
 section "VM guest"
 
@@ -72,17 +56,10 @@ else
   fail "SPICE agent channel missing: $spice_agent_channel"
 fi
 
-if systemctl is-active --quiet qemu-guest-agent.service; then
-  pass "qemu-guest-agent.service is active"
-else
-  fail "qemu-guest-agent.service is not active"
-fi
-
-if systemctl is-active --quiet spice-vdagentd.socket; then
-  pass "spice-vdagentd.socket is active"
-else
-  fail "spice-vdagentd.socket is not active"
-fi
+# Device- and socket-activated units: is-active is the meaningful state (see
+# check_system_service_enabled_and_active in common/lib/verify.sh).
+check_system_service_active qemu-guest-agent.service
+check_system_service_active spice-vdagentd.socket
 
 if systemctl --user is-active --quiet spice-vdagent.service 2>/dev/null; then
   pass "Plasma SPICE session agent is active"
@@ -104,12 +81,4 @@ else
   fail "Guest has no default network route"
 fi
 
-printf '\n'
-if ((failures > 0)); then
-  printf '\033[1;31mVM-guest verification failed:\033[0m %d failure(s), %d warning(s)\n' \
-    "$failures" "$warnings"
-  exit 1
-fi
-
-printf '\033[1;32mVM-guest verification passed.\033[0m %d warning(s)\n' \
-  "$warnings"
+finish_verification "VM-guest verification"

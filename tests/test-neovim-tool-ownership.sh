@@ -242,13 +242,11 @@ assert_contains "$repo_root/platforms/fedora/install.sh" \
   'common/install-neovim-tools.sh'
 assert_contains "$repo_root/platforms/fedora-wsl/install.sh" \
   'common/install-neovim-tools.sh'
-assert_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
-  'nvim-lazyvim/.config/nvim/mason-packages.txt'
-assert_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
-  "fail \"Mason package not installed: \$package\""
-assert_contains "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
-  'nvim-lazyvim/.config/nvim/mason-packages.txt'
-assert_contains "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+for verifier in platforms/fedora platforms/fedora-wsl platforms/macos; do
+  assert_contains "$repo_root/$verifier/scripts/verify.sh" \
+    'check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"'
+done
+assert_contains "$repo_root/common/lib/verify.sh" \
   "fail \"Mason package not installed: \$package\""
 assert_contains "$repo_root/platforms/parrot-ctf/install.sh" \
   'common/install-neovim-tools.sh" --profile parrot-ctf'

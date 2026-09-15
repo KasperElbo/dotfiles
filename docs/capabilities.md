@@ -160,6 +160,42 @@ that never mentions the capability it is declared for verifies nothing, and a
 selected profile then passes verification unconditionally — which is exactly
 what the README's "what is not verified is said to be not verified" forbids.
 
+## Verifiers must check what their row relies on
+
+Four further rules in the same validator hold each declared verifier to what
+its row actually claims. `tests/test-capabilities.sh` breaks a scratch copy of
+the repository once per rule, proving each one can fail:
+
+- **Components.** A row whose `stow` column deploys `starship`, `nvim-lazyvim`
+  or `tmux` relies on something outside that package: the machine-local theme
+  state that selects the Catppuccin flavour, the tracked Mason inventory, and
+  the pinned Catppuccin tmux plugin. Its verifier must check each one;
+  `STOW_COMPONENT_EVIDENCE` in the validator names the reference that counts.
+- **No copied package lists.** A verifier never keeps a literal
+  `packages=(...)` array. It reads the row with `capability_packages` from
+  `common/lib/capabilities.sh`, so the list it checks cannot drift from the one
+  the installers are validated against.
+- **One reporting contract.** Every declared verifier, and every verifier it
+  runs, sources `common/lib/verify.sh` instead of defining its own `pass`,
+  `fail` and `warning`. Every summary then counts failures and warnings the
+  same way, and every verifier can use the shared ownership checks.
+  `scripts/doctor.sh` is not a verifier and documents why it keeps its own.
+- **Run by CI.** Every declared verifier must be run against a real
+  installation by `.github/workflows/real-install.yml`, directly or through a
+  `tests/integration/` sequence one of its steps runs. The verifiers of
+  profiles no real-install job installs are listed in `MOCKED_VERIFIERS` with
+  the default fast suite that runs them against a mocked machine instead, and
+  that suite must be in `scripts/test.sh`'s default tests and run the verifier.
+
+The shared library carries the checks these rules lead to.
+`check_command <name> --probe` runs a command instead of only finding it on
+PATH, with a documented probe for the few commands that do not answer
+`--version`. `check_system_service_enabled_and_active` and its `_user_`
+counterpart require a service to survive a reboot as well as be running, and
+name which half is missing. `check_mason_inventory`, `check_catppuccin_tmux`
+and `check_mise_owned` are the component and ownership checks every workstation
+verifier shares.
+
 ## Fedora command-provider closure
 
 `config/fedora-command-providers.tsv` closes the narrower bootstrap boundary

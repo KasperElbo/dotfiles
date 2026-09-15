@@ -4,6 +4,8 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../../../common/lib/profile-state.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/secure-boot.sh
@@ -11,22 +13,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/secure-boot.sh"
 # shellcheck source=../lib/power-profiles.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/power-profiles.sh"
 
-failures=0
-warnings=0
-
-pass() {
-  printf '\033[1;32m✓\033[0m %s\n' "$*"
-}
-
-fail() {
-  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
-  failures=$((failures + 1))
-}
-
-warning() {
-  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
-  warnings=$((warnings + 1))
-}
+verify_reset
 
 state_file="$XDG_CONFIG_HOME/dotfiles/hardware.conf"
 
@@ -234,17 +221,4 @@ if [[ -n "$charge_limit" ]]; then
   fi
 fi
 
-printf '\n'
-
-if ((failures > 0)); then
-  printf '\033[1;31mHardware verification failed:\033[0m %d failure(s), %d warning(s)\n' \
-    "$failures" "$warnings"
-  exit 1
-fi
-
-if ((warnings > 0)); then
-  printf '\033[1;33mHardware verification passed with warnings:\033[0m %d warning(s)\n' \
-    "$warnings"
-else
-  printf '\033[1;32mHardware verification passed.\033[0m\n'
-fi
+finish_verification "Hardware verification"
