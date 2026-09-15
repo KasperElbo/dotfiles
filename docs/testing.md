@@ -89,6 +89,26 @@ failure modes: a failing `curl` that a piped consumer would have reported as
 success, an empty body, markup instead of a script, a digest mismatch, and an
 installer that runs but produces the wrong target.
 
+### Platform capability suites
+
+- `tests/test-ocaml-verification.sh` fixes one fact per case about a machine
+  with a mocked opam and asserts the verdict `common/verify-ocaml.sh` reaches:
+  healthy, unselected, selected-but-never-installed, missing opam, missing
+  switch, wrong selected switch, wrong compiler, missing opam-managed tool,
+  an opam outside the platform's native prefix, a missing or unparsable shell
+  hook, a switch that cannot compile, a compiler override that round-trips,
+  a switch and compiler that disagree, and verification run in the same
+  process immediately after installation.
+- `tests/test-macos-ai.sh` proves the selection a user typed reaches the
+  shared AI installer unchanged, that an unselected profile plans no AI
+  mutation, that the AI step is ordered after mise, and that demoting one
+  component in the capability manifest rejects exactly that sub-flag while
+  the rest of the profile still installs and the demoted component can still
+  be removed.
+- `tests/test-macos.sh` walks the capability manifest and requires every
+  implemented macOS capability to be reachable from help, the parser and a
+  dry-run plan, and every unimplemented one to declare no flag.
+
 ## Scheduled/manual real-install validation
 
 `.github/workflows/real-install.yml` is intentionally separate from normal PR
@@ -101,7 +121,7 @@ silently become test fixtures.
 | Platform class | Automated evidence | Remaining gap |
 | --- | --- | --- |
 | Fedora workstation | A privileged disposable Fedora systemd environment runs the real installer, verifier, a second install, and a theme-state transition. A disposable repository copy injects an invalid DNF package and the **real installer** is required to fail while reaching that package. | A containerized systemd userspace does not emulate firmware, a graphical login, Secure Boot, NVIDIA/AMD hardware, suspend/resume, or a physical GA402XZ. Periodic physical-machine validation remains valuable. |
-| Apple Silicon macOS | A GitHub-hosted `macos-26` Apple Silicon runner invokes the public entry point through `/bin/bash` with ordinary PATH lookup restricted to Apple system paths, requires explicit Homebrew Bash discovery/re-exec, and executes the real bootstrap/install path, verifier, idempotent rerun, then an OCaml/defaults/theme state transition. | GitHub's image is disposable and real macOS/arm64, but it already contains Homebrew. Installing Homebrew itself on a factory-fresh Mac and granting interactive Accessibility/Tailscale approvals remain manual assurance. |
+| Apple Silicon macOS | A GitHub-hosted `macos-26` Apple Silicon runner invokes the public entry point through `/bin/bash` with ordinary PATH lookup restricted to Apple system paths, requires explicit Homebrew Bash discovery/re-exec, and executes the real bootstrap/install path, verifier, idempotent rerun, then an OCaml/AI/defaults/theme state transition. Every AI component the platform advertises is then probed individually on that runner: it must resolve through mise, must not be an Intel-only binary or a Homebrew/global-npm duplicate, and must run a harmless `--version`/`--help`. The remembered selection is finally replayed with `./install.sh --rerun` and reverified, which is what proves the optional AI subcomponents survive the persistent-selection round trip. | GitHub's image is disposable and real macOS/arm64, but it already contains Homebrew. Installing Homebrew itself on a factory-fresh Mac and granting interactive Accessibility/Tailscale approvals remain manual assurance. The AI probe never authenticates anything, so it proves installable and runnable, not logged in. TeX is user-managed on macOS, so the LaTeX workflow is never exercised there. |
 | Fedora WSL / Windows boundary | `windows-latest` exercises the Windows bootstrap boundary. The manual self-hosted WSL job imports a fresh distro from a clean Fedora WSL export tar for every run, performs the first install, terminates and relaunches that distro so `/etc/wsl.conf` changes take effect, then runs the independent verifier, idempotent rerun and theme transition before unregistering it. | GitHub-hosted Windows runners do not provide a dependable, reboot-capable Fedora WSL installation. Clean WSL evidence therefore depends on maintaining an immutable clean export on the labelled self-hosted runner. |
 | Parrot CTF guest | Scheduled CI confirms Parrot/APT availability and requires the real installer to reject a non-QEMU container specifically at the VM preflight boundary. A manual clean/snapshotted KVM/QEMU guest additionally runs an invalid-package failure-propagation check, install, verify, rerun and theme transition. | GitHub has no hosted Parrot KVM/QEMU guest with the repository's required guest channels/isolation. The container job is explicitly **not** counted as VM evidence. The self-hosted VM must be reverted to its clean snapshot between runs. |
 
