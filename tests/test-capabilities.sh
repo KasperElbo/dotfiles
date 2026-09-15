@@ -75,6 +75,41 @@ fi
 grep -Fq 'never mentions latex' "$fixture.verifier.log"
 grep -Fq 'platforms/macos/scripts/verify.sh' "$fixture.verifier.log"
 
+# A conflict is a property of a pair. Declared on one side only it fires or not
+# depending on which capability a selection is validated from, so the manifest
+# must state it on both rows.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "hardware" && $2 == "fedora" {$7 = "-"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.conflict"
+if CAPABILITY_MANIFEST="$fixture.conflict" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.conflict.log"; then
+  printf 'One-sided conflict fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq 'hardware does not conflict with vm-guest' "$fixture.conflict.log"
+
+# The packages column is a claim about what gets installed, checked against the
+# files that install them in both directions: a package no installer requests,
+# and an installer array entry no capability owns.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "hardening" && $2 == "fedora" {$9 = $9 ",policycoreutils-python-utils"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.phantom"
+if CAPABILITY_MANIFEST="$fixture.phantom" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.phantom.log"; then
+  printf 'Phantom package fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora/hardening: package 'policycoreutils-python-utils' is declared" \
+  "$fixture.phantom.log"
+
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "vm-guest" && $2 == "fedora" {sub(/,xclip/, "", $9)} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.unowned"
+if CAPABILITY_MANIFEST="$fixture.unowned" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.unowned.log"; then
+  printf 'Unowned installed package fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "vm_guest_packages installs 'xclip', which no fedora capability owns" \
+  "$fixture.unowned.log"
+
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
 # shellcheck source=../common/lib/capabilities.sh
