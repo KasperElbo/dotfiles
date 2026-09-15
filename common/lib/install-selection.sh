@@ -18,6 +18,8 @@ INSTALL_OPTION_MANIFEST="${INSTALL_OPTION_MANIFEST:-$DOTFILES_ROOT/config/instal
 # Version of the record encoding itself, recorded next to every selection.
 # Bump it when the meaning of an existing encoded field changes; adding or
 # removing manifest options is handled by the reconstruction rules below.
+# Shared library value consumed by sourcing scripts.
+# shellcheck disable=SC2034
 INSTALL_SELECTION_SCHEMA_VERSION=1
 
 INSTALL_SELECTION_PLATFORM=""

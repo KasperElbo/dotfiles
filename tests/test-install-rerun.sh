@@ -197,7 +197,7 @@ printf 'PASS: only well-defined transient controls may accompany --rerun\n'
 
 # --- 17. Unknown, removed and newly added options ----------------------------
 
-removed_record="$(sed 's/^theme:/quantum-foam:true,theme:/' <<<"$selection_b")"
+removed_record="quantum-foam:true,$selection_b"
 record_success fedora base,dotnet-debug,ocaml "$removed_record"
 run_capture "$repo_root/install.sh" --rerun --dry-run
 assert_failure
@@ -325,7 +325,7 @@ while IFS=$'\t' read -r platform option _kind on_flag _off _default _values capa
     'NR>1 && $1==c && $2==p && $15=="implemented" {print $4; exit}' \
     "$repo_root/config/capabilities.tsv")"
   assert_eq "$on_flag" "$manifest_flag" \
-    "capability manifest flag for $capability on $platform"
+    "capability manifest flag for $option ($capability) on $platform"
 done <"$repo_root/config/install-options.tsv"
 printf 'PASS: persistent options agree with the capability manifest\n'
 
