@@ -108,7 +108,7 @@ authoritative source/ownership model; see
 provider reaches the network must have its sources registered there, and
 `./scripts/lint.sh` fails if one is missing.
 
-`config/actions.tsv` is the third manifest in this family. It owns the
+`config/actions.tsv` belongs to the same family. It owns the
 repository's user-facing actions — keyboard bindings, status-bar clicks, shell
 helpers and editor mappings — with the same rules: one authoritative row per
 action, an explicit record of what is deliberately absent, and mechanical
