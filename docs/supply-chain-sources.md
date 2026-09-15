@@ -85,7 +85,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `mise-installer` | `https://mise.run` | rm ~/.local/bin/mise and rerun | `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |
 | `mise-tool-registry` | `https://mise.jdx.dev/registry.html` | mise uninstall | `mise/.config/mise/config.toml` `common/install-mise.sh` |
 | `netcoredbg-legacy-release` | `https://github.com/Samsung/netcoredbg/releases/download/3.1.3-1062/netcoredbg-osx-amd64.tar.gz` | pin the previous release tag | `tests/integration/macos-dotnet-debug.sh` |
-| `no-mistakes-installer` | `https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh` | ./common/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
+| `no-mistakes-installer` | `https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh` | ./scripts/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
 | `npm-registry` | `https://registry.npmjs.org` | mise uninstall | `common/install-ai.sh` |
 | `opam-repository` | `https://opam.ocaml.org` | opam switch remove | `common/install-ocaml.sh` |
 | `parrot-os-repos` | `https://deb.parrot.sh` | sudo apt-get install --reinstall | `platforms/parrot-ctf/scripts/install-system.sh` |
@@ -99,6 +99,6 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `tailscale-repo` | `https://pkgs.tailscale.com/stable/fedora/tailscale.repo` | sudo rm /etc/yum.repos.d/tailscale.repo | `platforms/fedora/lib/tailscale.sh` |
 | `terra-repo` | `https://repos.fyralabs.com/terra$releasever` | sudo dnf remove terra-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-terra.sh` |
 | `terra-signing-key` | `https://repos.fyralabs.com/terra$releasever/key.asc` | sudo rpm -e --allmatches gpg-pubkey-<id> | `platforms/fedora/lib/fedora.sh` `config/terra-keys.tsv` |
-| `treehouse-installer` | `https://kunchenguid.github.io/treehouse/install.sh` | ./common/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
+| `treehouse-installer` | `https://kunchenguid.github.io/treehouse/install.sh` | ./scripts/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
 | `validation-image-fedora` | `docker.io/library/fedora:44` | pin the previous digest | `.github/workflows/validate.yml` `tests/integration/fedora-clean-install.sh` |
 | `wsl-distribution-catalog` | `https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json` | not-applicable | `platforms/windows/install.ps1` |

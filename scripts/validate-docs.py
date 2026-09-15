@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """Mechanical documentation checks.
 
-Prose cannot be verified, but four kinds of documentation rot can be, and all
-four are the kinds that quietly make a document wrong:
+Prose cannot be verified, but five kinds of documentation rot can be, and all
+five are the kinds that quietly make a document wrong:
 
 1. **Broken internal links.** Every relative link between tracked Markdown
    files must resolve, and a link with an anchor must name a heading that
    exists in the target.
-2. **Orphan documents.** Every document under `docs/` must be reachable from
+2. **Dangling plain-text references.** A quoted phrase used as a pseudo-link
+   (`see "Optional Sway session" below`) must name a heading that actually
+   exists somewhere under `docs/`, the same way a real Markdown link must
+   resolve. This is what a documentation split leaves behind when a section
+   moves or is renamed but the plain-text pointer to it is not updated.
+3. **Orphan documents.** Every document under `docs/` must be reachable from
    the README or the documentation index, so splitting a page cannot leave a
    section that nothing points at.
-3. **Stale issue claims.** A support contract must describe this checkout, not
+4. **Stale issue claims.** A support contract must describe this checkout, not
    a plan. Documentation may not say a capability is waiting for, blocked on,
    or arriving with an issue.
-4. **Invalid platform-support claims.** An `./install.sh --platform X` command
+5. **Invalid platform-support claims.** An `./install.sh --platform X` command
    line in documentation may only pass options that platform's manifest
    declares. This is what stops a guide from advertising a Fedora-only flag on
    macOS.
@@ -37,6 +42,12 @@ import sys
 LINK = re.compile(r"(?<!\!)\[[^\]]*\]\(\s*(?P<target>[^)\s]+?)\s*\)")
 HEADING = re.compile(r"^(#{1,6})\s+(?P<title>.+?)\s*#*$")
 FENCE = re.compile(r"^\s*```")
+
+# A quoted phrase used as a pseudo-link to a heading, e.g. `see "Optional
+# Sway session" below`. Markdown links are checked for real anchors above;
+# this catches the plain-text convention the documentation split left behind
+# in places, pointing at a heading that no longer exists anywhere.
+DANGLING_REFERENCE = re.compile(r'"(?P<phrase>[^"]{3,80})"\s+(?:above|below)\b')
 
 STALE_CLAIM = re.compile(
     r"(waiting (?:for|on) (?:issue )?#\d+"
@@ -139,6 +150,30 @@ def check_links(root: pathlib.Path, documents: list[pathlib.Path], problems: lis
                         )
 
 
+def check_dangling_references(
+    root: pathlib.Path, documents: list[pathlib.Path], problems: list[str]
+) -> None:
+    all_titles: list[str] = []
+    for document in documents:
+        for _, line in outside_fences(document):
+            match = HEADING.match(line)
+            if match:
+                all_titles.append(match.group("title").strip().lower())
+
+    for document in documents:
+        relative = document.relative_to(root)
+        for number, line in outside_fences(document):
+            for match in DANGLING_REFERENCE.finditer(line):
+                phrase = match.group("phrase").strip().lower()
+                if any(phrase in title for title in all_titles):
+                    continue
+                problems.append(
+                    f"{relative}:{number}: dangling plain-text reference "
+                    f'{match.group(0)!r}; no heading anywhere under docs/ '
+                    "contains that phrase — convert it to a relative link"
+                )
+
+
 def check_orphans(root: pathlib.Path, documents: list[pathlib.Path], problems: list[str]) -> None:
     entry_points = [root / "README.md", root / "docs" / "README.md"]
     linked: set[pathlib.Path] = set()
@@ -229,6 +264,7 @@ def main() -> int:
     documents = [path for path in tracked_markdown(root) if path.exists()]
     problems: list[str] = []
     check_links(root, documents, problems)
+    check_dangling_references(root, documents, problems)
     check_orphans(root, documents, problems)
     check_stale_claims(root, documents, problems)
     check_platform_options(root, documents, problems)

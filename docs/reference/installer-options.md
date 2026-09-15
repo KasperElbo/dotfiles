@@ -67,11 +67,11 @@ Platform guide: [../platforms/macos.md](../platforms/macos.md)
 | `containers` | `--containers` | `--no-containers` | `false` | — | Podman machine profile | `containers` | [docs/profiles/containers.md](../profiles/containers.md) |
 | `tailscale` | `--tailscale` | `--no-tailscale` | `false` | — | Tailscale networking profile | `tailscale` | [docs/profiles/tailscale.md](../profiles/tailscale.md) |
 | `defaults` | `--defaults` | `--no-defaults` | `true` | — | Reversible macOS defaults | — | — |
-| `ai` | `--ai` | `--no-ai` | `false` | — | AI-assisted development profile | `ai` | [docs/platforms/macos.md](../platforms/macos.md#ai-assisted-development-toolchain) |
-| `codex` | `--codex` | `--no-codex` | `inherit` | — | AI subcomponent: Codex CLI | `codex` | [docs/platforms/macos.md](../platforms/macos.md#ai-assisted-development-toolchain) |
-| `firstmate` | `--firstmate` | `--no-firstmate` | `inherit` | — | AI subcomponent: FirstMate toolchain | `firstmate` | [docs/platforms/macos.md](../platforms/macos.md#ai-assisted-development-toolchain) |
-| `gnhf` | `--gnhf` | `--no-gnhf` | `inherit` | — | AI subcomponent: GNHF | `gnhf` | [docs/platforms/macos.md](../platforms/macos.md#ai-assisted-development-toolchain) |
-| `backpass` | `--backpass` | `--no-backpass` | `inherit` | — | AI subcomponent: backpass | `backpass` | [docs/platforms/macos.md](../platforms/macos.md#ai-assisted-development-toolchain) |
+| `ai` | `--ai` | `--no-ai` | `false` | — | AI-assisted development profile | `ai` | [docs/profiles/ai.md](../profiles/ai.md) |
+| `codex` | `--codex` | `--no-codex` | `inherit` | — | AI subcomponent: Codex CLI | `codex` | [docs/profiles/ai.md](../profiles/ai.md) |
+| `firstmate` | `--firstmate` | `--no-firstmate` | `inherit` | — | AI subcomponent: FirstMate toolchain | `firstmate` | [docs/profiles/ai.md](../profiles/ai.md) |
+| `gnhf` | `--gnhf` | `--no-gnhf` | `inherit` | — | AI subcomponent: GNHF | `gnhf` | [docs/profiles/ai.md](../profiles/ai.md) |
+| `backpass` | `--backpass` | `--no-backpass` | `inherit` | — | AI subcomponent: backpass | `backpass` | [docs/profiles/ai.md](../profiles/ai.md) |
 
 ## Parrot Security Edition CTF guest (`--platform parrot-ctf`)
 

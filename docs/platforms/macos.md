@@ -41,7 +41,9 @@ Status labels in this guide mean:
 ### System-Bash compatibility boundary
 
 `install.sh` is deliberately a small Bash 3.2-compatible entry point. It reads
-only `--platform` while retaining the original `"$@"` vector. For the macOS
+only `--platform` and `--rerun` (and, for a `--rerun` that names no platform,
+the recorded platform from `install.conf`) while retaining the original
+`"$@"` vector. For the macOS
 profile it explicitly asks native Homebrew for the installed `bash` formula
 prefix, then re-executes `scripts/install-main.sh` with Bash 4.4 or newer and
 the original arguments. The real dispatcher keeps that interpreter when it
@@ -539,7 +541,7 @@ sftp user@host
 Common interactive commands (`ls`, `cd`, `lcd`, `pwd`, `lpwd`, `get`, `put`,
 `mget`, `mput`, `mkdir`, `rm`, `exit`) and non-interactive `scp` transfers work
 exactly as documented in
-[the first-run SFTP section](../workflows/first-run.md#6-sftp-client). Authentication reuses `~/.ssh/config`,
+[the Fedora SFTP section](fedora.md#sftp-client). Authentication reuses `~/.ssh/config`,
 SSH keys, ssh-agent (including a 1Password-backed agent), and password
 authentication when a server requires it.
 
