@@ -176,9 +176,16 @@ assert_contains "$restore_plan" 'defaults delete com.apple.dock autohide'
 assert_contains "$restore_plan" 'defaults delete NSGlobalDomain KeyRepeat'
 
 grep -Fq 'SIP and Gatekeeper remain enabled' "$repo_root/docs/platforms/macos.md"
-grep -Fq 'Command+Space' "$repo_root/docs/platforms/macos.md"
 grep -Fq 'Displays have separate Spaces' "$repo_root/docs/platforms/macos.md"
 grep -Fq 'platforms/macos/scripts/apply-defaults.sh --restore' "$repo_root/docs/platforms/macos.md"
+
+# The bindings themselves belong to config/actions.tsv and the reference it
+# generates, not to a second table on the platform page. The platform page
+# keeps the modifier rationale and points at that reference.
+grep -Fq 'Control+Option' "$repo_root/docs/platforms/macos.md"
+grep -Fq 'reference/keybindings.md' "$repo_root/docs/platforms/macos.md"
+grep -Fq 'Command+Space' "$repo_root/config/actions.tsv"
+grep -Fq 'Command+Space' "$repo_root/docs/reference/keybindings.md"
 
 # The shared VimTeX fallback only reaches Okular or xdg-open, neither of
 # which exists on macOS; a platform override is mandatory, matching the

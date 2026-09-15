@@ -161,10 +161,13 @@ printf 'PASS: a transient control the platform rejects fails\n'
 
 matrix="$repo_root/docs/reference/capability-matrix.md"
 options="$repo_root/docs/reference/installer-options.md"
+verifiers="$repo_root/docs/reference/verifiers.md"
 
 run_capture python3 "$repo_root/scripts/render-capability-matrix.py" --check
 assert_success
 run_capture python3 "$repo_root/scripts/render-installer-options.py" --check
+assert_success
+run_capture python3 "$repo_root/scripts/render-verifier-reference.py" --check
 assert_success
 printf 'PASS: generated normative documentation is current\n'
 
@@ -174,9 +177,11 @@ scratch="$TEST_ROOT/generated"
 mkdir -p "$scratch"
 cp "$matrix" "$scratch/capability-matrix.md"
 cp "$options" "$scratch/installer-options.md"
+cp "$verifiers" "$scratch/verifiers.md"
 restore_generated() {
   cp "$scratch/capability-matrix.md" "$matrix"
   cp "$scratch/installer-options.md" "$options"
+  cp "$scratch/verifiers.md" "$verifiers"
 }
 trap 'restore_generated; test_cleanup' EXIT INT TERM
 
@@ -188,6 +193,12 @@ restore_generated
 
 printf '\nAn edit the manifest does not justify.\n' >>"$options"
 run_capture python3 "$repo_root/scripts/render-installer-options.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" "stale"
+restore_generated
+
+printf '\nAn edit the manifest does not justify.\n' >>"$verifiers"
+run_capture python3 "$repo_root/scripts/render-verifier-reference.py" --check
 assert_failure
 assert_contains "$TEST_OUTPUT" "stale"
 restore_generated
@@ -235,6 +246,173 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "stale"
 restore_capabilities
 printf 'PASS: a provider change that is not regenerated fails\n'
+
+python3 - "$repo_root/config/capabilities.tsv" <<'PYTHON'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+for index, line in enumerate(lines):
+    fields = line.split("\t")
+    if fields[0] == "kde" and fields[1] == "fedora":
+        fields[10] = "platforms/fedora/scripts/verify-hardening.sh"
+        lines[index] = "\t".join(fields)
+        break
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PYTHON
+run_capture python3 "$repo_root/scripts/render-verifier-reference.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" "stale"
+restore_capabilities
+printf 'PASS: a verifier change that is not regenerated fails\n'
+
+# --- Verification and troubleshooting cover the tools they hand people ------
+
+assert_file_contains "$repo_root/docs/troubleshooting.md" "./doctor"
+assert_file_contains "$repo_root/docs/troubleshooting.md" "Stow conflict"
+assert_file_contains "$repo_root/docs/workflows/verification.md" "./doctor"
+assert_file_contains "$repo_root/docs/workflows/verification.md" "reference/verifiers.md"
+for flag in --codex --firstmate --gnhf --backpass; do
+  assert_file_contains "$repo_root/docs/troubleshooting.md" "$flag"
+done
+printf 'PASS: troubleshooting and verification name doctor, Stow conflicts and every AI sub-flag\n'
+
+# --- Every generated artifact is current and drift-proof --------------------
+
+# The renderers that splice into a hand-written page. Each must agree with its
+# manifest now, and must reject an edit made between its own markers: a page
+# that is half prose and half generated is only safe if the generated half
+# cannot be quietly rewritten by hand.
+spliced_renderers=(
+  "render-action-reference.py docs/reference/keybindings.md"
+  "render-package-ownership.py docs/architecture/package-ownership.md"
+  "render-install-flows.py docs/architecture/installation.md"
+  "render-file-ownership.py docs/architecture/file-ownership.md"
+)
+
+spliced_scratch="$TEST_ROOT/spliced"
+mkdir -p "$spliced_scratch"
+
+for entry in "${spliced_renderers[@]}"; do
+  read -r renderer target <<<"$entry"
+  run_capture python3 "$repo_root/scripts/$renderer" --check
+  assert_success
+done
+printf 'PASS: every spliced generated block is current\n'
+
+for entry in "${spliced_renderers[@]}"; do
+  read -r renderer target <<<"$entry"
+  backup="$spliced_scratch/$(basename "$target")"
+  cp "$repo_root/$target" "$backup"
+
+  # Insert the edit immediately after the BEGIN marker, so it lands inside the
+  # generated region rather than in the hand-written prose around it.
+  python3 - "$repo_root/$target" <<'PYTHON'
+import pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+for index, line in enumerate(lines):
+    if line.startswith("<!-- BEGIN GENERATED"):
+        lines.insert(index + 1, "An edit the manifest does not justify.\n")
+        break
+else:
+    raise SystemExit(f"no BEGIN GENERATED marker in {path}")
+path.write_text("".join(lines), encoding="utf-8")
+PYTHON
+
+  run_capture python3 "$repo_root/scripts/$renderer" --check
+  cp "$backup" "$repo_root/$target"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "stale"
+done
+printf 'PASS: a hand edit inside a generated block is rejected\n'
+
+# Drift the manifests the new renderers read, and confirm each one notices.
+# These are the exact drifts the documentation audit found by hand.
+cp "$repo_root/docs/architecture/package-ownership.md" "$spliced_scratch/package-ownership.md"
+cp "$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt" "$spliced_scratch/mason-packages.txt"
+restore_mason() {
+  cp "$spliced_scratch/mason-packages.txt" \
+    "$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt"
+  cp "$spliced_scratch/package-ownership.md" \
+    "$repo_root/docs/architecture/package-ownership.md"
+  restore_capabilities
+}
+trap 'restore_mason; test_cleanup' EXIT INT TERM
+
+printf 'an-invented-language-server\n' \
+  >>"$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt"
+run_capture python3 "$repo_root/scripts/render-package-ownership.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" "stale"
+restore_mason
+printf 'PASS: a Mason inventory change that is not regenerated fails\n'
+
+cp "$repo_root/docs/architecture/file-ownership.md" "$spliced_scratch/file-ownership.md"
+cp "$repo_root/platforms/macos/scripts/stow.sh" "$spliced_scratch/macos-stow.sh"
+restore_stow() {
+  cp "$spliced_scratch/macos-stow.sh" "$repo_root/platforms/macos/scripts/stow.sh"
+  cp "$spliced_scratch/file-ownership.md" "$repo_root/docs/architecture/file-ownership.md"
+  restore_mason
+}
+trap 'restore_stow; test_cleanup' EXIT INT TERM
+
+python3 - "$repo_root/platforms/macos/scripts/stow.sh" <<'PYTHON'
+import pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text(
+    text.replace("packages=(zsh-platform", "packages=(an-invented-package zsh-platform", 1),
+    encoding="utf-8",
+)
+PYTHON
+run_capture python3 "$repo_root/scripts/render-file-ownership.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" "stale"
+restore_stow
+printf 'PASS: a Stow package added without regenerating fails\n'
+
+cp "$repo_root/docs/architecture/installation.md" "$spliced_scratch/installation.md"
+cp "$repo_root/platforms/parrot-ctf/install.sh" "$spliced_scratch/parrot-install.sh"
+restore_installer() {
+  cp "$spliced_scratch/parrot-install.sh" "$repo_root/platforms/parrot-ctf/install.sh"
+  cp "$spliced_scratch/installation.md" "$repo_root/docs/architecture/installation.md"
+  restore_stow
+}
+trap 'restore_installer; test_cleanup' EXIT INT TERM
+
+python3 - "$repo_root/platforms/parrot-ctf/install.sh" <<'PYTHON'
+import pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+for index, line in enumerate(lines):
+    if line.startswith("plan_add verify "):
+        lines.insert(index, "plan_add invented 'An unplanned step' apply : apply_invented : ''\n")
+        break
+else:
+    raise SystemExit("no verify step in the Parrot installer")
+path.write_text("".join(lines), encoding="utf-8")
+PYTHON
+run_capture python3 "$repo_root/scripts/render-install-flows.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" "stale"
+restore_installer
+printf 'PASS: an install step added without regenerating fails\n'
+
+# --- The generated-artifact list is complete --------------------------------
+
+# One list, not three. Every renderer lint runs must appear in it, so adding a
+# generator without documenting it fails here rather than going unnoticed.
+conventions="$repo_root/docs/architecture/repository-conventions.md"
+assert_file_contains "$conventions" "## Generated artifacts"
+while read -r renderer; do
+  assert_file_contains "$conventions" "scripts/$renderer"
+done < <(grep -o 'scripts/render-[a-z-]*\.py' "$repo_root/scripts/lint.sh" |
+  sed 's|scripts/||' | sort -u)
+assert_file_contains "$conventions" "scripts/update-starship-themes.sh"
+printf 'PASS: every generator lint runs is in the generated-artifact list\n'
 
 # --- Document roles are stated ---------------------------------------------
 

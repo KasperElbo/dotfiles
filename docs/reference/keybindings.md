@@ -6,11 +6,13 @@ actually useful while working on the machine, not every upstream keybinding
 each tool ships with.
 
 The complete, exhaustive table below is generated from `config/actions.tsv`,
-the canonical registry of every action this repository defines. The prose
-around it is hand-written: what to reach for, and which tool's own help to
-prefer over any static list. Every binding, alias and command lives in that
-one generated table — the prose deliberately does not restate it, because two
-hand-maintained copies of the same row is how a reference starts lying.
+the canonical registry of every action this repository defines. Every binding,
+alias and command this repository defines lives in that one generated table and
+nowhere else on this page. The prose around it is hand-written and covers only
+what a table cannot: what to reach for, which tool's own help to prefer over any
+static list, and what this repository deliberately does not configure. It does
+not restate the table, because two hand-maintained copies of the same row is how
+a reference starts lying.
 
 It is deliberately larger than any printable sheet. The per-profile
 [cheat sheets](../cheatsheets/) are a curated subset sized for one or two
@@ -20,10 +22,8 @@ separate artifacts with separate jobs: completeness here, a page budget
 there — but both are checked against `config/actions.tsv`, so neither can
 quietly describe a binding the configuration no longer has.
 
-Every binding below is checked against the tracked configuration at the time
-this page was last updated, not reconstructed from memory or old discussion.
-Where this repository does not configure something, that is stated
-explicitly so an upstream default is never confused for a dotfiles binding.
+Where this repository does not configure something, that is stated explicitly
+below, so an upstream default is never confused for a dotfiles binding.
 
 ## Discover first
 
@@ -159,7 +159,8 @@ numbering, mouse support, a longer status refresh, and Catppuccin styling.
 tmux is for persistence, long-running processes, and remote/SSH sessions ---
 Ghostty remains the local tab/split/zoom manager, so tmux does not duplicate
 that here. `Prefix ?` lists every binding the running tmux actually has,
-which is a better answer than any table here could be.
+which is the list to trust; the table below carries the handful worth knowing
+by heart.
 
 ## LazyVim / Neovim
 
@@ -229,16 +230,20 @@ to reproduce it.
 
 `theme <flavour> [--preserve-wallpaper]` (`bin/.local/bin/theme`) is the
 single portable command for switching the active Catppuccin flavour
-(`latte`, `frappe`, `macchiato`, `mocha`). It writes the shared state every
-other tool reads, so tmux, Ghostty/Noctty, Starship, bat, Lazygit, `delta`
-(and therefore Git's diffs), fzf's picker colours and Neovim's colorscheme all
-follow it. Ghostty needs a restart rather than a reload, and Neovim picks the
-new flavour up in instances started afterwards. Platform-specific hooks under
-`~/.config/dotfiles/theme-hooks.d/` extend it: the Fedora hook additionally
-re-themes KDE/Sway/Waybar and the flavour-matched wallpaper; the Fedora WSL
-hook updates Noctty's managed config through Windows PowerShell. There is no
-macOS theme hook, so `theme` there only changes the terminal/editor/CLI tooling
-above, not system appearance. Wallpaper and `--preserve-wallpaper` are
+(`latte`, `frappe`, `macchiato`, `mocha`). It writes the shared state under
+`~/.config/dotfiles/`, and everything themed here reads that one choice:
+Ghostty/Noctty, tmux and `delta` — and so Git's own diffs — re-read it
+directly; Starship, bat, Lazygit and fzf are selected from it when Zsh starts,
+and Neovim reads `~/.config/dotfiles/theme` when it starts, so those three
+groups follow in shells and editor instances opened afterwards. Ghostty picks a
+changed flavour up on a full restart rather than a config reload.
+
+Platform-specific hooks under `~/.config/dotfiles/theme-hooks.d/` extend it:
+the Fedora hook additionally re-themes KDE/Sway/Waybar and the flavour-matched
+wallpaper; the Fedora WSL hook updates Noctty's managed config through Windows
+PowerShell. There is no macOS theme hook, so `theme` there only changes the
+terminal/editor/CLI tooling above, not system appearance. Wallpaper and
+`--preserve-wallpaper` are
 Fedora-desktop concepts: on Fedora WSL, macOS and the Parrot guest there is no
 repository-managed wallpaper to preserve.
 

@@ -37,7 +37,11 @@ test-entrypoint	755	tests/integration/*.sh	Integration suite, run explicitly
 public-entrypoint	644	verify.ps1	Portable Windows verifier, the documented way in
 public-entrypoint	755	scripts/render-action-reference.py	Regenerates the action reference from config/actions.tsv
 public-entrypoint	755	scripts/render-capability-matrix.py	Regenerates the capability matrix from config/capabilities.tsv
+public-entrypoint	755	scripts/render-file-ownership.py	Regenerates the Stow and machine-local state inventories
+public-entrypoint	755	scripts/render-install-flows.py	Regenerates the per-platform install flows from the installers
 public-entrypoint	755	scripts/render-installer-options.py	Regenerates installer option documentation
+public-entrypoint	755	scripts/render-package-ownership.py	Regenerates the package, mise and Mason inventories
+public-entrypoint	755	scripts/render-verifier-reference.py	Regenerates the per-platform verifier reference from config/capabilities.tsv
 public-entrypoint	755	scripts/render-supply-chain.py	Regenerates the supply-chain source documentation
 public-entrypoint	755	scripts/validate-actions.py	Validates config/actions.tsv against its consumers
 public-entrypoint	755	scripts/validate-capabilities.py	Validates network-source provenance against config/capabilities.tsv

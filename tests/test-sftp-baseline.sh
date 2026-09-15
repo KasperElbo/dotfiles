@@ -214,12 +214,22 @@ check_sftp_documentation() {
     drift documentation "docs/platforms/macos.md has no 'SFTP client' section body" ||
       return 1
   fi
-  for needle in 'sftp user@host' '/usr/bin' 'command -v sftp'; do
+  # The macOS section carries what is macOS-specific — Apple's own OpenSSH
+  # under /usr/bin, and the deliberate absence of a GUI client — and links to
+  # the shared reference above rather than restating its command list.
+  for needle in '/usr/bin' 'Finder' 'first-run.md#6-sftp-client'; do
     [[ "$section" == *"$needle"* ]] ||
       drift documentation \
         "the macOS SFTP section no longer documents '$needle'" ||
       status=1
   done
+
+  # And it must not grow a second copy of the interactive command reference.
+  if grep -Fxq -- 'lpwd' <<<"$section"; then
+    drift documentation \
+      'the macOS SFTP section restates the shared interactive command reference' ||
+      status=1
+  fi
 
   return "$status"
 }
@@ -283,12 +293,14 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "no longer lists 'lcd'"
 printf 'PASS: removing commands from the interactive reference fails\n'
 
-# Negative: the macOS section losing its provider/verification content fails.
+# Negative: the macOS section losing its link to the shared reference fails.
+# That link is what makes trimming the duplicate command list safe.
 broken_macos="$TEST_ROOT/macos-no-verify.md"
-sed 's/^command -v sftp$/true/' "$macos_docs" >"$broken_macos"
+sed 's|first-run.md#6-sftp-client|first-run.md|' "$macos_docs" >"$broken_macos"
 run_capture check_sftp_documentation "$fedora_doc" "$broken_macos"
 assert_failure
-assert_contains "$TEST_OUTPUT" "macOS SFTP section no longer documents 'command -v sftp'"
+assert_contains "$TEST_OUTPUT" \
+  "macOS SFTP section no longer documents 'first-run.md#6-sftp-client'"
 printf 'PASS: the macOS SFTP section is verified separately from the first-run guide\n'
 
 printf '\nSFTP implementation-ownership and documentation-section tests passed.\n'
