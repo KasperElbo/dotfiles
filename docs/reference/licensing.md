@@ -1,63 +1,60 @@
 # Licensing of this repository's own material
 
-**Status: undecided — this requires a maintainer decision.**
+**Status: decided — MIT.**
 
 The scripts, configuration, manifests and documentation written in this
-repository currently carry no licence. Third-party material is a separate
-matter and is already covered: see
+repository are licensed under the MIT License. The text is at
+[`LICENSE`](../../LICENSE) in the repository root, copyright Kasper Elbo.
+
+Third-party material is a separate matter and is covered separately: see
 [third-party-notices.md](third-party-notices.md).
 
-This page exists so the decision is made deliberately rather than inherited
-from a template. Nothing in the repository, its history, or its documentation
-records a licence choice, so no licence has been assumed here.
+## What MIT means here
 
-## What "no licence" means today
+Anyone may copy, modify and redistribute this repository's own material,
+including inside closed-source work, provided the copyright notice and the
+licence text travel with it. In practice, for a dotfiles repository:
 
-Under the Berne Convention and the copyright law of essentially every
-jurisdiction, work without an explicit licence is "all rights reserved" by
-default. Practically, for a public repository:
+- Lifting a script, a profile, or a whole platform layer into your own
+  dotfiles needs no permission and no notification.
+- Redistributing a modified version is fine, with the notice kept.
+- There is no warranty, and no liability for the author. Read the installers
+  before running them on a machine you care about; several of them use `sudo`
+  and change system state.
 
-- Anyone may read it and GitHub's terms permit viewing and forking on GitHub.
-- Nobody has a clear right to copy the scripts into their own dotfiles,
-  redistribute them, or reuse a fragment in another project.
-- Contributors have no stated terms for the contributions they make.
+This licence governs **only this repository's own material**. It does not
+relicense anything vendored from upstream.
 
-For a personal dotfiles repository that may be exactly the intent. It is still
-worth stating rather than leaving implicit.
+## What it does not cover
 
-## Reasonable choices
+| Material | Governed by |
+|---|---|
+| Catppuccin wallpapers and palette-derived theme files | Catppuccin's MIT licence, [`LICENSES/Catppuccin.txt`](../../LICENSES/Catppuccin.txt) |
+| The modified LazyVim starter under `nvim-lazyvim/` | Apache-2.0, [`nvim-lazyvim/.config/nvim/LICENSE`](../../nvim-lazyvim/.config/nvim/LICENSE) |
+| Everything fetched at install time — distribution packages, Homebrew formulae, mise tools, Mason packages, Neovim plugins | Its own upstream licence; none of it is vendored here |
 
-| Choice | What it means in practice here | Consider it if |
-|---|---|---|
-| **MIT** | Anyone may copy, modify and redistribute, including in closed-source work, provided the copyright notice and licence text travel with it. Shortest and most familiar in the dotfiles ecosystem. Matches the Catppuccin material already vendored. | You want other people to be able to lift a script or a profile without asking. |
-| **Apache-2.0** | Same permissions as MIT, plus an explicit patent grant and a requirement to state significant modifications. Matches the LazyVim starter already vendored under `nvim-lazyvim/`. | You want the patent clause and an explicit contribution term, and do not mind a longer file. |
-| **BSD-2-Clause / BSD-3-Clause** | Equivalent to MIT in effect; 3-Clause additionally forbids using the author's name to endorse derived work. | You specifically want the no-endorsement clause. |
-| **GPL-3.0** | Derived works that are distributed must themselves be GPL-3.0. Copyleft. | You want reuse to stay open, and accept that it discourages absorption into permissively licensed projects. |
-| **CC0-1.0 / Unlicense** | Effectively dedicates the material to the public domain, with no attribution requirement at all. | You consider this configuration not worth attributing and want zero friction. |
-| **Deliberately none** | The status quo above, but stated explicitly in the README rather than left ambiguous. | The repository is a personal machine configuration you publish for reference, not for reuse. |
+[third-party-notices.md](third-party-notices.md) is the index: what is
+incorporated, at which upstream revision, and under which licence.
 
-Whichever is chosen, it governs **only this repository's own material**. It
-cannot and does not relicense vendored Catppuccin or LazyVim content, which
-stays under its own terms.
+## What was considered
 
-## Finishing the decision
+Recorded so the choice reads as deliberate rather than inherited from a
+template:
 
-Everything except the choice itself is already in place. To finish:
+| Choice | Why not |
+|---|---|
+| **MIT** | **Chosen.** Shortest and most familiar in the dotfiles ecosystem, and it matches the Catppuccin material already vendored here. |
+| Apache-2.0 | Same permissions plus a patent grant and a modification-notice requirement. Matches the vendored LazyVim starter, but the patent clause earns little for shell scripts and configuration, at the cost of a much longer file. |
+| BSD-2-Clause / BSD-3-Clause | Equivalent in effect to MIT; 3-Clause adds a no-endorsement clause that nothing here needs. |
+| GPL-3.0 | Copyleft would discourage exactly the reuse this repository is published for — lifting a fragment into someone else's setup. |
+| CC0-1.0 / Unlicense | Public-domain dedication drops attribution entirely; MIT keeps it at negligible cost to a reuser. |
+| Deliberately none | The status quo before this decision: all rights reserved by default, which made reuse legally unclear for anyone who wanted it. |
 
-1. Add the chosen licence text at the repository root as `LICENSE`
-   (or record the deliberate "no licence" choice, in which case there is no
-   `LICENSE` file and only step 3 applies).
-2. Replace the **Status** line at the top of this page with, for example:
+## Keeping the record honest
 
-   ```
-   **Status: decided — MIT.**
-   ```
-
-   `scripts/validate-repository-hygiene.py` requires that this page's status
-   and the presence of a root `LICENSE` file agree, so the two cannot drift
-   apart. The validator never picks a licence and never fails because one is
-   missing; leaving the decision open is a supported state.
-3. Link the result from the README's licensing section.
-
-There is no CI pressure to do this quickly. The checks are written so that an
-undecided repository is valid.
+`scripts/validate-repository-hygiene.py`, run by `./scripts/lint.sh`, requires
+that this page's **Status** line and the presence of a root `LICENSE` file
+agree. Removing `LICENSE` without changing the status here fails, and so does
+the reverse. Changing the licence therefore means changing both, plus the
+summary in the [README](../../README.md#licensing) and in
+[repository-conventions.md](../architecture/repository-conventions.md#licensing).

@@ -12,10 +12,10 @@ upstream project is linked.
 Two things are kept separate on purpose:
 
 - **This repository's own material** — the scripts, configuration, manifests
-  and documentation written here. Its licence is a separate, still-open
-  maintainer decision; see [licensing.md](licensing.md).
+  and documentation written here, MIT licensed; see
+  [licensing.md](licensing.md) and [`LICENSE`](../../LICENSE).
 - **Third-party material** listed below. Its licence is set by its upstream
-  author and is unaffected by whatever this repository eventually chooses.
+  author, and this repository's own MIT licence neither covers nor changes it.
 
 Material that is only *installed* at runtime (distribution packages, Homebrew
 formulae, mise tools, Mason packages, Neovim plugins) is not listed here: it

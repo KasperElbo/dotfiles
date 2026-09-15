@@ -185,18 +185,19 @@ authoritative for what. The usual starting points:
 
 ## Licensing
 
-This repository's own scripts, configuration and documentation have **no
-licence yet**; that is an open maintainer decision, with the options and their
-practical consequences written down in
-[docs/reference/licensing.md](docs/reference/licensing.md). Until it is made,
-the default applies: all rights reserved.
+This repository's own scripts, configuration and documentation are **MIT
+licensed** — see [LICENSE](LICENSE). Copy, modify and redistribute them,
+including in closed-source work, as long as the copyright notice travels with
+them. There is no warranty; read the installers before running them on a
+machine you care about.
 
 Third-party material vendored or fetched here keeps its own upstream licence,
-which that decision cannot change. What is incorporated, at which upstream
+which that choice does not change. What is incorporated, at which upstream
 revision, and under which licence is indexed in
 [docs/reference/third-party-notices.md](docs/reference/third-party-notices.md).
 Retained upstream licence texts live in [LICENSES/](LICENSES/) and beside the
-material they cover.
+material they cover. [docs/reference/licensing.md](docs/reference/licensing.md)
+records the decision and what was considered.
 
 ## Contributing to this checkout
 
