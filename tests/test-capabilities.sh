@@ -6,7 +6,7 @@ python3 "$repo_root/scripts/validate-capabilities.py"
 python3 "$repo_root/scripts/render-capability-matrix.py" --check
 
 fixture="$(mktemp)"
-trap 'rm -f -- "$fixture" "$fixture.log" "$fixture.provider" "$fixture.provider.log"' EXIT
+trap 'rm -f -- "$fixture" "$fixture.log" "$fixture.provider" "$fixture.provider.log" "$fixture.verifier" "$fixture.verifier.log"' EXIT
 cp "$repo_root/config/capabilities.tsv" "$fixture"
 duplicate_row="$(sed -n '2p' "$fixture")"
 printf '%s\n' "$duplicate_row" >>"$fixture"
@@ -25,6 +25,21 @@ if CAPABILITY_MANIFEST="$fixture.provider" python3 "$repo_root/scripts/validate-
   exit 1
 fi
 grep -Fq 'lacks provider' "$fixture.provider.log"
+
+# A verifier declared for a capability it never mentions is the DOC-004 defect:
+# the manifest promises a check that does not exist, and the selected profile
+# then passes verification unconditionally. Point the Fedora LaTeX row at a
+# platform verifier that knows nothing about LaTeX and the manifest must say so,
+# naming both the capability and the file.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "latex" && $2 == "fedora" {$11="platforms/macos/scripts/verify.sh"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.verifier"
+if CAPABILITY_MANIFEST="$fixture.verifier" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.verifier.log"; then
+  printf 'Verifier that never mentions its capability unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq 'never mentions latex' "$fixture.verifier.log"
+grep -Fq 'platforms/macos/scripts/verify.sh' "$fixture.verifier.log"
 
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"

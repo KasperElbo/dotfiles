@@ -551,6 +551,56 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Optional LaTeX toolchain
+#
+# verifies: latex
+#
+# The latex capability keeps no profile state of its own (state=- in
+# config/capabilities.tsv is deliberate), so the recorded installation
+# selection is the only evidence that this machine asked for TeX. Reading it
+# here, rather than taking a --latex flag from the installer the way the WSL
+# verifier does, keeps the verdict the same whether platforms/fedora/install.sh
+# runs this script as its final step or somebody runs it by hand months later.
+#
+# Compiling a document is deliberately not attempted: the disposable
+# multi-file build belongs to scripts/test-dev-workflows.sh --latex.
+# ---------------------------------------------------------------------------
+
+section "LaTeX toolchain"
+
+latex_selection_status=0
+install_lifecycle_capability_selected latex || latex_selection_status=$?
+
+if ((latex_selection_status == 0)); then
+  # What platforms/fedora/scripts/install-latex.sh must put on PATH:
+  # texlive-scheme-medium provides latex and the three engines, and latexmk,
+  # biber and texlive-latexindent provide the rest. A missing command is a
+  # broken installation of a capability this machine selected, not a warning.
+  for latex_command in biber latex latexindent latexmk lualatex pdflatex xelatex; do
+    check_command "$latex_command"
+  done
+
+  if command_exists latexmk; then
+    latexmk_version="$(latexmk -v 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$latexmk_version" ]]; then
+      pass "latexmk version: $latexmk_version"
+    else
+      warning "latexmk is installed but did not report a version"
+    fi
+  fi
+else
+  # A machine with no readable installation record is treated like one that
+  # did not select the capability: scripts/doctor.sh already reports a missing
+  # lifecycle record, and this verifier must not invent a selection.
+  pass "LaTeX toolchain is not selected; its commands are not applicable"
+
+  if command_exists latexmk; then
+    warning "latexmk is on PATH at $(command -v latexmk) but the LaTeX" \
+      "capability is not selected; TeX here is not owned by these dotfiles"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Catppuccin tmux
 # ---------------------------------------------------------------------------
 
