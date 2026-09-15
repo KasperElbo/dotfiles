@@ -40,6 +40,9 @@ desktop-tools	fedora-wsl	workstation	-	disabled	-	-	unsupported	-	-	none	-	docs/
 desktop-tools	macos	workstation	-	disabled	-	-	unsupported	-	-	none	-	docs/platforms/macos.md	intentional-absence	unsupported
 desktop-tools	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	docs/platforms/parrot-ctf.md	intentional-absence	unsupported
 terminal	fedora-wsl	workstation	-	disabled	-	-	windows-host	-	-	none	-	docs/platforms/fedora-wsl.md	windows-owned	unsupported
+terminal	fedora	workstation	-	enabled	base	-	base	-	-	platforms/fedora/scripts/verify.sh	-	docs/platforms/fedora.md#terminal	native	implemented
+terminal	macos	workstation	-	enabled	base	-	base	-	-	platforms/macos/scripts/verify.sh	-	docs/platforms/macos.md#terminal	native	implemented
+terminal	parrot-ctf	ctf-guest	-	enabled	base	-	repository+upstream-font	-	-	platforms/parrot-ctf/scripts/verify.sh	-	docs/platforms/parrot-ctf.md#terminal	native+upstream	implemented
 containers	fedora	workstation	--containers	disabled	base	-	dnf	podman,podman-compose	-	platforms/fedora/scripts/verify-containers.sh	containers	docs/profiles/containers.md	native	implemented
 containers	fedora-wsl	workstation	--containers	disabled	base	-	dnf	podman,podman-compose	-	platforms/fedora-wsl/scripts/verify-containers.sh	containers	docs/profiles/containers.md	native	implemented
 containers	macos	workstation	--containers	disabled	base	-	homebrew	podman,podman-compose	-	platforms/macos/scripts/verify.sh	macos-containers	docs/profiles/containers.md	native	implemented

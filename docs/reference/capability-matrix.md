@@ -2,6 +2,16 @@
 
 Generated from `config/capabilities.tsv`; do not edit this table by hand.
 
+A cell reads one of three ways, and the difference matters:
+
+- `✓ <provider>` — supported on that platform, installed and owned by that provider.
+- `— <owner>` — deliberately absent, with the named owner of that absence:
+  `unsupported` (this repository does not provide it there), `windows-host`
+  (the Windows side of a WSL install owns it) or `user-managed` (a person
+  installs it themselves).
+- `—` alone — not modelled: the manifest has no row for that pair, so this
+  repository has taken no position on it either way.
+
 | Capability | Fedora | Fedora WSL | macOS | Parrot CTF |
 |---|---|---|---|---|
 | `ai` | ✓ `mise` | ✓ `mise` | ✓ `mise` | — unsupported |
@@ -21,6 +31,6 @@ Generated from `config/capabilities.tsv`; do not edit this table by hand.
 | `ocaml` | ✓ `dnf+opam` | ✓ `dnf+opam` | ✓ `homebrew+opam` | — unsupported |
 | `sway` | ✓ `dnf` | — unsupported | — unsupported | — unsupported |
 | `tailscale` | ✓ `dnf-tailscale` | — windows-host | ✓ `homebrew-cask` | — unsupported |
-| `terminal` | — | — windows-host | — | — |
+| `terminal` | ✓ `base` | — windows-host | ✓ `base` | ✓ `repository+upstream-font` |
 | `vm-guest` | ✓ `dnf` | — | — | ✓ `apt` |
 | `vm-host` | ✓ `dnf` | — | — | — unsupported |

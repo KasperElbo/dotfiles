@@ -153,4 +153,33 @@ hardware_dry_run="$(
 [[ "$hardware_dry_run" == *'Battery limit:       80'* ]]
 
 grep -Fq 'config/capabilities.tsv' "$repo_root/docs/capabilities.md"
+
+# The supported platform list is derived from this manifest, not repeated in
+# each generator. Adding a base row must reach the generated pages, and a
+# platform without a human-authored title must stop the render rather than
+# produce an unlabelled column.
+manifest_platforms="$(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
+  "$repo_root/config/capabilities.tsv")"
+helper_platforms="$(PYTHONPATH="$repo_root/scripts/lib" python3 -c \
+  'import manifests; print("\n".join(manifests.supported_platforms()))')"
+[[ "$manifest_platforms" == "$helper_platforms" ]] || {
+  printf 'The shared platform helper disagrees with the manifest.\n' >&2
+  exit 1
+}
+
+cp "$repo_root/config/capabilities.tsv" "$fixture.platform"
+printf 'base\tplasma9\tworkstation\t-\tenabled\t-\t-\tdnf\t-\t-\tplatforms/fedora/scripts/verify.sh\t-\tdocs/platforms/fedora.md\tnative\timplemented\n' \
+  >>"$fixture.platform"
+if CAPABILITY_MANIFEST="$fixture.platform" \
+  python3 "$repo_root/scripts/render-capability-matrix.py" --check \
+  2>"$fixture.platform.log"; then
+  printf 'A platform without a column heading unexpectedly rendered.\n' >&2
+  exit 1
+fi
+grep -Fq 'plasma9' "$fixture.platform.log"
+
+# The matrix legend distinguishes a deliberate absence from a pair the manifest
+# does not model at all; without it both read as an em dash.
+grep -Fq 'not modelled' "$repo_root/docs/reference/capability-matrix.md"
+
 printf 'Capability manifest validation passed.\n'

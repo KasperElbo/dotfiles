@@ -101,7 +101,7 @@ records, Git identities, Sway output overrides — lives under
 never tracked. See
 [docs/architecture/file-ownership.md](docs/architecture/file-ownership.md).
 
-Six manifests under `config/` are the normative contract the code and the
+Seven manifests under `config/` are the normative contract the code and the
 documentation both read:
 
 | Manifest | Owns |
@@ -112,6 +112,7 @@ documentation both read:
 | `config/fedora-command-providers.tsv` | The Fedora bootstrap command closure: which capability owns each native command |
 | `config/actions.tsv` | Every repository-defined user action: binding, platform, source, how it is discoverable, and whether a printable sheet carries it |
 | `config/shell-file-roles.tsv` | Every tracked shell file's role and required file mode |
+| `config/terra-keys.tsv` | The reviewed Terra signing-key fingerprint pinned for each Fedora release |
 
 Documentation that states a supported capability, an option, a default or a
 provider is generated from these manifests or checked against them; see

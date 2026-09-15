@@ -181,6 +181,8 @@ check_symlink "$HOME/.zshenv" \
 check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" \
   "$DOTFILES_ROOT/zsh/"
 
+# verifies: terminal -- Ghostty is the workstation terminal, installed with the
+# baseline and configured by the portable ghostty Stow package.
 check_symlink "$XDG_CONFIG_HOME/ghostty/config" \
   "$DOTFILES_ROOT/ghostty/"
 

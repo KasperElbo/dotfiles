@@ -32,6 +32,15 @@ A configuration recorded before one of these options existed simply has no
 value for it. Such a rerun says so and leaves the option to the installer, so
 the detection or the question runs — it is not read as a recorded "no".
 
+## Terminal
+
+The workstation's terminal is **Ghostty**. It is part of the baseline rather
+than an option: `config/capabilities.tsv` records the `ghostty` package under
+`base`, installed from Terra, and its configuration is the portable `ghostty`
+Stow package, so every Fedora install has it and there is no flag to turn it
+off. The Catppuccin flavour it uses is the one the install resolved; see
+[theming.md](../workflows/theming.md).
+
 ## ASUS laptop hardware
 
 Hardware setup is deliberately separate from the default workstation install.
