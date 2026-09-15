@@ -149,8 +149,11 @@ Or run them separately:
 ./scripts/test-dev-workflows.sh --angular
 ./scripts/test-dev-workflows.sh --python
 ./scripts/test-dev-workflows.sh --json
-./scripts/test-dev-workflows.sh --latex
 ```
+
+`--latex` is deliberately absent from that list: this installer provisions no
+TeX distribution on macOS. See "LaTeX is externally managed on macOS" below
+before running it.
 
 - .NET creates a console and xUnit project, then restores, builds, tests, and
   runs them. LazyVim uses Mason-owned Roslyn and EasyDotnet 3.4.25's bundled
@@ -162,18 +165,50 @@ Or run them separately:
 - Python resolves an isolated uv environment, runs, tests with pytest, lints,
   formats, and builds a wheel. LazyVim's shared Pyright/Ruff/debugpy setup is
   used; Python packages are not installed globally.
-- LaTeX uses the shared VimTeX/texlab setup. The shared editor configuration
-  only falls back to Okular or `xdg-open` for the PDF viewer, neither of which
-  exists on macOS, so a small `platforms/macos/stow/nvim-macos` package
-  overrides `vimtex_view_general_viewer` to macOS's native `open` before that
-  fallback runs, the same pattern `platforms/fedora-wsl/stow/nvim-wsl` uses for
-  `wsl-open`. `open` has no SyncTeX forward-search support of its own, matching
-  the same trade-off already accepted for Fedora WSL.
 
 Interactive breakpoints and editor navigation still require a real Neovim UI:
 open each fixture or a normal project, run `:checkhealth`, use definition and
 references, and place one breakpoint. The automated fixture verifies the
 underlying build/debug shapes but cannot assert a human editor interaction.
+
+### LaTeX is externally managed on macOS
+
+This installer does not own a TeX distribution on macOS, and `--latex` is not a
+macOS installer flag — passing it fails with that message rather than silently
+doing nothing. macOS bootstrap is not "LaTeX-complete": nothing here installs
+`latexmk`, `pdflatex`, `biber`, or `latexindent`.
+
+The editor configuration is kept anyway, as dormant compatibility
+configuration. It does nothing until you install TeX yourself, and then the
+same VimTeX/TexLab workflow documented in the README works unchanged.
+
+| Component | Owner on macOS | Provisioned by `install.sh`? |
+| --- | --- | --- |
+| TeX distribution, `latexmk`, `pdflatex`, `biber`, `latexindent` | You — MacTeX or BasicTeX, installed and updated outside this repository | No |
+| `texlab` (LSP) | Mason, from the shared `nvim-lazyvim/.config/nvim/mason-packages.txt` inventory | Yes, as part of the base capability |
+| VimTeX editor plugin | LazyVim, from the shared TeX extra | Yes, as part of the base capability |
+| PDF viewer | macOS itself, through `open` | No — `platforms/macos/stow/nvim-macos` only points VimTeX at it |
+
+`platforms/macos/stow/nvim-macos` exists because the shared VimTeX fallback
+reaches only Okular or `xdg-open`, neither of which exists on macOS. It
+overrides `vimtex_view_general_viewer` to `open` before that fallback runs, the
+same pattern `platforms/fedora-wsl/stow/nvim-wsl` uses for `wsl-open`. `open`
+has no SyncTeX forward-search support of its own, matching the trade-off
+already accepted for Fedora WSL.
+
+`config/capabilities.tsv` records this as `latex`/`macos` with the provider
+`user-managed`, so the generated support matrix shows the absence and its owner
+rather than implying parity with Fedora.
+
+If you do install TeX yourself, the disposable smoke test works:
+
+```bash
+./scripts/test-dev-workflows.sh --latex
+```
+
+Without a TeX installation it reports `SKIP` and names the missing tools and
+who owns them. It never reports a repository defect for a prerequisite this
+platform was never asked to install.
 
 ### Optional OCaml
 

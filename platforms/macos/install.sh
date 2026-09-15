@@ -41,6 +41,11 @@ while (($#)); do
   --dev-workflows) run_dev_workflows=true; shift ;; --no-dev-workflows) run_dev_workflows=false; shift ;;
   --workflows) warn '--workflows is deprecated; use --dev-workflows instead.'; run_dev_workflows=true; shift ;;
   --no-workflows) warn '--no-workflows is deprecated; use --no-dev-workflows instead.'; run_dev_workflows=false; shift ;;
+  --latex | --no-latex)
+    die "$1 is not a macOS option: this installer owns no TeX distribution.
+TeX is externally managed on macOS -- install MacTeX or BasicTeX yourself.
+See docs/macos.md, 'LaTeX is externally managed on macOS'."
+    ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
   --rerun) die '--rerun is owned by the root installer: run ./install.sh --rerun instead.' ;;

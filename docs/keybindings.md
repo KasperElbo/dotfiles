@@ -153,7 +153,10 @@ browser.
 
 ### LaTeX
 
-LaTeX support is optional (`--latex`). VimTeX owns compilation, PDF viewing,
+LaTeX support is optional. `--latex` is a Fedora and Fedora WSL installer flag:
+those platforms own the TeX distribution. On macOS TeX is externally managed
+and `--latex` is rejected, but the bindings below work once you install MacTeX
+or BasicTeX yourself. VimTeX owns compilation, PDF viewing,
 and build-log errors; TexLab owns completion, navigation, diagnostics, and
 formatting (its own build/ChkTeX-on-save are disabled to avoid duplicating
 VimTeX). Bindings use the local leader `\`, shown under `\l` via WhichKey:

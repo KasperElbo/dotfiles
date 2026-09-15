@@ -137,6 +137,7 @@ provenance=capability-manifest@0123456789abcdef
 EOF
 
   mkdir -p "$MACHINE/home/.opam/opam-init"
+  # shellcheck disable=SC2016 # Literal hook content; $HOME belongs to the hook.
   printf 'test -r "$HOME/.opam/opam-init/variables.sh" && true\n' \
     >"$MACHINE/home/.opam/opam-init/init.zsh"
 }

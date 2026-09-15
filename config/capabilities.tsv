@@ -13,7 +13,7 @@ kde	macos	workstation	-	disabled	-	-	unsupported	-	-	none	-	docs/macos.md	intent
 kde	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	README.md#parrot-security-edition-ctf-vm	intentional-absence	unsupported
 latex	fedora	workstation	--latex	auto	base	-	dnf	texlive-scheme-medium,latexmk,biber,texlive-biblatex,texlive-latexindent	-	platforms/fedora/scripts/verify.sh	-	README.md#latex-editing-workflow	native	implemented
 latex	fedora-wsl	workstation	--latex	disabled	base	-	dnf	texlive-scheme-medium,latexmk,biber,texlive-biblatex,texlive-latexindent	-	platforms/fedora-wsl/scripts/verify.sh	-	README.md#latex-editing-workflow	native	implemented
-latex	macos	workstation	-	disabled	-	-	unsupported	-	-	none	-	docs/macos.md	intentional-absence	unsupported
+latex	macos	workstation	-	disabled	-	-	user-managed	-	-	none	-	docs/macos.md#latex-is-externally-managed-on-macos	external-user-managed	unsupported
 latex	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	README.md#parrot-security-edition-ctf-vm	intentional-absence	unsupported
 ocaml	fedora	workstation	--ocaml	disabled	base	-	dnf+opam	bzip2,bubblewrap,gcc,gcc-c++,m4,make,opam,patch,pkgconf-pkg-config,unzip	-	common/verify-ocaml.sh	ocaml	README.md#ocaml-development	native+ecosystem	implemented
 ocaml	fedora-wsl	workstation	--ocaml	disabled	base	-	dnf+opam	bubblewrap,m4,opam,patch,pkgconf-pkg-config	-	common/verify-ocaml.sh	ocaml	README.md#ocaml-development	native+ecosystem	implemented

@@ -247,7 +247,7 @@ The complete OCaml development environment is explicitly opt-in:
 --kde              install Catppuccin KDE integration
 --no-kde           skip KDE integration
 
---latex            install the LaTeX toolchain
+--latex            install the LaTeX toolchain (Fedora and Fedora WSL only)
 --no-latex         skip the LaTeX toolchain
 
 --ocaml            install the optional OCaml development profile
@@ -4600,7 +4600,7 @@ support without a common-config change.
 
 # LaTeX
 
-LaTeX support is optional:
+LaTeX support is optional, and `--latex` is a Fedora and Fedora WSL flag only:
 
 ```bash
 # Native Fedora
@@ -4622,6 +4622,16 @@ Mason owns `texlab`.
 
 LazyVim owns the VimTeX editor plugin. TeX project build configuration remains
 in the project.
+
+On macOS the TeX distribution is externally managed: this repository installs
+no TeX, `--latex` is rejected by the macOS installer rather than silently
+ignored, and `config/capabilities.tsv` records the `latex`/`macos` provider as
+`user-managed`. Mason still owns `texlab` there, and
+`platforms/macos/stow/nvim-macos` still points VimTeX at macOS's `open`, so the
+editor workflow below becomes live as soon as you install MacTeX or BasicTeX
+yourself. See [docs/macos.md](docs/macos.md#latex-is-externally-managed-on-macos)
+for the full ownership table. The Parrot CTF profile has no LaTeX support at
+all.
 
 The optional component explicitly installs `latexmk`, `latexindent`, BibLaTeX,
 and Biber alongside the medium TeX Live scheme. It does not install any LaTeX
@@ -4705,6 +4715,12 @@ forward or inverse SyncTeX. Verify the optional WSL toolchain separately with
 `platforms/fedora-wsl/scripts/verify.sh --latex`; combining `--latex` with the
 installer's `--dev-workflows` also runs the disposable multi-file build below.
 
+On macOS, `platforms/macos/stow/nvim-macos` overrides the viewer with macOS's
+own `open` for the same reason, and `open` likewise provides no SyncTeX of its
+own. Because no TeX is installed there by this repository, `--dev-workflows`
+never runs the LaTeX build on macOS; run it explicitly once you have installed
+a TeX distribution.
+
 The LazyVim TeX extra installs the LaTeX and BibTeX Tree-sitter parsers. It
 intentionally leaves LaTeX highlighting to VimTeX's more complete syntax
 engine, while BibTeX uses Tree-sitter. Both use the active Catppuccin palette,
@@ -4717,6 +4733,12 @@ test is:
 ```bash
 ./scripts/test-dev-workflows.sh --latex
 ```
+
+Where a platform's installer owns TeX and the `latex` capability is recorded as
+installed, a missing `latexmk`, `pdflatex`, `biber`, or `latexindent` is a
+broken installation and the workflow FAILs. Where TeX is externally managed, as
+on macOS, the same absence is expected: the workflow SKIPs and names both the
+missing tools and who owns them.
 
 It formats and builds a disposable multi-file document, resolves a BibLaTeX
 citation through Biber, verifies the PDF, then introduces a deliberate compile

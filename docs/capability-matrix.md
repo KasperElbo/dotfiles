@@ -17,7 +17,7 @@ Generated from `config/capabilities.tsv`; do not edit this table by hand.
 | `hardening` | ✓ `dnf` | — unsupported | — unsupported | — unsupported |
 | `hardware` | ✓ `dnf+copr` | — unsupported | — unsupported | — unsupported |
 | `kde` | ✓ `dnf+upstream-theme` | — unsupported | — unsupported | — unsupported |
-| `latex` | ✓ `dnf` | ✓ `dnf` | — unsupported | — unsupported |
+| `latex` | ✓ `dnf` | ✓ `dnf` | — user-managed | — unsupported |
 | `ocaml` | ✓ `dnf+opam` | ✓ `dnf+opam` | ✓ `homebrew+opam` | — unsupported |
 | `sway` | ✓ `dnf` | — unsupported | — unsupported | — unsupported |
 | `tailscale` | ✓ `dnf-tailscale` | — windows-host | ✓ `homebrew-cask` | — unsupported |

@@ -28,6 +28,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # second result vocabulary for user-facing validation.
 # shellcheck source=../common/lib/verify.sh
 source "$DOTFILES_ROOT/common/lib/verify.sh"
+# Selection state decides whether a missing optional toolchain is this
+# machine's problem or simply something it was never asked to install.
+# shellcheck source=../common/lib/install-lifecycle.sh
+source "$DOTFILES_ROOT/common/lib/install-lifecycle.sh"
 verify_reset
 
 WORKFLOWS=(dotnet angular python json ocaml latex)
@@ -431,8 +435,39 @@ workflow_ocaml() {
 # LaTeX
 # ---------------------------------------------------------------------------
 
+# TeX ownership differs per platform, and the same missing latexmk means two
+# different things. Where the installer owns a selected LaTeX capability, a
+# missing tool is a broken install and must fail. Where TeX is externally
+# managed -- macOS -- the absence is expected and is a skip that names who owns
+# the prerequisite, so nobody reads it as a repository defect.
 prerequisites_latex() {
-  require_commands biber latexindent latexmk pdflatex
+  local command_name platform owner
+  local missing=()
+
+  for command_name in biber latexindent latexmk pdflatex; do
+    command_exists "$command_name" || missing+=("$command_name")
+  done
+  ((${#missing[@]} > 0)) || return 0
+
+  if install_lifecycle_capability_selected latex; then
+    warn "the LaTeX capability is recorded as installed, but the installer-owned" \
+      "tools are missing: ${missing[*]}"
+    return 1
+  fi
+
+  platform="$(install_lifecycle_platform 2>/dev/null || true)"
+  case "$platform" in
+  macos)
+    owner="TeX is externally managed on macOS; install MacTeX or BasicTeX yourself, see docs/macos.md"
+    ;;
+  fedora | fedora-wsl)
+    owner="rerun the installer with --latex to have the distribution own them"
+    ;;
+  *)
+    owner="no LaTeX capability is recorded as installed on this machine"
+    ;;
+  esac
+  unsupported "not installed: ${missing[*]} ($owner)"
 }
 
 workflow_latex() {
