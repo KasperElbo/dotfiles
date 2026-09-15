@@ -30,7 +30,9 @@ Direct entry point: ./platforms/parrot-ctf/install.sh [options]
 Options:
   --theme FLAVOUR    latte, frappe, macchiato, or mocha (default: macchiato)
   --dry-run          Show the resolved plan without changing anything
-  --non-interactive  Use defaults without prompting (requires cached sudo)
+  --non-interactive  Never prompt; resolve every choice from the given
+                     options and their defaults. Requires cached sudo
+                     (run 'sudo -v' first) where the run needs it.
   -h, --help         Show this help
 
 This is a KVM/QEMU lab-guest profile. Parrot owns its security catalogue;
@@ -149,7 +151,7 @@ if [[ "$interactive" == true ]]; then
 fi
 
 plan_preflight
-DOTFILES_RERUN_COMMAND='./install.sh --platform parrot-ctf --non-interactive'
+DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command parrot-ctf "$install_selection")"
 install_lifecycle_begin parrot-ctf base,vm-guest "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?

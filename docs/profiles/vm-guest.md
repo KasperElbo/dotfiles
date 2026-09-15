@@ -19,9 +19,14 @@ composition found no reason to copy the Fedora installer or any Stow package:
 Run the profile only inside the guest:
 
 ```bash
+./install.sh --vm-guest --kde --non-interactive
 ./platforms/fedora/scripts/install-vm-guest.sh
 ./platforms/fedora/scripts/verify-vm-guest.sh
 ```
+
+`--vm-guest` and `--vm-host` are mutually exclusive: `config/capabilities.tsv`
+declares each as conflicting with the other, and the Fedora installer refuses
+a run that selects both.
 
 It uses `systemd-detect-virt --vm` as an explicit preflight and currently
 accepts only `kvm` and `qemu`. Other hypervisors are detected and rejected

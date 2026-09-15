@@ -48,7 +48,9 @@ Options:
   --dev-workflows    Run the disposable development workflow smoke tests
                      (--smoke-test is the deprecated spelling of this)
   --dry-run          Show the resolved plan without changing anything
-  --non-interactive  Use defaults without prompting (requires cached sudo)
+  --non-interactive  Never prompt; resolve every choice from the given
+                     options and their defaults. Requires cached sudo
+                     (run 'sudo -v' first) where the run needs it.
   -h, --help         Show this help
 
 Desktop, hardware, Tailscale, and VM profiles are intentionally unsupported.
@@ -173,8 +175,8 @@ Containers API socket: $containers_api_socket
 AI profile:         $install_ai
 AI Codex subcomponent:     ${ai_codex:-inherit}
 AI FirstMate subcomponent: ${ai_firstmate:-inherit}
-AI GNHF subcomponent:      $ai_gnhf
-AI backpass subcomponent:  $ai_backpass
+AI GNHF subcomponent:      ${ai_gnhf:-inherit}
+AI backpass subcomponent:  ${ai_backpass:-inherit}
 Development workflow smoke tests: $run_dev_workflows  (this run only)
 Recorded rerun selection: $install_selection
 
@@ -201,7 +203,7 @@ fi
 plan_preflight
 capabilities=base,dotnet-debug
 for selection in "$install_ocaml:ocaml" "$install_latex:latex" "$install_containers:containers" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do [[ "${selection%%:*}" != true ]] || capabilities+=,"${selection#*:}"; done
-DOTFILES_RERUN_COMMAND='./install.sh --platform fedora-wsl --non-interactive'
+DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command fedora-wsl "$install_selection")"
 install_lifecycle_begin fedora-wsl "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?; install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"; exit "$result"

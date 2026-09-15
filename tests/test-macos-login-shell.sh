@@ -115,4 +115,60 @@ assert_contains "$TEST_OUTPUT" "Refusing to change root's login shell"
 assert_no_shell_mutation
 assert_eq '/bin/bash' "$(<"$shell_state")" 'root invocation must not mutate state'
 
+# The preflight has to know whether "sudo chsh" is coming before the plan
+# starts (#225, DOC-034). A --non-interactive run that only checked for a
+# missing Homebrew blocked on a password prompt inside the system step.
+run_change_required() {
+  local start_shell="$1"
+
+  printf '%s' "$start_shell" >"$shell_state"
+  [[ -n "$start_shell" ]] || : >"$shell_state"
+  : >"$root/logs/sudo.log"
+
+  # shellcheck disable=SC2016 # The payload expands in the child bash, not here.
+  run_capture env \
+    PATH="$root/bin:$PATH" \
+    TEST_STUB_ROOT="$root" \
+    SHELLS_FILE="$root/shells" \
+    SHELL_STATE="$shell_state" \
+    MOCK_UID=1000 \
+    bash -c '
+      # shellcheck disable=SC1090
+      source "$1/common/lib/common.sh"
+      # shellcheck disable=SC1090
+      source "$1/platforms/macos/lib/macos.sh"
+      if macos_login_shell_change_required; then
+        printf "required=true\n"
+      else
+        printf "required=false\n"
+      fi
+    ' _ "$repo_root"
+}
+
+printf 'A compliant login shell needs no privileged change
+'
+for compliant in /bin/zsh /opt/homebrew/bin/zsh; do
+  run_change_required "$compliant"
+  assert_status 0
+  assert_contains "$TEST_OUTPUT" 'required=false'
+done
+assert_no_shell_mutation
+
+printf 'A non-Zsh, unregistered Zsh or unreadable shell needs one
+'
+for pending in /bin/bash /usr/local/bin/zsh ''; do
+  run_change_required "$pending"
+  assert_status 0
+  assert_contains "$TEST_OUTPUT" 'required=true'
+done
+assert_no_shell_mutation
+
+printf "The macOS preflight establishes sudo for that change\n"
+grep -Fq 'macos_login_shell_change_required || needs_sudo=true' \
+  "$repo_root/platforms/macos/install.sh" ||
+  {
+    printf 'The macOS preflight no longer consults the login-shell requirement.\n' >&2
+    exit 1
+  }
+
 printf 'macOS login-shell policy tests passed.\n'

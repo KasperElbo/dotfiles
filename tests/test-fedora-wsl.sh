@@ -84,6 +84,17 @@ ai_backpass_only_dry_run="$("$repo_root/install.sh" --platform fedora-wsl \
 # Additive semantics: an omitted --firstmate is "leave it alone", not "remove".
 assert_contains "$ai_backpass_only_dry_run" 'AI FirstMate subcomponent: inherit'
 assert_contains "$ai_backpass_only_dry_run" 'AI backpass subcomponent:  true'
+
+# All four sub-flags say "inherit" when omitted (#225, DOC-040): GNHF and
+# backpass used to print an empty value while the recorded selection one line
+# below said inherit.
+ai_inherit_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ai)"
+assert_contains "$ai_inherit_dry_run" 'AI Codex subcomponent:     inherit'
+assert_contains "$ai_inherit_dry_run" 'AI FirstMate subcomponent: inherit'
+assert_contains "$ai_inherit_dry_run" 'AI GNHF subcomponent:      inherit'
+assert_contains "$ai_inherit_dry_run" 'AI backpass subcomponent:  inherit'
+assert_contains "$ai_inherit_dry_run" \
+  'codex:inherit,firstmate:inherit,gnhf:inherit,backpass:inherit'
 assert_contains "$ai_backpass_only_dry_run" 'common/install-ai.sh --backpass'
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \

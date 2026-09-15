@@ -146,8 +146,20 @@ preflight_macos() {
   require_apple_silicon_macos
   preflight_commands awk date find git readlink xcode-select
   xcode-select -p >/dev/null 2>&1 || die "Apple Command Line Tools are required; run 'xcode-select --install'."
+  # Both things this profile needs sudo for are decided here, before the plan
+  # runs: installing Homebrew, and moving the account's login shell to a
+  # registered Zsh (#225). Establishing the authorization up front is what
+  # makes --non-interactive mean "never prompts": the old check covered only
+  # the Homebrew case, so a Mac with Homebrew and a non-Zsh login shell still
+  # stopped at a sudo password prompt inside the system step.
+  local needs_sudo=false
   if [[ ! -x "$(homebrew_path)" ]]; then
-    preflight_commands curl sudo
+    preflight_commands curl
+    needs_sudo=true
+  fi
+  ! macos_login_shell_change_required || needs_sudo=true
+  if [[ "$needs_sudo" == true ]]; then
+    preflight_commands sudo
     preflight_sudo "$interactive"
   fi
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"

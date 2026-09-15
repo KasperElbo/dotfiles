@@ -233,11 +233,12 @@ print which logical config is in play.
 
 ## AI agent tooling
 
-Optional; installed only by `--ai` and its sub-flags. The packages each of
-those capabilities owns are in the inventory above, under every platform that
-supports them. They are declared in a separate, **untracked**, machine-local
-mise config file so the tracked `~/.config/mise/config.toml` above never gains
-an AI-related dependency:
+Optional; installed only by `--ai` and its sub-flags (see
+[the AI profile guide](../profiles/ai.md) for daily usage). The packages each
+of those capabilities owns are in the inventory above, under every platform
+that supports them. They are declared in a separate, **untracked**,
+machine-local mise config file so the tracked `~/.config/mise/config.toml`
+never gains an AI-related dependency:
 
 ```text
 ~/.config/mise/conf.d/ai.toml

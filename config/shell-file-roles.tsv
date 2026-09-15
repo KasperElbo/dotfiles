@@ -23,7 +23,7 @@ deprecated-wrapper	755	scripts/*.sh	Deprecated compatibility wrapper, kept forwa
 sourced-library	644	common/lib/*.sh	Sourced by installers and the theme command
 sourced-library	644	platforms/*/lib/*.sh	Sourced by one platform's scripts
 sourced-library	644	scripts/lib/*.sh	Deprecated sourced compatibility shim
-sourced-library	644	scripts/lib/*.py	Imported by the repository's Python generators and validators
+sourced-library	644	scripts/lib/*.py	Imported by the render/validate scripts
 sourced-library	644	tests/lib/*.sh	Sourced by the test suites
 stowed-command	755	bin/.local/bin/*	Stowed onto PATH
 stowed-command	755	platforms/*/stow/*/.local/bin/*	Stowed onto PATH by a platform package

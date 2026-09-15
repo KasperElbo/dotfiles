@@ -38,7 +38,7 @@ for your admin password once). Until then, use the app bundle path:
 
     /Applications/Tailscale.app/Contents/MacOS/Tailscale status
 
-No account/tailnet policy is set by this installer. See README.md,
-"Optional Tailscale networking profile" for common follow-up commands.
+No account/tailnet policy is set by this installer. See
+docs/profiles/tailscale.md for common follow-up commands.
 
 EOF
