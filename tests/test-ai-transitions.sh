@@ -323,13 +323,31 @@ refusal_dry_run="$(install_ai --no-firstmate --dry-run)"
 assert_contains "$refusal_dry_run" 'REFUSED, manual action required'
 printf 'PASS: dry-run reports the refusal an apply run would reach\n'
 
+# --- 10b. The checkout's own backend config is not a user modification -------
+#
+# The installer writes config/backend inside the FirstMate checkout, so that
+# one path must not read as a local modification. Anything else left in the
+# working tree still does.
+
+install_ai --firstmate --non-interactive >"$test_root/repair.log" 2>&1 ||
+  { cat "$test_root/repair.log" >&2; exit 1; }
+assert_file_contains "$firstmate_dir/config/backend" 'herdr'
+printf 'a file the user left behind\n' >"$firstmate_dir/user-notes.txt"
+if install_ai --no-firstmate --non-interactive \
+  >"$test_root/dirty-checkout.log" 2>&1; then
+  printf 'install-ai.sh removed a checkout with unexplained local changes\n' >&2
+  exit 1
+fi
+assert_file_contains "$test_root/dirty-checkout.log" 'has local modifications'
+assert_path_exists "$firstmate_dir/.git"
+rm -f "$firstmate_dir/user-notes.txt"
+printf 'PASS: only the installer-written backend config is discounted\n'
+
 # --- 11. Verification reports a disabled-but-present component --------------
 #
 # Restoring the recorded binary makes the component ownable again, so the
 # removal can complete; the state and the filesystem stay in step throughout.
 
-install_ai --firstmate --non-interactive >"$test_root/repair.log" 2>&1 ||
-  { cat "$test_root/repair.log" >&2; exit 1; }
 install_ai --no-firstmate --non-interactive >"$test_root/remove-firstmate.log" 2>&1 ||
   { cat "$test_root/remove-firstmate.log" >&2; exit 1; }
 state_says 'firstmate=disabled'

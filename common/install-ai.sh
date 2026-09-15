@@ -340,7 +340,20 @@ own_check_firstmate() {
     return 1
   fi
 
-  if [[ -n "$(git -C "$firstmate_dir" status --porcelain 2>/dev/null || printf 'unreadable')" ]]; then
+  # The backend selection this installer writes lives inside the checkout, so
+  # it is our own artifact rather than a user modification. --untracked-files=all
+  # keeps Git from collapsing it into a bare 'config/' entry, so exactly that
+  # one path can be discounted and anything else still refuses the removal.
+  local worktree_state
+  worktree_state="$(
+    git -C "$firstmate_dir" status --porcelain --untracked-files=all 2>/dev/null ||
+      printf 'unreadable'
+  )"
+  worktree_state="$(
+    printf '%s\n' "$worktree_state" |
+      grep -v -x -F "?? ${firstmate_backend_file#"$firstmate_dir"/}" || true
+  )"
+  if [[ -n "${worktree_state//[[:space:]]/}" ]]; then
     owned_reason="$firstmate_dir has local modifications"
     return 1
   fi
