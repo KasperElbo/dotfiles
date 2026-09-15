@@ -29,69 +29,129 @@ configurations contain no Fedora path or service assumptions. Machine-local
 identities, authentication, output layout, and selected theme remain outside
 the repository.
 
-The current Fedora flow is:
+## Entry points
 
-```text
-install.sh                         compatibility entry point
-│
-└── platforms/fedora/install.sh
-    ├── platforms/fedora/scripts/install-system.sh
-    ├── platforms/fedora/scripts/install-terra.sh
-    ├── platforms/fedora/scripts/install-ocaml.sh          optional prerequisites
-    ├── platforms/fedora/scripts/install-asus-hardware.sh  optional
-    ├── platforms/fedora/scripts/install-sway.sh           optional
-    ├── common/setup-local.sh
-    ├── platforms/fedora/scripts/setup-local.sh
-    ├── common/stow.sh
-    ├── platforms/fedora/scripts/stow.sh
-    ├── common/install-mise.sh
-    ├── common/install-neovim-tools.sh
-    ├── common/install-ocaml.sh                            optional switch/tools
-    ├── common/install-tmux-theme.sh
-    ├── platforms/fedora/scripts/install-kde-theme.sh      optional
-    ├── platforms/fedora/scripts/install-latex.sh          optional
-    ├── platforms/fedora/scripts/install-vm-host.sh        optional
-    ├── platforms/fedora/scripts/install-vm-guest.sh       optional, guest only
-    ├── platforms/fedora/scripts/install-hardening.sh      optional
-    ├── ~/.local/bin/theme + Fedora theme hook
-    └── platforms/fedora/scripts/verify.sh
+`./install.sh` is a thin front door: it chooses a Bash to run under — on macOS
+that means `scripts/bootstrap-macos.sh` first, because the system ships Bash
+3.2 — and then execs `scripts/install-main.sh`, which parses the shared options
+and hands off to `platforms/<platform>/install.sh`. That platform installer is
+what builds the
+execution plan below; it is also a supported entry point on its own, for
+installing exactly one platform.
+
+<!-- BEGIN GENERATED INSTALL FLOWS -->
+
+<!-- Generated from the plan_add calls in platforms/*/install.sh by
+     scripts/render-install-flows.py. Do not edit between these markers;
+     edit the installer and regenerate. -->
+
+## Per-platform install flow
+
+Every installer builds one ordered execution plan and then runs it. The
+tables below are that plan, read out of the installers themselves, so the
+order here is the order `--dry-run` prints and an apply run executes:
+
+```bash
+./install.sh --platform <platform> --dry-run
 ```
+
+Add the optional flags you intend to use: a **conditional** step is planned
+only when its option selects it, and `--dry-run` resolves that for the exact
+selection you pass. The `verify` phase runs after every `apply` step it
+follows, and component scripts stay individually callable and safe to rerun.
+
+### Fedora workstation
+
+`platforms/fedora/install.sh`, 23 steps:
+
+| # | Step | Phase | When | What it does |
+|---|---|---|---|---|
+| 1 | `system` | `apply` | always | Install Fedora system packages |
+| 2 | `terra` | `apply` | always | Enable Terra and install Terra-managed packages |
+| 3 | `ocaml-native` | `apply` | conditional | Install Fedora-owned OCaml prerequisites |
+| 4 | `hardware` | `apply` | conditional | Install ASUS hardware support for `<hardware-model>` |
+| 5 | `sway` | `apply` | conditional | Install the optional Sway daily-driver session |
+| 6 | `vm-host` | `apply` | conditional | Install the optional Fedora KVM/QEMU + libvirt VM-host profile |
+| 7 | `vm-guest` | `apply` | conditional | Install the explicit Fedora KVM/QEMU VM-guest profile |
+| 8 | `hardening` | `apply` | conditional | Install the optional conservative security-hardening profile |
+| 9 | `desktop-tools` | `apply` | conditional | Install the optional day-to-day desktop application profile |
+| 10 | `containers` | `apply` | conditional | Install the optional rootless Podman profile |
+| 11 | `tailscale` | `apply` | conditional | Install the optional Tailscale networking profile |
+| 12 | `local` | `apply` | always | Initialize machine-local configuration |
+| 13 | `stow` | `apply` | always | Deploy tracked configuration with GNU Stow |
+| 14 | `mise` | `apply` | always | Install mise-managed runtimes and developer tools |
+| 15 | `nvim` | `apply` | always | Restore LazyVim and install the Mason inventory |
+| 16 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
+| 17 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch and Platform tools |
+| 18 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
+| 19 | `kde` | `apply` | conditional | Install all four Catppuccin KDE themes |
+| 20 | `latex` | `apply` | conditional | Install LaTeX toolchain |
+| 21 | `theme` | `apply` | always | Apply Catppuccin `<theme>` |
+| 22 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
+| 23 | `verify` | `verify` | always | Verify installation |
+
+### Fedora on WSL
+
+`platforms/fedora-wsl/install.sh`, 14 steps:
+
+| # | Step | Phase | When | What it does |
+|---|---|---|---|---|
+| 1 | `system` | `apply` | always | Install Fedora command-line prerequisites and Linux-native mise |
+| 2 | `interop` | `apply` | always | Preserve explicit Windows executable interop without Windows PATH entries |
+| 3 | `ocaml-native` | `apply` | conditional | Install Fedora OCaml build prerequisites |
+| 4 | `latex` | `apply` | conditional | Install the optional Fedora-owned LaTeX toolchain |
+| 5 | `local` | `apply` | always | Initialize machine-local Git and theme state |
+| 6 | `stow` | `apply` | always | Deploy portable and Fedora WSL configuration |
+| 7 | `mise` | `apply` | always | Install mise-managed Linux runtimes and developer CLIs |
+| 8 | `nvim` | `apply` | always | Restore LazyVim and install the Mason inventory |
+| 9 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch |
+| 10 | `containers` | `apply` | conditional | Install the optional rootless Podman profile |
+| 11 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
+| 12 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
+| 13 | `theme` | `apply` | always | Apply the selected theme |
+| 14 | `verify` | `verify` | always | Verify WSL detection, Linux command ownership, and runtime startup |
+
+### Apple Silicon macOS
+
+`platforms/macos/install.sh`, 16 steps:
+
+| # | Step | Phase | When | What it does |
+|---|---|---|---|---|
+| 1 | `system` | `apply` | always | Verify native arm64 macOS and install the Homebrew baseline |
+| 2 | `ocaml-native` | `apply` | conditional | Install Homebrew OCaml prerequisites |
+| 3 | `containers` | `apply` | conditional | Install and start a rootless Podman machine |
+| 4 | `tailscale` | `apply` | conditional | Install the optional Tailscale profile (Homebrew cask, interactive login). |
+| 5 | `local` | `apply` | always | Initialize local Git and theme state |
+| 6 | `stow` | `apply` | always | Deploy shared and macOS configuration |
+| 7 | `mise` | `apply` | always | Install mise-managed runtimes |
+| 8 | `nvim` | `apply` | always | Restore LazyVim and Mason tools |
+| 9 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
+| 10 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch and platform tools |
+| 11 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
+| 12 | `defaults` | `apply` | conditional | Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults |
+| 13 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
+| 14 | `theme` | `apply` | always | Apply the selected theme |
+| 15 | `aerospace` | `apply` | always | Launch AeroSpace |
+| 16 | `verify` | `verify` | always | Verify installation and native architecture |
+
+### Parrot Security Edition CTF guest
+
+`platforms/parrot-ctf/install.sh`, 10 steps:
+
+| # | Step | Phase | When | What it does |
+|---|---|---|---|---|
+| 1 | `system` | `apply` | always | Install Parrot-owned working-environment prerequisites |
+| 2 | `guest` | `apply` | always | Install and activate KVM/QEMU guest integration |
+| 3 | `local` | `apply` | always | Initialize machine-local Git and theme state |
+| 4 | `stow` | `apply` | always | Deploy the reduced portable and narrow Parrot configuration |
+| 5 | `terminal` | `apply` | always | Install the pinned Nerd Font, bat themes, and Konsole profile |
+| 6 | `mise` | `apply` | always | Install the narrow mise-managed uv and Neovim runtimes |
+| 7 | `nvim` | `apply` | always | Restore the reduced LazyVim/Mason inventory for Parrot |
+| 8 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
+| 9 | `theme` | `apply` | always | Apply the selected theme |
+| 10 | `verify` | `verify` | always | Verify the complete Parrot guest |
+
+<!-- END GENERATED INSTALL FLOWS -->
 
 The historical `scripts/*.sh` paths remain thin compatibility entry points for
-Fedora. Component scripts are individually callable and safe to rerun.
-
-The Fedora WSL flow is deliberately smaller:
-
-```text
-install.sh --platform fedora-wsl
-│
-└── platforms/fedora-wsl/install.sh
-    ├── platforms/fedora-wsl/scripts/install-system.sh
-    ├── platforms/fedora/scripts/install-ocaml.sh       optional prerequisites
-    ├── common/setup-local.sh
-    ├── common/stow.sh --headless
-    ├── platforms/fedora-wsl/scripts/stow.sh
-    ├── common/install-mise.sh
-    ├── common/install-neovim-tools.sh
-    ├── common/install-ocaml.sh                         optional switch/tools
-    ├── common/install-tmux-theme.sh
-    └── platforms/fedora-wsl/scripts/verify.sh
-```
-
-The Parrot CTF flow is a separate guest-only composition:
-
-```text
-install.sh --platform parrot-ctf
-│
-└── platforms/parrot-ctf/install.sh
-    ├── Parrot + KVM/QEMU/channel preflight
-    ├── platforms/parrot-ctf/scripts/install-system.sh
-    ├── platforms/parrot-ctf/scripts/install-guest-integration.sh
-    ├── common/setup-local.sh
-    ├── common/stow.sh --headless --without-mise
-    ├── platforms/parrot-ctf/scripts/stow.sh
-    ├── common/install-mise.sh                         uv + pinned Neovim
-    ├── common/install-neovim-tools.sh --profile parrot-ctf
-    ├── common/install-tmux-theme.sh
-    └── platforms/parrot-ctf/scripts/verify.sh
-```
+Fedora; see [repository conventions](repository-conventions.md#deprecated-wrappers).

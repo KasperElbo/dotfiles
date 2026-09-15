@@ -115,23 +115,19 @@ identical behaviour and warn.
 
 ## 3. Package ownership
 
-Do not install a second copy through another manager.
+Do not install a second copy of anything through another manager. Which owner
+installs which package, on macOS as on every platform, is in
+[package ownership](../architecture/package-ownership.md#package-inventory);
+the ownership rules themselves, and why Homebrew is confined to native machine
+tools, are in the same document.
 
-| Owner | Responsibility |
-|---|---|
-| Apple / macOS | `/bin/zsh`, `open`, `pbcopy`, `pbpaste`, Keychain, SDK and compiler from Command Line Tools |
-| Homebrew `/opt/homebrew` | Machine tools, Git/GitHub CLI, Neovim, tmux, mise, Starship, shell plugins, Ghostty, AeroSpace |
-| mise | .NET 10, Node 24, Python 3.14, uv, Lazygit, EasyDotnet 3.4.25 and the existing portable developer CLIs |
-| Mason / LazyVim | Editor-facing LSP, formatter, linter, test, and non-.NET debug adapters from the shared inventory; Roslyn remains Mason-owned |
-| opam (optional) | OCaml compiler switch, Dune, OCaml LSP, formatter, utop, and Earlybird |
-| Project | Project-specific npm/NuGet/Python dependencies and formatters |
-
-`/usr/local/bin/brew` is treated as an accidental Intel Homebrew install and
-fails verification. Do not install Rosetta to make an x86-only package work.
-EasyDotnet's pinned companion tool bundles the native `osx-arm64`
-`netcoredbg` that the C# DAP configuration launches. The macOS verifier
-rejects a Mason-owned or `osx-x64` debugger path, while the CI probe records
-legacy Intel behavior without installing Rosetta.
+Two macOS-specific consequences: `/usr/local/bin/brew` is treated as an
+accidental Intel Homebrew install and fails verification, and Rosetta is never
+installed to make an x86-only package work. EasyDotnet's pinned companion tool
+bundles the native `osx-arm64` `netcoredbg` that the C# DAP configuration
+launches, so the macOS verifier rejects a Mason-owned or `osx-x64` debugger
+path while the CI probe records legacy Intel behavior without installing
+Rosetta.
 
 ## Terminal
 
@@ -142,14 +138,14 @@ left untouched.
 
 ## 4. Development workflows
 
-**Automated, optional validation:** Run all default workflow fixtures during
-bootstrap:
+The .NET, Angular, Python, JSON and Markdown workflows are shared across
+platforms and documented in
+[the development guide](../workflows/development.md). macOS runs the same
+disposable fixtures:
 
 ```bash
 ./install.sh --platform macos --dev-workflows
 ```
-
-Or run them separately:
 
 ```bash
 ./scripts/test-dev-workflows.sh --dotnet
@@ -159,19 +155,7 @@ Or run them separately:
 ```
 
 `--latex` is deliberately absent from that list: this installer provisions no
-TeX distribution on macOS. See "LaTeX is externally managed on macOS" below
-before running it.
-
-- .NET creates a console and xUnit project, then restores, builds, tests, and
-  runs them. LazyVim uses Mason-owned Roslyn and EasyDotnet 3.4.25's bundled
-  native `netcoredbg` setup; Mason's Intel-only `netcoredbg` package is not
-  installed.
-- Angular installs fixture-local npm dependencies, formats, lints, tests,
-  builds development/debug bundles, checks source maps, serves, and probes the
-  app. TypeScript/Angular editor and debugging configuration stays shared.
-- Python resolves an isolated uv environment, runs, tests with pytest, lints,
-  formats, and builds a wheel. LazyVim's shared Pyright/Ruff/debugpy setup is
-  used; Python packages are not installed globally.
+TeX distribution on macOS. See the next section before running it.
 
 Interactive breakpoints and editor navigation still require a real Neovim UI:
 open each fixture or a normal project, run `:checkhealth`, use definition and
@@ -183,12 +167,15 @@ underlying build/debug shapes but cannot assert a human editor interaction.
 This installer does not own a TeX distribution on macOS, and `--latex` is not a
 macOS installer flag — passing it fails with that message rather than silently
 doing nothing. macOS bootstrap is not "LaTeX-complete": nothing here installs
-`latexmk`, `pdflatex`, `biber`, or `latexindent`.
+`latexmk`, `pdflatex`, `biber`, or `latexindent`. `config/capabilities.tsv`
+records this as `latex`/`macos` with the provider `user-managed`, so the
+generated support matrix shows the absence and its owner rather than implying
+parity with Fedora.
 
 The editor configuration is kept anyway, as dormant compatibility
-configuration. It does nothing until you install TeX yourself, and then the
-same VimTeX/TexLab workflow documented in
-[the LaTeX guide](../workflows/latex.md) works unchanged.
+configuration. Install MacTeX or BasicTeX yourself and the same VimTeX/TexLab
+workflow documented in [the LaTeX guide](../workflows/latex.md) works
+unchanged.
 
 | Component | Owner on macOS | Provisioned by `install.sh`? |
 | --- | --- | --- |
@@ -197,18 +184,7 @@ same VimTeX/TexLab workflow documented in
 | VimTeX editor plugin | LazyVim, from the shared TeX extra | Yes, as part of the base capability |
 | PDF viewer | macOS itself, through `open` | No — `platforms/macos/stow/nvim-macos` only points VimTeX at it |
 
-`platforms/macos/stow/nvim-macos` exists because the shared VimTeX fallback
-reaches only Okular or `xdg-open`, neither of which exists on macOS. It
-overrides `vimtex_view_general_viewer` to `open` before that fallback runs, the
-same pattern `platforms/fedora-wsl/stow/nvim-wsl` uses for `wsl-open`. `open`
-has no SyncTeX forward-search support of its own, matching the trade-off
-already accepted for Fedora WSL.
-
-`config/capabilities.tsv` records this as `latex`/`macos` with the provider
-`user-managed`, so the generated support matrix shows the absence and its owner
-rather than implying parity with Fedora.
-
-If you do install TeX yourself, the disposable smoke test works:
+Once TeX is installed, the disposable smoke test works:
 
 ```bash
 ./scripts/test-dev-workflows.sh --latex
@@ -218,6 +194,13 @@ Without a TeX installation it reports `SKIP` and names the missing tools and
 who owns them. It never reports a repository defect for a prerequisite this
 platform was never asked to install.
 
+`platforms/macos/stow/nvim-macos` exists because the shared VimTeX fallback
+reaches only Okular or `xdg-open`, neither of which exists on macOS. It
+overrides `vimtex_view_general_viewer` to `open` before that fallback runs, the
+same pattern `platforms/fedora-wsl/stow/nvim-wsl` uses for `wsl-open`. `open`
+has no SyncTeX forward-search support of its own, matching the trade-off
+already accepted for Fedora WSL.
+
 ### Optional OCaml
 
 ```bash
@@ -226,27 +209,14 @@ platform was never asked to install.
 ```
 
 Homebrew owns only `opam` and native build prerequisites. The shared opam
-installer creates the same pinned switch and editor workflow used on Fedora;
-there is no second macOS OCaml environment.
+installer creates the same pinned switch and editor workflow used on Fedora,
+the macOS verifier runs the same shared `common/verify-ocaml.sh`, and the
+workflow itself is documented in
+[the development guide](../workflows/development.md). There is no second macOS
+OCaml environment and no macOS-only OCaml check.
 
-The macOS verifier runs the same shared `common/verify-ocaml.sh` as every other
-platform; there is no macOS-only OCaml check. It reads whether the profile was
-selected from the install lifecycle state, so it does not need a forwarded flag
-and reaches the same verdict whether it runs inside the installer or on its own
-later:
-
-- profile not selected and opam absent — pass, reported as not applicable;
-- profile selected and healthy — pass;
-- profile selected but missing or broken — fail.
-
-On a selected profile it proves that `opam` resolves inside the Homebrew prefix
-rather than merely answering on `PATH`, that the recorded switch exists and is
-the selected one, that the compiler inside it matches
-`~/.config/dotfiles/ocaml.conf` exactly (including an `OCAML_COMPILER_VERSION`
-override), that dune, `ocamlearlybird`, `ocamllsp`, OCamlFormat, and utop are
-installed in the switch, that opam's generated Zsh hook exists and parses, and
-that a throwaway program compiles and runs. Every command runs through
-`opam exec --switch`, so nothing here depends on restarting your login shell.
+The one macOS-specific assertion the shared verifier makes is that `opam`
+resolves inside the Homebrew prefix rather than merely answering on `PATH`.
 
 ### Optional containers
 
@@ -254,17 +224,18 @@ that a throwaway program compiles and runs. Every command runs through
 ./install.sh --platform macos --containers
 ```
 
-macOS cannot run Linux containers directly, so this profile installs Podman
-and `podman-compose`, creates the normal rootless Podman machine VM, and checks
-an ARM64 Alpine container. It deliberately does not run Fedora's systemd,
-SELinux, or subuid scripts and does not install Docker Desktop or a `docker`
-alias. Podman's upstream macOS documentation prefers its signed installer over
+macOS cannot run Linux containers directly, so this profile installs Podman and
+`podman-compose`, creates the normal rootless Podman machine VM, and checks an
+ARM64 Alpine container. It deliberately does not run Fedora's systemd, SELinux,
+or subuid scripts and does not install Docker Desktop or a `docker` alias.
+Podman's upstream macOS documentation prefers its signed installer over
 Homebrew for supportability; this profile deliberately accepts the Homebrew
-formula to keep machine-package ownership declarative. If that trade-off
-causes a real stability issue, remove the formula and use the upstream
-installer rather than keeping two copies.
+formula to keep machine-package ownership declarative. If that trade-off causes
+a real stability issue, remove the formula and use the upstream installer
+rather than keeping two copies.
 
-Rollback:
+See [the containers profile guide](../profiles/containers.md) for day-to-day
+use. Rollback:
 
 ```bash
 podman machine stop
@@ -284,38 +255,24 @@ export anything needed before running it.
 ./install.sh --platform macos --ai --gnhf --backpass
 ```
 
-macOS uses the shared `common/install-ai.sh` and `common/verify-ai.sh`. There
-is no macOS-specific AI installer, and nothing here is installed through
+macOS uses the shared `common/install-ai.sh` and `common/verify-ai.sh`. What
+each component is, which flag selects it, and which ones need manual setup
+afterwards are in [the AI profile guide](../profiles/ai.md); the additive
+sub-flag semantics are identical here, so omitting `--codex` leaves an
+already-installed Codex alone and only `--no-codex` removes it.
+
+There is no macOS-specific AI installer, and nothing here is installed through
 Homebrew or a global npm prefix: the AI step runs after the mise environment is
 active, and mise owns every command. The step is planned after `mise` for
 exactly that reason.
 
-`--ai` installs Claude Code and Herdr. The subcomponents are additive and
-behave identically to every other platform: omitting `--codex` leaves an
-already-installed Codex alone, and only `--no-codex` removes it, after a
-confirmation and only when recorded provenance still proves this repository
-installed it. See [the AI profile guide](../profiles/ai.md) for what
-each component is and which ones need manual, deliberate setup afterwards.
-
-| Component | Flag | Provider | Apple Silicon support |
-| --- | --- | --- | --- |
-| Claude Code | `--ai` | mise (npm backend) | supported |
-| Herdr | `--ai` | mise (registry backend) | supported |
-| Codex | `--codex` | mise (npm backend) | supported |
-| FirstMate | `--firstmate` | git clone to `~/.local/share/firstmate` | supported |
-| Treehouse | `--firstmate` | staged upstream install script | supported |
-| No Mistakes | `--firstmate` | staged upstream install script | supported |
-| gh-axi, chrome-devtools-axi, tasks-axi, quota-axi | `--firstmate` | mise (npm backend) | supported |
-| lavish-axi | `--firstmate` or `--backpass` | mise (npm backend) | supported |
-| GNHF | `--gnhf` | mise (npm backend) | supported |
-| backpass, acpx | `--backpass` | mise (npm backend) | supported |
-
-Support here means the component was installed and executed on a real Apple
-Silicon runner by the `macos` job in `.github/workflows/real-install.yml`, not
-that a mocked test passed. `config/capabilities.tsv` is the authority: if a
-component is demoted to `unsupported` there, the macOS installer rejects that
-one sub-flag with an actionable message and leaves the rest of the profile
-installable. Losing one optional component never disables `--ai`.
+Every component is supported on Apple Silicon, meaning it was installed and
+executed on a real Apple Silicon runner by the `macos` job in
+`.github/workflows/real-install.yml`, not that a mocked test passed.
+`config/capabilities.tsv` is the authority: if a component is demoted to
+`unsupported` there, the macOS installer rejects that one sub-flag with an
+actionable message and leaves the rest of the profile installable. Losing one
+optional component never disables `--ai`.
 
 macOS verification adds two checks the shared verifier cannot make: every
 advertised command must be arm64-native or a script running under the arm64
@@ -338,31 +295,28 @@ upstream created for it.
 ./install.sh --platform macos --tailscale
 ```
 
-macOS installs Tailscale as the **Standalone**
-macOS app (`brew install --cask tailscale-app`), the sandboxed
-Network-Extension-based variant Tailscale documents for a normal Mac with a
-display, not the headless `brew install tailscale` daemon formula this repo
-does not use. There is no `launchd`/systemd-style service this profile
-manages directly: the app's own Network Extension process is what
-`tailscaled` is on Fedora, and macOS's sandboxing keeps it running once
-approved. This deliberately does not reuse any Fedora `tailscaled`/systemd
-assumption.
+macOS installs Tailscale as the **Standalone** macOS app
+(`brew install --cask tailscale-app`), the sandboxed Network-Extension-based
+variant Tailscale documents for a normal Mac with a display, not the headless
+`brew install tailscale` daemon formula this repo does not use. There is no
+`launchd`/systemd-style service this profile manages directly: the app's own
+Network Extension process is what `tailscaled` is on Fedora, and macOS's
+sandboxing keeps it running once approved. This deliberately does not reuse any
+Fedora `tailscaled`/systemd assumption.
 
-The installer opens the app once (so macOS can prompt for the Network
-Extension permission) and then stops: authentication is interactive by
-design, matching the cross-platform profile's boundary and this repository's existing
-"no automated login" stance for every other identity/authentication step
-(Git, SSH, `gh auth login`). Nothing here scripts the permission grant or
-runs `tailscale up`/signs you in.
+The installer opens the app once (so macOS can prompt for the Network Extension
+permission) and then stops: authentication is interactive by design, matching
+the cross-platform profile's boundary and this repository's existing "no
+automated login" stance for every other identity/authentication step (Git, SSH,
+`gh auth login`).
 
-The Tailscale CLI is optional on macOS and is not installed by this
-profile. Enable it yourself from the app's Settings (CLI section, "Install
-Now"; asks for your admin password once) to get a plain `tailscale` command
-at `/usr/local/bin/tailscale`, or use the app bundle path directly:
+The Tailscale CLI is optional on macOS and is not installed by this profile.
+Enable it yourself from the app's Settings (CLI section, "Install Now"; asks for
+your admin password once) to get a plain `tailscale` command at
+`/usr/local/bin/tailscale`, or use the app bundle path directly:
 
 ```bash
 /Applications/Tailscale.app/Contents/MacOS/Tailscale status
-/Applications/Tailscale.app/Contents/MacOS/Tailscale version
 ```
 
 Rollback:
@@ -374,10 +328,10 @@ rm ~/.config/dotfiles/macos-tailscale.conf
 ```
 
 See [the Tailscale profile guide](../profiles/tailscale.md) for package
-ownership, the full list of what is intentionally never automated (ACLs,
-exit nodes, subnet routes, Tailscale SSH, `--accept-routes`/`--accept-dns`),
-and normal day-to-day commands. None of that is Fedora-specific; it applies
-here unchanged.
+ownership, the full list of what is intentionally never automated (ACLs, exit
+nodes, subnet routes, Tailscale SSH, `--accept-routes`/`--accept-dns`), and
+normal day-to-day commands. None of that is Fedora-specific; it applies here
+unchanged.
 
 ## 5. AeroSpace decision record
 
@@ -417,29 +371,12 @@ from its own tracked setting.
 
 The Mac modifier is `Control+Option`. This preserves normal Command shortcuts
 and plain Option symbol/Danish character entry while still feeling like one
-dedicated Sway modifier.
-
-| Sway concept | macOS binding | Action |
-|---|---|---|
-| `Super+Enter` | `Control+Option+Enter` | Open a new Ghostty window |
-| launcher | `Command+Space` | Open native Spotlight |
-| `Super+1…9` | `Control+Option+1…9` | Switch AeroSpace workspace |
-| `Super+Shift+1…9` | `Control+Option+Shift+1…9` | Move window to workspace |
-| `Super+h/j/k/l` | `Control+Option+h/j/k/l` | Focus directionally, including adjacent display |
-| `Super+Shift+h/j/k/l` | `Control+Option+Shift+h/j/k/l` | Reorder/move directionally, including adjacent display |
-| 3×3 workspace grid | `Control+Option+Command+h/j/k/l` | Move through 1–9 with wrapped grid navigation |
-| `Super+b/v` | `Control+Option+b/v` | Horizontal/vertical tiles |
-| `Super+s/w` | `Control+Option+s/w` | Vertical/horizontal accordion (stacked/tabbed analogue) |
-| `Super+Shift+Space` | `Control+Option+Shift+Space` | Toggle floating/tiling |
-| `Super+f` | `Control+Option+f` | AeroSpace full-screen within the current macOS Space |
-| `Super+Shift+c` | `Control+Option+Shift+c` | Close window |
-| `Super+r` | `Control+Option+r`, then `h/j/k/l` | Enter resize mode; Enter/Escape exits |
-| display focus | `Control+Option+Tab` | Focus next display |
-| move window | `Control+Option+Shift+Tab` | Move window to next display |
-| move workspace | `Control+Option+Command+Tab` | Move workspace to next display |
-
-This table is the canonical macOS input for the cross-platform keybinding
-documentation.
+dedicated Sway modifier, so every AeroSpace binding is `Control+Option` plus
+the key the equivalent Sway binding uses. The bindings themselves are
+registered in `config/actions.tsv` and listed, with their Sway equivalents, in
+[the keyboard reference](../reference/keybindings.md) under Apple Silicon
+macOS; the printable [macOS cheat sheet](../cheatsheets/README.md) is the
+curated subset.
 
 The configuration intentionally has no hardcoded monitor serial, name, or
 workspace assignment. Workspaces form one pool; each has an assigned display,
@@ -537,32 +474,14 @@ overwrite the clipboard or launch arbitrary UI during verification.
 
 Command-line SFTP needs no Homebrew package: `ssh`, `scp`, and `sftp` are part
 of Apple's own OpenSSH build under `/usr/bin`, present on every clean macOS
-install.
+install, and they behave exactly as documented in
+[the first-run SFTP section](../workflows/first-run.md#6-sftp-client).
 
-```bash
-sftp user@host
-```
-
-Common interactive commands (`ls`, `cd`, `lcd`, `pwd`, `lpwd`, `get`, `put`,
-`mget`, `mput`, `mkdir`, `rm`, `exit`) and non-interactive `scp` transfers work
-exactly as documented in
-[the first-run SFTP section](../workflows/first-run.md#6-sftp-client). Authentication reuses `~/.ssh/config`,
-SSH keys, ssh-agent (including a 1Password-backed agent), and password
-authentication when a server requires it.
-
-Finder has no built-in `sftp://` location support (unlike Dolphin/KIO on the
-Fedora KDE profile), but no dedicated GUI SFTP client is installed here
-either: the CLI `sftp`/`scp` workflow above is the supported path, and adding
-a GUI client such as FileZilla for this alone was not judged a large enough
-gap to justify a second application.
-
-Verify with:
-
-```bash
-command -v sftp
-command -v scp
-ssh -V
-```
+The macOS-specific part is what is *not* here. Finder has no built-in `sftp://`
+location support, unlike Dolphin/KIO on the Fedora KDE profile, and no
+dedicated GUI SFTP client is installed either: the CLI `sftp`/`scp` workflow is
+the supported path, and adding a client such as FileZilla for this alone was
+not judged a large enough gap to justify a second application.
 
 ### Reapplying this machine's configuration
 
@@ -572,14 +491,8 @@ ssh -V
 ```
 
 `--rerun` reapplies the configuration of this machine's last *successful*
-install, reconstructed from the lifecycle state by the shared persistent
-selection model — including the theme, `--defaults`, the optional profiles,
-and the AI subcomponents, whose additive semantics survive the round trip: a
-sub-flag you omitted stays omitted rather than becoming an install or a
-removal. See [the rerun guide](../workflows/rerun.md) for
-the full contract. A run that *fails* has no remembered configuration to
-reapply, so it prints the literal command that reproduces the selection it was
-attempting.
+install, `--defaults` and the AI subcomponents included. The contract is shared
+across platforms and documented in [the rerun guide](../workflows/rerun.md).
 
 ## 9. Verification and rollback
 

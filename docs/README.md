@@ -11,7 +11,7 @@ higher in this list wins, and the lower one is a bug.
 | Role | Where | What it is |
 |---|---|---|
 | 1. Structured contract | `config/*.tsv` | The normative, machine-readable source for capabilities, providers, installer options, network sources, the Fedora command closure, and every repository-defined user action. Code reads it; documentation is generated from it or checked against it. |
-| 2. Generated reference | [reference/capability-matrix.md](reference/capability-matrix.md), [reference/installer-options.md](reference/installer-options.md), [supply-chain-sources.md](supply-chain-sources.md) | Rendered from role 1. Never edited by hand; `./scripts/lint.sh` fails when one is stale. |
+| 2. Generated reference | [reference/capability-matrix.md](reference/capability-matrix.md), [reference/installer-options.md](reference/installer-options.md), [supply-chain-sources.md](supply-chain-sources.md), and the generated blocks inside several other pages | Rendered from role 1 and from the installers themselves. Never edited by hand; `./scripts/lint.sh` fails when one is stale. [The full list is in repository conventions](architecture/repository-conventions.md#generated-artifacts). |
 | 3. Platform and profile guides | [platforms/](platforms/), [profiles/](profiles/) | How to install and operate one target or one optional profile, including what it deliberately does not do. |
 | 4. Workflow guides | [workflows/](workflows/) | How the day-to-day environment is used: installing, theming, shell, editor, languages. |
 | 5. Full action reference | [reference/keybindings.md](reference/keybindings.md) | Every registered action, generated from `config/actions.tsv` — including the ones no printable sheet carries. Optimized for completeness and searching. |
@@ -65,7 +65,7 @@ current support contract. A guide never says a capability is "waiting for" or
 - [reference/installer-options.md](reference/installer-options.md) — generated option tables
 - [reference/capability-matrix.md](reference/capability-matrix.md) — generated support/provider matrix
 - [reference/keybindings.md](reference/keybindings.md) — the full keyboard and workflow reference
-- [reference/defaults.md](reference/defaults.md) — what a default install ends up with
+- [reference/defaults.md](reference/defaults.md) — what a default Fedora workstation install ends up with
 - [reference/git-identity.md](reference/git-identity.md) — machine-local Git identity and its migration
 - [reference/licensing.md](reference/licensing.md) — the open licence decision
 - [reference/third-party-notices.md](reference/third-party-notices.md) — vendored and fetched upstream material
