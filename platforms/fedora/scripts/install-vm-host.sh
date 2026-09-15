@@ -14,6 +14,12 @@ libvirt_network="default"
 libvirt_pool="default"
 libvirt_image_dir="/var/lib/libvirt/images"
 target_user="${SUDO_USER:-${USER:-$(id -un)}}"
+# Membership of the libvirt group is what lets a user manage qemu:///system
+# without a polkit prompt, and it is root-equivalent. Adding the installing
+# user is a deliberate single-user-workstation choice, so the same disclosure
+# is shown before the change (--dry-run) and when it is made.
+libvirt_group_disclosure="libvirt group membership is root-equivalent: it grants passwordless read-write access to qemu:///system, where a guest can be given a raw host disk"
+libvirt_group_rollback="sudo gpasswd -d $target_user libvirt"
 dry_run="false"
 validate_only="false"
 smoke_test="false"
@@ -111,10 +117,15 @@ $(printf '  %s\n' "${vm_host_packages[@]}")
 Steps:
   1. Install the Fedora virtualization packages listed above.
   2. Activate libvirt's system daemon/socket units.
-  3. Ensure the default libvirt NAT network and storage pool are active and persistent.
-  4. Preserve Secure Boot, SELinux, and firewalld settings.
-  5. Validate KVM acceleration, qemu:///system access, networking, storage, and guest XML.
-  6. Record the host conventions in \$XDG_CONFIG_HOME/dotfiles/vm-host.conf.
+  3. Add $target_user to the standard libvirt group, where Fedora provides it.
+  4. Ensure the default libvirt NAT network and storage pool are active and persistent.
+  5. Preserve Secure Boot, SELinux, and firewalld settings.
+  6. Validate KVM acceleration, qemu:///system access, networking, storage, and guest XML.
+  7. Record the host conventions in \$XDG_CONFIG_HOME/dotfiles/vm-host.conf.
+
+Privilege change (step 3):
+  $libvirt_group_disclosure.
+  Roll back with: $libvirt_group_rollback, then log out and back in.
 
 No changes were made.
 
@@ -147,6 +158,8 @@ if getent group libvirt >/dev/null 2>&1; then
   if ! id -nG "$target_user" | tr ' ' '\n' | grep -Fxq libvirt; then
     info "Adding $target_user to the standard libvirt group"
     sudo usermod -aG libvirt "$target_user"
+    warn "$target_user is now in the libvirt group; $libvirt_group_disclosure"
+    warn "Roll back with: $libvirt_group_rollback"
     warn "Log out and back in before using qemu:///system as $target_user"
   else
     info "$target_user already has standard libvirt access"

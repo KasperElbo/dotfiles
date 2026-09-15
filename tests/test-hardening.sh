@@ -159,6 +159,187 @@ EOF
   printf 'PASS: owned drop-in commands with HARDENING_ROOT %s\n' "$mode"
 }
 
+# install_date_and_restorecon_mocks <bin>: `date +%s` answers MOCK_EPOCH so the
+# SELinux config backup has a predictable name; every other date call is real.
+# restorecon exists so the relabel step is always taken.
+install_date_and_restorecon_mocks() {
+  local real_date
+  real_date="$(command -v date)"
+  cat >"$1/date" <<EOF
+#!/usr/bin/env bash
+if [[ "\${1:-}" == +%s ]]; then
+  printf '%s\\n' "\$MOCK_EPOCH"
+else
+  exec $real_date "\$@"
+fi
+EOF
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$1/restorecon"
+  chmod +x "$1/date" "$1/restorecon"
+}
+
+# /etc/selinux/config is the one vendor file the profile edits in place, so
+# the edit is held to more than the drop-ins: the new content is validated
+# before anything changes, the previous file is kept as a timestamped backup
+# (an identical one is reused, so reruns do not accumulate copies), the write
+# goes through a staged sibling renamed over the original with its mode, and
+# the result is read back.
+run_selinux_config_contract() {
+  test_new_root
+  local test_root="$TEST_ROOT"
+  local fake_root="$test_root/fake-root"
+  local config="$fake_root/etc/selinux/config"
+  local tmp="$test_root/state/tmp"
+  local backup="$config.dotfiles-1700000000.bak"
+  local original=$'SELINUX=permissive\nSELINUXTYPE=targeted'
+
+  mkdir -p "${config%/*}"
+  printf '%s\n' "$original" >"$config"
+  chmod 0644 "$config"
+
+  test_stub_init "$test_root"
+  test_stub_install "$test_root" sudo
+  install_mktemp_mock "$test_root/bin"
+  install_date_and_restorecon_mocks "$test_root/bin"
+
+  # SABOTAGE_SELINUX_WRITE models a write that did not produce the staged
+  # content, which only the read-back can catch.
+  cat >"$test_root/handlers/sudo" <<'EOF'
+#!/usr/bin/env bash
+# Called, not exec'd: `test` is a shell builtin, and the suite's isolated PATH
+# has no cmp, so both are answered in Bash.
+case "$1" in
+restorecon) exit 0 ;;
+cmp) [[ -f "$3" && -f "$4" && "$(cat -- "$3")" == "$(cat -- "$4")" ]] ;;
+install) install -m "$3" "$8" "$9" ;;
+mv)
+  if [[ "${SABOTAGE_SELINUX_WRITE:-false}" == true ]]; then
+    printf 'SELINUX=enforcing\nSELINUX=permissive\n' >"$4"
+  fi
+  "$@"
+  ;;
+*) "$@" ;;
+esac
+EOF
+  chmod +x "$test_root/handlers/sudo"
+
+  run_persist() {
+    run_capture env PATH="$test_root/bin:$PATH" TEST_STUB_ROOT="$test_root" \
+      HARDENING_ROOT="$fake_root" MOCK_EPOCH="$1" \
+      SABOTAGE_SELINUX_WRITE="${2:-false}" DOTFILES_ROOT_DIR="$repo_root" \
+      bash -c '
+        set -euo pipefail
+        source "$DOTFILES_ROOT_DIR/common/lib/common.sh"
+        source "$DOTFILES_ROOT_DIR/platforms/fedora/lib/hardening.sh"
+        persist_selinux_enforcing
+      '
+  }
+
+  backup_count() {
+    local backups=("$config".dotfiles-*.bak)
+    [[ -e "${backups[0]}" ]] || backups=()
+    printf '%s\n' "${#backups[@]}"
+  }
+
+  # 1. First run: the exact privileged sequence, in order.
+  local expected=(
+    "test -f /etc/selinux/config"
+    "grep -q ^SELINUX= /etc/selinux/config"
+    "cat -- /etc/selinux/config"
+    "cmp -s $tmp-1 /etc/selinux/config"
+    "cp -a -- /etc/selinux/config /etc/selinux/config.dotfiles-1700000000.bak"
+    "stat -c %a /etc/selinux/config"
+    "install -m 644 -o root -g root $tmp-1 /etc/selinux/config.dotfiles-new"
+    "mv -f -- /etc/selinux/config.dotfiles-new /etc/selinux/config"
+    "restorecon /etc/selinux/config"
+    "cat -- /etc/selinux/config"
+  )
+  local call
+  local -a call_argv
+  for call in "${expected[@]}"; do
+    read -r -a call_argv <<<"${call//\/etc\/selinux/$fake_root/etc/selinux}"
+    test_stub_allow "$test_root" sudo "${call_argv[@]}"
+  done
+
+  run_persist 1700000000
+  assert_success
+  assert_files_identical "$test_root/contracts/sudo.allow" \
+    "$test_root/logs/sudo.log"
+  assert_eq $'SELINUX=enforcing\nSELINUXTYPE=targeted' "$(cat "$config")" \
+    '[selinux config] rewritten content'
+  assert_eq "$original" "$(cat "$backup")" '[selinux config] backup content'
+  assert_eq 644 "$(stat -c '%a' "$config")" '[selinux config] preserved mode'
+  assert_contains "$TEST_OUTPUT" "Persisted SELINUX=enforcing in $config (backup: $backup)"
+
+  # Later runs may also compare against the backup and stage further temp
+  # files, but never create a second backup: no other cp is allowed.
+  local n
+  test_stub_allow "$test_root" sudo cmp -s "$backup" "$config"
+  for n in 2 3 4 5; do
+    test_stub_allow "$test_root" sudo cmp -s "$tmp-$n" "$config"
+    test_stub_allow "$test_root" sudo install -m 644 -o root -g root \
+      "$tmp-$n" "$config.dotfiles-new"
+  done
+
+  # 2. An unchanged rerun changes nothing.
+  run_persist 1700000100
+  assert_success
+  assert_contains "$TEST_OUTPUT" 'SELINUX=enforcing is already persisted'
+  assert_eq 1 "$(backup_count)" '[selinux config] backups after a rerun'
+
+  # 3. Reverted to the backed-up content: rewritten, identical backup reused.
+  printf '%s\n' "$original" >"$config"
+  run_persist 1700000100
+  assert_success
+  assert_contains "$TEST_OUTPUT" "Reusing the identical backup of $config: $backup"
+  assert_file_line "$config" 'SELINUX=enforcing'
+  assert_eq 1 "$(backup_count)" '[selinux config] backups after a reused backup'
+
+  # 4. Sabotage: a write that leaves two SELINUX= lines fails the read-back
+  #    and names the adjacent backup to restore.
+  printf '%s\n' "$original" >"$config"
+  run_persist 1700000100 true
+  assert_failure
+  assert_contains "$TEST_OUTPUT" \
+    "$config does not contain exactly one SELINUX=enforcing line after the rewrite"
+  assert_contains "$TEST_OUTPUT" "sudo cp -a $backup $config"
+  assert_eq "$original" "$(cat "$backup")" '[selinux config] backup after sabotage'
+
+  # 5. A file with more than one SELINUX= line is refused before any backup
+  #    or write.
+  printf 'SELINUX=permissive\nSELINUX=disabled\n' >"$config"
+  run_persist 1700000100
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "Refusing to rewrite $config: it has more than one SELINUX= line"
+  assert_eq $'SELINUX=permissive\nSELINUX=disabled' "$(cat "$config")" \
+    '[selinux config] refused file is unchanged'
+  assert_eq 1 "$(backup_count)" '[selinux config] backups after a refusal'
+
+  # With HARDENING_ROOT unset the path is the real /etc/selinux/config. The
+  # stub reports it absent, so the host file is never read.
+  test_new_root
+  test_root="$TEST_ROOT"
+  test_stub_init "$test_root"
+  test_stub_install "$test_root" sudo
+  test_stub_allow "$test_root" sudo test -f /etc/selinux/config
+  printf '#!/usr/bin/env bash\nexit 1\n' >"$test_root/handlers/sudo"
+  chmod +x "$test_root/handlers/sudo"
+  run_capture env PATH="$test_root/bin:$PATH" TEST_STUB_ROOT="$test_root" \
+    DOTFILES_ROOT_DIR="$repo_root" \
+    bash -c '
+      set -euo pipefail
+      unset HARDENING_ROOT
+      source "$DOTFILES_ROOT_DIR/common/lib/common.sh"
+      source "$DOTFILES_ROOT_DIR/platforms/fedora/lib/hardening.sh"
+      persist_selinux_enforcing
+    '
+  assert_success
+  assert_contains "$TEST_OUTPUT" '/etc/selinux/config has no SELINUX= line'
+  assert_files_identical "$test_root/contracts/sudo.allow" \
+    "$test_root/logs/sudo.log"
+
+  printf 'PASS: the SELinux config edit is backed up, idempotent, and read back\n'
+}
+
 run_scenario() {
   local scenario_name="$1"
   local seed_sshd="$2"
@@ -181,6 +362,7 @@ run_scenario() {
   : >"$sysctl_kv"
   printf 'Permissive\n' >"$selinux_state"
   printf 'SELINUX=permissive\nSELINUXTYPE=targeted\n' >"$fake_root/etc/selinux/config"
+  chmod 0644 "$fake_root/etc/selinux/config"
   printf 'firewalld.service\n' >>"$active_units"
   printf 'firewalld.service\n' >>"$enabled_units"
 
@@ -200,10 +382,19 @@ run_scenario() {
   test_stub_install "$test_root" systemctl
   test_stub_allow "$test_root" dnf install -y dnf5-plugin-automatic
   test_stub_allow "$test_root" sudo setenforce 1
-  test_stub_allow "$test_root" sudo test -f /etc/selinux/config
-  test_stub_allow "$test_root" sudo grep -q '^SELINUX=' /etc/selinux/config
-  test_stub_allow "$test_root" sudo sed -i \
-    's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
+  local selinux_config="$fake_root/etc/selinux/config"
+  test_stub_allow "$test_root" sudo test -f "$selinux_config"
+  test_stub_allow "$test_root" sudo grep -q '^SELINUX=' "$selinux_config"
+  test_stub_allow "$test_root" sudo cat -- "$selinux_config"
+  test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-1" "$selinux_config"
+  test_stub_allow "$test_root" sudo cp -a -- "$selinux_config" \
+    "$selinux_config.dotfiles-1700000000.bak"
+  test_stub_allow "$test_root" sudo stat -c '%a' "$selinux_config"
+  test_stub_allow "$test_root" sudo install -m 644 -o root -g root \
+    "$test_root/state/tmp-1" "$selinux_config.dotfiles-new"
+  test_stub_allow "$test_root" sudo mv -f -- "$selinux_config.dotfiles-new" \
+    "$selinux_config"
+  test_stub_allow "$test_root" sudo restorecon "$selinux_config"
   test_stub_allow "$test_root" sudo authselect enable-feature with-faillock
   test_stub_allow "$test_root" sudo dnf install -y dnf5-plugin-automatic
   test_stub_allow "$test_root" sudo test -f \
@@ -235,30 +426,30 @@ run_scenario() {
   test_stub_allow "$test_root" sudo systemctl enable --now dnf5-automatic.timer
 
   test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
-    "$test_root/state/tmp-1" \
+    "$test_root/state/tmp-2" \
     "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
   test_stub_allow "$test_root" sudo install -D -m 0440 -o root -g root \
-    "$test_root/state/tmp-3" "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
+    "$test_root/state/tmp-4" "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
   test_stub_allow "$test_root" sudo install -D -m 0640 -o root -g root \
-    "$test_root/state/tmp-4" "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
+    "$test_root/state/tmp-5" "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
   test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
-    "$test_root/state/tmp-5" "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
+    "$test_root/state/tmp-6" "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
 
   if [[ "$seed_sshd" == "true" ]]; then
     test_stub_allow "$test_root" sudo test -f \
       "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
-      "$test_root/state/tmp-6" \
+      "$test_root/state/tmp-7" \
       "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
-    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-9" \
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-10" \
       "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
-    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-11" \
-      "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-12" \
-      "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
+      "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-13" \
-      "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-14" \
+      "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-15" \
       "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo sshd -t
     test_stub_allow "$test_root" sudo systemctl reload sshd.service
@@ -267,13 +458,13 @@ run_scenario() {
     test_stub_allow "$test_root" sudo grep -Fqx 'MaxAuthTries 3' \
       "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
   else
-    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-8" \
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-9" \
       "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
-    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-10" \
-      "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-11" \
-      "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
+      "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-12" \
+      "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
+    test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-13" \
       "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
   fi
 
@@ -302,6 +493,7 @@ run_scenario() {
   done
 
   install_mktemp_mock "$mock_bin"
+  install_date_and_restorecon_mocks "$mock_bin"
 
   cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
@@ -477,7 +669,7 @@ cmp)
   right="$(rewrite "$3")"
   [[ -f "$left" && -f "$right" && "$(cat -- "$left")" == "$(cat -- "$right")" ]]
   ;;
-test | rm | grep | sed | cat | stat)
+test | rm | grep | sed | cat | stat | cp | mv)
   args=()
   for a in "$@"; do args+=("$(rewrite "$a")"); done
   "$cmd" "${args[@]}"
@@ -501,6 +693,7 @@ install)
   done
   install -D -m "$mode" "${positional[0]}" "$(rewrite "${positional[1]}")"
   ;;
+restorecon) ;;
 setenforce)
   if [[ "$1" == 1 ]]; then
     printf 'Enforcing\n' >"$SELINUX_STATE"
@@ -536,6 +729,7 @@ SUDO_EOF
     "HARDENING_ROOT=$fake_root"
     "SELINUX_FS_ROOT=$selinux_fs_root"
     "SELINUX_STATE=$selinux_state"
+    "MOCK_EPOCH=1700000000"
     "ACTIVE_UNITS=$active_units"
     "ENABLED_UNITS=$enabled_units"
     "SYSCTL_KV=$sysctl_kv"
@@ -595,6 +789,8 @@ SUDO_EOF
   assert_file_contains "$fake_root/etc/audit/rules.d/90-dotfiles-hardening.rules" \
     'dotfiles-identity'
   assert_file_line "$fake_root/etc/selinux/config" 'SELINUX=enforcing'
+  assert_file_line "$fake_root/etc/selinux/config.dotfiles-1700000000.bak" \
+    'SELINUX=permissive'
 
   if [[ "$seed_sshd" == "true" ]]; then
     assert_file_line "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf" \
@@ -776,6 +972,7 @@ SUDO_EOF
 run_root_prefix_contract unset
 run_root_prefix_contract empty
 run_root_prefix_contract prefix
+run_selinux_config_contract
 run_scenario "hardening install/verify with sshd absent (default Fedora Workstation)" false
 run_scenario "hardening install/verify with sshd active" true
 

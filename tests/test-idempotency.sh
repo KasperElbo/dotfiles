@@ -175,10 +175,24 @@ cat >"$mock_bin/mock-command" <<'EOF'
 exit 0
 EOF
 
+# The Fedora verifier re-checks the Terra trust root: the keyring holds one
+# fixture key, which the gpg stub reads back as the fingerprint pinned for the
+# fixture release in TERRA_KEY_MANIFEST.
+terra_fixture_fingerprint=1111111111111111111111111111111111111111
+printf '90\t%s\n' "$terra_fixture_fingerprint" >"$test_root/terra-keys.tsv"
+
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
   '-q terra-release' | '-q qemu-guest-agent' | '-q spice-vdagent' | '-q xclip' | '-q openssh-clients') exit 0 ;;
+  '-q gpg-pubkey')
+    printf 'fixture-key:1111111111111111111111111111111111111111\n'
+    exit 0
+    ;;
+  '-E %fedora')
+    printf '90\n'
+    exit 0
+    ;;
 esac
 
 # File-ownership queries: verification asks which package owns the command
@@ -222,8 +236,29 @@ else
 fi
 EOF
 
+cat >"$mock_bin/terra-dnf" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --dump-repo-config=terra ]]; then
+  printf 'gpgcheck = 1\npkg_gpgcheck = 1\n'
+fi
+exit 0
+EOF
+
+cat >"$mock_bin/terra-gpg" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == '--show-keys --with-colons' ]]; then
+  awk -F: '$1 == "fixture-key" {
+    print "pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:"
+    print "fpr:::::::::" $2 ":"
+  }'
+fi
+exit 0
+EOF
+
 chmod +x \
   "$mock_bin/mock-command" \
+  "$mock_bin/terra-dnf" \
+  "$mock_bin/terra-gpg" \
   "$mock_bin/rpm" \
   "$mock_bin/id" \
   "$mock_bin/getent" \
@@ -271,6 +306,8 @@ mock_commands=(
 for command_name in "${mock_commands[@]}"; do
   ln -s mock-command "$mock_bin/$command_name"
 done
+ln -sf terra-dnf "$mock_bin/dnf"
+ln -sf terra-gpg "$mock_bin/gpg"
 
 rm -- "$mock_bin/zsh"
 cat >"$mock_bin/zsh" <<'EOF'
@@ -374,6 +411,7 @@ bootstrap_environment=(
   "XDG_DATA_HOME=$bootstrap_data"
   "XDG_CACHE_HOME=$bootstrap_cache"
   "OS_RELEASE_FILE=$test_root/os-release"
+  "TERRA_KEY_MANIFEST=$test_root/terra-keys.tsv"
   # The runner's own DNF repositories (a jdxcode/mise COPR, say) would change
   # the Terra transaction this suite pins.
   "DNF_REPO_DIR=$test_root/yum.repos.d"

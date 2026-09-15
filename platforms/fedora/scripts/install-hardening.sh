@@ -28,10 +28,14 @@ Options:
   -h, --help         Show this help
 
 Every change is a small, named, dotfiles-owned drop-in file (sysctl.d,
-sudoers.d, sshd_config.d, faillock.conf.d, audit/rules.d). Nothing is
-mixed into a vendor config file, so it is always safe to delete a
-drop-in to roll a single change back. Does not disable SELinux or
-firewalld, does not install/enable sshd, and does not reboot.
+sudoers.d, sshd_config.d, faillock.conf.d, audit/rules.d), so deleting a
+drop-in rolls that single change back. The one exception is the SELINUX=
+line of /etc/selinux/config, edited in place only when SELinux is
+permissive, because SELinux has no drop-in mechanism. The previous file is
+kept beside it as /etc/selinux/config.dotfiles-<epoch>.bak; roll back with
+'sudo setenforce 0' and copy that backup over /etc/selinux/config.
+Does not disable SELinux or firewalld, does not install/enable sshd, and
+does not reboot.
 
 See docs/profiles/hardening.md for the full rationale, verification
 command, and rollback instructions for each change.
@@ -85,9 +89,10 @@ Verify only, never change:
   - enabled systemd services and listening sockets, against an allow-list
   - permissions on ~/.ssh, ~/.aws, ~/.config/gh, ~/.gnupg
 
-Apply (each as its own removable drop-in file):
+Apply (each as its own removable drop-in file, except step 1):
   1. SELinux: setenforce 1 if currently Permissive
-     /etc/selinux/config (SELINUX= line only)
+     /etc/selinux/config (SELINUX= line only, edited in place;
+     the previous file is kept as /etc/selinux/config.dotfiles-<epoch>.bak)
 
   2. pam_faillock: lock an account after 5 failed attempts for 15 minutes
      authselect enable-feature with-faillock

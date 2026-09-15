@@ -2,13 +2,15 @@
 
 # Fedora security-hardening helpers. Source common/lib/common.sh before this
 # file. Every writer here is idempotent (safe to rerun) and only ever touches
-# a single dotfiles-owned drop-in file per subsystem, never a vendor config
-# file, so unrelated user configuration is never overwritten.
+# a single dotfiles-owned drop-in file per subsystem, so unrelated user
+# configuration is never overwritten. The one exception is the SELINUX= line
+# of the vendor file /etc/selinux/config, because SELinux has no drop-in
+# mechanism; persist_selinux_enforcing edits it with a backup.
 #
-# HARDENING_ROOT is prefixed to every path of those owned drop-ins, for the
-# writes, reads, stats, removals, and reloads below alike, so they can never
-# target different roots. Empty (the default) means the real root and leaves
-# every command unchanged. Tests point it at a fake root so a machine with the
+# HARDENING_ROOT is prefixed to every path of those owned drop-ins and to
+# /etc/selinux/config, for the writes, reads, stats, removals, and reloads
+# below alike, so they can never target different roots. Empty (the default)
+# means the real root and leaves every command unchanged. Tests point it at a fake root so a machine with the
 # profile installed cannot answer checks that belong to the fixture. Always
 # pass the real /etc path; each function applies the prefix itself, once.
 
@@ -94,12 +96,84 @@ selinux_mode() {
   LC_ALL=C getenforce 2>/dev/null | tr '[:upper:]' '[:lower:]' || printf 'unknown\n'
 }
 
+# selinux_config_single_enforcing: reads an SELinux config on stdin and
+# succeeds only when it has exactly one SELINUX= line, SELINUX=enforcing.
+selinux_config_single_enforcing() {
+  awk '
+    /^SELINUX=/ { total++; if ($0 == "SELINUX=enforcing") enforcing++ }
+    END { exit !(total == 1 && enforcing == 1) }
+  '
+}
+
+# persist_selinux_enforcing: makes SELINUX=enforcing survive a reboot. This is
+# the one vendor file the profile edits in place, and it is boot-relevant, so
+# it is not edited with sed -i. The new content is staged and validated first;
+# the current file is kept as a timestamped backup beside it (reusing an
+# identical backup, so reruns do not accumulate copies); the staged file is
+# installed next to the original with its mode and renamed over it in one
+# step, relabelled, and read back while the backup is still adjacent.
+persist_selinux_enforcing() {
+  local config="${HARDENING_ROOT:-}/etc/selinux/config"
+  local staged backup="" candidate mode
+
+  if ! sudo test -f "$config" || ! sudo grep -q '^SELINUX=' "$config"; then
+    warn "$config has no SELINUX= line; persisted only for this boot"
+    return 0
+  fi
+
+  staged="$(mktemp)"
+  sudo cat -- "$config" | sed 's/^SELINUX=.*/SELINUX=enforcing/' >"$staged"
+
+  if sudo cmp -s "$staged" "$config"; then
+    info "SELINUX=enforcing is already persisted: $config"
+    rm -f -- "$staged"
+    return 0
+  fi
+
+  if ! selinux_config_single_enforcing <"$staged"; then
+    rm -f -- "$staged"
+    die "Refusing to rewrite $config: it has more than one SELINUX= line." \
+      "Leave exactly one, then rerun the hardening profile."
+  fi
+
+  for candidate in "$config".dotfiles-*.bak; do
+    [[ -f "$candidate" ]] || continue
+    if sudo cmp -s "$candidate" "$config"; then
+      backup="$candidate"
+      break
+    fi
+  done
+  if [[ -n "$backup" ]]; then
+    info "Reusing the identical backup of $config: $backup"
+  else
+    backup="$config.dotfiles-$(date +%s).bak"
+    [[ ! -e "$backup" ]] || die "Refusing to overwrite an existing backup: $backup"
+    info "Backing up $config to $backup"
+    sudo cp -a -- "$config" "$backup"
+  fi
+
+  mode="$(sudo stat -c '%a' "$config")"
+  sudo install -m "$mode" -o root -g root "$staged" "$config.dotfiles-new"
+  rm -f -- "$staged"
+  sudo mv -f -- "$config.dotfiles-new" "$config"
+  if command_exists restorecon; then
+    sudo restorecon "$config"
+  fi
+
+  sudo cat -- "$config" | selinux_config_single_enforcing ||
+    die "$config does not contain exactly one SELINUX=enforcing line after" \
+      "the rewrite. Restore it with: sudo cp -a $backup $config"
+
+  info "Persisted SELINUX=enforcing in $config (backup: $backup)"
+}
+
 # harden_selinux_mode: verifies SELinux is enforcing. When it is merely
 # Permissive, switches it to Enforcing immediately (setenforce 1, which never
 # requires a reboot or relabel) and persists the change in
-# /etc/selinux/config. When it is Disabled, a reboot and filesystem relabel
-# are required, which this installer will not do unattended; it warns with
-# manual instructions instead of silently continuing.
+# /etc/selinux/config through persist_selinux_enforcing. When it is Disabled,
+# a reboot and filesystem relabel are required, which this installer will not
+# do unattended; it warns with manual instructions instead of silently
+# continuing.
 harden_selinux_mode() {
   local mode
   mode="$(selinux_mode)"
@@ -111,12 +185,7 @@ harden_selinux_mode() {
   permissive)
     info "Switching SELinux from permissive to enforcing"
     sudo setenforce 1
-    if sudo test -f /etc/selinux/config &&
-      sudo grep -q '^SELINUX=' /etc/selinux/config; then
-      sudo sed -i 's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
-    else
-      warn "/etc/selinux/config has no SELINUX= line; persisted only for this boot"
-    fi
+    persist_selinux_enforcing
     ;;
   disabled)
     warn "SELinux is Disabled; this requires editing /etc/selinux/config," \

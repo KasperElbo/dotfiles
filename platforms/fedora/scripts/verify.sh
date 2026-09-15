@@ -6,6 +6,8 @@ set -u
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 # shellcheck source=../../../common/lib/verify.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
+# shellcheck source=../lib/fedora.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 # shellcheck source=../lib/secure-boot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/secure-boot.sh"
 # shellcheck source=../lib/hardening.sh
@@ -160,6 +162,15 @@ disabled)
   warning "Secure Boot state could not be determined"
   ;;
 esac
+
+# ---------------------------------------------------------------------------
+# Terra trust root (always checked: Terra supplies base packages, and the
+# installer verifies its signing key only once)
+# ---------------------------------------------------------------------------
+
+section "Terra trust root"
+
+verify_terra_trust_root
 
 # ---------------------------------------------------------------------------
 # Login shell

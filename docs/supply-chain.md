@@ -148,6 +148,15 @@ Pinning the fingerprint is what makes this more than trust-on-first-use: a
 later compromise of the distribution host cannot silently substitute a
 different signing key.
 
+The bootstrap runs once: a rerun sees `terra-release` installed and stops
+there. What governs every later Terra package is the repository file
+`terra-release` drops and the key left in the RPM keyring, so
+`platforms/fedora/scripts/verify.sh` re-checks both on every run, read-only
+and without `sudo`. It fails when DNF's effective `gpgcheck` for the `terra`
+repository is not `1`, and when the fingerprint pinned for the running Fedora
+release is missing from the RPM keyring. When the running release has no
+pinned row it warns instead, mirroring the installer.
+
 **The remaining boundary** is a Fedora release newer than the pinned set. There
 is no fingerprint to compare against, so the installer prints the downloaded
 key's fingerprint and refuses to continue unless a human acknowledges it —
@@ -230,8 +239,18 @@ present, naming the `--no-<component>` flag that would remove it.
 
 `./scripts/lint.sh` runs `scripts/validate-network-sources.py`, which fails on
 an unregistered `curl`, `wget`, PowerShell download, remote `git clone`/`fetch`,
-`--repofrompath`, remote release RPM, or container image — and on a registry
-row whose tier and integrity mechanism contradict each other. A construct that
+`--repofrompath`, remote release RPM, or container image, and on the two
+constructs that give the machine a new package trust root, a DNF repository
+added with `dnf config-manager addrepo` and a signing key imported with
+`rpm --import`, however their argument is spelled. It also fails on a registry
+row whose tier and integrity mechanism contradict each other.
+
+The scan covers every tracked file outside `tests/` (except
+`tests/integration/`) that is shell, PowerShell, YAML, or Python by any of
+three signals: its suffix, a classification in
+[`config/shell-file-roles.tsv`](../config/shell-file-roles.tsv), or a shell or
+Python shebang. An extensionless command such as `./doctor` or a stowed
+`~/.local/bin` helper is therefore held to the same rule as an installer. A construct that
 genuinely reaches no external network (a loopback probe, a request to the
 container under test) is annotated `# network-source: local-only`, which is
 still a deliberate, reviewable act.

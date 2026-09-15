@@ -18,6 +18,7 @@ never parse those files two different ways.
 from __future__ import annotations
 
 import csv
+import fnmatch
 import os
 import pathlib
 import re
@@ -27,6 +28,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 CAPABILITY_MANIFEST = pathlib.Path(
     os.environ.get("CAPABILITY_MANIFEST", ROOT / "config" / "capabilities.tsv")
 )
+SHELL_FILE_ROLES_MANIFEST = pathlib.Path("config") / "shell-file-roles.tsv"
 
 
 def supported_platforms(manifest: pathlib.Path | None = None) -> tuple[str, ...]:
@@ -106,3 +108,34 @@ def mise_tool_package(spec: str) -> str:
     `@openai/codex` packages; a registry tool such as `lazygit` has no prefix.
     """
     return spec.partition(":")[2] or spec
+
+
+def shell_file_role_patterns(root: pathlib.Path = ROOT) -> tuple[str, ...]:
+    """Every path pattern `config/shell-file-roles.tsv` classifies under `root`."""
+    with (root / SHELL_FILE_ROLES_MANIFEST).open(newline="", encoding="utf-8") as stream:
+        reader = csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE)
+        return tuple(row["pattern"] for row in reader)
+
+
+def role_pattern_matches(pattern: str, name: str) -> bool:
+    """Path-aware globbing: `*` stays inside one path segment, `**` spans them.
+
+    fnmatch alone would let `common/*.sh` claim `common/lib/common.sh`, which
+    is exactly the ambiguity the shell-file role inventory exists to remove.
+    """
+    pattern_parts = pattern.split("/")
+    name_parts = name.split("/")
+    if pattern_parts and pattern_parts[-1] == "**":
+        return (
+            len(name_parts) > len(pattern_parts) - 1
+            and all(
+                fnmatch.fnmatchcase(actual, expected)
+                for expected, actual in zip(pattern_parts[:-1], name_parts)
+            )
+        )
+    if len(pattern_parts) != len(name_parts):
+        return False
+    return all(
+        fnmatch.fnmatchcase(actual, expected)
+        for expected, actual in zip(pattern_parts, name_parts)
+    )
