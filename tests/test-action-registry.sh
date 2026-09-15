@@ -363,10 +363,13 @@ printf 'PASS: the reduced Parrot guest has its own operations sheet\n'
 
 # --- Page budgets are declared for every sheet ------------------------------
 
+# A sheet is a .tex with its own \documentclass; the rest (common-workflow,
+# ghostty-linux-keys) are fragments other sheets \input, and a fragment has no
+# page count of its own to budget.
 for sheet in "$repo_root"/docs/cheatsheets/*.tex; do
   name="${sheet##*/}"
   name="${name%.tex}"
-  [[ "$name" != common-workflow ]] || continue
+  grep -Fq '\documentclass' "$sheet" || continue
   grep -Eq "^  \[$name\]=[0-9]+$" "$repo_root/docs/cheatsheets/verify.sh" ||
     _test_die "docs/cheatsheets/verify.sh declares no page budget for $name"
 done

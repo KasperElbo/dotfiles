@@ -27,13 +27,25 @@ keyboard.}
 \csnote{\texttt{BROWSER=wsl-open} is set automatically, so \texttt{gh auth login --web}, \texttt{gx} in LazyVim, and Markdown/LaTeX preview all open Windows's browser/PDF handler. Set \texttt{WINDOWS\_SYSTEM\_ROOT} if Windows is not at \texttt{/mnt/c/Windows}.}
 
 \cssection{Noctty (if used as the Windows terminal)}
+% Noctty's own upstream defaults (its docs/getting-started.md): mostly
+% Ghostty's non-macOS set, but the split and pane-focus keys are Windows
+% specific, so this table is not a copy of the Fedora sheets' Ghostty one.
 \begin{cskeys}{0.34\linewidth}
+\csrow{Ctrl+Shift+C / V}{Copy / paste}
+\csrow{Ctrl+Shift+T / W}{New / close tab}
+\csrow{Ctrl+Tab / Ctrl+Shift+Tab}{Next / previous tab}
+\csrow{Ctrl+Shift+\textbackslash{} / E}{Split pane right / down}
+\csrow{Alt+arrows}{Move between panes}
+\csrow{Ctrl+Shift+P}{Command palette}
+\csrow{Ctrl+Shift+F}{Start a search}
+\csrow{Ctrl+Shift+X}{Copy mode}
+\csrow{Ctrl+= / Ctrl+-}{Increase / decrease the font size}
 \csrow{Ctrl+Shift+,}{Reload Noctty config (e.g.\ after \texttt{theme})}
 \end{cskeys}
-\csnote{Noctty shares Ghostty's \texttt{shared.conf}; any other Windows terminal works too.}
+\csnote{Noctty shares Ghostty's \texttt{shared.conf}; any other Windows terminal works too. Every row is Noctty's own default --- this repository sets no \texttt{keybind =} --- and \texttt{noctty +list-keybinds} prints the full set. \texttt{Ctrl+Shift+O} splits right as well; Noctty documents the backslash because Narrator can reserve O-based commands.}
 \csnote{Keep repositories under \texttt{\textasciitilde/src}, not \texttt{/mnt/c}: metadata, file-watching and I/O are slower and case-insensitive there.}
 
-\renewcommand{\cstermlegend}{\cslegend{Noctty's own menu lists its tab/split/zoom keys; copy/paste use the Windows terminal's shortcuts.}}
+\renewcommand{\cstermlegend}{\cslegend{Noctty's own default keys are in the Noctty section above; any other Windows terminal uses its own.}}
 \input{common-workflow}
 
 \csfootflow{Full keybindings reference: docs/reference/keybindings.md. Interop config: docs/platforms/fedora-wsl.md. Regenerate: docs/cheatsheets/generate.sh.}
