@@ -90,17 +90,20 @@ preflight_parrot() {
   require_parrot
   require_qemu_vm >/dev/null
   require_guest_channels
-  preflight_commands apt-get awk date find git readlink sudo systemctl
+  preflight_platform_command_providers parrot-ctf
   preflight_sudo "$interactive"
   preflight_writable_path "$HOME"
   preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"
   preflight_writable_path "$(profile_state_dir)"
-  local specs=() spec capability
+  local specs=() spec capability stow_specs
   local selected=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(parrot_selected_capabilities)
   capability_validate_selection parrot-ctf "${selected[@]}"
-  while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs parrot-ctf "${selected[@]}")
+  # A checked substitution, not < <(...): a manifest header without the stow
+  # column must stop preflight, not silently skip the conflict check.
+  stow_specs="$(capability_stow_specs parrot-ctf "${selected[@]}")" || return
+  while IFS= read -r spec; do [[ -z "$spec" ]] || specs+=("$spec"); done <<<"$stow_specs"
   preflight_stow_packages "${specs[@]}"
 }
 

@@ -68,7 +68,7 @@ default_tests=(
   tests/test-repository-hygiene.sh
   tests/test-documentation.sh
   tests/test-compat-wrappers.sh
-  tests/test-fedora-dependency-closure.sh
+  tests/test-command-provider-closure.sh
   tests/test-supply-chain.sh
   tests/test-profile-state.sh
   tests/test-execution-plan.sh
@@ -80,6 +80,7 @@ default_tests=(
   tests/test-secure-boot.sh
   tests/test-power-profiles.sh
   tests/test-installer-options.sh
+  tests/test-installer-plan-commands.sh
   tests/test-platform-boundary.sh
   tests/test-local-state.sh
   tests/test-git-identity.sh

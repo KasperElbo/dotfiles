@@ -74,7 +74,7 @@ _test_exit_trap() {
 }
 
 # Host commands every isolated suite may resolve: the portable part of the
-# supported-base commands in config/fedora-command-providers.tsv plus the basic
+# supported-base commands in config/command-providers.tsv plus the basic
 # userland the suites themselves use, all present on both the pinned Fedora
 # validation image and macOS. Anything else a suite needs from the host, such as
 # git, jq, zsh or the Linux-only getent, is named explicitly by that suite.

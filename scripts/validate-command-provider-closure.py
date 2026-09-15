@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Fedora command requirements against capability package ownership."""
+"""Validate every bash platform's command requirements against capability package ownership."""
 
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ CAPABILITIES = pathlib.Path(
 )
 COMMANDS = pathlib.Path(
     os.environ.get(
-        "FEDORA_COMMAND_PROVIDER_MANIFEST",
-        ROOT / "config" / "fedora-command-providers.tsv",
+        "COMMAND_PROVIDER_MANIFEST",
+        ROOT / "config" / "command-providers.tsv",
     )
 )
-PLATFORMS = {"fedora", "fedora-wsl"}
+PLATFORMS = {"fedora", "fedora-wsl", "macos", "parrot-ctf"}
 CLASSIFICATIONS = {
     "bootstrap-prerequisite",
     "baseline-package",
@@ -32,7 +32,7 @@ def split(value: str) -> list[str]:
 
 
 def fail(message: str) -> None:
-    print(f"fedora dependency closure: {message}", file=sys.stderr)
+    print(f"command provider closure: {message}", file=sys.stderr)
 
 
 def main() -> int:

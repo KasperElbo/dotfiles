@@ -27,7 +27,7 @@ the entry below that matches the message you got.
 Preflight runs before anything is changed, and refuses rather than half-installing:
 
 ```text
-Missing preflight command: xcode-select
+Missing bootstrap-prerequisite command: xcode-select (provider: macos)
 Missing bootstrap-prerequisite command: sudo (provider: sudo)
 Missing supported-base command: awk (provider: gawk)
 Path is not writable: /home/you/.config
@@ -37,7 +37,7 @@ Install the named command — the message names the package that provides it —
 or fix the ownership of the named path, then rerun. `bootstrap-prerequisite`
 is something the installer needs before it can install anything at all;
 `supported-base` is a command the finished environment is defined to have.
-Both come from `config/fedora-command-providers.tsv`. The installer making no
+Both come from `config/command-providers.tsv`. The installer making no
 changes at all is the intended outcome here, not a failure to recover from.
 
 ## Stow conflicts

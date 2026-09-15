@@ -20,8 +20,18 @@ source "$repo_root/common/lib/common.sh"
 source "$repo_root/common/lib/profile-state.sh"
 # shellcheck source=../common/lib/install-lifecycle.sh
 source "$repo_root/common/lib/install-lifecycle.sh"
+# shellcheck source=../common/lib/capabilities.sh
+source "$repo_root/common/lib/capabilities.sh"
 
 state="$(profile_state_dir)/install.conf"
+
+# A field of the recorded platform's implemented capability row, or nothing
+# when the capability is absent or not implemented there.
+implemented_capability_field() {
+  manifest_values "$CAPABILITY_MANIFEST" "$2" \
+    capability "$1" platform "$platform" status implemented
+}
+
 failures=0
 warnings=0
 pass() { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
@@ -68,8 +78,8 @@ else
 
     IFS=, read -r -a selected <<<"$capabilities"
     for capability in "${selected[@]}"; do
-      state_id="$(awk -F '\t' -v p="$platform" -v c="$capability" 'NR>1 && $1==c && $2==p && $15=="implemented" {print $12; exit}' "$repo_root/config/capabilities.tsv")"
-      verifier="$(awk -F '\t' -v p="$platform" -v c="$capability" 'NR>1 && $1==c && $2==p && $15=="implemented" {print $11; exit}' "$repo_root/config/capabilities.tsv")"
+      state_id="$(implemented_capability_field "$capability" state)"
+      verifier="$(implemented_capability_field "$capability" verifier)"
       if [[ -n "$state_id" && "$state_id" != - && "$state_id" != install ]]; then
         component_state="$XDG_CONFIG_HOME/dotfiles/$state_id.conf"
         if [[ ! -e "$component_state" ]]; then
@@ -91,18 +101,22 @@ else
       [[ -z "$verifier" || "$verifier" == none ]] || printf '  Verify %-16s %s\n' "$capability:" "$verifier"
     done
 
+    # Read before the loop, not in a process substitution, so a manifest that
+    # cannot be read stops doctor instead of silently skipping this check.
+    implemented_states="$(manifest_values "$CAPABILITY_MANIFEST" state \
+      platform "$platform" status implemented)"
     while IFS= read -r state_id; do
       [[ -n "$state_id" && "$state_id" != - && "$state_id" != install ]] || continue
       component_state="$XDG_CONFIG_HOME/dotfiles/$state_id.conf"
       [[ -e "$component_state" ]] || continue
       state_is_selected=false
       for capability in "${selected[@]}"; do
-        selected_state="$(awk -F '\t' -v p="$platform" -v c="$capability" 'NR>1 && $1==c && $2==p && $15=="implemented" {print $12; exit}' "$repo_root/config/capabilities.tsv")"
+        selected_state="$(implemented_capability_field "$capability" state)"
         [[ "$selected_state" != "$state_id" ]] || state_is_selected=true
       done
       [[ "$state_is_selected" == true ]] ||
         warning "Residual state is no longer owned by the installed selection: $component_state"
-    done < <(awk -F '\t' -v p="$platform" 'NR>1 && $2==p && $15=="implemented" && $12!="-" {print $12}' "$repo_root/config/capabilities.tsv" | sort -u)
+    done < <(sort -u <<<"$implemented_states")
   else
     fail "Lifecycle state is corrupt or uses an unsupported schema: $state"
   fi
