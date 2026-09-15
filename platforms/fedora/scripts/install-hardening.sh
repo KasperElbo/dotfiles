@@ -33,9 +33,8 @@ mixed into a vendor config file, so it is always safe to delete a
 drop-in to roll a single change back. Does not disable SELinux or
 firewalld, does not install/enable sshd, and does not reboot.
 
-See README.md's "Fedora security hardening" section for the full
-rationale, verification command, and rollback instructions for each
-change.
+See docs/profiles/hardening.md for the full rationale, verification
+command, and rollback instructions for each change.
 EOF
 }
 
@@ -114,8 +113,8 @@ Apply (each as its own removable drop-in file):
 Never done by this profile: disabling SELinux or firewalld, changing
 firewalld zone services, noexec on /tmp, USBGuard, Wi-Fi MAC
 randomization, unprivileged_bpf_disabled, or rp_filter changes (kept
-compatible with split-tunnel VPNs such as Tailscale). See README.md for
-the full rationale and rejected-ideas list.
+compatible with split-tunnel VPNs such as Tailscale). See
+docs/profiles/hardening.md for the full rationale and rejected-ideas list.
 
 No changes were made.
 

@@ -1,5 +1,21 @@
 # Optional VM-host profile
 
+`--vm-host` adds Fedora's native KVM/QEMU + libvirt virtualization stack. It
+is not part of the default `./install.sh` path, appears in `--dry-run`, and
+can be installed and reverified independently of the rest of the
+workstation:
+
+```bash
+./install.sh --vm-host
+./platforms/fedora/scripts/install-vm-host.sh
+./platforms/fedora/scripts/verify-vm-host.sh --smoke-test
+```
+
+`--vm-host` and `--vm-guest` are mutually exclusive: `config/capabilities.tsv`
+declares each as conflicting with the other, and the Fedora installer refuses
+a run that selects both, because a VM host and a VM guest bootstrap are
+different, non-overlapping roles for the same machine.
+
 The VM-host profile uses Fedora's native virtualization stack:
 
 | Concern | Convention |

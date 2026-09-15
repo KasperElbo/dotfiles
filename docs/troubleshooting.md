@@ -68,12 +68,14 @@ linked where.
 ## The last installation is recorded as failed or interrupted
 
 `./doctor` reports `Last installation is <status>` for anything other than a
-completed run, and `./install.sh --rerun` refuses to reapply a configuration
-that was never fully successful. Only a completely successful install replaces
-the remembered configuration, so the previous good one is still there. Review
-what the failed run had already done, then rerun the recorded command — see
-[rerun and the last-known-good model](workflows/rerun.md), which also covers
-corrupt state, schema migration and the "predates `--rerun` support" message.
+completed run, and names the step it stopped at along with the completed and
+pending ones. A failed run is never remembered, so `--rerun` cannot reapply
+*it*; completed component changes are also not rolled back. Two ways forward:
+reapply this machine's last successful configuration (preview it with
+`./install.sh --rerun --dry-run`), or start a fresh `./install.sh` with the
+options you want. See [rerun and the last-known-good model](workflows/rerun.md),
+which also covers corrupt state, schema migration and the "predates `--rerun`
+support" message.
 
 ## The first Neovim bootstrap is slow or times out
 

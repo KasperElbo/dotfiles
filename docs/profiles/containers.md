@@ -1,4 +1,4 @@
-# Optional Podman container development profile
+# Optional Podman container development profile: Fedora and Fedora WSL
 
 `--containers` adds a complete, validated rootless container
 development workflow. It is not part of the default `./install.sh` path,
@@ -9,6 +9,36 @@ appears in `--dry-run`, and can be run and rerun on its own:
 ./platforms/fedora/scripts/install-containers.sh --dry-run
 ./platforms/fedora/scripts/verify-containers.sh
 ```
+
+### Platform scope
+
+Everything below this point — `install-containers.sh`/`verify-containers.sh`,
+`--api-socket`/`--containers-api-socket`, the subuid/subgid allocation, and
+the SELinux `:Z`/`:z` guidance — describes the **Fedora and Fedora WSL**
+implementation specifically:
+
+- **Fedora WSL**: supported, with WSL-specific preconditions
+  (systemd required, cgroup v2, unprivileged user namespaces) checked
+  explicitly before installing, and WSL-specific differences (SELinux
+  enforcement, networking-mode expectations, bind-mount guidance,
+  `DOCKER_HOST` scope) documented rather than assumed equivalent to native
+  Fedora. See
+  [Podman containers under WSL](../platforms/fedora-wsl.md#podman-containers-under-wsl),
+  including that section's validation-status note.
+- **macOS**: supported only through the explicit `--platform macos
+  --containers` profile, with its own script
+  (`platforms/macos/scripts/install-containers.sh`) that takes no arguments —
+  it does not parse or reject `--api-socket` or any other flag, unlike every
+  other platform's installer. It uses a rootless Linux VM (`podman machine`)
+  and a dedicated smoke test; it does not reuse Fedora systemd, SELinux,
+  subuid, or host-networking assumptions, and `verify.sh` there has no
+  `--skip-smoke-test` option. See
+  [the macOS guide](../platforms/macos.md#optional-containers).
+- **[Parrot Security Edition CTF guest](../platforms/parrot-ctf.md)**: not
+  installed and not appropriate to layer on automatically. The guest is an
+  intentionally disposable offensive-security lab environment, and container
+  tooling there should stay optional and never interfere with Parrot's own
+  security catalogue.
 
 Rootless Podman is treated as the normal, supported mode; nothing here runs
 containers as root, and no setuid/daemon-as-root shortcut is used.
@@ -239,27 +269,6 @@ system check uses this so a routine `./install.sh` run does not repeat the
 smoke test every time. `install-containers.sh` itself always runs the full
 smoke test once, right after installing, so the end-to-end workflow is
 proven immediately.
-
-### Platform scope
-
-This profile targets regular Fedora and Fedora WSL:
-
-- **Fedora WSL**: supported, with WSL-specific preconditions
-  (systemd required, cgroup v2, unprivileged user namespaces) checked
-  explicitly before installing, and WSL-specific differences (SELinux
-  enforcement, networking-mode expectations, bind-mount guidance,
-  `DOCKER_HOST` scope) documented rather than assumed equivalent to native
-  Fedora. See "Podman containers under WSL" in the Fedora on WSL section
-  above, including that section's validation-status note.
-- **macOS**: supported only through the explicit `--platform macos
-  --containers` profile. It uses a rootless Linux VM (`podman machine`) and a
-  dedicated smoke test; it does not reuse Fedora systemd, SELinux, subuid, or
-  host-networking assumptions. See [the macOS guide](../platforms/macos.md#optional-containers).
-- **Parrot Security Edition CTF guest**: not installed and not appropriate
-  to layer on automatically. The guest is an intentionally disposable
-  offensive-security lab environment (see "Parrot Security Edition CTF VM"),
-  and container tooling there should stay optional and never interfere with
-  Parrot's own security catalogue.
 
 The saved local state file is:
 

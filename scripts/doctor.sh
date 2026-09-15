@@ -28,7 +28,24 @@ else
     if [[ "$status" == installed ]]; then
       pass "Last installation completed ($platform: $capabilities)."
     else
-      fail "Last installation is $status; rerun the recorded command after reviewing completed steps."
+      # Name the step that stopped, and point at something that exists. The
+      # record's own "rerun" key is display-only text that nothing executes,
+      # and a failed run is never remembered, so telling the user to "rerun
+      # the recorded command" named a path this repository does not have.
+      failed_step="$(install_state_optional "$state" failed_step)"
+      completed_steps="$(install_state_optional "$state" completed_steps)"
+      pending_steps="$(install_state_optional "$state" pending_steps)"
+      if [[ -n "$failed_step" ]]; then
+        fail "Last installation is $status at step [$failed_step] ($platform)."
+      else
+        fail "Last installation is $status ($platform); it stopped before recording a failed step."
+      fi
+      [[ -z "$completed_steps" ]] || printf '  Completed steps: %s\n' "$completed_steps"
+      [[ -z "$pending_steps" ]] || printf '  Pending steps:   %s\n' "$pending_steps"
+      printf '  Completed component changes are not rolled back, and a failed run is never\n'
+      printf '  remembered, so --rerun cannot reapply it. Either reapply this machine'"'"'s last\n'
+      printf '  successful configuration (preview it with ./install.sh --rerun --dry-run), or\n'
+      printf '  start a fresh ./install.sh with the options you want.\n'
     fi
     current_revision="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || printf unknown)"
     if [[ "$revision" == "$current_revision" ]]; then

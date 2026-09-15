@@ -80,6 +80,15 @@ Primary use cases:
 
 Ghostty remains the preferred local layout/split manager.
 
+The tracked `.tmux.conf` sources a machine-local flavour override at
+`~/.config/dotfiles/tmux-theme.conf` and then runs the pinned Catppuccin
+tmux plugin (`v2.3.0`) from `~/.local/share/tmux/plugins/catppuccin/`. Both
+are provisioned by `common/install-tmux-theme.sh`, which every platform's
+installer runs as part of the base profile; a tmux started before that step
+has run fails on the `run` line that loads the plugin. If you see that
+error, rerun `./install.sh` (or `common/install-tmux-theme.sh` directly) and
+start a new tmux session.
+
 Useful commands:
 
 ```bash
