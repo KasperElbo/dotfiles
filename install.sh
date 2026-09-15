@@ -7,10 +7,13 @@ set -e
 
 repo_root="$(cd "$(dirname "$0")" && pwd)"
 platform="fedora"
+platform_explicit="false"
+rerun="false"
 expect_platform="false"
 
-# Inspect only the platform selector. Do not shift or rebuild "$@": the exact
-# original argument vector is forwarded across the interpreter boundary.
+# Inspect only the platform selector and --rerun. Do not shift or rebuild "$@":
+# the exact original argument vector is forwarded across the interpreter
+# boundary.
 for argument in "$@"; do
   if [ "$expect_platform" = "true" ]; then
     if [ -z "$argument" ]; then
@@ -18,6 +21,7 @@ for argument in "$@"; do
       exit 1
     fi
     platform="$argument"
+    platform_explicit="true"
     expect_platform="false"
     continue
   fi
@@ -28,10 +32,14 @@ for argument in "$@"; do
       ;;
     --platform=*)
       platform="${argument#*=}"
+      platform_explicit="true"
       if [ -z "$platform" ]; then
         printf 'ERROR: --platform requires a value\n' >&2
         exit 1
       fi
+      ;;
+    --rerun)
+      rerun="true"
       ;;
   esac
 done
@@ -39,6 +47,24 @@ done
 if [ "$expect_platform" = "true" ]; then
   printf 'ERROR: --platform requires a value\n' >&2
   exit 1
+fi
+
+# A --rerun that names no platform must still reach the interpreter its
+# remembered platform needs, so read just the recorded platform name here. The
+# authoritative reading, validation and reconstruction of the remembered
+# configuration belong to scripts/install-main.sh; this only chooses a boot
+# path, and only for a name the repository actually provides.
+if [ "$rerun" = "true" ] && [ "$platform_explicit" = "false" ]; then
+  install_state="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/install.conf"
+  if [ -r "$install_state" ]; then
+    remembered_platform="$(awk -F= \
+      '$1 == "last_successful_platform" { print $2; exit }' "$install_state")"
+    case "$remembered_platform" in
+      fedora | fedora-wsl | macos | parrot-ctf)
+        platform="$remembered_platform"
+        ;;
+    esac
+  fi
 fi
 
 if [ "$platform" = "macos" ]; then

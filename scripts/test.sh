@@ -71,6 +71,7 @@ default_tests=(
   tests/test-installer-preflight.sh
   tests/test-doctor.sh
   tests/test-install-lifecycle.sh
+  tests/test-install-rerun.sh
   tests/test-secure-boot.sh
   tests/test-power-profiles.sh
   tests/test-installer-options.sh

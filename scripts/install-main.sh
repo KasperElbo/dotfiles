@@ -19,6 +19,9 @@ if [[ "${1:-}" == doctor ]]; then
 fi
 
 platform="fedora"
+platform_explicit=false
+rerun=false
+help_requested=false
 forwarded_args=()
 
 while (($#)); do
@@ -29,6 +32,7 @@ while (($#)); do
       exit 1
     }
     platform="$2"
+    platform_explicit=true
     shift 2
     ;;
   --platform=*)
@@ -37,6 +41,11 @@ while (($#)); do
       printf 'ERROR: --platform requires a value\n' >&2
       exit 1
     }
+    platform_explicit=true
+    shift
+    ;;
+  --rerun)
+    rerun=true
     shift
     ;;
   *)
@@ -45,6 +54,86 @@ while (($#)); do
     ;;
   esac
 done
+
+for forwarded_arg in "${forwarded_args[@]}"; do
+  [[ "$forwarded_arg" == -h || "$forwarded_arg" == --help ]] || continue
+  help_requested=true
+done
+
+# --- --rerun: reapply the remembered configuration ---------------------------
+#
+# The remembered configuration is structured lifecycle state, and it is turned
+# back into this parser's input by the common selection library. No stored
+# command text is ever interpreted or executed, and only transient execution
+# controls may accompany --rerun: mixing in configuration-changing options
+# would silently merge two sources of truth for the same machine.
+if [[ "$rerun" == true && "$help_requested" != true ]]; then
+  # shellcheck source=../common/lib/common.sh
+  source "$repo_root/common/lib/common.sh"
+  # shellcheck source=../common/lib/install-lifecycle.sh
+  source "$repo_root/common/lib/install-lifecycle.sh"
+
+  transient_args=()
+  for forwarded_arg in "${forwarded_args[@]}"; do
+    case "$forwarded_arg" in
+    --dry-run | --non-interactive)
+      transient_args+=("$forwarded_arg")
+      ;;
+    *)
+      printf 'ERROR: --rerun cannot be combined with %s\n' "$forwarded_arg" >&2
+      printf '       --rerun reapplies the remembered configuration of the last successful install;\n' >&2
+      printf '       a configuration-changing option would silently fight that record.\n' >&2
+      printf '       Allowed with --rerun: --dry-run, --non-interactive, --platform (it must match\n' >&2
+      printf '       the remembered platform), and -h/--help.\n' >&2
+      printf '       Preview the remembered configuration with ./install.sh --rerun --dry-run, or run\n' >&2
+      printf '       ./install.sh with your own options to install and record a new configuration.\n' >&2
+      exit 1
+      ;;
+    esac
+  done
+
+  install_remembered_load || exit 1
+
+  if [[ "$platform_explicit" == true && "$platform" != "$INSTALL_REMEMBERED_PLATFORM" ]]; then
+    printf 'ERROR: the remembered configuration is for platform %s, but this run asked for %s.\n' \
+      "$INSTALL_REMEMBERED_PLATFORM" "$platform" >&2
+    printf '       Run ./install.sh --rerun to reapply it, or install %s explicitly with its own options.\n' \
+      "$platform" >&2
+    exit 1
+  fi
+  platform="$INSTALL_REMEMBERED_PLATFORM"
+
+  if [[ ! -f "$repo_root/platforms/$platform/install.sh" ]]; then
+    printf 'ERROR: the remembered configuration is for platform %s, which this checkout no longer provides.\n' \
+      "$platform" >&2
+    exit 1
+  fi
+
+  remembered_rendered="$(
+    install_selection_render_args "$platform" "$INSTALL_REMEMBERED_SELECTION"
+  )" || exit 1
+  remembered_args=()
+  while IFS= read -r remembered_arg; do
+    [[ -n "$remembered_arg" ]] || continue
+    remembered_args+=("$remembered_arg")
+  done <<<"$remembered_rendered"
+
+  printf '\nRemembered configuration (last successful install)\n'
+  printf '%s\n' '-------------------------------------------------'
+  printf 'Source:    %s (selection schema %s)\n' \
+    "$(install_state_path)" "$INSTALL_SELECTION_SCHEMA_VERSION"
+  printf 'Recorded:  %s\n' "$INSTALL_REMEMBERED_AT"
+  printf 'Platform:  %s\n' "$platform"
+  printf 'Options:   %s\n' \
+    "$(install_selection_render_display "$platform" "$INSTALL_REMEMBERED_SELECTION")"
+  if ((${#transient_args[@]} > 0)); then
+    printf 'This run:  %s\n' "${transient_args[*]}"
+  fi
+  printf '\nThe recorded configuration is resolved by the installer in this checkout;\n'
+  printf 'no stored command text is executed.\n'
+
+  forwarded_args=("${remembered_args[@]}" "${transient_args[@]}")
+fi
 
 supported_platforms="$(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
   "$repo_root/config/capabilities.tsv" | sort -u | paste -sd'|' -)"
@@ -78,6 +167,7 @@ for forwarded_arg in "${forwarded_args[@]}"; do
   if [[ "$forwarded_arg" == "-h" || "$forwarded_arg" == "--help" ]]; then
     cat <<EOF
 Usage: ./install.sh [--platform NAME|--platform=NAME] [options]
+       ./install.sh --rerun [--dry-run] [--non-interactive]
        ./install.sh doctor
 
 Options (platform '$platform'):
@@ -85,6 +175,13 @@ Options (platform '$platform'):
                      or parrot-ctf. Selects which platforms/NAME/install.sh
                      runs; all other options below are that platform's own
                      and are simply forwarded to it.
+  --rerun            Reapply this machine's last successful configuration.
+                     The selection comes from the recorded lifecycle state
+                     and is resolved by the installer in this checkout; no
+                     stored command text is executed. Only --dry-run and
+                     --non-interactive may accompany it, and they apply to
+                     this run alone. Configuration-changing options are
+                     rejected rather than merged with the remembered ones.
 EOF
     "$BASH" "$repo_root/platforms/$platform/install.sh" "${forwarded_args[@]}" |
       print_platform_options

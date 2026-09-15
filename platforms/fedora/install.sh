@@ -88,6 +88,7 @@ while (($#)); do
   --dev-workflows) run_dev_workflows=true; shift ;; --no-dev-workflows) run_dev_workflows=false; shift ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
+  --rerun) die '--rerun is owned by the root installer: run ./install.sh --rerun instead.' ;;
   -h | --help) usage; exit 0 ;;
   *) die "Unknown option: $1" ;;
   esac
@@ -119,6 +120,38 @@ if [[ "$install_latex" == auto && "$interactive" == true ]]; then
   fi
 elif [[ "$install_latex" == auto ]]; then install_latex=disabled
 fi
+
+bool_kde=false; [[ "$install_kde" != enabled ]] || bool_kde=true
+bool_latex=false; [[ "$install_latex" != enabled ]] || bool_latex=true
+
+# The resolved persistent configuration of this run. Auto-detected and
+# interactively answered options are recorded as what they resolved to, because
+# that is the machine configuration ./install.sh --rerun must reproduce.
+# Transient controls (--dry-run, --non-interactive, --dev-workflows) are
+# deliberately absent: they belong to one invocation, not to the machine.
+install_selection_reset fedora
+install_selection_set theme "$theme"
+install_selection_set kde "$bool_kde"
+install_selection_set latex "$bool_latex"
+install_selection_set ocaml "$install_ocaml"
+install_selection_set sway "$install_sway"
+install_selection_set vm-host "$install_vm_host"
+install_selection_set vm-guest "$install_vm_guest"
+install_selection_set hardening "$install_hardening"
+install_selection_set desktop-tools "$install_desktop_tools"
+install_selection_set desktop-tools-force-defaults "$desktop_tools_force_defaults"
+install_selection_set containers "$install_containers"
+install_selection_set containers-api-socket "$containers_api_socket"
+install_selection_set tailscale "$install_tailscale"
+install_selection_set ai "$install_ai"
+install_selection_set codex "${ai_codex:-inherit}"
+install_selection_set firstmate "${ai_firstmate:-inherit}"
+install_selection_set gnhf "${ai_gnhf:-inherit}"
+install_selection_set backpass "${ai_backpass:-inherit}"
+install_selection_set hardware "${hardware_model:--}"
+install_selection_set secure-boot "$hardware_secure_boot"
+install_selection_set charge-limit "${hardware_charge_limit:--}"
+install_selection="$(install_selection_serialize)"
 
 hardware_args=()
 [[ -z "$hardware_model" ]] || hardware_args=(--model "$hardware_model")
@@ -232,8 +265,6 @@ if [[ "$run_dev_workflows" == true ]]; then
 fi
 plan_add verify 'Verify installation' verify : verify_fedora : 'platforms/fedora/scripts/verify.sh'
 
-bool_kde=false; [[ "$install_kde" != enabled ]] || bool_kde=true
-bool_latex=false; [[ "$install_latex" != enabled ]] || bool_latex=true
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
 
@@ -260,7 +291,8 @@ AI backpass subcomponent: ${ai_backpass:-inherit}
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
-Development workflow smoke tests: $run_dev_workflows
+Development workflow smoke tests: $run_dev_workflows  (this run only)
+Recorded rerun selection: $install_selection
 
 EOF
   plan_render
@@ -285,9 +317,10 @@ plan_preflight
 capabilities=base,dotnet-debug
 for selection in "$bool_kde:kde" "$bool_latex:latex" "$install_ocaml:ocaml" "$install_sway:sway" "$install_vm_host:vm-host" "$install_vm_guest:vm-guest" "$hardware_selected:hardware" "$install_hardening:hardening" "$install_desktop_tools:desktop-tools" "$install_containers:containers" "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do [[ "${selection%%:*}" != true ]] || capabilities+=,"${selection#*:}"; done
 DOTFILES_RERUN_COMMAND="$(build_rerun_command)"
-install_lifecycle_begin fedora "$capabilities" "$DOTFILES_RERUN_COMMAND"
+install_lifecycle_begin fedora "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?; install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"; exit "$result"
 fi
 install_lifecycle_commit
 printf '\nInstallation completed successfully.\n'
+install_lifecycle_rerun_hint
