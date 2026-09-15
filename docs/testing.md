@@ -167,6 +167,20 @@ decision disagrees with the tree. The positive cases prove the rules do not
 over-reach — a lockfile beside its own manifest, and a fixture project below
 the root, are both accepted.
 
+### Documentation architecture
+
+`tests/test-documentation.sh` owns the documentation gates in
+`scripts/validate-docs.py` and the two normative renderers (issue #159). Each
+negative case builds a small tree that is valid except for one defect — a
+broken internal link, a link to a heading that does not exist, a document
+nothing links to, a capability described as waiting for or blocked on an
+issue, and an `./install.sh --platform X` command line passing an option that
+platform does not have. The drift cases are the real ones: a manifest row is
+changed and nothing is regenerated, and the generated document is hand-edited;
+both fail, and the checker never silently repairs the tracked file. The suite
+also asserts that the README stays an entry point rather than growing back
+into the operating manual.
+
 ### Machine-local Git identity
 
 `tests/test-git-identity.sh` owns machine-local Git identity migration (issue

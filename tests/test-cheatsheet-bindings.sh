@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guards docs/keybindings.md and docs/cheatsheets/*.tex against silently
+# Guards docs/reference/keybindings.md and docs/cheatsheets/*.tex against silently
 # drifting from the tracked Sway, Waybar, and AeroSpace configuration they
 # describe (issue #72). This intentionally checks only the load-bearing
 # bindings called out in docs/cheatsheets/README.md, not every binding in
@@ -11,8 +11,8 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 sway_config="$repo_root/platforms/fedora/stow/sway/.config/sway/config"
 waybar_config="$repo_root/platforms/fedora/stow/waybar/.config/waybar/config.jsonc"
 aerospace_config="$repo_root/platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml"
-kde_readme_section="$repo_root/README.md"
-keybindings_doc="$repo_root/docs/keybindings.md"
+kde_layout_doc="$repo_root/docs/platforms/fedora.md"
+keybindings_doc="$repo_root/docs/reference/keybindings.md"
 cheatsheets_dir="$repo_root/docs/cheatsheets"
 sway_tex="$cheatsheets_dir/fedora-sway.tex"
 kde_tex="$cheatsheets_dir/fedora-kde.tex"
@@ -120,8 +120,8 @@ require_in "$wsl_tex" 'wsl-paste' "Fedora WSL cheat sheet"
 require_in "$wsl_tex" 'enabled=true' "Fedora WSL cheat sheet"
 require_in "$wsl_tex" 'appendWindowsPath=false' "Fedora WSL cheat sheet"
 
-# --- README's own layout-switch documentation (source for the KDE sheet) ---
-require_in "$kde_readme_section" 'Meta+Alt+K' "README.md"
+# --- The Fedora guide documents the layout switch the KDE sheet prints ---
+require_in "$kde_layout_doc" 'Meta+Alt+K' "docs/platforms/fedora.md"
 
 # --- The reduced Parrot sheet documents only guest/profile behavior ---
 for phrase in 'hex-encode' 'hex-decode' 'rot13' 'x-copy' 'NOMATCH' \
@@ -141,7 +141,7 @@ for phrase in \
   '<prefix> ?' \
   'System Settings'; do
   grep -Fq "$phrase" "$keybindings_doc" ||
-    fail "docs/keybindings.md: expected discovery reference '$phrase'"
+    fail "docs/reference/keybindings.md: expected discovery reference '$phrase'"
 done
 
 # --- Every cheat sheet input file referenced actually exists ---

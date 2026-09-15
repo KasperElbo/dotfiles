@@ -77,7 +77,7 @@ grep -Fq '#language' \
 # Backticks are literal Markdown delimiters.
 # shellcheck disable=SC2016
 grep -Fq '| `Super+Alt+K` | Switch between US and Danish keyboard layouts |' \
-  "$repo_root/README.md"
+  "$repo_root/docs/platforms/fedora.md"
 
 stow_home="$test_root/home"
 mkdir -p \

@@ -9,7 +9,7 @@ import sys
 
 root = pathlib.Path(__file__).resolve().parents[1]
 manifest = root / "config" / "capabilities.tsv"
-target = root / "docs" / "capability-matrix.md"
+target = root / "docs" / "reference" / "capability-matrix.md"
 platforms = ["fedora", "fedora-wsl", "macos", "parrot-ctf"]
 
 with manifest.open(newline="", encoding="utf-8") as stream:

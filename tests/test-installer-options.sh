@@ -72,10 +72,16 @@ for platform_installer in platforms/*/install.sh; do
   platforms+=("$(basename -- "$(dirname -- "$platform_installer")")")
 done
 
-readme_platform_selector="$(sed -n '/^--platform PLATFORM /p' README.md)"
+# The generated option reference is the documented platform selector; it is
+# rendered from config/install-options.tsv, so a platform that exists in the
+# tree but not in the documentation fails here.
+# shellcheck disable=SC2016 # Literal backticks in the Markdown table cell.
+documented_platform_selector="$(
+  sed -n '/`--platform PLATFORM`/p' docs/reference/installer-options.md
+)"
 for platform_name in "${platforms[@]}"; do
   assert_contains "$long_help" "$platform_name"
-  assert_contains "$readme_platform_selector" "$platform_name"
+  assert_contains "$documented_platform_selector" "$platform_name"
 
   platform_help="$(
     "${test_environment[@]}" \

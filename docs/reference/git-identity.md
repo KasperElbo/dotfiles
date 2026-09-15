@@ -12,7 +12,7 @@ tracks:
 
 `common/setup-local.sh` creates both as empty, mode `0600` files on a fresh
 machine. Filling them in is a
-[manual post-install step](../../README.md#manual-post-install-checklist); the
+[manual post-install step](../workflows/install.md#manual-post-install-checklist); the
 installer never writes an identity of its own.
 
 ## Migration from the old layout

@@ -45,7 +45,7 @@ only `--platform` while retaining the original `"$@"` vector. For the macOS
 profile it explicitly asks native Homebrew for the installed `bash` formula
 prefix, then re-executes `scripts/install-main.sh` with Bash 4.4 or newer and
 the original arguments. The real dispatcher keeps that interpreter when it
-starts `platforms/macos/install.sh`; all #185 capability, preflight, execution
+starts `platforms/macos/install.sh`; all capability, preflight, execution
 plan, lifecycle-state, apply, and verification behavior remains on the modern
 side of this boundary.
 
@@ -180,7 +180,8 @@ doing nothing. macOS bootstrap is not "LaTeX-complete": nothing here installs
 
 The editor configuration is kept anyway, as dormant compatibility
 configuration. It does nothing until you install TeX yourself, and then the
-same VimTeX/TexLab workflow documented in the README works unchanged.
+same VimTeX/TexLab workflow documented in
+[the LaTeX guide](../workflows/latex.md) works unchanged.
 
 | Component | Owner on macOS | Provisioned by `install.sh`? |
 | --- | --- | --- |
@@ -286,7 +287,7 @@ exactly that reason.
 behave identically to every other platform: omitting `--codex` leaves an
 already-installed Codex alone, and only `--no-codex` removes it, after a
 confirmation and only when recorded provenance still proves this repository
-installed it. See the README's "AI-assisted development toolchain" for what
+installed it. See [the AI profile guide](../profiles/ai.md) for what
 each component is and which ones need manual, deliberate setup afterwards.
 
 | Component | Flag | Provider | Apple Silicon support |
@@ -330,8 +331,7 @@ upstream created for it.
 ./install.sh --platform macos --tailscale
 ```
 
-Coordinated with issue #109 (the cross-platform Tailscale profile) and
-issue #11/this macOS workstation: installs Tailscale as the **Standalone**
+macOS installs Tailscale as the **Standalone**
 macOS app (`brew install --cask tailscale-app`), the sandboxed
 Network-Extension-based variant Tailscale documents for a normal Mac with a
 display, not the headless `brew install tailscale` daemon formula this repo
@@ -343,7 +343,7 @@ assumption.
 
 The installer opens the app once (so macOS can prompt for the Network
 Extension permission) and then stops: authentication is interactive by
-design, matching issue #109's requirement and this repository's existing
+design, matching the cross-platform profile's boundary and this repository's existing
 "no automated login" stance for every other identity/authentication step
 (Git, SSH, `gh auth login`). Nothing here scripts the permission grant or
 runs `tailscale up`/signs you in.
@@ -366,8 +366,7 @@ brew uninstall --cask tailscale-app
 rm ~/.config/dotfiles/macos-tailscale.conf
 ```
 
-See the main [README.md, "Optional Tailscale networking
-profile"](../README.md#optional-tailscale-networking-profile) for package
+See [the Tailscale profile guide](../profiles/tailscale.md) for package
 ownership, the full list of what is intentionally never automated (ACLs,
 exit nodes, subnet routes, Tailscale SSH, `--accept-routes`/`--accept-dns`),
 and normal day-to-day commands. None of that is Fedora-specific; it applies
@@ -433,7 +432,7 @@ dedicated Sway modifier.
 | move workspace | `Control+Option+Command+Tab` | Move workspace to next display |
 
 This table is the canonical macOS input for the cross-platform keybinding
-documentation tracked in issue #72.
+documentation.
 
 The configuration intentionally has no hardcoded monitor serial, name, or
 workspace assignment. Workspaces form one pool; each has an assigned display,
@@ -539,8 +538,8 @@ sftp user@host
 
 Common interactive commands (`ls`, `cd`, `lcd`, `pwd`, `lpwd`, `get`, `put`,
 `mget`, `mput`, `mkdir`, `rm`, `exit`) and non-interactive `scp` transfers work
-exactly as documented in the main [README's SFTP client
-section](../README.md#7-sftp-client). Authentication reuses `~/.ssh/config`,
+exactly as documented in
+[the first-run SFTP section](../workflows/first-run.md#6-sftp-client). Authentication reuses `~/.ssh/config`,
 SSH keys, ssh-agent (including a 1Password-backed agent), and password
 authentication when a server requires it.
 
@@ -570,7 +569,7 @@ install, reconstructed from the lifecycle state by the shared persistent
 selection model — including the theme, `--defaults`, the optional profiles,
 and the AI subcomponents, whose additive semantics survive the round trip: a
 sub-flag you omitted stays omitted rather than becoming an install or a
-removal. See the README's "Reapplying the last successful configuration" for
+removal. See [the rerun guide](../workflows/rerun.md) for
 the full contract. A run that *fails* has no remembered configuration to
 reapply, so it prints the literal command that reproduces the selection it was
 attempting.

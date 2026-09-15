@@ -19,9 +19,14 @@ each workstation PDF still includes it in full, since each sheet must be a
 self-contained page at the machine. `cheatsheet.sty` holds the shared page
 layout (A4 margins, a two-column task table, section headings) used by every
 sheet. The Parrot sheet is deliberately reduced and does not advertise
-workstation-only LazyVim integrations. [`../keybindings.md`](../keybindings.md) is the same shared content
-as an ordinary Markdown page, for reading on screen or linking from the
-README instead of opening a PDF.
+workstation-only LazyVim integrations.
+
+These sheets are a **curated subset**, not a rendering of the full reference.
+[`../reference/keybindings.md`](../reference/keybindings.md) is the larger
+on-screen reference and covers more than any sheet does; a sheet leaves things
+out on purpose to stay within its page budget. The two are separate artifacts
+with separate sources — nothing here is generated from that page, and nothing
+there is generated from `common-workflow.tex`.
 
 ## Regenerating the PDFs
 
@@ -66,7 +71,7 @@ possible drift --- only the load-bearing bindings called out above.
 When Sway, Waybar, or AeroSpace bindings change:
 
 1. Update the relevant `\csrow{...}{...}` lines in `fedora-sway.tex` /
-   `macos.tex` and the matching table in `../keybindings.md` if the shared
+   `macos.tex` and the matching table in `../reference/keybindings.md` if the shared
    section changed.
 2. Update `tests/test-cheatsheet-bindings.sh` if a load-bearing binding it
    checks was intentionally renamed or removed.

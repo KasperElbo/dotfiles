@@ -1,13 +1,16 @@
 # Keyboard and workflow reference
 
-This is the maintainable source for the day-to-day keyboard/tooling workflow
-shared across every workstation profile. It documents what is actually
-useful while working on the machine, not every upstream keybinding each tool
-ships with. Profile-specific printable cheat sheets live in
-[`cheatsheets/`](cheatsheets/) and add only what differs per profile
-(desktop/window-manager bindings, platform interop); this page is the single
-place the shared terminal/editor workflow is written down, so the cheat
-sheets `\input` it once instead of repeating it four times.
+This is the full on-screen reference for the day-to-day keyboard and tooling
+workflow shared across every workstation profile. It documents what is
+actually useful while working on the machine, not every upstream keybinding
+each tool ships with.
+
+It is deliberately larger than any printable sheet. The per-profile
+[cheat sheets](../cheatsheets/) are a curated subset sized for one or two
+printed A4 pages, written in their own LaTeX source (`common-workflow.tex`
+holds the shared block each workstation sheet `\input`s). This page and that
+source are separate artifacts with separate jobs: completeness here, a page
+budget there.
 
 Every binding below is checked against the tracked configuration at the time
 this page was last updated, not reconstructed from memory or old discussion.
@@ -58,8 +61,10 @@ Repository-defined aliases and functions that matter day to day:
 
 `theme` accepts `latte`, `frappe`, `macchiato`, or `mocha`, plus an optional
 `--preserve-wallpaper` flag. It updates tmux, Ghostty/Noctty, Starship,
-bat, and Lazygit theming together (and the KDE/Sway desktop theme, on
-profiles that have one) and restarts the current shell.
+bat, and Lazygit theming together, and the KDE/Sway desktop theme on profiles
+that install a hook for it. The Zsh function that wraps it then re-execs this
+shell so the new flavour takes effect here; the command itself does not restart
+anything.
 
 ### Line editing
 
@@ -255,8 +260,8 @@ VimTeX). Bindings use the local leader `\`, shown under `\l` via WhichKey:
 | `<leader>cf` | LazyVim format | format via TexLab + `latexindent` |
 
 `\lv` uses Okular (forward/inverse SyncTeX) on Fedora KDE, `wsl-open` on
-Fedora WSL, and macOS's `open` (no SyncTeX) elsewhere. See the README's
-"LaTeX" section for the full editing-workflow writeup.
+Fedora WSL, and macOS's `open` (no SyncTeX) elsewhere. See
+[the LaTeX guide](../workflows/latex.md) for the full editing-workflow writeup.
 
 ## Lazygit
 
@@ -274,19 +279,25 @@ single portable command for switching the active Catppuccin flavour
 (`latte`, `frappe`, `macchiato`, `mocha`) across tmux, Ghostty/Noctty,
 Starship, bat, and Lazygit. Platform-specific hooks under
 `~/.config/dotfiles/theme-hooks.d/` extend it: the Fedora hook additionally
-re-themes KDE/Sway/Waybar; the Fedora WSL hook also updates Noctty's config
-through Windows PowerShell. There is no macOS theme hook, so `theme` there
-only changes the terminal/editor/CLI tooling above, not system appearance.
+re-themes KDE/Sway/Waybar and the flavour-matched wallpaper; the Fedora WSL
+hook updates Noctty's managed config through Windows PowerShell. There is no
+macOS theme hook, so `theme` there only changes the terminal/editor/CLI tooling
+above, not system appearance. Wallpaper and `--preserve-wallpaper` are
+Fedora-desktop concepts: on Fedora WSL, macOS and the Parrot guest there is no
+repository-managed wallpaper to preserve.
+
+The shell re-exec belongs to the Zsh wrapper, not to the command; see
+[which layer does what](../workflows/theming.md#which-layer-does-what).
 
 ## Profile cheat sheets
 
 Each profile's printable cheat sheet adds only what is specific to that
 desktop/runtime on top of everything above:
 
-- [Fedora KDE](cheatsheets/fedora-kde.tex)
-- [Fedora Sway](cheatsheets/fedora-sway.tex)
-- [Fedora WSL](cheatsheets/fedora-wsl.tex)
-- [macOS (AeroSpace)](cheatsheets/macos.tex)
+- [Fedora KDE](../cheatsheets/fedora-kde.tex)
+- [Fedora Sway](../cheatsheets/fedora-sway.tex)
+- [Fedora WSL](../cheatsheets/fedora-wsl.tex)
+- [macOS (AeroSpace)](../cheatsheets/macos.tex)
 
-See [`cheatsheets/README.md`](cheatsheets/README.md) for how to render them
+See [`cheatsheets/README.md`](../cheatsheets/README.md) for how to render them
 to PDF.

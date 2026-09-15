@@ -37,6 +37,11 @@ printf 'Checking generated Starship configurations...\n'
 printf 'Checking repository hygiene...\n'
 python3 ./scripts/validate-repository-hygiene.py
 
+printf 'Checking generated and cross-referenced documentation...\n'
+python3 ./scripts/render-capability-matrix.py --check
+python3 ./scripts/render-installer-options.py --check
+python3 ./scripts/validate-docs.py
+
 printf 'Validating network-source provenance...\n'
 python3 ./scripts/validate-capabilities.py
 python3 ./scripts/validate-fedora-dependency-closure.py
