@@ -7,7 +7,12 @@ PROFILE_STATE_SCHEMA_VERSION=2
 
 profile_state_allowed_keys() {
   case "$1" in
-  install) printf '%s\n' platform requested_capabilities observed_capabilities external_assurance repository revision provenance started_at finished_at failed_step completed_steps pending_steps rerun ;;
+  # selection/selection_schema record the persistent configuration of the
+  # run being applied; the last_successful_* keys record the newest
+  # *completely successful* one and are what --rerun reapplies. Keeping
+  # both in this one file is deliberate: a parallel "last command" store
+  # could disagree with the lifecycle status it belongs to.
+  install) printf '%s\n' platform requested_capabilities observed_capabilities external_assurance repository revision provenance started_at finished_at failed_step completed_steps pending_steps rerun selection selection_schema last_successful_selection last_successful_platform last_successful_at ;;
   # requested records the desired optional-component set; the per-component
   # keys record what was observed installed; the *_source/*_commit/*_digest
   # *_digest keys record the remote installer that ran; *_target_digest

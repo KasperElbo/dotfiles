@@ -69,6 +69,21 @@ Three suites carry the invariants from the AI/mise/supply-chain workstream:
   interrupted transition and its recovery, and a lost state file. Each step
   asserts both the profile state and the filesystem.
 
+### Installer lifecycle repeatability
+
+`tests/test-install-rerun.sh` owns the `./install.sh --rerun` contract. It
+records a real selection by parsing the installer's own dry-run output, so the
+fixtures cannot drift from the option contract, and then asserts the round trip
+(the reconstructed arguments must resolve to the identical record), the
+last-known-good invariant (a failed, cancelled, verifier-failed or dry-run
+attempt never replaces the remembered configuration), that transient execution
+controls are neither stored nor replayed, the focused refusals for missing,
+interrupted, corrupt, unsupported, pre-#210 and removed-option state, that
+configuration-changing options are rejected alongside `--rerun`, and that no
+stored command text is ever executed. Fedora, Fedora WSL, macOS and Parrot CTF
+each get a round-trip fixture, and the persistent-option manifest is checked
+against `config/capabilities.tsv`.
+
 `tests/test-ai-profile.sh` additionally covers the staged-installation
 failure modes: a failing `curl` that a piped consumer would have reported as
 success, an empty body, markup instead of a script, a digest mismatch, and an

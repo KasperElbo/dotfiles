@@ -43,11 +43,22 @@ while (($#)); do
   --no-workflows) warn '--no-workflows is deprecated; use --no-dev-workflows instead.'; run_dev_workflows=false; shift ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
+  --rerun) die '--rerun is owned by the root installer: run ./install.sh --rerun instead.' ;;
   -h | --help) usage; exit 0 ;;
   *) die "Unknown option for macos: $1" ;;
   esac
 done
 case "$theme" in latte | frappe | macchiato | mocha) ;; *) die "Invalid Catppuccin flavour: $theme" ;; esac
+
+# The resolved persistent configuration of this run; transient controls
+# (--dry-run, --non-interactive, --dev-workflows) are deliberately excluded.
+install_selection_reset macos
+install_selection_set theme "$theme"
+install_selection_set ocaml "$install_ocaml"
+install_selection_set containers "$install_containers"
+install_selection_set tailscale "$install_tailscale"
+install_selection_set defaults "$apply_defaults"
+install_selection="$(install_selection_serialize)"
 
 preflight_macos() {
   require_regular_user
@@ -120,8 +131,9 @@ macOS defaults:     $apply_defaults
 OCaml profile:      $install_ocaml
 Containers profile: $install_containers
 Tailscale profile:  $install_tailscale
-Development workflow smoke tests: $run_dev_workflows
+Development workflow smoke tests: $run_dev_workflows  (this run only)
 AI tooling profile: unavailable until repository issue #16 lands
+Recorded rerun selection: $install_selection
 
 EOF
   plan_render
@@ -141,7 +153,7 @@ capabilities=base,dotnet-debug
 [[ "$install_containers" != true ]] || capabilities+=,containers
 [[ "$install_tailscale" != true ]] || capabilities+=,tailscale
 DOTFILES_RERUN_COMMAND='./install.sh --platform macos --non-interactive'
-install_lifecycle_begin macos "$capabilities" "$DOTFILES_RERUN_COMMAND"
+install_lifecycle_begin macos "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?; install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"; exit "$result"
 fi
@@ -152,3 +164,4 @@ cat <<'EOF'
 Finish the manual security and display steps in docs/macos.md. Grant AeroSpace
 Accessibility access, keep SIP and Gatekeeper enabled, and configure Git/SSH.
 EOF
+install_lifecycle_rerun_hint

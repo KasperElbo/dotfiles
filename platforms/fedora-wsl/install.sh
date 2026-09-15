@@ -70,6 +70,7 @@ while (($#)); do
   --tailscale | --no-tailscale) die '--tailscale is not supported on Fedora WSL: install Tailscale on the Windows host instead.' ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
+  --rerun) die '--rerun is owned by the root installer: run ./install.sh --rerun instead.' ;;
   -h | --help) usage; exit 0 ;;
   *) die "Unknown option for fedora-wsl: $1" ;;
   esac
@@ -80,6 +81,21 @@ case "$theme" in latte | frappe | macchiato | mocha) ;; *) die "Invalid Catppucc
 [[ -z "$ai_firstmate" || "$install_ai" == true ]] || die '--firstmate/--no-firstmate requires --ai'
 [[ -z "$ai_gnhf" || "$install_ai" == true ]] || die '--gnhf/--no-gnhf requires --ai'
 [[ -z "$ai_backpass" || "$install_ai" == true ]] || die '--backpass/--no-backpass requires --ai'
+
+# The resolved persistent configuration of this run; transient controls
+# (--dry-run, --non-interactive, --dev-workflows) are deliberately excluded.
+install_selection_reset fedora-wsl
+install_selection_set theme "$theme"
+install_selection_set ocaml "$install_ocaml"
+install_selection_set latex "$install_latex"
+install_selection_set containers "$install_containers"
+install_selection_set containers-api-socket "$containers_api_socket"
+install_selection_set ai "$install_ai"
+install_selection_set codex "${ai_codex:-inherit}"
+install_selection_set firstmate "${ai_firstmate:-inherit}"
+install_selection_set gnhf "${ai_gnhf:-inherit}"
+install_selection_set backpass "${ai_backpass:-inherit}"
+install_selection="$(install_selection_serialize)"
 
 preflight_wsl() {
   require_regular_user; require_fedora_wsl
@@ -150,7 +166,8 @@ AI Codex subcomponent:     ${ai_codex:-inherit}
 AI FirstMate subcomponent: ${ai_firstmate:-inherit}
 AI GNHF subcomponent:      $ai_gnhf
 AI backpass subcomponent:  $ai_backpass
-Development workflow smoke tests: $run_dev_workflows
+Development workflow smoke tests: $run_dev_workflows  (this run only)
+Recorded rerun selection: $install_selection
 
 EOF
   plan_render
@@ -174,7 +191,7 @@ plan_preflight
 capabilities=base,dotnet-debug
 for selection in "$install_ocaml:ocaml" "$install_latex:latex" "$install_containers:containers" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do [[ "${selection%%:*}" != true ]] || capabilities+=,"${selection#*:}"; done
 DOTFILES_RERUN_COMMAND='./install.sh --platform fedora-wsl --non-interactive'
-install_lifecycle_begin fedora-wsl "$capabilities" "$DOTFILES_RERUN_COMMAND"
+install_lifecycle_begin fedora-wsl "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?; install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"; exit "$result"
 fi
@@ -182,3 +199,4 @@ install_lifecycle_commit
 # Backticks are documentation, not command substitution.
 # shellcheck disable=SC2016
 printf '\nFedora WSL setup completed. Run `exec zsh -l` for the new shell.\n'
+install_lifecycle_rerun_hint

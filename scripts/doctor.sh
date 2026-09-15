@@ -6,6 +6,8 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo_root/common/lib/common.sh"
 # shellcheck source=../common/lib/profile-state.sh
 source "$repo_root/common/lib/profile-state.sh"
+# shellcheck source=../common/lib/install-lifecycle.sh
+source "$repo_root/common/lib/install-lifecycle.sh"
 
 state="$(profile_state_dir)/install.conf"
 failures=0
@@ -75,6 +77,19 @@ else
   else
     fail "Lifecycle state is corrupt or uses an unsupported schema: $state"
   fi
+fi
+
+# Whether this machine can reapply its own configuration. The record itself
+# stays out of the report: doctor says that a valid one exists and how to use
+# it, and ./install.sh --rerun --dry-run shows the resolved detail.
+printf '\n'
+if install_remembered_load 2>/dev/null; then
+  pass "Remembered configuration is available for --rerun ($INSTALL_REMEMBERED_PLATFORM, recorded $INSTALL_REMEMBERED_AT)."
+  printf '  Reapply it with   ./install.sh --rerun\n'
+  printf '  Preview it with   ./install.sh --rerun --dry-run\n'
+else
+  remembered_reason="$(install_remembered_load 2>&1 >/dev/null | head -n 1 || true)"
+  warning "No configuration is available for ./install.sh --rerun: $remembered_reason"
 fi
 
 printf '\nResult: %d failure(s), %d warning(s). No changes made.\n' "$failures" "$warnings"

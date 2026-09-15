@@ -48,6 +48,7 @@ while (($#)); do
     ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
+  --rerun) die '--rerun is owned by the root installer: run ./install.sh --rerun instead.' ;;
   --dev-workflows | --no-dev-workflows | --smoke-test | --workflows | --no-workflows)
     die 'Development workflow smoke tests are not supported on parrot-ctf: the reduced profile deliberately has no .NET, Node or Angular runtime. Run them on a workstation profile instead.' ;;
   -h | --help) usage; exit 0 ;;
@@ -66,6 +67,12 @@ if [[ "$theme_source" != explicit && -r "$theme_state" ]]; then
     ;;
   esac
 fi
+
+# The resolved persistent configuration of this run; transient controls
+# (--dry-run, --non-interactive) are deliberately excluded.
+install_selection_reset parrot-ctf
+install_selection_set theme "$theme"
+install_selection="$(install_selection_serialize)"
 
 preflight_parrot() {
   require_regular_user
@@ -120,6 +127,7 @@ Portable tools:         mise owns uv and pinned Neovim 0.12.5 only
 Host secrets:           Not forwarded or mounted
 Shared folders:         Disabled unless configured manually
 AI tooling:             Not installed
+Recorded rerun selection: $install_selection
 
 EOF
   plan_render
@@ -143,7 +151,7 @@ fi
 
 plan_preflight
 DOTFILES_RERUN_COMMAND='./install.sh --platform parrot-ctf --non-interactive'
-install_lifecycle_begin parrot-ctf base,vm-guest "$DOTFILES_RERUN_COMMAND"
+install_lifecycle_begin parrot-ctf base,vm-guest "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?
   install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"
@@ -158,3 +166,4 @@ Konsole inherits the account's Zsh login shell. Keep challenge state outside
 the dotfiles checkout and take a VM snapshot before importing untrusted
 material or changing lab networking.
 EOF
+install_lifecycle_rerun_hint
