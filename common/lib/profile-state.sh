@@ -18,9 +18,12 @@ profile_state_allowed_keys() {
   # *_digest keys record the remote installer that ran; *_target_digest
   # records the installed binary, and is what proves ownership before a
   # removal. Those are different artifacts and must not be conflated.
+  # *_target_path records where that binary actually landed, which is the
+  # command path unless the upstream installed into its own directory and left
+  # a launcher symlink; a removal deletes the recorded binary, not the link.
   # None of the new keys are required, so state written by an earlier
   # release stays readable and diagnosable instead of failing validation.
-  ai) printf '%s\n' requested claude_code herdr codex firstmate firstmate_source firstmate_commit treehouse treehouse_source treehouse_digest treehouse_target_digest no_mistakes no_mistakes_source no_mistakes_digest no_mistakes_target_digest gh_axi chrome_devtools_axi lavish_axi tasks_axi quota_axi gnhf backpass acpx ;;
+  ai) printf '%s\n' requested claude_code herdr codex firstmate firstmate_source firstmate_commit treehouse treehouse_source treehouse_digest treehouse_target_digest treehouse_target_path no_mistakes no_mistakes_source no_mistakes_digest no_mistakes_target_digest no_mistakes_target_path gh_axi chrome_devtools_axi lavish_axi tasks_axi quota_axi gnhf backpass acpx ;;
   ocaml) printf '%s\n' switch compiler ;;
   ga402xz | ga402rk) printf '%s\n' secure_boot charge_limit ;;
   containers) printf '%s\n' runtime mode compose_provider api_socket user ;;

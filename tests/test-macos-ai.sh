@@ -198,6 +198,15 @@ if grep -Fq 'build_rerun_command' "$macos_root/install.sh"; then
 fi
 printf 'PASS: the AI selection serializes through the shared persistent-selection model\n'
 
+# A failed install has no remembered configuration to reapply, so the command
+# it prints must reproduce the selection of the run that failed -- including
+# its AI subcomponents -- rather than this platform's defaults.
+# shellcheck disable=SC2016 # Matching the literal assignment in install.sh.
+grep -Fq 'DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command macos "$install_selection")"' \
+  "$macos_root/install.sh" ||
+  _test_die 'the macOS failure hint is not rendered from the resolved selection'
+printf 'PASS: a failed macOS install names the command that reproduces its selection\n'
+
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
 # shellcheck source=../common/lib/install-selection.sh

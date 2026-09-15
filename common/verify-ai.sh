@@ -42,6 +42,8 @@ firstmate_source_state="$(profile_state_read "$state_file" firstmate_source ai 2
 firstmate_commit_state="$(profile_state_read "$state_file" firstmate_commit ai 2>/dev/null || printf 'not-recorded')"
 treehouse_target_digest_state="$(profile_state_read "$state_file" treehouse_target_digest ai 2>/dev/null || printf 'not-recorded')"
 no_mistakes_target_digest_state="$(profile_state_read "$state_file" no_mistakes_target_digest ai 2>/dev/null || printf 'not-recorded')"
+treehouse_target_path_state="$(profile_state_read "$state_file" treehouse_target_path ai 2>/dev/null || printf 'not-recorded')"
+no_mistakes_target_path_state="$(profile_state_read "$state_file" no_mistakes_target_path ai 2>/dev/null || printf 'not-recorded')"
 
 # Capture the environment configured for a fresh interactive login before the
 # verifier adds mise's shims to its own process. An explicit value remains
@@ -73,19 +75,43 @@ check_mise_command_runs() {
   fi
 }
 
-# check_own_script_owned <command> <target>: for a tool with no mise
-# registry entry, confirms <target> exists and is executable, and that
+# check_own_script_owned <command> <target> <recorded-path>: for a tool with no
+# mise registry entry, confirms <target> exists and is executable, that it
+# still resolves to the file the installer recorded -- an upstream is free to
+# install its binary elsewhere and leave a launcher symlink on PATH -- and that
 # nothing else on PATH shadows it with a duplicate install.
 check_own_script_owned() {
   local name="$1"
   local target="$2"
-  local resolved
+  local recorded_path="${3:-not-recorded}"
+  local resolved installed
 
   if [[ -x "$target" ]]; then
-    pass "$name: $target"
+    installed="$(verify_canonical_existing_path "$target" 2>/dev/null || true)"
+    if [[ -z "$installed" ]]; then
+      fail "$name does not resolve to an existing file: $target"
+      return
+    fi
+    if [[ "$installed" == "$target" ]]; then
+      pass "$name: $target"
+    else
+      pass "$name: $target -> $installed"
+    fi
   else
     fail "$name is missing or not executable: $target"
     return
+  fi
+
+  if [[ -L "$target" ]]; then
+    if [[ "$recorded_path" == not-recorded ]]; then
+      warning "$name is a launcher symlink with no recorded installed path;" \
+        "rerun the AI installer so removal can prove ownership of the binary"
+    elif [[ "$recorded_path" != "$installed" ]]; then
+      warning "$name now resolves to $installed, not the recorded $recorded_path;" \
+        "removal will refuse to delete it"
+    else
+      pass "$name resolves to the recorded installed binary: $recorded_path"
+    fi
   fi
 
   resolved="$(command -v "$name" 2>/dev/null || true)"
@@ -335,7 +361,7 @@ fi
 section "Treehouse (worktree isolation for FirstMate crewmates)"
 
 if [[ "$treehouse_state" == installed ]]; then
-  check_own_script_owned treehouse "$treehouse_target"
+  check_own_script_owned treehouse "$treehouse_target" "$treehouse_target_path_state"
   check_recorded_digest Treehouse "$treehouse_target" "$treehouse_target_digest_state"
 else
   report_disabled_but_present Treehouse "$treehouse_target" --no-firstmate
@@ -344,7 +370,7 @@ fi
 section "No Mistakes (local push validation gate)"
 
 if [[ "$no_mistakes_state" == installed ]]; then
-  check_own_script_owned no-mistakes "$no_mistakes_target"
+  check_own_script_owned no-mistakes "$no_mistakes_target" "$no_mistakes_target_path_state"
   check_recorded_digest "No Mistakes" "$no_mistakes_target" "$no_mistakes_target_digest_state"
 else
   report_disabled_but_present "No Mistakes" "$no_mistakes_target" --no-firstmate

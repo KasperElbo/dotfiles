@@ -87,6 +87,21 @@ jobs:
           --non-interactive
 
       - name: Optional-profile and selected-state transition
+        # Two of the AI components come from upstream install scripts that
+        # resolve their own "latest" release through api.github.com, and mise
+        # asks the same API about its GitHub-backed tools. Unauthenticated,
+        # that is 60 requests per hour shared with every other tenant on the
+        # runner's address, and this job has failed on an exhausted quota
+        # ("API rate limit exceeded for 13.105.117.77") with nothing wrong on
+        # its own side. The workflow's own token raises it to 5000/hour.
+        #
+        # This deliberately puts a token in the environment of staged
+        # third-party installers, which is why it is scoped to the two steps
+        # that run them, and why the workflow's permissions are contents:read
+        # -- the token can read this repository's contents and nothing else.
+        # See docs/supply-chain.md, "Authenticating the rate-limited API".
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: >-
           ./install.sh --platform macos --theme mocha
           --ocaml --no-containers --no-tailscale --defaults
@@ -155,6 +170,13 @@ jobs:
           probe lavish-axi lavish-axi --help
           probe tasks-axi tasks-axi --help
           probe quota-axi quota-axi --help
+          # These two come from staged upstream installers, and they do not
+          # agree on a layout: Treehouse writes the binary to the command path,
+          # No Mistakes installs under ~/.no-mistakes/bin and leaves a launcher
+          # symlink. Both are proved here against the real upstreams, including
+          # that the provenance the profile state records is about the binary
+          # that actually runs -- which is what a later --no-firstmate deletes.
+          ai_state="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/ai.conf"
           for own_script in treehouse no-mistakes; do
             target="$HOME/.local/bin/$own_script"
             if [ ! -x "$target" ]; then
@@ -169,8 +191,19 @@ jobs:
                 failures=$((failures + 1))
                 ;;
             esac
+            state_key="$(printf '%s_target_path' "$own_script" | tr - _)"
+            recorded="$(awk -F= -v key="$state_key" \
+              '$1 == key { print substr($0, length(key) + 2) }' "$ai_state")"
+            if [ -z "$recorded" ] || [ "$recorded" = not-recorded ]; then
+              printf '::error::%s recorded no installed path in %s\n' "$own_script" "$ai_state"
+              failures=$((failures + 1))
+            elif [ ! "$recorded" -ef "$target" ]; then
+              printf '::error::%s records %s, which is not the file %s runs\n' \
+                "$own_script" "$recorded" "$target"
+              failures=$((failures + 1))
+            fi
             if "$target" --version >/dev/null 2>&1 || "$target" --help >/dev/null 2>&1; then
-              printf 'ok: %s (%s)\n' "$own_script" "$target"
+              printf 'ok: %s (%s -> %s)\n' "$own_script" "$target" "${recorded:-unrecorded}"
             else
               printf '::error::%s did not run a harmless self-description\n' "$own_script"
               failures=$((failures + 1))
@@ -183,6 +216,10 @@ jobs:
           [ "$failures" -eq 0 ] || exit 1
 
       - name: Replay the remembered selection and reverify
+        # Reapplying the selection reinstalls the AI profile, so this step
+        # queries the same rate-limited API as the transition above.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           state="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/install.conf"

@@ -119,7 +119,8 @@ FirstMate is cloned to ~/.local/share/firstmate on a deliberately rolling
 channel with the resolved commit recorded in the profile state, and updated
 with 'git pull --ff-only'; Treehouse and No Mistakes are staged to a private
 temporary file, validated, executed, and verified, with the digest of the
-script that actually ran recorded, and are updated by rerunning --firstmate.
+script that actually ran, and the path and digest of the binary it produced,
+recorded, and are updated by rerunning --firstmate.
 This installer never runs 'gh-axi setup hooks' or 'lavish-axi setup hooks'
 (optional agent session-start hooks), 'no-mistakes init' (per-repository),
 or 'backpass init'/'backpass apply' (per-repository, and the latter is the
@@ -239,6 +240,18 @@ for component in "${AI_OPTIONAL_COMPONENTS[@]}"; do
   [[ "${requested_flag[$component]:-}" != "false" ]] || removal_requested="true"
 done
 
+# One rendering of a command path, naming what it resolves to only when that
+# is somewhere else, so a launcher layout is visible in every message.
+describe_binary_path() {
+  local target="$1" resolved="${2:-}"
+
+  if [[ -n "$resolved" && "$resolved" != "$target" ]]; then
+    printf '%s -> %s\n' "$target" "$resolved"
+  else
+    printf '%s\n' "$target"
+  fi
+}
+
 # --- Provenance-proved ownership -------------------------------------------
 #
 # Removal deletes nothing it cannot prove it installed. Each check answers a
@@ -249,18 +262,41 @@ done
 
 owned_reason=""
 
+# The file a proved-owned command resolves to, so the caller removes the binary
+# an upstream installed and not just the launcher that points at it.
+owned_binary_path=""
+
 own_check_script_binary() {
-  local name="$1" target="$2" digest_key="$3"
-  local recorded actual
+  local name="$1" target="$2" digest_key="$3" path_key="$4"
+  local recorded actual resolved recorded_path
 
   owned_reason=""
+  owned_binary_path=""
   if [[ ! -e "$target" && ! -L "$target" ]]; then
     owned_reason="already absent"
     return 1
   fi
-  if [[ -L "$target" || ! -f "$target" ]]; then
-    owned_reason="$target is not a regular file"
+
+  resolved="$(resolve_existing_path "$target" 2>/dev/null || true)"
+  if [[ -z "$resolved" || ! -f "$resolved" ]]; then
+    owned_reason="$target does not resolve to a regular file"
     return 1
+  fi
+
+  # A launcher symlink is a layout this repository accepts from an upstream
+  # but never infers: the binary behind it is deleted only when it is still
+  # the exact file recorded at install time. Without that record, following
+  # the link would mean trusting wherever it happens to point today.
+  if [[ -L "$target" ]]; then
+    recorded_path="$(state_value "$path_key" || true)"
+    if [[ -z "$recorded_path" || "$recorded_path" == not-recorded ]]; then
+      owned_reason="$target is a symlink and no installed path was recorded for $name; rerun the AI installer before removing it"
+      return 1
+    fi
+    if [[ "$recorded_path" != "$resolved" ]]; then
+      owned_reason="$target now resolves to $resolved, not the recorded $recorded_path"
+      return 1
+    fi
   fi
 
   recorded="$(state_value "$digest_key" || true)"
@@ -269,11 +305,12 @@ own_check_script_binary() {
     return 1
   fi
 
-  actual="$(fetch_sha256 "$target" 2>/dev/null || true)"
+  actual="$(fetch_sha256 "$resolved" 2>/dev/null || true)"
   if [[ "$actual" != "$recorded" ]]; then
-    owned_reason="$target no longer matches the recorded digest (expected $recorded, found ${actual:-unreadable})"
+    owned_reason="$(describe_binary_path "$target" "$resolved") no longer matches the recorded digest (expected $recorded, found ${actual:-unreadable})"
     return 1
   fi
+  owned_binary_path="$resolved"
   return 0
 }
 
@@ -328,11 +365,16 @@ if [[ "${transition[firstmate]}" == "remove" ]]; then
     [[ "$owned_reason" == "already absent" ]] ||
       removal_blockers+=("FirstMate: $owned_reason")
   fi
-  for entry in "treehouse:$treehouse_target:treehouse_target_digest" \
-    "no-mistakes:$no_mistakes_target:no_mistakes_target_digest"; do
-    IFS=: read -r own_name own_target own_key <<<"$entry"
-    if own_check_script_binary "$own_name" "$own_target" "$own_key"; then
+  for entry in "treehouse:$treehouse_target:treehouse_target_digest:treehouse_target_path" \
+    "no-mistakes:$no_mistakes_target:no_mistakes_target_digest:no_mistakes_target_path"; do
+    IFS=: read -r own_name own_target own_key own_path_key <<<"$entry"
+    if own_check_script_binary "$own_name" "$own_target" "$own_key" "$own_path_key"; then
+      # Each deleted path is listed in its own right, so --dry-run and the
+      # confirmation name the upstream's own directory rather than hiding it
+      # behind the launcher that will be removed with it.
       removal_paths+=("file|$own_target|$own_name")
+      [[ ! -L "$own_target" ]] ||
+        removal_paths+=("binary|$owned_binary_path|$own_name binary")
     else
       [[ "$owned_reason" == "already absent" ]] ||
         removal_blockers+=("$own_name: $owned_reason")
@@ -465,7 +507,11 @@ EOF
   $((step + 1)). Install Treehouse (worktree isolation for FirstMate crewmates)
      $treehouse_install_script -> $treehouse_target
      Staged to a private temporary file, validated, then executed and
-     verified; the digest that ran is recorded. Rerun --firstmate to update.
+     verified; the digest that ran is recorded. The command path above is
+     what this installer promises; an upstream that instead installs into
+     its own directory and leaves a launcher symlink there is accepted, and
+     the file the command resolves to is what gets recorded and verified.
+     Rerun --firstmate to update.
 
   $((step + 2)). Install No Mistakes (local validation gate before a push)
      $no_mistakes_install_script -> $no_mistakes_target
@@ -681,24 +727,76 @@ link_agent_instructions "$claude_md_target"
 link_agent_instructions "$codex_agents_target"
 link_agent_instructions "$opencode_agents_target"
 
-# verify_installed_binary <name> <target>: the immediate post-install check for
-# a tool installed by someone else's script. A missing, non-regular, unowned,
-# non-executable, or non-launching target fails here -- at the component that
-# is responsible for it -- rather than several steps later.
-verify_installed_binary() {
-  local name="$1" target="$2"
+# remove_emptied_install_dirs <removed-file>: prune the private directory an
+# upstream created for its own binary once that binary is gone. Only empty
+# directories strictly inside $HOME are pruned, and rmdir is what does it, so a
+# directory holding anything else -- an upstream's own configuration, a second
+# tool -- survives untouched. Directories this repository or the user owns for
+# other reasons ($HOME itself, and the ~/.local/bin the command lived on) are
+# never candidates.
+remove_emptied_install_dirs() {
+  local directory home_canonical launcher launcher_dir
 
-  [[ -e "$target" ]] || die "$name did not install its expected target: $target"
-  [[ -f "$target" && ! -L "$target" ]] ||
-    die "$name target is not a regular file: $target"
-  [[ -O "$target" ]] ||
-    die "$name target is not owned by the invoking user: $target"
-  [[ -x "$target" ]] || die "$name target is not executable: $target"
+  home_canonical="$(resolve_existing_path "$HOME" 2>/dev/null || printf '%s' "$HOME")"
+  directory="$(dirname -- "$1")"
+
+  # Both spellings of every boundary are compared, because the path being
+  # pruned is canonical while $HOME and the command paths are as configured:
+  # on a host where either contains a symlinked component, comparing only one
+  # spelling would let a protected directory through.
+  while [[ "$directory" == "$HOME"/?* || "$directory" == "$home_canonical"/?* ]]; do
+    for launcher in "$treehouse_target" "$no_mistakes_target"; do
+      launcher_dir="$(dirname -- "$launcher")"
+      [[ "$directory" != "$launcher_dir" ]] || return 0
+      [[ "$directory" != "$(resolve_existing_path "$launcher_dir" 2>/dev/null || printf '%s' "$launcher_dir")" ]] ||
+        return 0
+    done
+    rmdir -- "$directory" 2>/dev/null || return 0
+    info "Removed the emptied upstream directory: $directory"
+    directory="$(dirname -- "$directory")"
+  done
+}
+
+# verify_installed_binary <name> <command-path>: the immediate post-install
+# check for a tool installed by someone else's script. A missing, unresolvable,
+# unowned, non-executable, or non-launching command fails here -- at the
+# component that is responsible for it -- rather than several steps later.
+#
+# The command path is where this repository promised the tool would be; the
+# layout behind it belongs to the upstream installer. No Mistakes on
+# darwin/arm64 puts its binary in ~/.no-mistakes/bin and leaves a launcher
+# symlink on PATH, while Treehouse writes the binary straight to the command
+# path. Demanding a regular file *at the command path* asserted one upstream's
+# layout rather than the property this repository actually needs, and rejected
+# the only supported macOS install of a component it advertises. So the chain
+# is resolved first and every remaining question is asked of the file it names.
+#
+# The resolved path is published in INSTALL_VERIFIED_BINARY_PATH: it is what
+# gets hashed for provenance and what a later removal has to delete, because
+# deleting a launcher symlink alone would leave the tool installed.
+INSTALL_VERIFIED_BINARY_PATH=""
+verify_installed_binary() {
+  local name="$1" target="$2" resolved
+
+  INSTALL_VERIFIED_BINARY_PATH=""
+  [[ -e "$target" || -L "$target" ]] ||
+    die "$name did not install its expected target: $target"
+
+  resolved="$(resolve_existing_path "$target" 2>/dev/null || true)"
+  [[ -n "$resolved" ]] ||
+    die "$name target does not resolve to an existing file: $target"
+  [[ -f "$resolved" ]] ||
+    die "$name target is not a regular file: $(describe_binary_path "$target" "$resolved")"
+  [[ -O "$resolved" ]] ||
+    die "$name target is not owned by the invoking user: $(describe_binary_path "$target" "$resolved")"
+  [[ -x "$resolved" ]] ||
+    die "$name target is not executable: $(describe_binary_path "$target" "$resolved")"
 
   # A harmless self-description proves the binary actually runs. Upstreams
   # differ on which flag they support, so either is accepted; neither working
   # means the install did not produce a usable tool.
   if "$target" --version >/dev/null 2>&1 || "$target" --help >/dev/null 2>&1; then
+    INSTALL_VERIFIED_BINARY_PATH="$resolved"
     return 0
   fi
   die "$name installed at $target but neither '--version' nor '--help' ran successfully"
@@ -712,10 +810,12 @@ verify_installed_binary() {
 # unless it survives every validation, executed only then, removed immediately
 # afterwards, and the installed target is verified before the caller may record
 # any state. The digest of the script that actually ran is published in
-# INSTALL_STAGED_SCRIPT_DIGEST rather than on stdout, so this never has to run
-# inside a command substitution: in a subshell neither the staging-cleanup
-# bookkeeping nor a die() would reach the installer process.
+# INSTALL_STAGED_SCRIPT_DIGEST, and the file the installed command resolves to
+# in INSTALL_STAGED_SCRIPT_TARGET_PATH, rather than on stdout, so this never
+# has to run inside a command substitution: in a subshell neither the
+# staging-cleanup bookkeeping nor a die() would reach the installer process.
 INSTALL_STAGED_SCRIPT_DIGEST=""
+INSTALL_STAGED_SCRIPT_TARGET_PATH=""
 install_staged_script() {
   local name="$1" url="$2" target="$3" expected="${4:-}"
   local work_dir staged digest
@@ -756,6 +856,7 @@ install_staged_script() {
 
   verify_installed_binary "$name" "$target"
   INSTALL_STAGED_SCRIPT_DIGEST="$digest"
+  INSTALL_STAGED_SCRIPT_TARGET_PATH="$INSTALL_VERIFIED_BINARY_PATH"
 }
 
 firstmate_state="disabled"
@@ -765,10 +866,12 @@ treehouse_state="disabled"
 treehouse_source="not-recorded"
 treehouse_digest="not-recorded"
 treehouse_target_digest="not-recorded"
+treehouse_target_path="not-recorded"
 no_mistakes_state="disabled"
 no_mistakes_source="not-recorded"
 no_mistakes_digest="not-recorded"
 no_mistakes_target_digest="not-recorded"
+no_mistakes_target_path="not-recorded"
 
 if [[ "$install_firstmate" == "true" ]]; then
   # FirstMate has no release artifact and no package-manager upstream, so this
@@ -799,8 +902,13 @@ if [[ "$install_firstmate" == "true" ]]; then
   treehouse_digest="$INSTALL_STAGED_SCRIPT_DIGEST"
   treehouse_state="installed"
   treehouse_source="$treehouse_install_script"
-  treehouse_target_digest="$(fetch_sha256 "$treehouse_target")"
+  # The file the command resolves to, which is the command path itself unless
+  # this upstream installed elsewhere and linked. Both the digest below and a
+  # later removal are about that file, never about the launcher.
+  treehouse_target_path="$INSTALL_STAGED_SCRIPT_TARGET_PATH"
+  treehouse_target_digest="$(fetch_sha256 "$treehouse_target_path")"
   info "Treehouse installer digest: $treehouse_digest"
+  info "Treehouse installed binary: $(describe_binary_path "$treehouse_target" "$treehouse_target_path")"
   info "Treehouse installed binary digest: $treehouse_target_digest"
 
   # network-source: no-mistakes-installer
@@ -809,8 +917,10 @@ if [[ "$install_firstmate" == "true" ]]; then
   no_mistakes_digest="$INSTALL_STAGED_SCRIPT_DIGEST"
   no_mistakes_state="installed"
   no_mistakes_source="$no_mistakes_install_script"
-  no_mistakes_target_digest="$(fetch_sha256 "$no_mistakes_target")"
+  no_mistakes_target_path="$INSTALL_STAGED_SCRIPT_TARGET_PATH"
+  no_mistakes_target_digest="$(fetch_sha256 "$no_mistakes_target_path")"
   info "No Mistakes installer digest: $no_mistakes_digest"
+  info "No Mistakes installed binary: $(describe_binary_path "$no_mistakes_target" "$no_mistakes_target_path")"
   info "No Mistakes installed binary digest: $no_mistakes_target_digest"
 else
   # An explicit removal, already confirmed and already proved owned above.
@@ -822,6 +932,10 @@ else
     case "$removal_kind" in
     tree) rm -rf -- "$removal_path" ;;
     file) rm -f -- "$removal_path" ;;
+    binary)
+      rm -f -- "$removal_path"
+      remove_emptied_install_dirs "$removal_path"
+      ;;
     *) die "Unknown removal kind: $removal_kind" ;;
     esac
   done
@@ -849,10 +963,12 @@ write_ai_state() {
     printf 'treehouse_source=%s\n' "$treehouse_source"
     printf 'treehouse_digest=%s\n' "$treehouse_digest"
     printf 'treehouse_target_digest=%s\n' "$treehouse_target_digest"
+    printf 'treehouse_target_path=%s\n' "$treehouse_target_path"
     printf 'no_mistakes=%s\n' "$no_mistakes_state"
     printf 'no_mistakes_source=%s\n' "$no_mistakes_source"
     printf 'no_mistakes_digest=%s\n' "$no_mistakes_digest"
     printf 'no_mistakes_target_digest=%s\n' "$no_mistakes_target_digest"
+    printf 'no_mistakes_target_path=%s\n' "$no_mistakes_target_path"
     if [[ "$install_firstmate" == "true" ]]; then
       printf 'gh_axi=mise-npm\n'
       printf 'chrome_devtools_axi=mise-npm\n'

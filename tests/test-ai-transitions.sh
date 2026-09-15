@@ -131,6 +131,19 @@ case "$url" in
 *no-mistakes*) name=no-mistakes ;;
 *) exit 96 ;;
 esac
+# No Mistakes on darwin/arm64 installs into its own directory and leaves a
+# launcher symlink on PATH. Removal has to delete the binary behind the link,
+# so the fixture can produce either layout.
+if [[ "$name" == no-mistakes && "${MOCK_NO_MISTAKES_LAYOUT:-direct}" == launcher ]]; then
+  {
+    printf '#!/usr/bin/env sh\n'
+    printf 'mkdir -p "$HOME/.no-mistakes/bin" "$HOME/.local/bin"\n'
+    printf 'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$HOME/.no-mistakes/bin/no-mistakes"\n'
+    printf 'chmod +x "$HOME/.no-mistakes/bin/no-mistakes"\n'
+    printf 'ln -sf "$HOME/.no-mistakes/bin/no-mistakes" "$HOME/.local/bin/no-mistakes"\n'
+  } >"$output"
+  exit 0
+fi
 {
   printf '#!/usr/bin/env sh\n'
   printf 'mkdir -p "$HOME/.local/bin"\n'
@@ -173,6 +186,7 @@ install_ai() {
     MISE_UNINSTALL_LOG="$uninstall_log" \
     MISE_EXPECTED_CONTEXT="$mise_context" \
     FIRSTMATE_REPO_URL="$firstmate_origin" \
+    MOCK_NO_MISTAKES_LAYOUT="${MOCK_NO_MISTAKES_LAYOUT:-direct}" \
     "$repo_root/common/install-ai.sh" "$@"
 }
 
@@ -422,5 +436,95 @@ assert_path_exists "$firstmate_dir/.git"
 assert_path_executable "$treehouse_target"
 state_says 'requested=none'
 printf 'PASS: lost state never causes an unrequested uninstall\n'
+
+# --- 16. Removal follows an upstream launcher symlink -----------------------
+#
+# When an upstream installs its binary elsewhere and links it onto PATH,
+# deleting the link alone would leave the tool installed while the state file
+# says it is gone. Both paths are named in the preview and both are deleted,
+# and the directory the upstream created for itself is pruned once empty.
+
+MOCK_NO_MISTAKES_LAYOUT=launcher install_ai --firstmate --non-interactive \
+  >"$test_root/launcher-install.log" 2>&1 ||
+  { cat "$test_root/launcher-install.log" >&2; exit 1; }
+[[ -L "$no_mistakes_target" ]] || {
+  printf 'the launcher fixture did not install a symlink at %s\n' "$no_mistakes_target" >&2
+  exit 1
+}
+# Canonical, because resolving the launcher is what the installer records and
+# reports; a test root under a symlinked temporary directory (/var/folders on
+# macOS) would otherwise compare two spellings of the same file.
+no_mistakes_binary="$(cd -P -- "$home/.no-mistakes/bin" && pwd)/no-mistakes"
+assert_path_executable "$no_mistakes_binary"
+state_says "no_mistakes_target_path=$no_mistakes_binary"
+verify_ai >/dev/null
+
+launcher_preview="$(install_ai --no-firstmate --dry-run)"
+assert_contains "$launcher_preview" "delete $no_mistakes_target (no-mistakes)"
+assert_contains "$launcher_preview" "delete $no_mistakes_binary (no-mistakes binary)"
+
+install_ai --no-firstmate --non-interactive >"$test_root/launcher-remove.log" 2>&1 ||
+  { cat "$test_root/launcher-remove.log" >&2; exit 1; }
+state_says 'no_mistakes=disabled'
+assert_path_missing "$no_mistakes_target"
+assert_path_missing "$no_mistakes_binary"
+assert_path_missing "$home/.no-mistakes"
+verify_ai >/dev/null
+printf 'PASS: removal deletes the binary behind a launcher symlink and prunes its directory\n'
+
+# --- 17. Pruning never reaches beyond the binary it removed -----------------
+#
+# The upstream directory is pruned because it is empty, not because this
+# repository claims it. Anything else the upstream keeps there outlives the
+# removal.
+
+MOCK_NO_MISTAKES_LAYOUT=launcher install_ai --firstmate --non-interactive \
+  >"$test_root/launcher-config-install.log" 2>&1 ||
+  { cat "$test_root/launcher-config-install.log" >&2; exit 1; }
+printf 'upstream configuration\n' >"$home/.no-mistakes/config.toml"
+install_ai --no-firstmate --non-interactive >"$test_root/launcher-config-remove.log" 2>&1 ||
+  { cat "$test_root/launcher-config-remove.log" >&2; exit 1; }
+assert_path_missing "$no_mistakes_target"
+assert_path_missing "$no_mistakes_binary"
+assert_path_missing "$home/.no-mistakes/bin"
+assert_path_exists "$home/.no-mistakes/config.toml"
+printf 'PASS: pruning stops at a directory the upstream still uses\n'
+rm -rf -- "$home/.no-mistakes"
+
+# --- 18. A launcher repointed elsewhere is not ownable ----------------------
+#
+# The digest alone cannot prove ownership of a symlink: an identical copy
+# somewhere else would match it. The binary is deleted only when the command
+# still resolves to the exact path recorded at install time.
+
+MOCK_NO_MISTAKES_LAYOUT=launcher install_ai --firstmate --non-interactive \
+  >"$test_root/launcher-reinstall.log" 2>&1 ||
+  { cat "$test_root/launcher-reinstall.log" >&2; exit 1; }
+elsewhere="$home/elsewhere/no-mistakes"
+mkdir -p "$(dirname "$elsewhere")"
+cp -- "$no_mistakes_binary" "$elsewhere"
+ln -sf "$elsewhere" "$no_mistakes_target"
+
+if install_ai --no-firstmate --non-interactive >"$test_root/repointed.log" 2>&1; then
+  printf 'install-ai.sh removed a launcher pointing outside the recorded install\n' >&2
+  exit 1
+fi
+assert_file_contains "$test_root/repointed.log" "not the recorded $no_mistakes_binary"
+assert_file_contains "$test_root/repointed.log" 'nothing was changed'
+assert_path_executable "$elsewhere"
+assert_path_executable "$no_mistakes_binary"
+state_says 'no_mistakes=installed'
+printf 'PASS: a launcher repointed outside the recorded install is refused\n'
+
+# Restore the recorded layout so the suite ends with state and filesystem in
+# step, and prove the same removal then completes.
+ln -sf "$no_mistakes_binary" "$no_mistakes_target"
+rm -rf -- "$(dirname "$elsewhere")"
+install_ai --no-firstmate --non-interactive >"$test_root/launcher-remove-2.log" 2>&1 ||
+  { cat "$test_root/launcher-remove-2.log" >&2; exit 1; }
+assert_path_missing "$no_mistakes_target"
+assert_path_missing "$no_mistakes_binary"
+verify_ai >/dev/null
+printf 'PASS: restoring the recorded launcher makes the component ownable again\n'
 
 printf 'AI optional-component transition tests passed.\n'

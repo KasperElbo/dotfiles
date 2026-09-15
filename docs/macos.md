@@ -314,6 +314,16 @@ advertised command must be arm64-native or a script running under the arm64
 Node runtime — an Intel-only binary that would need Rosetta fails — and none of
 them may resolve to a Homebrew path or appear in a global npm prefix.
 
+Where a component's binary ends up is the upstream installer's choice, and on
+darwin/arm64 the two staged installers disagree: Treehouse writes its binary
+to `~/.local/bin/treehouse`, while No Mistakes installs
+`~/.no-mistakes/bin/no-mistakes` and leaves a launcher symlink at
+`~/.local/bin/no-mistakes`. Both are accepted. What the installer requires is
+that the command path resolves to a regular file you own, that executes; the
+file it resolves to is what gets recorded with its digest, and what a later
+`--no-firstmate` deletes, together with the launcher and the directory the
+upstream created for it.
+
 ### Optional Tailscale
 
 ```bash
@@ -547,6 +557,23 @@ command -v sftp
 command -v scp
 ssh -V
 ```
+
+### Reapplying this machine's configuration
+
+```bash
+./install.sh --rerun --dry-run
+./install.sh --rerun
+```
+
+`--rerun` reapplies the configuration of this machine's last *successful*
+install, reconstructed from the lifecycle state by the shared persistent
+selection model — including the theme, `--defaults`, the optional profiles,
+and the AI subcomponents, whose additive semantics survive the round trip: a
+sub-flag you omitted stays omitted rather than becoming an install or a
+removal. See the README's "Reapplying the last successful configuration" for
+the full contract. A run that *fails* has no remembered configuration to
+reapply, so it prints the literal command that reproduces the selection it was
+attempting.
 
 ## 9. Verification and rollback
 

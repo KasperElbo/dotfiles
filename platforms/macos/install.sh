@@ -249,7 +249,7 @@ fi
 plan_preflight
 capabilities=''
 while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(macos_selected_capabilities)
-DOTFILES_RERUN_COMMAND='./install.sh --platform macos --non-interactive'
+DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command macos "$install_selection")"
 install_lifecycle_begin macos "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?; install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"; exit "$result"
