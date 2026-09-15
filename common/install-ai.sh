@@ -36,6 +36,7 @@ interactive="true"
 # Mistakes' install scripts, at local fixtures instead of the real network.
 firstmate_repo="${FIRSTMATE_REPO_URL:-https://github.com/kunchenguid/firstmate.git}"
 firstmate_dir="$XDG_DATA_HOME/firstmate"
+firstmate_backend_file="$firstmate_dir/config/backend"
 treehouse_install_script="${TREEHOUSE_INSTALL_SCRIPT_URL:-https://kunchenguid.github.io/treehouse/install.sh}"
 treehouse_target="$HOME/.local/bin/treehouse"
 no_mistakes_install_script="${NO_MISTAKES_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh}"
@@ -339,7 +340,20 @@ own_check_firstmate() {
     return 1
   fi
 
-  if [[ -n "$(git -C "$firstmate_dir" status --porcelain 2>/dev/null || printf 'unreadable')" ]]; then
+  # The backend selection this installer writes lives inside the checkout, so
+  # it is our own artifact rather than a user modification. --untracked-files=all
+  # keeps Git from collapsing it into a bare 'config/' entry, so exactly that
+  # one path can be discounted and anything else still refuses the removal.
+  local worktree_state
+  worktree_state="$(
+    git -C "$firstmate_dir" status --porcelain --untracked-files=all 2>/dev/null ||
+      printf 'unreadable'
+  )"
+  worktree_state="$(
+    printf '%s\n' "$worktree_state" |
+      grep -v -x -F "?? ${firstmate_backend_file#"$firstmate_dir"/}" || true
+  )"
+  if [[ -n "${worktree_state//[[:space:]]/}" ]]; then
     owned_reason="$firstmate_dir has local modifications"
     return 1
   fi
@@ -499,10 +513,10 @@ EOF
   $step. Clone or update FirstMate
      $firstmate_repo -> $firstmate_dir
      Deliberately rolling on the upstream default branch; the resolved commit
-     is recorded in $state_file. Requires 'gh', 'tmux', and 'jq' (Herdr is
-     available as an alternative crew backend once installed above). Does not
-     register any project or authenticate GitHub; see
-     docs/profiles/ai.md.
+     is recorded in $state_file. Configure $firstmate_backend_file to 'herdr'
+     so a normal coordinator launch uses Herdr without an FM_BACKEND prefix.
+     Requires 'gh', 'tmux', and 'jq'. Does not register any project or
+     authenticate GitHub; see docs/profiles/ai.md.
 
   $((step + 1)). Install Treehouse (worktree isolation for FirstMate crewmates)
      $treehouse_install_script -> $treehouse_target
@@ -944,6 +958,10 @@ if [[ "$install_firstmate" == "true" ]]; then
     die "FirstMate was cloned but its resolved commit could not be read: $firstmate_dir"
   info "FirstMate resolved commit: $firstmate_commit"
 
+  info "Configuring FirstMate to use Herdr by default: $firstmate_backend_file"
+  ensure_dir "$(dirname "$firstmate_backend_file")"
+  printf 'herdr\n' | atomic_write_file "$firstmate_backend_file"
+
   # network-source: treehouse-installer
   install_staged_script Treehouse \
     "$treehouse_install_script" "$treehouse_target" "$treehouse_expected_sha256"
@@ -1094,9 +1112,11 @@ EOF
 
 if [[ "$install_firstmate" == "true" ]]; then
   cat <<EOF
-  • FirstMate is cloned but not configured: read $firstmate_dir/README.md,
-    run 'gh auth login' if you have not, then register a project and launch
-    a coordinator session as documented there.
+  • FirstMate is cloned and configured to use Herdr by default via
+    $firstmate_backend_file. Start the coordinator with:
+      cd $firstmate_dir && claude
+    Run 'gh auth login' first if you have not, then register projects through
+    the coordinator as documented in $firstmate_dir/README.md.
   • FirstMate tracks its upstream default branch deliberately. The installed
     revision is $firstmate_commit; rerun './common/install-ai.sh --firstmate'
     to update, or 'git -C $firstmate_dir checkout <commit>' to pin it locally.

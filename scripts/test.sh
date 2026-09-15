@@ -108,6 +108,7 @@ default_tests=(
   tests/test-mocked-installs.sh
   tests/test-sftp-baseline.sh
   tests/test-ai-profile.sh
+  tests/test-firstmate-backend.sh
   tests/test-ai-transitions.sh
   tests/test-mise-context.sh
   tests/test-vm-host.sh
