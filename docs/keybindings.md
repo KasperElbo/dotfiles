@@ -52,11 +52,94 @@ Repository-defined aliases and functions that matter day to day:
 | `tree` | `eza --tree` |
 | `cat` | `bat` (syntax-highlighted) |
 | `theme <flavour>` | switch the active Catppuccin flavour |
+| `tar <archive> <path>…` | create an archive, compression chosen from the suffix |
+| `untar <archive>` | extract an archive |
+| `shell-integrations` | report optional tooling this shell could not activate |
 
 `theme` accepts `latte`, `frappe`, `macchiato`, or `mocha`, plus an optional
 `--preserve-wallpaper` flag. It updates tmux, Ghostty/Noctty, Starship,
 bat, and Lazygit theming together (and the KDE/Sway desktop theme, on
 profiles that have one) and restarts the current shell.
+
+### Line editing
+
+| Key | Action |
+|---|---|
+| `Up` / `Down` | previous/next history entry matching the current prefix |
+| `Ctrl-R` | fuzzy-search command history with fzf |
+| `Tab` | open/select from the Zsh completion menu |
+| `Home` / `End` | beginning/end of the command line |
+| `Delete` | delete the character under the cursor |
+| `Ctrl+Left` / `Ctrl+Right` | move one word backward/forward |
+| `#` | starts an interactive comment |
+
+`Up`/`Down` use Zsh's `up-line-or-beginning-search` and
+`down-line-or-beginning-search`: with text already typed they walk only the
+history entries starting with it, and on an empty line they behave like plain
+history navigation. `Ctrl-R` is untouched — prefix search and fzf's fuzzy
+search are complementary, not alternatives.
+
+Each of these keys is bound to the sequence `terminfo` reports **and** to the
+documented xterm, application-cursor and vt220/rxvt fallbacks, because the
+supported terminals do not agree on which mode is active when the line editor
+starts:
+
+| Key | terminfo | Fallbacks also bound |
+|---|---|---|
+| Home | `khome` | `\e[H`, `\eOH`, `\e[1~`, `\e[7~` |
+| End | `kend` | `\e[F`, `\eOF`, `\e[4~`, `\e[8~` |
+| Delete | `kdch1` | `\e[3~` |
+| Ctrl+Left | `kLFT5` | `\e[1;5D`, `\eOd`, `\e[5D` |
+| Ctrl+Right | `kRIT5` | `\e[1;5C`, `\eOc`, `\e[5C` |
+| Up | `kcuu1` | `\e[A`, `\eOA` |
+| Down | `kcud1` | `\e[B`, `\eOB` |
+
+`\eOD` and `\eOC` are deliberately **not** bound to word motion: in
+application-cursor mode those are plain `Left` and `Right`, which must keep
+moving by a single character.
+
+`tests/test-shell-startup.sh` asserts every one of these bindings by asking a
+real `zsh` what each sequence resolves to, under `xterm-256color`,
+`xterm-ghostty`, `screen-256color`, `tmux-256color`, `linux` and an unknown
+`TERM`.
+
+### Archive helpers
+
+`tar` is a Zsh function, not an alias, so the native CLI is never shadowed:
+
+```zsh
+tar archive.tar.gz path...   # create (shorthand)
+untar archive.tar.gz         # extract
+tar -tf archive.tar.gz       # native tar, unchanged
+tar -xf archive.tar.gz       # native tar, unchanged
+tar --help                   # native tar, unchanged
+command tar ...              # always the native tar
+```
+
+The shorthand applies only when the first argument is not an option *and*
+carries a known archive suffix (`.tar`, `.tar.gz`/`.tgz`, `.tar.xz`/`.txz`,
+`.tar.bz2`/`.tbz2`, `.tar.zst`/`.tzst`, and a few older forms). It then calls
+`command tar -caf`, which picks the compressor from the suffix. `untar` calls
+`command tar -xf`, which detects compression on its own.
+
+### PATH and optional tooling
+
+`.zshenv` marks Zsh's tied `path`/`PATH` pair unique (`typeset -gU path
+PATH`). Sourcing `.zshenv` or `.zshrc` again — as `exec zsh`, a nested shell,
+or `mise`/`opam` activation does — therefore cannot grow `PATH`. Zsh keeps the
+*first* occurrence of a duplicate, so deliberate precedence is preserved and
+nothing is sorted or reordered; the macOS rule that Homebrew's coreutils
+`gnubin` stays last, behind Apple's own tools, is unaffected.
+
+zoxide, fzf, mise and Starship are initialized only when they are installed. A
+machine missing one gets that feature disabled and nothing else: the shell
+still starts, and startup stays silent. Run `shell-integrations` to see what is
+missing and what it costs.
+
+`./scripts/benchmark-shell-startup.sh` measures interactive (`.zshenv` +
+`.zshrc`) and non-interactive (`.zshenv` only) startup. It is a manual tool,
+not part of `./scripts/test.sh`, because wall-clock timing is machine- and
+load-dependent.
 
 ## fzf
 

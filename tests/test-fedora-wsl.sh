@@ -569,6 +569,10 @@ bootstrap_environment=(
   "BOOTSTRAP_COMMAND_LOG=$bootstrap_command_log"
   "TEST_STUB_ROOT=$bootstrap_stub_root"
   "WINDOWS_SYSTEM_ROOT=$windows_root"
+  # The Noctty theme bridge is a named action with its own error boundary now
+  # (issue #148): a PowerShell that cannot run is a reported failure, not a
+  # silent no-op, so the mock needs its log destination here too.
+  "POWERSHELL_LOG=$test_root/bootstrap-powershell.log"
   "WSL_CONF_FILE=$test_root/bootstrap-wsl.conf"
 )
 

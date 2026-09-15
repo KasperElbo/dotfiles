@@ -1234,7 +1234,14 @@ The selection is stored locally in:
 ~/.config/dotfiles/theme
 ```
 
-Changing flavor does **not** modify tracked dotfiles.
+Changing flavor does **not** modify tracked dotfiles, and a later installer run
+without `--theme` keeps whatever is stored there — see
+[Catppuccin theming](#catppuccin-theming) for the full precedence.
+
+`theme` reports what it applied. It exits 0 when everything applicable
+succeeded, 3 when the shared theme state is current but an independent platform
+action failed (naming it), and 1 when the shared state itself could not be
+written.
 
 ## 2. Git identity
 
@@ -3458,7 +3465,7 @@ before the remaining dotfiles are restowed.
 
 The repository installs all four Catppuccin flavors and uses one local selector.
 
-Default:
+First-install default:
 
 ```text
 macchiato
@@ -3469,6 +3476,112 @@ Accent where applicable:
 ```text
 mauve
 ```
+
+## Where a run's flavour comes from
+
+An installer resolves the flavour in this order, and says which tier it used in
+both the dry-run plan and the interactive confirmation:
+
+| Source | Meaning |
+|---|---|
+| `explicit` | `--theme FLAVOUR` on this invocation |
+| `existing` | the flavour this machine already has in `~/.config/dotfiles/theme` |
+| `remembered` | the flavour in the last successful install's recorded selection |
+| `default` | first install only |
+
+So an ordinary rerun never resets a machine to Macchiato:
+
+```bash
+./install.sh --theme latte     # installs Latte
+./install.sh                   # still Latte  (source: existing)
+./install.sh --theme mocha     # now Mocha    (source: explicit)
+```
+
+`existing` is checked before `remembered` because it is what the machine is
+actually wearing: `theme mocha` changes it without running an installer.
+`remembered` then covers a machine whose theme state file has been lost.
+
+The remembered value is the `theme` field of the structured selection the
+install lifecycle records (issues #210/#211) — there is no theme-specific state
+file competing with it, and no stored command text is ever parsed. It is
+validated against the current option manifest before use, so a record this
+checkout cannot interpret falls through to the next tier instead of being
+guessed at.
+
+`./install.sh --rerun` therefore replays the remembered flavour like any other
+remembered option, reconstructed as an explicit `--theme` by the shared
+selection library:
+
+```bash
+./install.sh --rerun --dry-run
+# Options:   --theme latte --no-kde --no-latex …
+```
+
+Only a *successful* install replaces the remembered configuration, so a failed
+or cancelled run leaves the previous flavour as the rerun target.
+
+## Applying a theme: named actions
+
+`theme <flavour>` applies a set of mostly independent effects, each a named
+action with its own error boundary:
+
+- the shared state files (`theme`, `ghostty.conf`, `git-theme`,
+  `tmux-theme.conf`) are **required** — if they cannot be written the command
+  stops with status 1 and applies nothing else;
+- every other action is independent. One failing action is named, does not stop
+  the others, and leaves the command with status 3 and a summary of what
+  applied and what did not.
+
+```text
+Catppuccin mocha was applied only partially.
+Applied:
+  - shared-state
+  - tmux
+Failed:
+  - fedora:kde (exit 9)
+```
+
+An action that is deliberately not run is reported separately, so "not
+installed here" stays distinct from "failed":
+
+```text
+Not applicable on this machine:
+  - fedora:kde (the KDE capability was not installed)
+```
+
+The last run's records stay in `~/.local/state/dotfiles/theme-actions.log`.
+
+## Hooks only apply what is installed
+
+A platform hook must never apply an identifier for assets that were never
+installed. The Fedora hook asks the install lifecycle state whether the `kde`
+capability was selected, and separately whether the Catppuccin KDE global theme
+for the chosen flavour is actually present:
+
+- installed with `--no-kde` → no KDE command runs at all, even if Plasma is
+  present and even if KDE themes are left over from an earlier install;
+- selected but assets missing (a machine that predates the capability record)
+  → still skipped, and the Fedora verifier reports it;
+- no recorded installation at all → the assets alone decide.
+
+The Fedora verifier checks exactly what the installed capability owns: with
+KDE selected it requires `kio-extras` and the global theme for the current
+flavour; with `--no-kde` it requires neither, and warns rather than fails if
+leftover KDE assets are present.
+
+The Parrot CTF guest deliberately installs no desktop theme hooks: it is a
+reduced lab profile, not a workstation, and parity is not a reason to give it
+desktop theming it has no use for.
+
+## Ghostty
+
+Ghostty applies a changed `theme` only on a **full restart**; a configuration
+reload does not change an already-set theme. Nothing in this repository claims
+otherwise. On Fedora the hook still requests a reload (it is worth doing for
+the rest of the configuration) and then says a restart is required; on a
+profile with no hook of its own — macOS — the portable command prints the same
+guidance. On Fedora WSL, Windows owns the terminal, so the Noctty bridge is
+what changes the theme and no Ghostty guidance is printed at all.
 
 ## KDE
 
@@ -3525,36 +3638,68 @@ Neovim reads the machine-local theme state on startup and checks it again on `Fo
 
 ## Starship
 
-The source prompt configuration lives in:
+The prompt has two source files and four generated outputs:
 
 ```text
-starship/.config/starship/template.toml
+config/starship/prompt.toml                      common prompt and modules
+config/starship/palettes/catppuccin-<flavour>.toml   one palette table each
+        |
+        v
+starship/.config/starship/catppuccin-<flavour>.toml  tracked, stowed
 ```
 
-Four tracked runtime configurations are generated:
+`config/starship/prompt.toml` is the single source of truth for everything the
+four flavours share. It deliberately contains **no** `palette = …` selection
+and **no** `[palettes.*]` table — the generator refuses to run if it does, and
+each generated file therefore ends up with exactly one palette selection and
+exactly one matching palette table, instead of all four (issue #125).
 
-```text
-catppuccin-latte.toml
-catppuccin-frappe.toml
-catppuccin-macchiato.toml
-catppuccin-mocha.toml
-```
-
-Regenerate after changing the template:
+Regenerate after changing either source:
 
 ```bash
 ./scripts/update-starship-themes.sh
+./scripts/update-starship-themes.sh --check       # CI drift gate
+./scripts/update-starship-themes.sh --output-dir DIR
 ```
 
-The shell selects one using `STARSHIP_CONFIG`.
+`--check` regenerates into a temporary directory, proves generation is
+byte-identical when run twice, and compares the result with the tracked files.
+It never writes to the working tree: a stale tracked file fails and is named,
+rather than being silently fixed. `./scripts/lint.sh` runs it, so a source
+change committed without its regenerated outputs fails CI.
+
+The shell selects one generated file using `STARSHIP_CONFIG`; that contract is
+unchanged:
+
+```zsh
+export STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/starship/catppuccin-${DOTFILES_THEME}.toml"
+```
 
 The current prompt is based on Starship's Catppuccin Powerline preset, with:
 
 - `.NET` added to the runtime section
 - the command prompt on a second line
 - command-duration notifications currently enabled
+- the previous command's exit status after a failure
 
 The Powerline layout may be simplified later.
+
+### Failed-command exit status
+
+The `[status]` module renders the **exact** numeric exit code, and only after a
+failure (issue #169):
+
+```text
+ …   01:42   in 2s ✘ 130
+❯
+```
+
+`success_symbol` is empty, so Starship skips the module entirely on status `0`
+and a successful prompt stays clean. `map_symbol` stays off so `126`, `127` and
+`130` remain distinguishable numbers rather than one shared glyph. The red
+error prompt character is unchanged, and the segment sits between
+`$cmd_duration` and the line break, so the layout is the same whether or not a
+duration is shown.
 
 ## fzf
 
@@ -3848,36 +3993,121 @@ Only early environment configuration belongs here:
 
 ```zsh
 export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"
-export PATH="$HOME/.local/bin:$PATH"
+
+typeset -gU path PATH
+path=("$HOME/.local/bin" $path)
+export PATH
 ```
+
+## PATH policy
+
+Zsh ties the `path` array to `PATH`, and `typeset -gU` marks that pair unique.
+Every later prepend or append — in `.zshenv`, in a platform file, in `mise` or
+`opam` activation — is therefore idempotent: sourcing `.zshenv` or `.zshrc`
+again, running `exec zsh`, or nesting a shell cannot grow `PATH`.
+
+Zsh keeps the **first** occurrence of a duplicated entry, so this deduplicates
+without reordering. Nothing sorts `PATH`, and deliberate precedence survives:
+
+- `~/.local/bin` stays in front of the inherited environment;
+- mise-managed tools keep the precedence mise's own activation gives them;
+- on macOS, Homebrew's coreutils `gnubin` stays **last**, so it supplies the
+  GNU tools macOS does not ship (`timeout`, used by the shared Neovim
+  bootstrap) without shadowing Apple's `ls`, `date` or `cp` — the contract
+  settled by issues #141/#204;
+- on Fedora WSL, the platform hook still removes inherited `/mnt/<drive>/…`
+  entries before any tool runs;
+- on Parrot, the distro's `/usr/local/sbin:/usr/sbin:/sbin` search order is
+  still appended, and `/snap/bin` still only when Snap is actually installed.
+
+`tests/test-shell-startup.sh` proves this by sourcing the tracked startup
+files three times in a row — bare, and under the Parrot and macOS platform
+files — and requiring a byte-identical, duplicate-free `PATH` each time.
 
 ## `~/.config/zsh/.zshrc`
 
 Contains:
 
 - history configuration
+- interactive comments (`#`), completion menu, line-editing keys
 - local Catppuccin flavor selection
 - Lazygit/Bat/fzf/Starship theme selection
 - zoxide
 - fzf integration
 - autosuggestions
-- aliases
+- aliases and the `tar`/`untar` archive helpers
 - mise activation
 - Starship
 - syntax highlighting
 
 The configuration intentionally avoids Oh My Zsh or another shell framework.
 
+## Optional tooling degrades, it does not break the shell
+
+zoxide, fzf, mise and Starship are each initialized only when the command
+exists. A machine missing one loses that feature and nothing else — the shell
+still starts, and startup prints nothing, because a warning on every prompt is
+noise rather than information. Ask for the summary when you want it:
+
+```text
+$ shell-integrations
+This shell is running with reduced functionality:
+  zoxide — z and zi directory jumping are unavailable
+```
+
+It exits non-zero when anything is missing, so a script can check it too.
+
+Startup also deliberately ends with a clean exit status: otherwise the first
+prompt of every shell would report a failure no command of yours caused — and
+the Starship prompt now displays that number.
+
+Measure startup with:
+
+```bash
+./scripts/benchmark-shell-startup.sh --runs 25
+```
+
+It reports interactive (`.zshenv` + `.zshrc`) and non-interactive (`.zshenv`
+only) medians, and can enforce a budget with `--interactive-ms` /
+`--non-interactive-ms`. It is a manual tool rather than part of
+`./scripts/test.sh`, because wall-clock timing is machine- and load-dependent.
+The ergonomics added in issue #168 cost about 1–2 ms of interactive startup on
+the reference measurement (≈50 ms median before and after, with all four
+integrations present) and nothing measurable non-interactively (≈4–5 ms), so
+no startup optimization was warranted.
+
 Useful navigation:
 
 ```text
+Up/Down   history entries matching what is already typed
 Ctrl-R    fuzzy history search
 Ctrl-T    fuzzy file insertion
 Alt-C     fuzzy cd
 
+Home/End  beginning/end of line
+Delete    delete the character under the cursor
+Ctrl+←/→  move one word backward/forward
+
 z foo     zoxide ranked directory jump
 zi        interactive zoxide selection
 ```
+
+Every editing key is bound to its `terminfo` sequence *and* to the documented
+xterm, application-cursor and vt220/rxvt fallbacks, so the same keys work in
+Ghostty, Noctty/WSL, KDE Konsole, a VM text console, SSH and tmux. See
+[`docs/keybindings.md`](docs/keybindings.md) for the exact table.
+
+## Archive helpers
+
+```text
+tar archive.tar.gz path...   create an archive (compression from the suffix)
+untar archive.tar.gz         extract an archive
+```
+
+`tar` is a shell *function*, not an alias, so the native CLI is untouched:
+`tar -tf`, `tar -xf`, `tar --help` and `command tar …` all behave exactly as
+they always did. The shorthand applies only when the first argument is not an
+option and carries a known archive suffix.
 
 ---
 
@@ -4859,10 +5089,11 @@ enrollment, GPU/MUX settings, macOS preferences, services, or battery limits.
 
 # Updating Starship themes
 
-Edit only:
+Edit only the sources:
 
 ```text
-starship/.config/starship/template.toml
+config/starship/prompt.toml                          common prompt/modules
+config/starship/palettes/catppuccin-<flavour>.toml   one Catppuccin palette
 ```
 
 Then regenerate:
@@ -4870,6 +5101,11 @@ Then regenerate:
 ```bash
 ./scripts/update-starship-themes.sh
 ```
+
+Never hand-edit a generated `starship/.config/starship/catppuccin-*.toml`:
+`./scripts/lint.sh` runs `./scripts/update-starship-themes.sh --check`, which
+regenerates from source into a temporary directory and fails CI when a tracked
+output does not match byte for byte.
 
 The generated flavor configs are also tracked so a clone can be used without running generation first.
 

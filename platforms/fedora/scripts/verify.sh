@@ -10,6 +10,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/secure-boot.sh"
 # shellcheck source=../lib/hardening.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/hardening.sh"
+# shellcheck source=../../../common/lib/install-lifecycle.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/install-lifecycle.sh"
 
 verify_reset
 
@@ -95,7 +97,16 @@ else
   fail "ssh -V did not report an OpenSSH client: ${ssh_version:-no output}"
 fi
 
-if command_exists plasmashell; then
+# The KDE capability owns kio-extras and the Catppuccin KDE themes. A machine
+# installed with --no-kde owns neither, so requiring them there would fail a
+# correct installation just because Plasma happens to be present (issue #148).
+kde_selection_status=0
+install_lifecycle_capability_selected kde || kde_selection_status=$?
+
+if ((kde_selection_status == 1)); then
+  section "KDE integration"
+  pass "KDE integration is not selected; its assets are not expected"
+elif command_exists plasmashell; then
   section "KDE Dolphin/KIO SFTP integration"
 
   check_command dolphin
@@ -265,6 +276,28 @@ if [[ -n "$current_theme" ]]; then
     pass "tmux local theme override matches"
   else
     fail "tmux local theme override does not match $current_theme"
+  fi
+
+  # Check exactly what the installed capability owns: the Fedora theme hook
+  # applies a KDE global theme by name, so that name must exist on a machine
+  # that selected KDE, and must not be expected on one that did not.
+  case "$current_theme" in
+  latte) kde_global_theme="Catppuccin-Latte-Mauve" ;;
+  frappe) kde_global_theme="Catppuccin-Frappe-Mauve" ;;
+  macchiato) kde_global_theme="Catppuccin-Macchiato-Mauve" ;;
+  mocha) kde_global_theme="Catppuccin-Mocha-Mauve" ;;
+  esac
+  kde_theme_path="$XDG_DATA_HOME/plasma/look-and-feel/$kde_global_theme"
+
+  if ((kde_selection_status == 0)); then
+    if [[ -d "$kde_theme_path" ]]; then
+      pass "Catppuccin KDE global theme installed: $kde_global_theme"
+    else
+      fail "KDE integration is selected but its global theme is missing: $kde_theme_path"
+    fi
+  elif ((kde_selection_status == 1)) && [[ -d "$kde_theme_path" ]]; then
+    warning "KDE integration is not selected, but $kde_theme_path exists;" \
+      "the theme command will not apply it"
   fi
 fi
 

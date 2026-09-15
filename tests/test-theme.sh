@@ -81,7 +81,10 @@ else
 fi
 EOF
 
-for command in bash basename cat chmod dirname mkdir mktemp mv readlink; do
+# The theme command consults the install lifecycle state to decide whether a
+# capability's assets were ever installed, and that library uses awk; the rest
+# is what write_theme_state has always needed.
+for command in awk bash basename cat chmod dirname mkdir mktemp mv readlink; do
   ln -s "$(command -v "$command")" "$sandbox_bin/$command"
 done
 
@@ -94,6 +97,15 @@ for flavour in latte frappe macchiato mocha; do
   ln -s \
     "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-$flavour-lock.webp" \
     "$test_root/home/.local/share/wallpapers/catppuccin-$flavour-lock.webp"
+done
+
+# This suite models a machine installed *with* KDE: the Catppuccin KDE global
+# themes are present, so the Fedora hook may name their identifiers. The
+# capability-awareness and failure-isolation cases (issue #148) live in
+# tests/test-theme-hooks.sh.
+for kde_theme in Catppuccin-Latte-Mauve Catppuccin-Frappe-Mauve \
+  Catppuccin-Macchiato-Mauve Catppuccin-Mocha-Mauve; do
+  mkdir -p "$test_root/home/.local/share/plasma/look-and-feel/$kde_theme"
 done
 
 theme_command="$repo_root/bin/.local/bin/theme"
@@ -116,6 +128,7 @@ grep -Fq 'Usage: theme' "$test_root/missing.out"
 HOME="$test_root/home" \
 XDG_CONFIG_HOME="$test_root/xdg" \
 XDG_DATA_HOME="$test_root/home/.local/share" \
+XDG_STATE_HOME="$test_root/state" \
 PATH="$mock_bin:$sandbox_bin" \
 MOCK_LOG="$mock_log" \
 MOCK_SWAY_ACTIVE="false" \
@@ -244,6 +257,7 @@ grep -Fq 'catppuccin-mocha-lock.webp' \
 HOME="$test_root/home" \
 XDG_CONFIG_HOME="$test_root/xdg" \
 XDG_DATA_HOME="$test_root/home/.local/share" \
+XDG_STATE_HOME="$test_root/state" \
 PATH="$mock_bin:$sandbox_bin" \
 MOCK_LOG="$mock_log" \
 MOCK_SWAY_ACTIVE="true" \

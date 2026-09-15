@@ -31,6 +31,9 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+printf 'Checking generated Starship configurations...\n'
+./scripts/update-starship-themes.sh --check
+
 printf 'Validating network-source provenance...\n'
 python3 ./scripts/validate-capabilities.py
 python3 ./scripts/validate-fedora-dependency-closure.py

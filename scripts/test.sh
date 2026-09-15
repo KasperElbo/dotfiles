@@ -78,9 +78,13 @@ default_tests=(
   tests/test-platform-boundary.sh
   tests/test-local-state.sh
   tests/test-theme.sh
+  tests/test-theme-hooks.sh
+  tests/test-theme-precedence.sh
+  tests/test-starship-themes.sh
   tests/test-kde-theme.sh
   tests/test-sway-config.sh
   tests/test-cheatsheet-bindings.sh
+  tests/test-shell-startup.sh
   tests/test-neovim-tool-ownership.sh
   tests/test-csharpier-ownership.sh
   tests/test-json-workflow.sh

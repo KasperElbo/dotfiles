@@ -11,10 +11,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/preflight.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/capabilities.sh"
 # shellcheck source=../../common/lib/install-lifecycle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
+# shellcheck source=../../common/lib/theme-selection.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
 # shellcheck source=lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fedora.sh"
 
-theme=macchiato; install_kde=auto; install_latex=auto; install_ocaml=false
+theme="$THEME_DEFAULT_FLAVOUR"; theme_explicit=false; install_kde=auto; install_latex=auto; install_ocaml=false
 run_dev_workflows=false
 install_sway=false; install_vm_host=false; install_vm_guest=false
 install_hardening=false; install_desktop_tools=false
@@ -65,7 +67,7 @@ EOF
 
 while (($#)); do
   case "$1" in
-  --theme) [[ $# -ge 2 ]] || die '--theme requires a value'; theme="$2"; shift 2 ;;
+  --theme) [[ $# -ge 2 ]] || die '--theme requires a value'; theme="$2"; theme_explicit=true; shift 2 ;;
   --kde) install_kde=enabled; shift ;; --no-kde) install_kde=disabled; shift ;;
   --latex) install_latex=enabled; shift ;; --no-latex) install_latex=disabled; shift ;;
   --ocaml) install_ocaml=true; shift ;; --no-ocaml) install_ocaml=false; shift ;;
@@ -94,7 +96,13 @@ while (($#)); do
   esac
 done
 
-case "$theme" in latte | frappe | macchiato | mocha) ;; *) die "Invalid Catppuccin flavour: $theme" ;; esac
+# An explicit --theme wins; otherwise keep the flavour this machine already
+# has, then the one its last successful install recorded, and only then the
+# first-install default. A plain rerun must never reset a machine to the
+# default (issue #148).
+theme_resolve fedora "$theme_explicit" "$theme"
+theme="$THEME_RESOLVED"
+theme_source="$THEME_RESOLVED_SOURCE"
 case "$hardware_model" in '' | ga402xz | ga402rk) ;; *) die "Invalid hardware profile: $hardware_model" ;; esac
 [[ "$hardware_secure_boot" != true || -n "$hardware_model" ]] || die '--secure-boot requires --hardware'
 [[ "$desktop_tools_force_defaults" != true || "$install_desktop_tools" == true ]] || die '--desktop-tools-force-defaults requires --desktop-tools'
@@ -270,7 +278,7 @@ if [[ "$dry_run" == true ]]; then
 
 Dotfiles installation plan
 --------------------------
-Catppuccin flavour:  $theme
+Catppuccin flavour:  $theme  (source: $theme_source — $(theme_source_description "$theme_source"))
 KDE integration:     $bool_kde
 LaTeX toolchain:     $bool_latex
 OCaml profile:       $install_ocaml
@@ -309,6 +317,8 @@ fi
 
 if [[ "$interactive" == true ]]; then
   printf '\nInstallation choices resolved.\n'
+  printf 'Catppuccin flavour: %s (source: %s — %s)\n' \
+    "$theme" "$theme_source" "$(theme_source_description "$theme_source")"
   if confirm 'Continue with installation?' y; then :; else
     result=$?; ((result == 1)) || die 'Invalid confirmation response'; printf 'Cancelled; no changes made.\n'; exit 0
   fi

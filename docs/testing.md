@@ -41,6 +41,92 @@ has logged and accepted an invocation, it executes an optional handler at
 shell changes or system/user service state; they do not widen the allow-list.
 This keeps command policy centralized while leaving domain fixtures auditable.
 
+### Shared shell startup and ergonomics
+
+`tests/test-shell-startup.sh` covers the shared Zsh profile (issues #157 and
+#168). It sources the tracked `zsh/.zshenv` and `zsh/.config/zsh/.zshrc` in a
+real `zsh -f` under a sandboxed HOME and asserts behavior, not configuration
+text:
+
+- sourcing startup three times leaves `PATH` byte-identical, with no duplicate
+  entries and `~/.local/bin` still in front, on its own and layered under the
+  Parrot and macOS platform PATH files;
+- macOS keeps Homebrew coreutils `gnubin` as the last entry;
+- a shell with none of zoxide/fzf/mise/Starship on `PATH` still starts, stays
+  silent, and reports the degradation only when `shell-integrations` is run;
+- `compinit` is called exactly once, still against the cached compdump, and no
+  platform file adds a second one;
+- `menu select`, `INTERACTIVE_COMMENTS` on, `CORRECT` off;
+- every editing/history key resolves to its intended widget under
+  `xterm-256color`, `xterm-ghostty`, `screen-256color`, `tmux-256color`,
+  `linux` and an unknown `TERM`, while plain `Left`/`Right` keep moving by
+  character and `Ctrl-R` stays fzf's;
+- `tar`/`untar` round-trip `.tar`, `.tar.gz`, `.tar.xz`, `.tgz` and `.txz`,
+  while `tar -tf`, `tar -xf`, `tar --help` and `command tar` keep native
+  behavior.
+
+Terminal escape sequences themselves cannot be exercised from a shell fixture:
+the suite asserts what each sequence is *bound* to, which is the part this
+repository controls. What still needs one manual pass per new terminal is that
+the terminal actually emits one of the bound sequences — press `Home`, `End`,
+`Delete`, `Ctrl+Left`, `Ctrl+Right` and prefix-filtered `Up`/`Down` once in
+that terminal.
+
+`./scripts/benchmark-shell-startup.sh` measures interactive and
+non-interactive startup and can enforce a budget with `--interactive-ms` /
+`--non-interactive-ms`. It is deliberately **not** in `./scripts/test.sh`:
+wall-clock timing is machine- and load-dependent, so a timing assertion in the
+fast suite would be a flaky gate rather than evidence.
+
+### Theme precedence and platform hooks
+
+Two suites carry issue #148.
+
+`tests/test-theme-precedence.sh` runs each platform installer with `--dry-run`
+across the whole precedence matrix: first install, explicit `--theme`, a plain
+rerun with an existing flavour, a missing theme file falling back to the
+remembered selection, a record belonging to another platform, an invalid theme
+file, and an unreadable or future-schema record. It also asserts that
+`./install.sh --rerun --dry-run` reconstructs the remembered flavour as an
+explicit `--theme` through the shared selection library, that a dry run changes
+no theme or lifecycle state, and that transient execution controls never appear
+in the persistent option manifest.
+
+`tests/test-theme-hooks.sh` builds machines with a recorded capability set and
+runs the real `theme` command against the real Fedora and Fedora WSL hooks. It
+proves a `--no-kde` machine never runs a KDE apply command — including when KDE
+assets are left over from an earlier install — that a selected capability with
+missing assets is still skipped, and that a machine with no recorded install
+decides by assets alone. For failure isolation it fails one action and requires
+the independent ones after it to still run, the failing one to be named, the
+shared state to be current, and the command to exit 3 rather than claiming a
+complete application; a hook that calls `exit` is contained the same way, while
+an unwritable shared state stops the command with status 1. It also asserts
+that no output claims a live Ghostty theme reload.
+
+### Generated Starship configurations
+
+`tests/test-starship-themes.sh` owns the generated-prompt invariants (issues
+#125 and #169). It asserts that each tracked
+`starship/.config/starship/catppuccin-<flavour>.toml` selects one palette and
+contains exactly that one `[palettes.*]` table, parses every output with a real
+TOML parser, and checks that every colour name used in a style resolves against
+the selected palette.
+
+The drift gate runs against a disposable copy of the source and output trees:
+the suite mutates that copy's common source and then its palette source, and
+requires `--check` to fail, name the stale files, and leave the tree untouched.
+It also proves generation is byte-identical when run twice and that the
+generator fails closed on a source that would reintroduce multiple palettes.
+`./scripts/lint.sh` runs `./scripts/update-starship-themes.sh --check` so the
+same gate fails CI.
+
+When `starship` is installed, the suite renders each flavour outside a Git
+working tree and requires status `0` to show nothing while `1`, `2`, `126`,
+`127` and `130` each show their exact number in the flavour's own red. Without
+`starship` those assertions are reported as skipped rather than silently
+passing.
+
 ### Supply-chain and transition suites
 
 Three suites carry the invariants from the AI/mise/supply-chain workstream:

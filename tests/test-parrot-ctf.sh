@@ -23,14 +23,14 @@ theme_home="$test_root/theme-home"
 mkdir -p "$theme_home/.config/dotfiles"
 fresh_theme="$(HOME="$theme_home" XDG_CONFIG_HOME="$theme_home/.config" \
   "$repo_root/install.sh" --platform parrot-ctf --dry-run)"
-assert_contains "$fresh_theme" 'Theme:                  macchiato (default)'
+assert_contains "$fresh_theme" 'Theme:                  macchiato (default — first-install default)'
 printf 'mocha\n' >"$theme_home/.config/dotfiles/theme"
 persisted_theme="$(HOME="$theme_home" XDG_CONFIG_HOME="$theme_home/.config" \
   "$repo_root/install.sh" --platform parrot-ctf --dry-run)"
-assert_contains "$persisted_theme" 'Theme:                  mocha (existing)'
+assert_contains "$persisted_theme" 'Theme:                  mocha (existing — existing choice on this machine'
 explicit_theme="$(HOME="$theme_home" XDG_CONFIG_HOME="$theme_home/.config" \
   "$repo_root/install.sh" --platform parrot-ctf --dry-run --theme latte)"
-assert_contains "$explicit_theme" 'Theme:                  latte (explicit)'
+assert_contains "$explicit_theme" 'Theme:                  latte (explicit — explicit --theme on this run)'
 
 if "$repo_root/install.sh" --platform parrot-ctf --dry-run --vm-host \
   >"$test_root/fedora-option.log" 2>&1; then
