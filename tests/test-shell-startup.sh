@@ -133,6 +133,7 @@ printf 'PASS: repeated startup keeps PATH unique and ordered\n'
 
 # The tied array must stay unique for later prepends too: mise activation and
 # opam both prepend on every shell, and a non-unique array would grow.
+# shellcheck disable=SC2016 # $path belongs to the child Zsh process.
 uniqueness="$(run_zsh bare xterm-256color '
   path=(/opt/example $path)
   path=(/opt/example $path)
@@ -214,6 +215,7 @@ run_capture run_zsh full xterm-256color 'shell-integrations'
 assert_success
 assert_contains "$TEST_OUTPUT" 'All optional shell integrations are active.'
 
+# shellcheck disable=SC2016 # The child Zsh reads these, not this shell.
 activated="$(run_zsh full xterm-256color \
   'print -r -- "${DOTFILES_TEST_MISE_ACTIVATED:-no}:${DOTFILES_TEST_STARSHIP_INIT:-no}:${DOTFILES_TEST_FZF_THEME:-no}"')"
 assert_eq '1:1:1' "$activated" 'present integrations must still be activated'
@@ -236,6 +238,7 @@ printf 'PASS: startup finishes with a clean exit status\n'
 
 compinit_calls="$(grep -c '^[[:space:]]*compinit' "$zshrc" || true)"
 assert_eq 1 "$compinit_calls" 'the shared profile must call compinit exactly once'
+# shellcheck disable=SC2016 # Matching the literal text in .zshrc.
 grep -Fq 'compinit -d "$ZSH_COMPDUMP"' "$zshrc" ||
   _test_die 'compinit must keep using the cached compdump'
 
@@ -247,6 +250,7 @@ for platform_file in \
 done
 printf 'PASS: exactly one cached compinit across shared and platform config\n'
 
+# shellcheck disable=SC2016 # $ZSH_COMPDUMP belongs to the child Zsh process.
 compdump="$(run_zsh bare xterm-256color 'print -r -- $ZSH_COMPDUMP')"
 assert_eq "$root/cache/zsh/zcompdump" "$compdump" 'compdump must stay in the cache'
 
@@ -303,6 +307,7 @@ printf 'PASS: editing and history keys resolve in every supported terminal mode\
 # The terminfo sequence of a terminal that reports one is bound too, so the
 # application-mode keypad the line editor enables is covered by name and not
 # only by the hard-coded fallbacks.
+# shellcheck disable=SC2016 # $terminfo belongs to the child Zsh process.
 terminfo_home="$(run_zsh bare xterm-256color '
   zmodload zsh/terminfo
   bindkey -- "${terminfo[khome]}"

@@ -3525,36 +3525,68 @@ Neovim reads the machine-local theme state on startup and checks it again on `Fo
 
 ## Starship
 
-The source prompt configuration lives in:
+The prompt has two source files and four generated outputs:
 
 ```text
-starship/.config/starship/template.toml
+config/starship/prompt.toml                      common prompt and modules
+config/starship/palettes/catppuccin-<flavour>.toml   one palette table each
+        |
+        v
+starship/.config/starship/catppuccin-<flavour>.toml  tracked, stowed
 ```
 
-Four tracked runtime configurations are generated:
+`config/starship/prompt.toml` is the single source of truth for everything the
+four flavours share. It deliberately contains **no** `palette = …` selection
+and **no** `[palettes.*]` table — the generator refuses to run if it does, and
+each generated file therefore ends up with exactly one palette selection and
+exactly one matching palette table, instead of all four (issue #125).
 
-```text
-catppuccin-latte.toml
-catppuccin-frappe.toml
-catppuccin-macchiato.toml
-catppuccin-mocha.toml
-```
-
-Regenerate after changing the template:
+Regenerate after changing either source:
 
 ```bash
 ./scripts/update-starship-themes.sh
+./scripts/update-starship-themes.sh --check       # CI drift gate
+./scripts/update-starship-themes.sh --output-dir DIR
 ```
 
-The shell selects one using `STARSHIP_CONFIG`.
+`--check` regenerates into a temporary directory, proves generation is
+byte-identical when run twice, and compares the result with the tracked files.
+It never writes to the working tree: a stale tracked file fails and is named,
+rather than being silently fixed. `./scripts/lint.sh` runs it, so a source
+change committed without its regenerated outputs fails CI.
+
+The shell selects one generated file using `STARSHIP_CONFIG`; that contract is
+unchanged:
+
+```zsh
+export STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/starship/catppuccin-${DOTFILES_THEME}.toml"
+```
 
 The current prompt is based on Starship's Catppuccin Powerline preset, with:
 
 - `.NET` added to the runtime section
 - the command prompt on a second line
 - command-duration notifications currently enabled
+- the previous command's exit status after a failure
 
 The Powerline layout may be simplified later.
+
+### Failed-command exit status
+
+The `[status]` module renders the **exact** numeric exit code, and only after a
+failure (issue #169):
+
+```text
+ …   01:42   in 2s ✘ 130
+❯
+```
+
+`success_symbol` is empty, so Starship skips the module entirely on status `0`
+and a successful prompt stays clean. `map_symbol` stays off so `126`, `127` and
+`130` remain distinguishable numbers rather than one shared glyph. The red
+error prompt character is unchanged, and the segment sits between
+`$cmd_duration` and the line break, so the layout is the same whether or not a
+duration is shown.
 
 ## fzf
 
@@ -4944,10 +4976,11 @@ enrollment, GPU/MUX settings, macOS preferences, services, or battery limits.
 
 # Updating Starship themes
 
-Edit only:
+Edit only the sources:
 
 ```text
-starship/.config/starship/template.toml
+config/starship/prompt.toml                          common prompt/modules
+config/starship/palettes/catppuccin-<flavour>.toml   one Catppuccin palette
 ```
 
 Then regenerate:
@@ -4955,6 +4988,11 @@ Then regenerate:
 ```bash
 ./scripts/update-starship-themes.sh
 ```
+
+Never hand-edit a generated `starship/.config/starship/catppuccin-*.toml`:
+`./scripts/lint.sh` runs `./scripts/update-starship-themes.sh --check`, which
+regenerates from source into a temporary directory and fails CI when a tracked
+output does not match byte for byte.
 
 The generated flavor configs are also tracked so a clone can be used without running generation first.
 

@@ -78,6 +78,29 @@ non-interactive startup and can enforce a budget with `--interactive-ms` /
 wall-clock timing is machine- and load-dependent, so a timing assertion in the
 fast suite would be a flaky gate rather than evidence.
 
+### Generated Starship configurations
+
+`tests/test-starship-themes.sh` owns the generated-prompt invariants (issues
+#125 and #169). It asserts that each tracked
+`starship/.config/starship/catppuccin-<flavour>.toml` selects one palette and
+contains exactly that one `[palettes.*]` table, parses every output with a real
+TOML parser, and checks that every colour name used in a style resolves against
+the selected palette.
+
+The drift gate runs against a disposable copy of the source and output trees:
+the suite mutates that copy's common source and then its palette source, and
+requires `--check` to fail, name the stale files, and leave the tree untouched.
+It also proves generation is byte-identical when run twice and that the
+generator fails closed on a source that would reintroduce multiple palettes.
+`./scripts/lint.sh` runs `./scripts/update-starship-themes.sh --check` so the
+same gate fails CI.
+
+When `starship` is installed, the suite renders each flavour outside a Git
+working tree and requires status `0` to show nothing while `1`, `2`, `126`,
+`127` and `130` each show their exact number in the flavour's own red. Without
+`starship` those assertions are reported as skipped rather than silently
+passing.
+
 ### Supply-chain and transition suites
 
 Three suites carry the invariants from the AI/mise/supply-chain workstream:
