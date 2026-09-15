@@ -6,6 +6,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
+test_isolate_path git jq scp sftp sha256sum ssh stow timeout unlink
 test_new_root
 test_root="$TEST_ROOT"
 
@@ -371,6 +372,8 @@ bootstrap_environment=(
   "XDG_DATA_HOME=$bootstrap_data"
   "XDG_CACHE_HOME=$bootstrap_cache"
   "OS_RELEASE_FILE=$test_root/os-release"
+  # The runner's own DNF repositories (a jdxcode/mise COPR, say) would change
+  # the Terra transaction this suite pins.
   "DNF_REPO_DIR=$test_root/yum.repos.d"
   "QEMU_AGENT_CHANNEL=$virtio_ports/org.qemu.guest_agent.0"
   "SPICE_AGENT_CHANNEL=$virtio_ports/com.redhat.spice.0"
