@@ -133,6 +133,13 @@ if [[ -z "$native_prefix" ]]; then
 fi
 
 opam_canonical="$(verify_canonical_existing_path "$opam_path" 2>/dev/null || printf '%s' "$opam_path")"
+# Compare canonical against canonical. On macOS a temporary or symlinked prefix
+# resolves elsewhere, and a prefix check that compared one canonical path
+# against one unresolved one would reject a perfectly owned opam.
+if [[ -n "$native_prefix" ]]; then
+  native_prefix="$(verify_canonical_existing_path "$native_prefix" 2>/dev/null || printf '%s' "$native_prefix")"
+  native_prefix="${native_prefix%/}"
+fi
 if [[ -z "$native_prefix" ]]; then
   not_observed "The native package prefix for platform ${ocaml_platform} is" \
     "unknown here, so ownership of $opam_canonical was not confirmed"

@@ -250,4 +250,60 @@ if grep -Fq -- '--ocaml' "$macos_verifier"; then
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# Platform consistency
+#
+# The manifest, the help text, the parser and the dry-run must advertise one
+# capability set. A capability documented but unreachable, or installable but
+# undeclared, is exactly the drift this asserts against.
+# ---------------------------------------------------------------------------
+
+manifest="$repo_root/config/capabilities.tsv"
+macos_help="$("$repo_root/install.sh" --platform macos --help)"
+macos_installer="$macos_root/install.sh"
+# Read the manifest once: the loop body queries it again for dependency flags,
+# and a redirection plus a nested read of the same file is a lint hazard.
+manifest_rows="$(cat "$manifest")"
+
+while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ verifier _ docs _ status; do
+  [[ "$platform" == macos ]] || continue
+
+  if [[ "$status" != implemented ]]; then
+    [[ "$cli_flag" == - ]] ||
+      { printf 'Unimplemented macOS capability %s still declares the flag %s.\n' \
+        "$capability" "$cli_flag" >&2; exit 1; }
+    continue
+  fi
+
+  [[ -f "$repo_root/$verifier" ]] ||
+    { printf 'macOS capability %s names a verifier that does not exist: %s\n' \
+      "$capability" "$verifier" >&2; exit 1; }
+  [[ -f "$repo_root/${docs%%#*}" ]] ||
+    { printf 'macOS capability %s names documentation that does not exist: %s\n' \
+      "$capability" "$docs" >&2; exit 1; }
+
+  [[ "$cli_flag" != - ]] || continue
+
+  assert_contains "$macos_help" "$cli_flag"
+  grep -Fq -- "  $cli_flag)" "$macos_installer" ||
+    { printf 'macOS parser does not accept the implemented flag %s.\n' "$cli_flag" >&2; exit 1; }
+
+  # A flag the manifest calls implemented must actually resolve a plan, with
+  # whatever its declared dependencies require alongside it.
+  selection=("$cli_flag")
+  if [[ "$dependencies" != - ]]; then
+    IFS=, read -r -a declared_dependencies <<<"$dependencies"
+    for dependency in "${declared_dependencies[@]}"; do
+      dependency_flag="$(awk -F '\t' -v c="$dependency" \
+        '$1 == c && $2 == "macos" { print $4; exit }' "$manifest")"
+      [[ "$dependency_flag" == - || -z "$dependency_flag" ]] ||
+        selection=("$dependency_flag" "${selection[@]}")
+    done
+  fi
+  "$repo_root/install.sh" --platform macos --dry-run "${selection[@]}" >/dev/null ||
+    { printf 'macOS dry run rejected the implemented selection: %s\n' \
+      "${selection[*]}" >&2; exit 1; }
+done <<<"$manifest_rows"
+printf 'macOS manifest, help, parser and dry run advertise one capability set.\n'
+
 printf 'macOS profile configuration checks passed.\n'
