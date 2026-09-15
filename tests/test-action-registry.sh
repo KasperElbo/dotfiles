@@ -35,7 +35,8 @@ with_registry() {
   local scratch="$TEST_ROOT/tree"
   mkdir -p "$scratch"
   cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
-    "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$scratch/"
+    "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+    "$scratch/"
   python3 - "$scratch/config/actions.tsv" <<PYTHON
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
@@ -90,7 +91,11 @@ printf 'PASS: every registered action appears in the full reference\n'
 # the same key text on two platforms is not the same action.
 printed_by_another() {
   awk -F '\t' -v want="$1" -v sheet="$2" \
-    'NR > 1 && $7 == want && $12 == "true" && index("," $13 ",", "," sheet ",") { found = 1 }
+    'NR > 1 && $7 == want && $12 == "true" {
+       claims = $13
+       gsub(/:prose/, "", claims)
+       if (index("," claims ",", "," sheet ",")) found = 1
+     }
      END { exit !found }' "$registry"
 }
 
@@ -118,7 +123,8 @@ test_new_root
 scratch="$TEST_ROOT/renamed"
 mkdir -p "$scratch"
 cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
-  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$scratch/"
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
 # shellcheck disable=SC2016 # $mod is a literal Sway variable.
 sed -i 's/bindsym \$mod+Return exec ghostty/bindsym $mod+Escape exec ghostty/' \
   "$scratch/platforms/fedora/stow/sway/.config/sway/config"
@@ -133,7 +139,8 @@ test_new_root
 scratch="$TEST_ROOT/unregistered"
 mkdir -p "$scratch"
 cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
-  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$scratch/"
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
 # shellcheck disable=SC2016 # $mod is a literal Sway variable.
 printf 'bindsym $mod+Shift+Y exec never-registered\n' \
   >>"$scratch/platforms/fedora/stow/sway/.config/sway/config"
@@ -146,7 +153,8 @@ test_new_root
 scratch="$TEST_ROOT/unregistered-alias"
 mkdir -p "$scratch"
 cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
-  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$scratch/"
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
 printf "\nalias never-registered='true'\n" >>"$scratch/zsh/.config/zsh/.zshrc"
 run_capture python3 "$validator" --root "$scratch"
 assert_failure
@@ -157,7 +165,8 @@ test_new_root
 scratch="$TEST_ROOT/unregistered-aerospace"
 mkdir -p "$scratch"
 cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
-  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$scratch/"
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
 python3 - "$scratch/platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml" <<'PYTHON'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
@@ -174,7 +183,8 @@ test_new_root
 scratch="$TEST_ROOT/unregistered-waybar"
 mkdir -p "$scratch"
 cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
-  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$scratch/"
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
 python3 - "$scratch/platforms/fedora/stow/waybar/.config/waybar/config.jsonc" <<'PYTHON'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
@@ -213,6 +223,101 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "is not in config/actions.tsv for this sheet"
 printf 'PASS: a sheet that prints an unregistered action fails\n'
 
+with_registry 'by_id["nvim.markdown.insert-table"]["profile"] = "spreadsheets"'
+assert_failure
+assert_contains "$TEST_OUTPUT" "invalid profile 'spreadsheets'"
+printf 'PASS: a profile that names no capability in config/capabilities.tsv fails\n'
+
+with_registry 'by_id["zsh.alias.eza"]["platform"] = "amiga"'
+assert_failure
+assert_contains "$TEST_OUTPUT" "invalid platform 'amiga'"
+printf 'PASS: a platform outside config/capabilities.tsv fails\n'
+
+# --- A sheet omission has to be a decision ----------------------------------
+
+with_registry 'by_id["zsh.alias.tree"]["sheets"] = "fedora-kde,fedora-sway,fedora-wsl,macos"'
+assert_failure
+assert_contains "$TEST_OUTPUT" "exists on parrot-ctf but is not printed there"
+printf 'PASS: dropping a sheet an action reaches, with no reason, fails\n'
+
+# The tracked registry withholds the LazyVim keymap from the Parrot sheet and
+# says why; erasing that sentence is what the rule is there to catch.
+with_registry 'by_id["lazyvim.find-files"]["print_reason"] = "-"'
+assert_failure
+assert_contains "$TEST_OUTPUT" "exists on parrot-ctf but is not printed there"
+printf 'PASS: erasing the reason for a recorded omission fails\n'
+
+# A workstation-only action does not reach the CTF guest's sheet at all, so it
+# owes no reason for being absent from it.
+[[ "$(field nvim.latex.compile platform)" == workstation ]] ||
+  _test_die "the workstation-only Neovim actions must not claim platform=all"
+
+# --- A prose claim is deliberate on both sides ------------------------------
+
+with_registry 'by_id["lazyvim.whichkey"]["sheets"] = "fedora-kde,fedora-sway,fedora-wsl,macos,parrot-ctf"'
+assert_failure
+assert_contains "$TEST_OUTPUT" "the sheet does not document"
+printf 'PASS: a prose-only claim written as a table claim fails\n'
+
+with_registry 'by_id["zsh.alias.bat"]["sheets"] = "fedora-kde:prose,fedora-sway,fedora-wsl,macos,parrot-ctf"'
+assert_failure
+assert_contains "$TEST_OUTPUT" "carries no '% csprose: zsh.alias.bat' marker"
+printf 'PASS: claiming prose a sheet never marked fails\n'
+
+# --- A sheet may not keep the key and change what it says the key does ------
+
+test_new_root
+scratch="$TEST_ROOT/redescribed"
+mkdir -p "$scratch"
+cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
+sed -i 's/\\csrow{Super+Enter}{Open Ghostty}/\\csrow{Super+Enter}{Raise the volume}/' \
+  "$scratch/docs/cheatsheets/fedora-sway.tex"
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "shares no word with the registry's"
+printf 'PASS: a sheet description that no longer matches the registry fails\n'
+
+# --- An interpreter line is not evidence that an action still exists --------
+
+with_registry 'by_id["parrot.verify"]["source_pattern"] = "#!/usr/bin/env bash"'
+assert_failure
+assert_contains "$TEST_OUTPUT" "only matches the shebang"
+printf 'PASS: a source pattern that only matches a shebang fails\n'
+
+# --- The widened extraction sees the rest of the tracked configuration ------
+
+for case in \
+  "tmux/.tmux.conf:set -g prefix C-a" \
+  "zsh/.config/zsh/.zshrc:setopt AUTO_PUSHD"; do
+  file="${case%%:*}"
+  line="${case#*:}"
+  test_new_root
+  scratch="$TEST_ROOT/extraction"
+  mkdir -p "$scratch"
+  cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+    "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+    "$scratch/"
+  printf '\n%s\n' "$line" >>"$scratch/$file"
+  run_capture python3 "$validator" --root "$scratch"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "unregistered custom action"
+  printf 'PASS: an unregistered action in %s fails\n' "$file"
+done
+
+test_new_root
+scratch="$TEST_ROOT/unregistered-command"
+mkdir -p "$scratch"
+cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$scratch/bin/.local/bin/never-registered"
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "never-registered on PATH"
+printf 'PASS: an unregistered command on PATH fails\n'
+
 # --- Platform-accurate sheets ----------------------------------------------
 
 # A shared block must not become platform-inaccurate. The expanded sheet is
@@ -235,7 +340,7 @@ PYTHON
 # same grid as Sway") are fine and deliberately not matched.
 for sheet_platform in \
   "fedora-wsl:--preserve-wallpaper" "fedora-wsl:swaymsg" "fedora-wsl:Fuzzel" \
-  "fedora-wsl:swaylock" \
+  "fedora-wsl:swaylock" "fedora-wsl:ghostty +list-keybinds" \
   "macos:--preserve-wallpaper" "macos:swaymsg" "macos:Fuzzel" "macos:makoctl" \
   "parrot-ctf:Ghostty" "parrot-ctf:AeroSpace" "parrot-ctf:Waybar" \
   "parrot-ctf:--preserve-wallpaper"; do

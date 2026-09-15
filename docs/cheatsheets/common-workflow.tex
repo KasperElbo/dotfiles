@@ -3,8 +3,11 @@
 % (see docs/cheatsheets/README.md) after editing either file.
 \cssection{Terminal}
 \csnote{No \texttt{keybind =} is set anywhere in this config --- every terminal shortcut is an unmodified upstream default (varies by terminal, platform and version).}
-Ghostty on Fedora and macOS; Noctty on Windows for the WSL profile, from the same tracked \texttt{shared.conf}. Either owns tabs/splits/zoom locally; tmux does not duplicate that. Copy/paste use the platform's normal shortcut (\texttt{Ctrl+Shift+C/V} on Linux/Wayland, \texttt{Cmd+C/V} on macOS).\par
-\cslegend{\texttt{ghostty +list-keybinds --default} $\to$ exact tab/split/zoom/reload keys.}
+Ghostty on Fedora and macOS; Noctty on Windows for the WSL profile, from the same tracked \texttt{shared.conf}. Either owns tabs/splits/zoom locally; tmux does not duplicate that.\par
+% The discovery command and the copy/paste keys differ per platform, so each
+% sheet supplies its own line rather than this block naming a binary the WSL
+% runtime does not have. cheatsheet.sty defines an empty default.
+\cstermlegend
 
 \cssection{Shell (Zsh)}
 \begin{cskeys}{0.36\linewidth}
@@ -31,7 +34,7 @@ Ghostty on Fedora and macOS; Noctty on Windows for the WSL profile, from the sam
 \end{cskeys}
 \csnote{Bindings are taken from terminfo with xterm/application/vt220 fallbacks, so they work in Ghostty, Konsole, WSL, VM consoles, SSH and tmux.}
 
-\cssection{fzf (upstream defaults)}
+\cssection{fzf}
 \begin{cskeys}{0.20\linewidth}
 \csrow{Ctrl+R}{fuzzy history search}
 \csrow{Ctrl+T}{fuzzy file selection}
@@ -50,6 +53,7 @@ Ghostty on Fedora and macOS; Noctty on Windows for the WSL profile, from the sam
 \csrow{Prefix s}{choose session}
 \csrow{Prefix [}{scroll/copy mode}
 \csrow{Prefix ?}{list all key bindings}
+\csrow{Mouse scroll / click}{scroll a pane's history, select panes and windows}
 \end{cskeys}
 \csnote{Thin by design: persistence/remote sessions only; Ghostty stays the local tab/split manager.}
 

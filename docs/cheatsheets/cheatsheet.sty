@@ -1,10 +1,9 @@
 % Shared layout for the dotfiles printable keyboard cheat sheets.
 %
 % Kept deliberately small: a titling command, a compact section heading, and
-% a two-column key/action table environment. Every profile sheet
-% (fedora-kde.tex, fedora-sway.tex, fedora-wsl.tex, macos.tex) loads this file
-% so the four sheets share one visual language instead of four copies of the
-% same layout code.
+% a two-column key/action table environment. Every profile sheet loads this
+% file so the sheets share one visual language instead of a copy of the same
+% layout code each. docs/cheatsheets/README.md lists them.
 \NeedsTeXFormat{LaTeX2e}
 \ProvidesPackage{cheatsheet}[2026/09/08 dotfiles printable cheat sheet layout]
 
@@ -72,7 +71,28 @@
 
 \newcommand{\cslegend}[1]{{\footnotesize #1}}
 
+% The shared terminal block's closing line. It names a discovery command and
+% the copy/paste keys, both of which differ per platform, so each sheet
+% redefines this before \input{common-workflow}; a sheet that does not gets
+% nothing rather than another platform's claim.
+\newcommand{\cstermlegend}{}
+
+\newcommand{\cs@footrule}[1]{%
+  {\footnotesize\color{cs@rule}\hrule height 0.4pt\vspace{2pt}#1}%
+}
+
+% Page footer for a sheet with room to spare: \vfill pushes it to the bottom
+% margin.
 \newcommand{\csfoot}[1]{%
   \vfill
-  {\footnotesize\color{cs@rule}\hrule height 0.4pt\vspace{2pt}#1}
+  \cs@footrule{#1}%
+}
+
+% Footer for a sheet whose columns already reach the bottom of the page. There
+% the \vfill above has nothing to stretch into and starts a second page
+% carrying nothing but the footer, so this variant ends the last column
+% instead and is used from inside the multicols block.
+\newcommand{\csfootflow}[1]{%
+  \par\vspace{4pt}%
+  \cs@footrule{#1}%
 }

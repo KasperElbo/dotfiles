@@ -44,7 +44,7 @@
 7 & 8 & 9\\
 \bottomrule
 \end{tabular}\\[2pt]
-\csnote{e.g. Ctrl+Left from 1 goes to 3; Ctrl+Up from 1 goes to 7 (\texttt{sway-workspace-grid}).}
+\csnote{e.g. Super+Ctrl+H from 1 goes to 3; Super+Ctrl+K from 1 goes to 7 (\texttt{sway-workspace-grid}).}
 
 \cssection{Layout}
 \begin{cskeys}{0.30\linewidth}
@@ -53,6 +53,7 @@
 \csrow{Super+E}{Toggle split layout}
 \csrow{Super+Shift+Space}{Toggle floating}
 \csrow{Super+F}{Toggle fullscreen}
+\csrow{Super+Drag / Right-drag}{Move a floating window / resize it}
 \end{cskeys}
 
 \cssection{Resize}
@@ -107,12 +108,9 @@
 \end{cskeys}
 \csnote{These are the standard XF86 hardware keys; most keyboards send them directly.}
 
-\end{multicols}
-
-\clearpage
-\cssheettitle{Fedora Sway (continued)}{Common terminal / development workflow --- shared with every profile}
-\begin{multicols}{2}
+\renewcommand{\cstermlegend}{\cslegend{\texttt{ghostty +list-keybinds --default} $\to$ exact tab/split/zoom/reload keys. Copy/paste: \texttt{Ctrl+Shift+C/V}.}}
 \input{common-workflow}
+
 \end{multicols}
 \csfoot{Full keybindings reference: docs/reference/keybindings.md. Sway/Waybar config: platforms/fedora/stow/sway, platforms/fedora/stow/waybar. Regenerate: docs/cheatsheets/generate.sh.}
 \end{document}
