@@ -154,6 +154,26 @@ install_lifecycle_rerun_hint() {
   printf '  ./install.sh --rerun\n'
 }
 
+# install_lifecycle_rerun_command <platform> <selection>: the literal command
+# that reproduces this run's configuration, rendered from the same persistent
+# selection the lifecycle record stores.
+#
+# This is what a run shows when it *fails*, where './install.sh --rerun' is no
+# help: only a completely successful install becomes the remembered
+# configuration, so a failed one has nothing to reapply. A fixed
+# './install.sh --platform <p> --non-interactive' would tell the user to
+# install this platform's defaults instead of the machine they asked for.
+install_lifecycle_rerun_command() {
+  local platform="$1" selection="$2" rendered
+
+  rendered="$(install_selection_render_display "$platform" "$selection" 2>/dev/null || true)"
+  if [[ -n "$rendered" ]]; then
+    printf './install.sh --platform %s %s --non-interactive\n' "$platform" "$rendered"
+  else
+    printf './install.sh --platform %s --non-interactive\n' "$platform"
+  fi
+}
+
 # --- Reading the remembered configuration ------------------------------------
 #
 # Consumers (the --rerun entry point and doctor) get the validated rerun target

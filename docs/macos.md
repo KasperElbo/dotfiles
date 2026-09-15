@@ -558,6 +558,23 @@ command -v scp
 ssh -V
 ```
 
+### Reapplying this machine's configuration
+
+```bash
+./install.sh --rerun --dry-run
+./install.sh --rerun
+```
+
+`--rerun` reapplies the configuration of this machine's last *successful*
+install, reconstructed from the lifecycle state by the shared persistent
+selection model — including the theme, `--defaults`, the optional profiles,
+and the AI subcomponents, whose additive semantics survive the round trip: a
+sub-flag you omitted stays omitted rather than becoming an install or a
+removal. See the README's "Reapplying the last successful configuration" for
+the full contract. A run that *fails* has no remembered configuration to
+reapply, so it prints the literal command that reproduces the selection it was
+attempting.
+
 ## 9. Verification and rollback
 
 ```bash

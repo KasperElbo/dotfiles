@@ -314,6 +314,13 @@ check_platform fedora-wsl base,dotnet-debug,ocaml,containers \
 check_platform macos base,dotnet-debug,tailscale \
   'Tailscale profile:  true' \
   --theme latte --no-defaults --tailscale
+# The configuration the Apple Silicon job replays. Its AI subcomponents are
+# tristates, so this proves they survive the whole path -- installer, record,
+# --rerun, parser -- and not only the selection library in isolation.
+check_platform macos base,dotnet-debug,ocaml,ai,codex,firstmate,gnhf,backpass \
+  'AI GNHF subcomponent:      true' \
+  --theme mocha --ocaml --no-containers --no-tailscale --defaults \
+  --ai --codex --firstmate --gnhf --backpass
 check_platform parrot-ctf base,vm-guest 'Theme:                  mocha' --theme mocha
 
 # --- Manifest coupling -------------------------------------------------------
@@ -328,5 +335,35 @@ while IFS=$'\t' read -r platform option _kind on_flag _off _default _values capa
     "capability manifest flag for $option ($capability) on $platform"
 done <"$repo_root/config/install-options.tsv"
 printf 'PASS: persistent options agree with the capability manifest\n'
+
+# --- The hint a failed install shows ----------------------------------------
+#
+# Only a completely successful install becomes the remembered configuration, so
+# a failed one has nothing for --rerun to reapply and must print a literal
+# command instead. That command is rendered from the same selection, because a
+# fixed './install.sh --platform <p> --non-interactive' would tell the user to
+# install the platform defaults rather than the machine they asked for.
+
+failed_selection="$(selection_of macos --theme mocha --ocaml --no-containers \
+  --no-tailscale --defaults --ai --codex --no-gnhf)"
+failed_command="$(install_lifecycle_rerun_command macos "$failed_selection")"
+assert_contains "$failed_command" './install.sh --platform macos'
+assert_contains "$failed_command" '--theme mocha'
+assert_contains "$failed_command" '--ocaml'
+assert_contains "$failed_command" '--ai'
+assert_contains "$failed_command" '--codex'
+assert_contains "$failed_command" '--no-gnhf'
+assert_contains "$failed_command" '--non-interactive'
+# An omitted AI sub-flag is an additive request, so it must stay absent here
+# too: naming it would turn it into an install or a removal on the next run.
+assert_not_contains "$failed_command" '--firstmate'
+assert_not_contains "$failed_command" '--backpass'
+
+# A record this checkout can no longer interpret must not produce a command
+# that silently means something else.
+degraded_command="$(install_lifecycle_rerun_command macos 'theme:mocha,removed-option:true')"
+assert_eq './install.sh --platform macos --non-interactive' "$degraded_command" \
+  'rerun command for an uninterpretable selection'
+printf 'PASS: a failed install is told the command that reproduces its selection\n'
 
 printf 'Installer --rerun lifecycle, round-trip and refusal tests passed.\n'
