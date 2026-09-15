@@ -119,6 +119,15 @@ run_success "login shell reboot dry-run" \
   ./install.sh --dry-run
 run_success "optional feature dry-run" "LaTeX toolchain:     true" \
   ./install.sh --dry-run --theme latte --kde --latex
+# --latex has no fixed default: it is asked interactively, so with nobody to
+# ask it resolves to disabled. What the machine remembers is that resolved
+# value, never the auto the manifest declares.
+run_success "LaTeX resolves to disabled when there is nobody to ask" \
+  "LaTeX toolchain:     false" \
+  ./install.sh --platform fedora --dry-run --non-interactive
+run_success "a resolved LaTeX answer is recorded as true or false" \
+  "latex:false" \
+  ./install.sh --platform fedora --dry-run --non-interactive
 run_success "OCaml remains opt-in" "OCaml profile:       false" \
   ./install.sh --dry-run
 run_success "OCaml profile dry-run" "common/install-ocaml.sh" \

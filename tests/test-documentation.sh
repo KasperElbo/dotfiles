@@ -134,6 +134,29 @@ run_capture python3 "$validator" --root "$tree"
 assert_success
 printf 'PASS: a command using that platform own options is accepted\n'
 
+# Transient execution controls are not universal. --dev-workflows is rejected
+# by the CTF guest's own parser, and --smoke-test is a Fedora WSL spelling, so
+# a document that advertises either against the wrong platform is as wrong as
+# one advertising an option that does not exist.
+new_tree
+# shellcheck disable=SC2016 # Literal Markdown fence, not a command substitution.
+printf '\n```bash\n./install.sh --platform fedora --kde --dev-workflows\n```\n' \
+  >>"$tree/docs/platforms/fedora.md"
+git -C "$tree" add -A
+run_capture python3 "$validator" --root "$tree"
+assert_success
+printf 'PASS: a transient control the platform accepts is accepted\n'
+
+new_tree
+# shellcheck disable=SC2016 # Literal Markdown fence, not a command substitution.
+printf '\n```bash\n./install.sh --platform macos --smoke-test\n```\n' \
+  >>"$tree/docs/platforms/fedora.md"
+git -C "$tree" add -A
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" "\`--smoke-test\` is not an option of --platform macos"
+printf 'PASS: a transient control the platform rejects fails\n'
+
 # --- Generated documentation must be current -------------------------------
 
 matrix="$repo_root/docs/reference/capability-matrix.md"
