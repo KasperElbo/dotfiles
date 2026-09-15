@@ -89,15 +89,18 @@ their responsibility:
 
 ## Licensing
 
-This repository's own scripts, configuration and documentation have **no
-licence yet**; that is an open maintainer decision, with the options and their
-practical consequences written down in
-[`docs/reference/licensing.md`](../reference/licensing.md). Until it is made,
-the default applies: all rights reserved.
+This repository's own scripts, configuration and documentation are **MIT
+licensed**; the text is at [`LICENSE`](../../LICENSE) and the decision, with
+what was considered alongside it, is recorded in
+[`docs/reference/licensing.md`](../reference/licensing.md).
 
 Third-party material vendored or fetched here keeps its own upstream licence,
-which that decision cannot change. What is incorporated, at which upstream
+which that choice does not change. What is incorporated, at which upstream
 revision, and under which licence is indexed in
 [`docs/reference/third-party-notices.md`](../reference/third-party-notices.md).
 Retained upstream licence texts live in [`LICENSES/`](../../LICENSES) and beside the
 material they cover.
+
+Adding vendored material therefore means adding a row to those notices. A new
+file written here needs no per-file licence header: the root `LICENSE` covers
+the whole of this repository's own material.

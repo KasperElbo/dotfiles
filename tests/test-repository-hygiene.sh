@@ -129,4 +129,22 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "must open with either"
 printf 'PASS: an unstated licence status is rejected\n'
 
+# --- The repository's own licence decision is recorded and consistent -------
+
+assert_path_exists "$repo_root/LICENSE"
+assert_file_contains "$repo_root/LICENSE" 'MIT License'
+assert_file_contains "$repo_root/LICENSE" 'Copyright (c)'
+assert_file_line "$repo_root/docs/reference/licensing.md" '**Status: decided — MIT.**'
+assert_file_contains "$repo_root/README.md" 'MIT'
+printf 'PASS: the MIT decision is recorded at the root and on the licensing page\n'
+
+# Removing the licence without retracting the decision must fail, so the two
+# cannot drift apart later.
+new_clean_tree
+printf '# Licensing\n\n**Status: decided — MIT.**\n' >"$tree/docs/reference/licensing.md"
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" "but no root licence file"
+printf 'PASS: deleting LICENSE while the page still claims MIT is rejected\n'
+
 printf '\nAll repository hygiene checks passed.\n'
