@@ -191,7 +191,15 @@ resolve_existing_path() {
   directory="$(cd -P -- "$(dirname -- "$path")" 2>/dev/null && pwd)" || return 1
   name="$(basename -- "$path")"
   [[ -e "$directory/$name" ]] || return 1
-  printf '%s/%s\n' "$directory" "$name"
+
+  # Joining '/' with a child using the generic '%s/%s' form produces '//usr'.
+  # Although POSIX permits a special interpretation for exactly two leading
+  # slashes, verifier ownership checks need one stable canonical spelling.
+  if [[ "$directory" == / ]]; then
+    printf '/%s\n' "${name#/}"
+  else
+    printf '%s/%s\n' "$directory" "$name"
+  fi
 }
 
 resolve_symlink_target() {
