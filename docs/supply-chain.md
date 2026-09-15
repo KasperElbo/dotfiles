@@ -236,9 +236,39 @@ genuinely reaches no external network (a loopback probe, a request to the
 container under test) is annotated `# network-source: local-only`, which is
 still a deliberate, reviewable act.
 
+## Authenticating the rate-limited API
+
+Treehouse and No Mistakes resolve their own latest release through
+`api.github.com`, and mise asks the same API about its GitHub-backed tools.
+Anonymously that is 60 requests per hour *per address*, shared with everyone
+else on it. On GitHub's hosted runners that quota is routinely spent by other
+tenants, and the installer then fails inside an upstream script with a bare
+`403` — an outage that says nothing about this repository:
+
+```
+API rate limit exceeded for 13.105.117.77
+curl: (56) The requested URL returned error: 403
+Failed to determine latest version
+ERROR: The Treehouse installer failed.
+```
+
+The `macos` job in `.github/workflows/real-install.yml` therefore exports
+`GITHUB_TOKEN` (the workflow's own token) on the two steps that install the AI
+profile, which raises the limit to 5000 requests per hour.
+
+That is a deliberate exception to the rule below, and its boundaries are the
+reason it is acceptable: the token is scoped by `permissions: contents: read`,
+so it can read this repository and do nothing else; it exists only for the
+life of one CI job; and it is exported on exactly the two steps that run the
+staged installers, not job-wide. A real workstation install is unaffected —
+nothing here puts a token in a user's environment, and a user who hits the
+anonymous limit is hitting it on their own address.
+
 ## Secrets
 
 No installer stores, requests, or logs a credential, API key, auth token, or
-private repository URL. Staged installer content lives in a mode-0600 file
-inside a 0700 directory and is deleted immediately after it runs. Tests use
-fixtures, never real secrets.
+private repository URL, and none is required to install: the one token this
+repository uses is the ephemeral CI token described above, which is supplied
+by GitHub Actions to its own job. Staged installer content lives in a
+mode-0600 file inside a 0700 directory and is deleted immediately after it
+runs. Tests use fixtures, never real secrets.
