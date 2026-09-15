@@ -701,8 +701,12 @@ assert_file_line "$state_file" \
   "treehouse_target_digest=$(sha256sum "$treehouse_target" | cut -d' ' -f1)"
 assert_file_line "$state_file" \
   "no_mistakes_target_digest=$(sha256sum "$no_mistakes_target" | cut -d' ' -f1)"
-assert_file_line "$state_file" "treehouse_target_path=$treehouse_target"
-assert_file_line "$state_file" "no_mistakes_target_path=$no_mistakes_target"
+# The recorded path is always the resolved one, which is the command path
+# itself for an upstream that installs there -- spelled canonically, so a test
+# root under a symlinked temporary directory still compares equal.
+local_bin_canonical="$(cd -P -- "$home/.local/bin" && pwd)"
+assert_file_line "$state_file" "treehouse_target_path=$local_bin_canonical/treehouse"
+assert_file_line "$state_file" "no_mistakes_target_path=$local_bin_canonical/no-mistakes"
 printf 'PASS: staged installation records source, resolved commit, and digests\n'
 
 # --- An upstream that installs elsewhere and links onto PATH ----------------
@@ -728,7 +732,6 @@ launcher_environment=(
   MOCK_NO_MISTAKES_LAYOUT=launcher
 )
 launcher_command="$launcher_home/.local/bin/no-mistakes"
-launcher_binary="$launcher_home/.no-mistakes/bin/no-mistakes"
 launcher_state="$launcher_home/.config/dotfiles/ai.conf"
 
 if ! launcher_output="$("${launcher_environment[@]}" \
@@ -741,6 +744,11 @@ fi
   printf 'the launcher fixture did not install a symlink at %s\n' "$launcher_command" >&2
   exit 1
 }
+# Canonical, because that is what resolving the launcher yields and therefore
+# what the installer reports and records. A test root under a symlinked
+# temporary directory -- /var/folders on macOS -- would otherwise compare two
+# spellings of the same file.
+launcher_binary="$(cd -P -- "$launcher_home/.no-mistakes/bin" && pwd)/no-mistakes"
 assert_path_executable "$launcher_binary"
 assert_contains "$launcher_output" "No Mistakes installed binary: $launcher_command -> $launcher_binary"
 
@@ -753,7 +761,7 @@ assert_file_line "$launcher_state" \
 # The other component installed straight to its command path in the same run,
 # so both layouts are recorded by the same code.
 assert_file_line "$launcher_state" \
-  "treehouse_target_path=$launcher_home/.local/bin/treehouse"
+  "treehouse_target_path=$(cd -P -- "$launcher_home/.local/bin" && pwd)/treehouse"
 
 if ! launcher_verify="$("${launcher_environment[@]}" \
   "PATH=$launcher_home/.local/bin:$mise_shims:$mock_bin:$PATH" \

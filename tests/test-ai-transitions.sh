@@ -444,8 +444,6 @@ printf 'PASS: lost state never causes an unrequested uninstall\n'
 # says it is gone. Both paths are named in the preview and both are deleted,
 # and the directory the upstream created for itself is pruned once empty.
 
-no_mistakes_binary="$home/.no-mistakes/bin/no-mistakes"
-
 MOCK_NO_MISTAKES_LAYOUT=launcher install_ai --firstmate --non-interactive \
   >"$test_root/launcher-install.log" 2>&1 ||
   { cat "$test_root/launcher-install.log" >&2; exit 1; }
@@ -453,6 +451,10 @@ MOCK_NO_MISTAKES_LAYOUT=launcher install_ai --firstmate --non-interactive \
   printf 'the launcher fixture did not install a symlink at %s\n' "$no_mistakes_target" >&2
   exit 1
 }
+# Canonical, because resolving the launcher is what the installer records and
+# reports; a test root under a symlinked temporary directory (/var/folders on
+# macOS) would otherwise compare two spellings of the same file.
+no_mistakes_binary="$(cd -P -- "$home/.no-mistakes/bin" && pwd)/no-mistakes"
 assert_path_executable "$no_mistakes_binary"
 state_says "no_mistakes_target_path=$no_mistakes_binary"
 verify_ai >/dev/null
