@@ -4,13 +4,20 @@
 # file. Every writer here is idempotent (safe to rerun) and only ever touches
 # a single dotfiles-owned drop-in file per subsystem, never a vendor config
 # file, so unrelated user configuration is never overwritten.
+#
+# HARDENING_ROOT is prefixed to every path of those owned drop-ins, for the
+# writes, reads, stats, removals, and reloads below alike, so they can never
+# target different roots. Empty (the default) means the real root and leaves
+# every command unchanged. Tests point it at a fake root so a machine with the
+# profile installed cannot answer checks that belong to the fixture. Always
+# pass the real /etc path; each function applies the prefix itself, once.
 
 # write_managed_root_file <path> <mode> <description>
 # Reads new file content from stdin, then installs it at <path> with <mode>
 # via sudo. Skips the write (and reports so) when the file already has the
 # same content. Always root:root, matching sudoers.d/sysctl.d/etc. norms.
 write_managed_root_file() {
-  local path="$1"
+  local path="${HARDENING_ROOT:-}$1"
   local mode="$2"
   local description="$3"
   local tmp
@@ -34,12 +41,12 @@ write_managed_root_file() {
 # an unprivileged read cannot see them at all. sudo is used here only to read
 # and stat; nothing below writes, reloads, or enables anything.
 managed_root_file_exists() {
-  local path="$1"
+  local path="${HARDENING_ROOT:-}$1"
   [[ -f "$path" ]] || sudo test -f "$path" 2>/dev/null
 }
 
 managed_root_file_read() {
-  local path="$1"
+  local path="${HARDENING_ROOT:-}$1"
   if [[ -r "$path" ]]; then
     cat -- "$path" 2>/dev/null
   else
@@ -48,7 +55,7 @@ managed_root_file_read() {
 }
 
 managed_root_file_mode() {
-  local path="$1"
+  local path="${HARDENING_ROOT:-}$1"
   local mode
 
   mode="$(stat -c '%a' "$path" 2>/dev/null || true)"
@@ -59,7 +66,7 @@ managed_root_file_mode() {
 
 # remove_managed_root_file <path> <description>
 remove_managed_root_file() {
-  local path="$1"
+  local path="${HARDENING_ROOT:-}$1"
   local description="$2"
 
   if sudo test -f "$path"; then
@@ -182,10 +189,11 @@ apply_auditd_rules() {
   }
 
   local rules_path="/etc/audit/rules.d/90-dotfiles-hardening.rules"
+  local rooted_rules_path="${HARDENING_ROOT:-}$rules_path"
   local before after
 
   before=""
-  sudo test -f "$rules_path" && before="$(sudo cat "$rules_path")"
+  sudo test -f "$rooted_rules_path" && before="$(sudo cat "$rooted_rules_path")"
 
   printf '%s\n' \
     '-w /etc/passwd -p wa -k dotfiles-identity' \
@@ -195,7 +203,7 @@ apply_auditd_rules() {
     '-w /etc/sudoers.d/ -p wa -k dotfiles-sudoers' |
     write_managed_root_file "$rules_path" 0640 "auditd watch rules"
 
-  after="$(sudo cat "$rules_path")"
+  after="$(sudo cat "$rooted_rules_path")"
 
   if ! systemctl is-enabled --quiet auditd.service 2>/dev/null; then
     info "Enabling auditd"
@@ -222,7 +230,7 @@ apply_hardening_sysctl() {
     write_managed_root_file "$path" 0644 "hardening sysctl settings"
 
   info "Applying sysctl settings"
-  sudo sysctl -p "$path" >/dev/null
+  sudo sysctl -p "${HARDENING_ROOT:-}$path" >/dev/null
 }
 
 sshd_present() {
@@ -236,7 +244,7 @@ apply_ssh_hardening() {
     return 1
   fi
 
-  local path="/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
+  local path="${HARDENING_ROOT:-}/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
   local tmp
 
   tmp="$(mktemp)"
