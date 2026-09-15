@@ -802,6 +802,47 @@ verify_installed_binary() {
   die "$name installed at $target but neither '--version' nor '--help' ran successfully"
 }
 
+# stage_api_credential <staging-dir>: prints the CURL_HOME the staged installer
+# should run with, having prepared a credential there when one is available.
+#
+# Both of these upstreams resolve their own latest release through
+# api.github.com. Anonymously that is 60 requests an hour *per address*, shared
+# with everyone else on it, and on a hosted CI runner other tenants routinely
+# spend it: the install then fails inside the upstream script with a bare 403,
+# saying nothing about this repository.
+#
+# A CI job has a token for exactly that, but which variable an upstream script
+# reads is the upstream's choice, and these read none: an install and a rerun a
+# minute apart, both with GITHUB_TOKEN exported, resolved and then failed --
+# which an authenticated caller's 5000 an hour cannot do. So the credential is
+# offered where any curl-based installer finds it without cooperating, in the
+# one form curl scopes by host: a netrc naming api.github.com and nothing else.
+# Every other host the script contacts is sent no credential.
+#
+# This widens no trust boundary. The token is already in the environment of
+# these scripts wherever CI exports it; this only makes it usable for the
+# request it was exported for. It lives in the 0700 staging directory, is
+# written 0600, and is deleted with that directory when the script returns.
+# With no token in the environment -- every workstation install -- nothing is
+# written and the script runs exactly as it did before.
+stage_api_credential() {
+  local work_dir="$1"
+  local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+
+  if [[ -n "$token" ]]; then
+    # umask rather than a later chmod: the file is never briefly readable by
+    # anyone else on a shared machine.
+    (
+      umask 077
+      printf 'machine api.github.com login x-access-token password %s\n' \
+        "$token" >"$work_dir/netrc"
+      printf 'netrc-file = "%s/netrc"\nnetrc\n' "$work_dir" >"$work_dir/.curlrc"
+    ) || return 1
+  fi
+
+  printf '%s\n' "$work_dir"
+}
+
 # install_staged_script <name> <url> <target> [expected-sha256]
 #
 # Replaces the old 'curl ... | sh' pipeline, whose exit status was the
@@ -818,7 +859,7 @@ INSTALL_STAGED_SCRIPT_DIGEST=""
 INSTALL_STAGED_SCRIPT_TARGET_PATH=""
 install_staged_script() {
   local name="$1" url="$2" target="$3" expected="${4:-}"
-  local work_dir staged digest
+  local work_dir staged digest curl_home
 
   work_dir="$(mktemp -d)" || die "Could not create a staging directory for $name"
   chmod 700 -- "$work_dir"
@@ -848,7 +889,13 @@ install_staged_script() {
   # target directory first guarantees a user-owned install with no unexpected
   # privilege escalation. The staged file is run by an explicit interpreter, so
   # a missing or hostile shebang cannot choose one.
-  if ! PATH="$(dirname "$target"):$PATH" sh "$staged"; then
+  curl_home="$(stage_api_credential "$work_dir")" || {
+    rm -rf -- "$work_dir"
+    die "Could not prepare the API credential for the $name installer."
+  }
+  [[ ! -f "$work_dir/netrc" ]] ||
+    info "Offering the GitHub API credential to $name for api.github.com only"
+  if ! PATH="$(dirname "$target"):$PATH" CURL_HOME="$curl_home" sh "$staged"; then
     rm -rf -- "$work_dir"
     die "The $name installer failed."
   fi
