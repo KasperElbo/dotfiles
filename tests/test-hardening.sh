@@ -8,6 +8,157 @@ source "$repo_root/tests/lib/test.sh"
 test_install_cleanup_trap
 test_isolate_path sha256sum
 
+# install_mktemp_mock <bin>: numbered, predictable temp files under the stub
+# root, so exact sudo argv contracts can name them.
+install_mktemp_mock() {
+  cat >"$1/mktemp" <<'EOF'
+#!/usr/bin/env bash
+counter_file="$TEST_STUB_ROOT/state/mktemp-counter"
+counter="$(cat "$counter_file" 2>/dev/null || printf '0')"
+counter=$((counter + 1))
+printf '%s\n' "$counter" >"$counter_file"
+if (($# == 0)); then
+  path="$TEST_STUB_ROOT/state/tmp-$counter"
+else
+  path="${1/XXXXXX/$(printf '%06d' "$counter")}"
+fi
+mkdir -p "$(dirname "$path")"
+: >"$path"
+printf '%s\n' "$path"
+EOF
+  chmod +x "$1/mktemp"
+}
+
+# HARDENING_ROOT exists so a fixture, not the machine running the tests, owns
+# the hardening drop-ins. Unset or empty it must leave every privileged command
+# byte-for-byte what it was before the override existed. Set, every access to
+# an owned drop-in (write, read, stat, remove, reload) must land under that one
+# prefix, including the unprivileged reads that used to see the host's /etc.
+#
+# Each mode calls every owned-drop-in helper and writer once, against a sudo
+# stub whose allow-list is the expected call sequence in order, then requires
+# the recorded sudo log to equal that allow-list exactly.
+run_root_prefix_contract() {
+  local mode="$1"
+  # Absent on any host, so the unprivileged branches always fall through to
+  # sudo and the expected log does not depend on the machine.
+  local contract_path=/etc/dotfiles-hardening-root-contract/owned.conf
+  local sysctl_path=/etc/sysctl.d/90-dotfiles-hardening.conf
+  local rules_path=/etc/audit/rules.d/90-dotfiles-hardening.rules
+  local ssh_path=/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+
+  test_new_root
+  local test_root="$TEST_ROOT"
+  local tmp="$test_root/state/tmp"
+  local root=""
+  [[ "$mode" != prefix ]] || root="$test_root/fake-root"
+
+  test_stub_init "$test_root"
+  test_stub_install "$test_root" sudo
+  test_stub_install "$test_root" systemctl
+  test_stub_install "$test_root" auditctl
+  test_stub_allow "$test_root" systemctl is-active --quiet sshd.service
+  test_stub_allow "$test_root" systemctl is-enabled --quiet auditd.service
+  install_mktemp_mock "$test_root/bin"
+
+  # The expected sequence, in call order; with root="" these are the exact
+  # commands the helpers ran before HARDENING_ROOT existed.
+  local expected=(
+    "test -f $root$contract_path"
+    "cat -- $root$contract_path"
+    "stat -c %a $root$contract_path"
+    "test -f $root$contract_path"
+    "install -D -m 0644 -o root -g root $tmp-1 $root$contract_path"
+    "test -f $root$contract_path"
+    "cmp -s $tmp-2 $root$contract_path"
+    "test -f $root$contract_path"
+    "rm -f -- $root$contract_path"
+    "test -f $root$sysctl_path"
+    "install -D -m 0644 -o root -g root $tmp-3 $root$sysctl_path"
+    "sysctl -p $root$sysctl_path"
+    "test -f $root$rules_path"
+    "test -f $root$rules_path"
+    "install -D -m 0640 -o root -g root $tmp-4 $root$rules_path"
+    "cat $root$rules_path"
+    "augenrules --load"
+    "test -f $root$ssh_path"
+    "install -D -m 0644 -o root -g root $tmp-5 $root$ssh_path"
+    "sshd -t"
+    "systemctl reload sshd.service"
+  )
+  local call
+  local -a call_argv
+  for call in "${expected[@]}"; do
+    read -r -a call_argv <<<"$call"
+    test_stub_allow "$test_root" sudo "${call_argv[@]}"
+  done
+
+  # Models only file presence, so writes, cmp and removals are observable.
+  cat >"$test_root/handlers/sudo" <<'EOF'
+#!/usr/bin/env bash
+installed="$TEST_STUB_ROOT/state/installed"
+touch "$installed"
+target="${*: -1}"
+case "$1" in
+test | stat) grep -Fxq -- "$target" "$installed" ;;
+cat) grep -Fxq -- "$target" "$installed" && printf 'managed\n' ;;
+install) printf '%s\n' "$target" >>"$installed" ;;
+rm)
+  grep -Fxv -- "$target" "$installed" >"$installed.next" || true
+  mv -- "$installed.next" "$installed"
+  ;;
+esac
+EOF
+  chmod +x "$test_root/handlers/sudo"
+
+  run_capture env PATH="$test_root/bin:$PATH" TEST_STUB_ROOT="$test_root" \
+    HARDENING_ROOT="$root" CONTRACT_MODE="$mode" \
+    CONTRACT_PATH="$contract_path" DOTFILES_ROOT_DIR="$repo_root" \
+    bash -c '
+      set -euo pipefail
+      [[ "$CONTRACT_MODE" != unset ]] || unset HARDENING_ROOT
+      source "$DOTFILES_ROOT_DIR/common/lib/common.sh"
+      source "$DOTFILES_ROOT_DIR/platforms/fedora/lib/hardening.sh"
+      managed_root_file_exists "$CONTRACT_PATH" && exit 90
+      managed_root_file_read "$CONTRACT_PATH" && exit 91
+      managed_root_file_mode "$CONTRACT_PATH" && exit 92
+      printf "owned\n" | write_managed_root_file "$CONTRACT_PATH" 0644 contract
+      printf "owned\n" | write_managed_root_file "$CONTRACT_PATH" 0644 contract
+      remove_managed_root_file "$CONTRACT_PATH" contract
+      apply_hardening_sysctl
+      apply_auditd_rules
+      apply_ssh_hardening
+    '
+  assert_success
+  assert_files_identical "$test_root/contracts/sudo.allow" \
+    "$test_root/logs/sudo.log"
+
+  if [[ "$mode" == prefix ]]; then
+    # The unprivileged branches read the prefixed file, never the host's.
+    mkdir -p "$root${contract_path%/*}"
+    printf 'owned\n' >"$root$contract_path"
+    chmod 0640 "$root$contract_path"
+    run_capture env PATH="$test_root/bin:$PATH" TEST_STUB_ROOT="$test_root" \
+      HARDENING_ROOT="$root" CONTRACT_PATH="$contract_path" \
+      DOTFILES_ROOT_DIR="$repo_root" \
+      bash -c '
+        set -euo pipefail
+        source "$DOTFILES_ROOT_DIR/common/lib/common.sh"
+        source "$DOTFILES_ROOT_DIR/platforms/fedora/lib/hardening.sh"
+        managed_root_file_exists "$CONTRACT_PATH"
+        managed_root_file_mode "$CONTRACT_PATH"
+        managed_root_file_read "$CONTRACT_PATH"
+      '
+    assert_success
+    assert_eq $'640\nowned' "$TEST_OUTPUT" \
+      "[root prefix] unprivileged helper output"
+    assert_files_identical "$test_root/contracts/sudo.allow" \
+      "$test_root/logs/sudo.log"
+  fi
+
+  printf 'PASS: owned drop-in commands with HARDENING_ROOT %s\n' "$mode"
+}
+
 run_scenario() {
   local scenario_name="$1"
   local seed_sshd="$2"
@@ -40,6 +191,9 @@ run_scenario() {
 
   # Package-manager calls use the shared exact-argv stub. The scenario keeps
   # stateful security/service commands local because they model Fedora state.
+  # HARDENING_ROOT puts every owned drop-in under the fake root, so those
+  # allow-list entries name fake-root paths; any access that skipped the
+  # prefix would hit the real /etc and be rejected here.
   test_stub_init "$test_root"
   test_stub_install "$test_root" dnf
   test_stub_install "$test_root" sudo
@@ -53,17 +207,17 @@ run_scenario() {
   test_stub_allow "$test_root" sudo authselect enable-feature with-faillock
   test_stub_allow "$test_root" sudo dnf install -y dnf5-plugin-automatic
   test_stub_allow "$test_root" sudo test -f \
-    /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+    "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
   test_stub_allow "$test_root" sudo test -f \
-    /etc/sudoers.d/90-dotfiles-hardening
+    "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
   test_stub_allow "$test_root" sudo test -f \
-    /etc/audit/rules.d/90-dotfiles-hardening.rules
+    "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
   test_stub_allow "$test_root" sudo test -f \
-    /etc/sysctl.d/90-dotfiles-hardening.conf
+    "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
   test_stub_allow "$test_root" sudo cat \
-    /etc/audit/rules.d/90-dotfiles-hardening.rules
+    "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
   test_stub_allow "$test_root" sudo sysctl -p \
-    /etc/sysctl.d/90-dotfiles-hardening.conf
+    "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
   test_stub_allow "$test_root" sudo auditctl -l
   # Verification reads owned drop-ins it cannot see unprivileged. These are
   # reads and stats only; no write form of sudo is ever allowed here.
@@ -73,54 +227,54 @@ run_scenario() {
     /etc/audit/rules.d/90-dotfiles-hardening.rules \
     /etc/sysctl.d/90-dotfiles-hardening.conf \
     /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf; do
-    test_stub_allow "$test_root" sudo stat -c '%a' "$owned_path"
-    test_stub_allow "$test_root" sudo cat -- "$owned_path"
-    test_stub_allow "$test_root" sudo test -f "$owned_path"
+    test_stub_allow "$test_root" sudo stat -c '%a' "$fake_root$owned_path"
+    test_stub_allow "$test_root" sudo cat -- "$fake_root$owned_path"
+    test_stub_allow "$test_root" sudo test -f "$fake_root$owned_path"
   done
   test_stub_allow "$test_root" sudo systemctl enable --now auditd.service
   test_stub_allow "$test_root" sudo systemctl enable --now dnf5-automatic.timer
 
   test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
     "$test_root/state/tmp-1" \
-    /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+    "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
   test_stub_allow "$test_root" sudo install -D -m 0440 -o root -g root \
-    "$test_root/state/tmp-3" /etc/sudoers.d/90-dotfiles-hardening
+    "$test_root/state/tmp-3" "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
   test_stub_allow "$test_root" sudo install -D -m 0640 -o root -g root \
-    "$test_root/state/tmp-4" /etc/audit/rules.d/90-dotfiles-hardening.rules
+    "$test_root/state/tmp-4" "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
   test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
-    "$test_root/state/tmp-5" /etc/sysctl.d/90-dotfiles-hardening.conf
+    "$test_root/state/tmp-5" "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
 
   if [[ "$seed_sshd" == "true" ]]; then
     test_stub_allow "$test_root" sudo test -f \
-      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
       "$test_root/state/tmp-6" \
-      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-9" \
-      /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-11" \
-      /etc/sudoers.d/90-dotfiles-hardening
+      "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-12" \
-      /etc/audit/rules.d/90-dotfiles-hardening.rules
+      "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-13" \
-      /etc/sysctl.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-14" \
-      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo sshd -t
     test_stub_allow "$test_root" sudo systemctl reload sshd.service
     test_stub_allow "$test_root" sudo grep -Fqx 'PermitRootLogin no' \
-      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo grep -Fqx 'MaxAuthTries 3' \
-      /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
   else
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-8" \
-      /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-10" \
-      /etc/sudoers.d/90-dotfiles-hardening
+      "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-11" \
-      /etc/audit/rules.d/90-dotfiles-hardening.rules
+      "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-12" \
-      /etc/sysctl.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
   fi
 
   systemctl_contracts=(
@@ -147,21 +301,7 @@ run_scenario() {
     test_stub_allow "$test_root" systemctl "${systemctl_argv[@]}"
   done
 
-  cat >"$mock_bin/mktemp" <<'EOF'
-#!/usr/bin/env bash
-counter_file="$TEST_STUB_ROOT/state/mktemp-counter"
-counter="$(cat "$counter_file" 2>/dev/null || printf '0')"
-counter=$((counter + 1))
-printf '%s\n' "$counter" >"$counter_file"
-if (($# == 0)); then
-  path="$TEST_STUB_ROOT/state/tmp-$counter"
-else
-  path="${1/XXXXXX/$(printf '%06d' "$counter")}"
-fi
-mkdir -p "$(dirname "$path")"
-: >"$path"
-printf '%s\n' "$path"
-EOF
+  install_mktemp_mock "$mock_bin"
 
   cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
@@ -393,6 +533,7 @@ SUDO_EOF
     "COMMAND_LOG=$command_log"
     "OS_RELEASE_FILE=$test_root/os-release"
     "FAKE_ROOT=$fake_root"
+    "HARDENING_ROOT=$fake_root"
     "SELINUX_FS_ROOT=$selinux_fs_root"
     "SELINUX_STATE=$selinux_state"
     "ACTIVE_UNITS=$active_units"
@@ -632,6 +773,9 @@ SUDO_EOF
   printf 'PASS: %s\n' "$scenario_name"
 }
 
+run_root_prefix_contract unset
+run_root_prefix_contract empty
+run_root_prefix_contract prefix
 run_scenario "hardening install/verify with sshd absent (default Fedora Workstation)" false
 run_scenario "hardening install/verify with sshd active" true
 

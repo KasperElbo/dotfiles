@@ -101,6 +101,10 @@ A named command the runner lacks fails the suite rather than silently narrowing
 DNF repository files, is pinned the same way through the suite's mocks and the
 product's override variables (`DNF_REPO_DIR`, `OS_RELEASE_FILE`, ...). The goal
 is the same result on a developer workstation as in the pinned CI container.
+For example, `tests/test-hardening.sh` sets `HARDENING_ROOT` to its fake root so
+the hardening profile's owned drop-ins are read and written there; without it, a
+machine with the profile installed answers the suite's missing-drop-in checks
+from its real `/etc`.
 
 ### Shared shell startup and ergonomics
 
