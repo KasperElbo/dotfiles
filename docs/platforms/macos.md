@@ -541,7 +541,7 @@ sftp user@host
 Common interactive commands (`ls`, `cd`, `lcd`, `pwd`, `lpwd`, `get`, `put`,
 `mget`, `mput`, `mkdir`, `rm`, `exit`) and non-interactive `scp` transfers work
 exactly as documented in
-[the Fedora SFTP section](fedora.md#sftp-client). Authentication reuses `~/.ssh/config`,
+[the first-run SFTP section](../workflows/first-run.md#6-sftp-client). Authentication reuses `~/.ssh/config`,
 SSH keys, ssh-agent (including a 1Password-backed agent), and password
 authentication when a server requires it.
 
