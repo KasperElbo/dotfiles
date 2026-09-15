@@ -62,10 +62,9 @@ correct order. **Autosuggestions and syntax highlighting themselves are not
 in `.zshrc`** — each platform's own `platform.zsh`
 (`platforms/*/stow/zsh-platform/.config/zsh/platform.zsh`) sources its
 packaged `zsh-autosuggestions`/`zsh-syntax-highlighting` plugin files from
-that platform's package path. On Fedora and Parrot this is guarded
-(`[[ -r ... ]] ||`), so a machine missing the packages still starts cleanly;
-on macOS and Fedora WSL it is unconditional, because both platforms always
-install those packages as part of the base profile.
+that platform's package path. Every platform guards that source
+(`[[ -r ... ]] ||`), so a machine whose packages are missing or mid-install
+still starts cleanly — the same rule the optional integrations below follow.
 
 ## Optional tooling degrades, it does not break the shell
 
