@@ -147,10 +147,13 @@ Do not commit signing keys or user-specific signing configuration to this reposi
 
 ## 6. SFTP client
 
-Command-line SFTP is part of the base workstation install; no installer flag
-is required. It comes from Fedora's own `openssh-clients` package — the same
-package that provides `ssh` and `scp` — so there is never a second SSH
-implementation to manage.
+Not actually a choice: command-line SFTP is part of every platform's base
+install with no installer flag to select. On Fedora it comes from the
+`openssh-clients` package — the same package that provides `ssh` and
+`scp` — so there is never a second SSH implementation to manage. This
+section documents the Fedora/KDE case; see
+[the macOS guide](../platforms/macos.md#sftp-client) for that platform's
+equivalent.
 
 ```bash
 sftp user@host
@@ -209,17 +212,20 @@ sidebar entry. It authenticates through the same SSH key/agent as the CLI,
 and supports normal drag/drop and recursive folder transfers. This is reused
 as-is; no dedicated SFTP application is installed for KDE.
 
-**Sway**: the optional `--sway` session (see "Optional Sway session") runs on
-top of the same Fedora KDE Plasma base as the rest of this profile, so Dolphin
-and the `kio-extras` sftp:// support ensured above are available there too —
-launch Dolphin from Fuzzel exactly as under Plasma. No dedicated Sway-specific
-GUI SFTP client is added, since Dolphin already solves the same usability gap
-in both sessions.
+**Sway**: the optional `--sway` session runs on top of the same Fedora KDE
+Plasma base as the rest of this profile, so Dolphin and the `kio-extras`
+sftp:// support ensured above are available there too — launch Dolphin from
+Fuzzel exactly as under Plasma. No dedicated Sway-specific GUI SFTP client is
+added, since Dolphin already solves the same usability gap in both sessions.
 
 A standalone GUI client such as FileZilla was evaluated and rejected: Dolphin
 already gives both KDE and Sway a working native SFTP path with SSH key/agent
 support, drag/drop, and recursive transfers, so a second GUI application would
 duplicate functionality rather than close a real gap.
+
+This is Fedora-specific: the base package list on other platforms differs
+(Parrot's base install, for example, has no `openssh-client`/`openssh-clients`
+row of its own).
 
 ## 7. AI agent authentication
 

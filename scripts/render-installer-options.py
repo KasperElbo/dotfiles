@@ -59,7 +59,8 @@ TRANSIENT = [
      "Reapply this machine's last successful configuration. See [rerun.md](../workflows/rerun.md)."),
     ("`--dry-run`", None, "Resolve and print the plan; change nothing."),
     ("`--non-interactive`", None,
-     "Use defaults without prompting; requires cached sudo where sudo is needed."),
+     "Never prompt; resolve every choice from the given options and their "
+     "defaults. Requires cached sudo (run `sudo -v` first) where the run needs it."),
     ("`--dev-workflows`", ("fedora", "fedora-wsl", "macos"),
      "Run the disposable development-workflow smoke tests after installing."),
     ("`-h`, `--help`", None,

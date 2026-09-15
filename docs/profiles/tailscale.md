@@ -18,17 +18,22 @@ device tags, Tailscale SSH — is deliberately left to you, interactively,
 outside this repository. Nothing here embeds a reusable auth key, an OAuth
 client secret, a node key, or any tailnet policy.
 
-Verification is read-only and keeps three outcomes separate: a **connected**
-tailnet (`BackendState: Running`); a valid **installed but not authenticated**
-machine (`NeedsLogin`, `NoState`, `Stopped`, `Starting`, `NeedsMachineAuth`),
-which passes with the exact command needed to finish connecting; and a state
-that **could not be determined**, which fails. That last group is the reason
-this profile's verification exists in the form it does: a missing or unusable
-`jq` (the declared JSON parser), a `tailscale status --json` call that fails
-while `tailscaled` is up, malformed JSON, an absent `BackendState`, or a
-backend state the verifier does not recognize all mean the connection state
-was never actually read, so none of them may report success. Verification
-never runs `tailscale up` or otherwise changes tailnet state.
+On **Fedora** (and Fedora WSL), verification is read-only and keeps three
+outcomes separate: a **connected** tailnet (`BackendState: Running`); a valid
+**installed but not authenticated** machine (`NeedsLogin`, `NoState`,
+`Stopped`, `Starting`, `NeedsMachineAuth`), which passes with the exact
+command needed to finish connecting; and a state that **could not be
+determined**, which fails. That last group is the reason this profile's
+verification exists in the form it does: a missing or unusable `jq` (the
+declared JSON parser), a `tailscale status --json` call that fails while
+`tailscaled` is up, malformed JSON, an absent `BackendState`, or a backend
+state the verifier does not recognize all mean the connection state was
+never actually read, so none of them may report success. Verification never
+runs `tailscale up` or otherwise changes tailnet state.
+
+**macOS's verifier is weaker by design**: an unrecognized `BackendState`, or
+a `tailscale status --json` call that does not respond, is reported as a
+**warning**, not a failure — see [the macOS section](#macos) below.
 
 ### Package ownership
 
@@ -177,5 +182,5 @@ integration notes and verification details.
 The saved local state file is:
 
 ```text
-~/.config/dotfiles/tailscale.conf
+~/.config/dotfiles/macos-tailscale.conf
 ```

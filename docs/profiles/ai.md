@@ -21,6 +21,18 @@ rejected otherwise (`--backpass` does not require `--firstmate` — the two
 are independent). The profile is also independently callable and safe to
 rerun:
 
+```bash
+./scripts/install-ai.sh [--codex] [--firstmate] [--gnhf] [--backpass] \
+  [--no-codex] [--no-firstmate] [--no-gnhf] [--no-backpass] \
+  [--non-interactive] [--dry-run] [--validate]
+```
+
+`--dry-run` prints exactly which components would be installed, kept, or
+removed and where, without touching the filesystem; `--validate` runs
+verification only. Nothing here authenticates any agent, pushes, merges,
+force-pushes, or deletes Git branches, or requests API credentials — see
+[Authentication](#authentication) below.
+
 ### Platform scope
 
 Fedora, Fedora WSL, and macOS all expose `--ai` and every subcomponent flag,
@@ -32,22 +44,14 @@ see [the macOS guide](../platforms/macos.md#ai-assisted-development-toolchain) f
 per-component Apple Silicon support table and the real-runner evidence behind
 it. The Parrot CTF profile declares the AI profile unsupported.
 
-Support for a component is per platform, and losing one never disables `--ai`:
-if `config/capabilities.tsv` demotes a component on a platform, that
-platform's installer rejects exactly that sub-flag with an actionable message
-and installs the rest of the profile normally.
-
-```bash
-./scripts/install-ai.sh [--codex] [--firstmate] [--gnhf] [--backpass] \
-  [--no-codex] [--no-firstmate] [--no-gnhf] [--no-backpass] \
-  [--non-interactive] [--dry-run] [--validate]
-```
-
-`--dry-run` prints exactly which components would be installed, kept, or
-removed and where, without touching the filesystem; `--validate` runs
-verification only. Nothing here authenticates any agent, pushes, merges,
-force-pushes, or deletes Git branches, or requests API credentials — see
-"Authentication" below.
+Support for a component is per platform, and losing one never disables `--ai`
+itself: if `config/capabilities.tsv` demotes a component on a platform, that
+platform's installer refuses the selection before installing anything. On
+**macOS**, `platforms/macos/install.sh` rejects exactly that sub-flag with a
+dedicated, actionable message and installs the rest of the profile normally.
+On **Fedora and Fedora WSL**, sub-capabilities instead go through the shared
+`capability_validate_selection` preflight, which fails the whole run rather
+than continuing without the unsupported component.
 
 ## Subcomponent transitions are additive
 
@@ -127,9 +131,9 @@ and [mise's npm lifecycle-script documentation](https://mise.jdx.dev/dev-tools/b
 
 Claude Code runs in any Git repository, including one checked out through
 `git worktree`; it has no special worktree requirements of its own. See
-"Worktree isolation for agent/crewmate work" below for how this repository
-gives an agent a safe, isolated worktree rather than pointing it at your
-primary checkout.
+[Optional: FirstMate and its required toolchain](#optional-firstmate-and-its-required-toolchain)
+below for how this repository gives an agent a safe, isolated worktree rather
+than pointing it at your primary checkout.
 
 ## Shared agent instructions: AGENTS.md
 
@@ -208,7 +212,7 @@ independently installable and independently useful on its own:
 |---|---|---|
 | [firstmate](https://github.com/kunchenguid/firstmate) | the coordinator itself — a Claude-Code-compatible distribution, not a package | `git clone`/`git pull --ff-only` to `~/.local/share/firstmate` |
 | [Treehouse](https://github.com/kunchenguid/treehouse) | pools isolated Git worktrees for crewmates (`get`/`enter`/`status`/`return`/`prune`/`destroy`/`lease`) | own install script, to `~/.local/bin/treehouse` |
-| [No Mistakes](https://github.com/kunchenguid/no-mistakes) | local push-validation gate (see below) | own install script, to `~/.local/bin/no-mistakes` |
+| [No Mistakes](https://github.com/kunchenguid/no-mistakes) | local push-validation gate (see below) | own install script; a regular file at `~/.local/bin/no-mistakes` on Fedora/Fedora WSL, or on macOS a launcher symlink at `~/.local/bin/no-mistakes` pointing at `~/.no-mistakes/bin/no-mistakes` |
 | [gh-axi](https://github.com/kunchenguid/gh-axi) | agent-ergonomic wrapper around the already-installed, already-authenticated `gh` CLI | mise, `npm:gh-axi` |
 | [chrome-devtools-axi](https://github.com/kunchenguid/chrome-devtools-axi) | agent-ergonomic browser automation (launches its own headless Chrome; no separate browser install needed) | mise, `npm:chrome-devtools-axi` |
 | [lavish-axi](https://github.com/kunchenguid/lavish-axi) | serves FirstMate's "rich-review" surfaces for HTML artifacts, locally | mise, `npm:lavish-axi` |
@@ -274,8 +278,15 @@ makes that accountable is that the installer records exactly what it got:
 | Tool | Channel | Recorded in `~/.config/dotfiles/ai.conf` |
 |---|---|---|
 | FirstMate | upstream default branch, deliberately rolling | `firstmate_source`, `firstmate_commit` |
-| Treehouse | live install script | `treehouse_source`, `treehouse_digest` (the script that ran), `treehouse_target_digest` (the binary it produced) |
-| No Mistakes | live install script | `no_mistakes_source`, `no_mistakes_digest`, `no_mistakes_target_digest` |
+| Treehouse | live install script | `treehouse_source`, `treehouse_digest` (the script that ran), `treehouse_target_digest` (the binary it produced), `treehouse_target_path` (where that binary actually lives, if it differs from `~/.local/bin/treehouse`) |
+| No Mistakes | live install script | `no_mistakes_source`, `no_mistakes_digest`, `no_mistakes_target_digest`, `no_mistakes_target_path` (where the binary actually lives, if `~/.local/bin/no-mistakes` is a launcher symlink rather than the binary itself — the normal case on macOS; see "Optional: FirstMate" above) |
+
+`common/verify-ai.sh` and `no_mistakes_target_path`/`treehouse_target_path`
+are shared across every platform: when either command is a launcher symlink,
+verification confirms it still resolves to the recorded target path rather
+than assuming the launcher itself is the installed binary, and a
+`--no-firstmate` removal deletes the resolved target, not merely the
+launcher.
 
 To update, rerun `./scripts/install-ai.sh --firstmate`. To pin FirstMate to
 the revision you have today, `git -C ~/.local/share/firstmate checkout
@@ -500,9 +511,10 @@ without the default, always-applied mise config ever gaining an AI-related
 dependency. `install-ai.sh` writes and owns this file; deleting it and
 rerunning the AI profile recreates it.
 
-  Edition CTF VM" above): install or invoke AI tooling there only as a
-  conscious per-lab decision after confirming that challenge data may leave
-  the guest.
+The AI profile is unsupported on the
+[Parrot Security Edition CTF guest](../platforms/parrot-ctf.md): install or
+invoke AI tooling there only as a conscious per-lab decision after confirming
+that challenge data may leave the guest.
 
 The saved local state file is:
 

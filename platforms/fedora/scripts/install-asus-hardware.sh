@@ -362,5 +362,5 @@ profile_state_write "$state_file" "$model" installed \
 success "ASUS hardware support installed for $model_label"
 
 if [[ "$reboot_recommended" == "true" ]]; then
-  warn "Reboot before relying on the NVIDIA driver, then run ./scripts/verify.sh"
+  warn "Reboot before relying on the NVIDIA driver, then run platforms/fedora/scripts/verify.sh"
 fi

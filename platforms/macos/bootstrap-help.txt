@@ -17,5 +17,7 @@ Options:
                      removes one, and it confirms first. An unsupported
                      component rejects only its own flag.
   --dry-run          Show the resolved plan without changing anything
-  --non-interactive  Use selected options without prompting
+  --non-interactive  Never prompt; resolve every choice from the given
+                     options and their defaults. Requires cached sudo
+                     (run 'sudo -v' first) where the run needs it.
   -h, --help         Show this help

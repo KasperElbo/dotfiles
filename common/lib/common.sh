@@ -237,17 +237,47 @@ atomic_write_file() {
   fi
 }
 
+# confirm <prompt> [default]: ask a yes/no question. The default is "y" or
+# "n" (no second argument means "n"), it decides what pressing Enter means,
+# and the rendered hint is derived from it, so the prompt can never advertise
+# one default while applying another.
+#
+# Exit status is three-valued on purpose: 0 yes, 1 no, 2 unparseable answer.
+# A caller distinguishes "the user declined" from "the user typed something
+# nobody can interpret", and no answer is ever guessed.
 confirm() {
   local prompt="$1"
+  local default="${2:-n}"
+  local hint
   local answer
   local normalized
 
-  read -r -p "$prompt [y/N] " answer
+  case "$default" in
+  y | Y | yes | YES) default=y; hint='[Y/n]' ;;
+  n | N | no | NO) default=n; hint='[y/N]' ;;
+  *) die "confirm: default must be y or n, got: $default" ;;
+  esac
+
+  # The question is written here rather than passed to "read -p", which shows
+  # nothing unless standard input is a terminal: the prompt and the default it
+  # advertises are part of the contract, so they belong in the transcript of
+  # every run that asks, piped or not.
+  printf '%s %s ' "$prompt" "$hint" >&2
+  # A closed standard input is not an answer, so the default is deliberately
+  # not applied to it: an unattended run must not be able to inherit a yes it
+  # never typed. Declining is the safe reading, and a run that means "do not
+  # prompt" passes --non-interactive instead.
+  if ! read -r answer; then
+    printf '\n' >&2
+    warn 'No answer is available on standard input; treating the prompt as declined.'
+    return 1
+  fi
+  [[ -n "$answer" ]] || answer="$default"
 
   normalized="$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')"
   case "$normalized" in
   y | yes) return 0 ;;
-  n | no | "") return 1 ;;
+  n | no) return 1 ;;
   *)
     warn "Invalid response '$answer'; expected yes or no."
     return 2

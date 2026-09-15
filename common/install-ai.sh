@@ -70,8 +70,7 @@ workspace) unconditionally, plus optional subcomponents.
 Also unconditionally links a single shared agent-instructions file
 (common/assets/AGENTS.md, mirrored from KasperElbo/dotfiles-nix's
 home/AGENTS.md) to Claude Code's, Codex's, and OpenCode's global instructions
-paths, so one edit updates every harness. See "Shared agent instructions"
-in README.md.
+paths, so one edit updates every harness. See docs/profiles/ai.md.
 
 Options:
   --codex            Also install the OpenAI Codex CLI
@@ -79,15 +78,14 @@ Options:
                      list as required: Treehouse, No Mistakes, gh-axi,
                      chrome-devtools-axi, lavish-axi, tasks-axi, and
                      quota-axi (requires 'gh', 'tmux', and 'jq'; see
-                     README.md, "AI-assisted development toolchain")
+                     docs/profiles/ai.md)
   --gnhf             Also install GNHF, an unattended overnight agent
-                     orchestrator (see README.md, "Optional: GNHF" -- read
-                     this before use; it runs an agent unsupervised)
+                     orchestrator (see docs/profiles/ai.md -- read it before
+                     use; it runs an agent unsupervised)
   --backpass         Also install backpass, which proposes evidence-backed
                      edits to AGENTS.md/CLAUDE.md from agent session
                      transcripts, gated behind mandatory human review
-                     (independent of --firstmate; see README.md,
-                     "Optional: backpass")
+                     (independent of --firstmate; see docs/profiles/ai.md)
   --no-codex, --no-firstmate, --no-gnhf, --no-backpass
                      Remove that subcomponent. This is the only way to
                      uninstall one; see "Transitions" below.
@@ -124,9 +122,10 @@ recorded, and are updated by rerunning --firstmate.
 This installer never runs 'gh-axi setup hooks' or 'lavish-axi setup hooks'
 (optional agent session-start hooks), 'no-mistakes init' (per-repository),
 or 'backpass init'/'backpass apply' (per-repository, and the latter is the
-only command that writes anything) on your behalf -- see README.md for
-those manual, deliberate steps. Authenticate each tool interactively (see
-README.md); this installer never stores or requests credentials, and never
+only command that writes anything) on your behalf -- see
+docs/profiles/ai.md for those manual, deliberate steps. Authenticate each tool
+interactively (see the same guide); this installer never stores or requests
+credentials, and never
 passes GNHF's own --push flag on your behalf.
 EOF
 }
@@ -502,7 +501,8 @@ EOF
      Deliberately rolling on the upstream default branch; the resolved commit
      is recorded in $state_file. Requires 'gh', 'tmux', and 'jq' (Herdr is
      available as an alternative crew backend once installed above). Does not
-     register any project or authenticate GitHub; see README.md.
+     register any project or authenticate GitHub; see
+     docs/profiles/ai.md.
 
   $((step + 1)). Install Treehouse (worktree isolation for FirstMate crewmates)
      $treehouse_install_script -> $treehouse_target
@@ -528,8 +528,9 @@ EOF
      backpass proposes AGENTS.md/CLAUDE.md edits from session transcripts;
      'backpass apply' is the only command that writes, and only after you
      ACCEPT each edit in its review UI. Does not run 'backpass init' or
-     'backpass apply' in any repository for you; see README.md, "Optional:
-     backpass" for the manual next steps and its model-routing defaults.
+     'backpass apply' in any repository for you; see
+     docs/profiles/ai.md for the manual next steps and its model-routing
+     defaults.
 EOF
     step=$((step + 1))
   fi

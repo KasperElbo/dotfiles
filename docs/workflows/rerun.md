@@ -31,8 +31,8 @@ $ ./install.sh --rerun --theme mocha
 ERROR: --rerun cannot be combined with --theme
 ```
 
-A rerun goes through the ordinary preflight, execution plan, confirmation and
-verification path. `./install.sh --rerun --dry-run` prints where the selection
+A rerun goes through the ordinary preflight, execution plan,
+[confirmation](install.md#the-confirmation-prompt) and verification path. `./install.sh --rerun --dry-run` prints where the selection
 came from, when it was recorded, the reconstructed options and the resolved
 execution plan, and changes nothing.
 
@@ -69,6 +69,17 @@ configuration. A dry run, a failed preflight, a cancelled confirmation, a
 failed step, a failed verifier and an interrupted run all leave the previous
 successful configuration in place, so a broken attempt never costs a machine
 its ability to reapply the configuration it actually had.
+
+That also means a failed run has nothing for `--rerun` to reapply, so it ends
+by printing the literal command that reproduces the selection it was
+attempting:
+
+```text
+==> Safe rerun: ./install.sh --platform fedora-wsl --theme mocha --no-ocaml --latex --no-containers --no-ai --non-interactive
+```
+
+Every platform renders that line from the same selection the record stores, so
+it names the machine you asked for rather than the platform's defaults.
 
 ### Validation, errors and migration
 
