@@ -8,18 +8,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/theme-shared-state.sh"
 # shellcheck source=lib/git-identity.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/git-identity.sh"
+# shellcheck source=lib/theme-selection.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/theme-selection.sh"
 
-theme="${1:-macchiato}"
-shift || true
-[[ $# -eq 0 ]] || die "Unknown option: $1"
+# The platform names which option manifest rows the flavour is checked against.
+(($# >= 1 && $# <= 2)) || die 'Usage: common/setup-local.sh PLATFORM [FLAVOUR]'
+platform="$1"
+theme="${2:-$THEME_DEFAULT_FLAVOUR}"
 
-case "$theme" in
-latte | frappe | macchiato | mocha)
-  ;;
-*)
+install_option_exists "$platform" theme ||
+  die "No theme option is declared for platform: $platform"
+theme_flavour_is_valid "$platform" "$theme" ||
   die "Invalid Catppuccin flavour: $theme"
-  ;;
-esac
 
 state_dir="$XDG_CONFIG_HOME/dotfiles"
 git_dir="$XDG_CONFIG_HOME/git"

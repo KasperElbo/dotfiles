@@ -54,6 +54,18 @@ install_option_exists() {
   install_option_field "$1" "$2" kind >/dev/null 2>&1
 }
 
+# The permitted values of a value-kind option, one per line: its values
+# column split on "|". For an enumeration such as theme this is the list every
+# runtime check reads, so the manifest cannot document a value the installer
+# rejects. A pattern such as charge-limit's comes back as its branches, which
+# only install_selection_value_is_valid can interpret.
+install_option_values() {
+  local platform="$1" option="$2" values
+  values="$(install_option_field "$platform" "$option" values)" || return 1
+  [[ "$values" != - ]] || return 1
+  tr '|' '\n' <<<"$values"
+}
+
 # Whether a *recorded* value is one this checkout can still interpret.
 #
 # Recorded values are always resolved ones, so a boolean record is true or

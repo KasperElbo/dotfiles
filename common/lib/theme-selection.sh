@@ -32,11 +32,18 @@ THEME_RESOLVED=""
 # shellcheck disable=SC2034
 THEME_RESOLVED_SOURCE=""
 
+# theme_flavour_is_valid <platform> <flavour>
+#
+# The supported flavours are the theme option's `values` in the option
+# manifest. They are read from there rather than repeated, so adding a flavour
+# to the manifest is what makes the installer accept it.
 theme_flavour_is_valid() {
-  case "${1:-}" in
-  latte | frappe | macchiato | mocha) return 0 ;;
-  *) return 1 ;;
-  esac
+  local platform="$1" flavour="${2:-}" value
+  [[ -n "$flavour" ]] || return 1
+  while IFS= read -r value; do
+    [[ "$value" != "$flavour" ]] || return 0
+  done < <(install_option_values "$platform" theme)
+  return 1
 }
 
 theme_state_path() {
@@ -44,13 +51,13 @@ theme_state_path() {
 }
 
 # The flavour this machine is currently wearing, if it is one this checkout
-# supports. A corrupt or unknown value is treated as absent.
+# supports on the platform. A corrupt or unknown value is treated as absent.
 theme_existing_flavour() {
-  local path value
+  local platform="$1" path value
   path="$(theme_state_path)"
   [[ -r "$path" ]] || return 1
   value="$(tr -d '[:space:]' <"$path")"
-  theme_flavour_is_valid "$value" || return 1
+  theme_flavour_is_valid "$platform" "$value" || return 1
   printf '%s\n' "$value"
 }
 
@@ -76,7 +83,7 @@ theme_remembered_flavour() {
 
   value="$(install_selection_record_value "$selection" theme)" || return 1
   install_selection_value_is_valid "$platform" theme "$value" || return 1
-  theme_flavour_is_valid "$value" || return 1
+  theme_flavour_is_valid "$platform" "$value" || return 1
   printf '%s\n' "$value"
 }
 
@@ -90,14 +97,14 @@ theme_resolve() {
   local platform="$1" explicit="$2" requested="${3:-}" value
 
   if [[ "$explicit" == true ]]; then
-    theme_flavour_is_valid "$requested" ||
+    theme_flavour_is_valid "$platform" "$requested" ||
       die "Invalid Catppuccin flavour: $requested"
     THEME_RESOLVED="$requested"
     THEME_RESOLVED_SOURCE=explicit
     return 0
   fi
 
-  if value="$(theme_existing_flavour)"; then
+  if value="$(theme_existing_flavour "$platform")"; then
     THEME_RESOLVED="$value"
     THEME_RESOLVED_SOURCE=existing
     return 0

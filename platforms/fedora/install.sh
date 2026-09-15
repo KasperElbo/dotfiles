@@ -170,6 +170,23 @@ hardware_args=()
 hardware_selected=false
 [[ -z "$hardware_model" ]] || hardware_selected=true
 
+# The selected capability set is resolved once and reused by the selection
+# check, preflight and the lifecycle record, so those three can never disagree.
+fedora_selected_capabilities() {
+  local selection
+  printf '%s\n' base dotnet-debug
+  for selection in "$bool_kde:kde" "$bool_latex:latex" "$install_ocaml:ocaml" "$install_sway:sway" "$install_vm_host:vm-host" "$install_vm_guest:vm-guest" "$hardware_selected:hardware" "$install_hardening:hardening" "$install_desktop_tools:desktop-tools" "$install_containers:containers" "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
+    [[ "${selection%%:*}" != true ]] || printf '%s\n' "${selection#*:}"
+  done
+}
+# Checked for every run, --dry-run included: a dry run exits before
+# plan_preflight, and it must not show a plan for a capability this platform's
+# manifest does not implement.
+selected_capabilities=()
+while IFS= read -r capability; do selected_capabilities+=("$capability"); done < <(fedora_selected_capabilities)
+capability_validate_selection fedora "${selected_capabilities[@]}" ||
+  die 'The selected capabilities cannot be installed on fedora.'
+
 preflight_fedora() {
   require_regular_user; require_fedora
   preflight_platform_command_providers fedora; preflight_sudo "$interactive"
@@ -177,13 +194,11 @@ preflight_fedora() {
   [[ -z "$hardware_model" ]] || "$DOTFILES_ROOT/platforms/fedora/scripts/install-asus-hardware.sh" "${hardware_args[@]}" --preflight
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
-  local specs=() capability
-  local selected=(base dotnet-debug)
-  for selection in "$bool_kde:kde" "$bool_latex:latex" "$install_ocaml:ocaml" "$install_sway:sway" "$install_vm_host:vm-host" "$install_vm_guest:vm-guest" "$hardware_selected:hardware" "$install_hardening:hardening" "$install_desktop_tools:desktop-tools" "$install_containers:containers" "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
-    [[ "${selection%%:*}" != true ]] || selected+=("${selection#*:}")
-  done
+  local specs=() spec capability
+  local selected=()
+  while IFS= read -r capability; do selected+=("$capability"); done < <(fedora_selected_capabilities)
   capability_validate_selection fedora "${selected[@]}"
-  while IFS= read -r capability; do specs+=("$capability"); done < <(capability_stow_specs fedora "${selected[@]}")
+  while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs fedora "${selected[@]}")
   preflight_stow_packages "${specs[@]}"
 }
 
@@ -291,8 +306,8 @@ if [[ "$interactive" == true ]]; then
   fi
 fi
 plan_preflight
-capabilities=base,dotnet-debug
-for selection in "$bool_kde:kde" "$bool_latex:latex" "$install_ocaml:ocaml" "$install_sway:sway" "$install_vm_host:vm-host" "$install_vm_guest:vm-guest" "$hardware_selected:hardware" "$install_hardening:hardening" "$install_desktop_tools:desktop-tools" "$install_containers:containers" "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do [[ "${selection%%:*}" != true ]] || capabilities+=,"${selection#*:}"; done
+capabilities=''
+while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(fedora_selected_capabilities)
 DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command fedora "$install_selection")"
 install_lifecycle_begin fedora "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else

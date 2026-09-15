@@ -272,7 +272,7 @@ macos_installer="$macos_root/install.sh"
 # and a redirection plus a nested read of the same file is a lint hazard.
 manifest_rows="$(cat "$manifest")"
 
-while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ verifier _ docs _ status; do
+while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ verifier _ docs _ status _; do
   [[ "$platform" == macos ]] || continue
 
   if [[ "$status" != implemented ]]; then

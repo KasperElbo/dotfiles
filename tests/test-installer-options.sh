@@ -254,6 +254,29 @@ run_failure "unknown option" "Unknown option: --invalid-option" \
 run_failure "missing theme value" "--theme requires a value" ./install.sh --theme
 run_failure "invalid theme" "Invalid Catppuccin flavour: espresso" \
   ./install.sh --dry-run --theme espresso
+
+# The accepted flavours are the theme option's values in the option manifest,
+# not a second list in the installer (#242): a value added there is accepted.
+flavour_manifest="$test_root/install-options.tsv"
+awk -F '\t' 'BEGIN { OFS = "\t" } $2 == "theme" { $7 = $7 "|oled" } { print }' \
+  config/install-options.tsv >"$flavour_manifest"
+run_success "a flavour added to the option manifest is accepted" \
+  "Catppuccin flavour:  oled" \
+  env "INSTALL_OPTION_MANIFEST=$flavour_manifest" ./install.sh --dry-run --theme oled
+run_failure "a flavour the option manifest does not list is rejected" \
+  "Invalid Catppuccin flavour: oled" \
+  ./install.sh --dry-run --theme oled
+
+# --dry-run exits before preflight, so it checks the capability selection
+# itself (#242): a capability the manifest does not implement fails the plan
+# instead of being shown as a step.
+unimplemented_manifest="$test_root/capabilities.tsv"
+awk -F '\t' '!($1 == "hardening" && $2 == "fedora")' \
+  config/capabilities.tsv >"$unimplemented_manifest"
+run_failure "a dry run refuses a capability the manifest does not implement" \
+  "Capability hardening is not implemented for fedora." \
+  env "CAPABILITY_MANIFEST=$unimplemented_manifest" ./install.sh --dry-run --hardening --non-interactive
+assert_not_contains "$TEST_OUTPUT" "[hardening]"
 run_failure "missing hardware value" "--hardware requires a value" \
   ./install.sh --hardware
 run_failure "invalid hardware" "Invalid hardware profile: unknown" \

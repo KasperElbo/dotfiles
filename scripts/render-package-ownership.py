@@ -22,10 +22,9 @@ from __future__ import annotations
 import csv
 import pathlib
 import sys
-import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import supported_platforms  # noqa: E402
+from manifests import mise_tools, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CAPABILITIES = ROOT / "config" / "capabilities.tsv"
@@ -138,9 +137,7 @@ def render_inventory(rows: list[dict[str, str]]) -> str:
 
 
 def render_mise() -> str:
-    with MISE_CONFIG.open("rb") as stream:
-        config = tomllib.load(stream)
-    tools = config.get("tools", {})
+    tools = mise_tools(MISE_CONFIG)
 
     lines = [
         BEGIN_MISE,
