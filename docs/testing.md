@@ -326,7 +326,8 @@ installer that runs but produces the wrong target.
   Starship configuration for the wrong flavour, a missing Delta override, Mason
   package or Catppuccin tmux plugin, a Homebrew `dotnet` ahead of the mise
   shim, a command that resolves but cannot run) and asserts exactly one more
-  failure, naming it.
+  failure, naming it. A Catppuccin tmux checkout moved past the pin is the
+  exception: it warns, naming both versions, and adds no failure.
 
 ## Scheduled/manual real-install validation
 

@@ -640,6 +640,32 @@ if grep -Fq 'node resolves outside mise' "$test_root/dnf-shadow.log"; then
 fi
 printf 'PASS: Fedora WSL verification rejects a non-mise runtime shadowing the mise shim\n'
 
+wsl_tmux_plugin="$bootstrap_data/tmux/plugins/catppuccin"
+rm -f -- "$wsl_tmux_plugin/catppuccin.tmux"
+if "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/tmux-missing.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a missing Catppuccin tmux plugin.\n' >&2
+  exit 1
+fi
+grep -Fq 'Catppuccin tmux is missing' "$test_root/tmux-missing.log"
+git -C "$wsl_tmux_plugin" checkout -q -- catppuccin.tmux
+printf 'PASS: Fedora WSL verification rejects a missing Catppuccin tmux plugin\n'
+
+git -C "$wsl_tmux_plugin" -c user.name=WSL-Test -c user.email=wsl@example.invalid \
+  commit -q --allow-empty -m 'past the pin'
+if ! "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/tmux-drift.log" 2>&1; then
+  printf 'Fedora WSL verification failed a Catppuccin tmux checkout past the pin:\n' >&2
+  cat "$test_root/tmux-drift.log" >&2
+  exit 1
+fi
+grep -Fq 'Catppuccin tmux is at v2.3.0-1-g' "$test_root/tmux-drift.log"
+grep -Fq 'not the pinned v2.3.0' "$test_root/tmux-drift.log"
+git -C "$wsl_tmux_plugin" checkout -q --detach v2.3.0
+printf 'PASS: Fedora WSL verification warns about a Catppuccin tmux checkout past the pin\n'
+
 bootstrap_identity="$(sha256sum "$bootstrap_config/git/local")"
 bootstrap_notes="$(sha256sum "$bootstrap_home/notes")"
 run_bootstrap

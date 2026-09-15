@@ -282,6 +282,16 @@ expect_one_more_failure 'a missing Catppuccin tmux plugin fails verification' \
   'Catppuccin tmux is missing'
 mv "$root/catppuccin-tmux" "$tmux_plugin"
 
+# A plugin checkout moved past the pin still works: a warning, not a failure.
+git -C "$tmux_plugin" -c user.name=Test -c user.email=test@example.invalid \
+  commit -q --allow-empty -m 'past the pin'
+run_verifier
+assert_eq "$baseline_failures" "$failures" 'a Catppuccin tmux checkout past the pin: failure count'
+assert_contains "$TEST_OUTPUT" "Catppuccin tmux is at $tmux_pin-1-g"
+assert_contains "$TEST_OUTPUT" "not the pinned $tmux_pin"
+printf 'PASS: a Catppuccin tmux checkout past the pin warns without failing verification\n'
+git -C "$tmux_plugin" checkout -q --detach "$tmux_pin"
+
 # A Homebrew dotnet ahead of the mise shim in the login PATH. It exists and
 # runs, so the old presence check passed it.
 homebrew_bin="$root/homebrew-bin"

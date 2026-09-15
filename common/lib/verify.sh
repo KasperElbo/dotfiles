@@ -406,10 +406,11 @@ verify_catppuccin_tmux_pin() {
 
 # check_catppuccin_tmux
 #
-# The plugin checkout tmux/.tmux.conf runs must exist and be at the pinned tag.
+# The plugin checkout tmux/.tmux.conf runs must exist. A checkout that has moved
+# off the pinned tag still works, so it is a warning naming both versions.
 check_catppuccin_tmux() {
   local plugin_dir="${XDG_DATA_HOME:-$HOME/.local/share}/tmux/plugins/catppuccin"
-  local pin installed_commit pinned_commit
+  local pin installed_commit pinned_commit installed_version
 
   if [[ ! -f "$plugin_dir/catppuccin.tmux" ]]; then
     fail "Catppuccin tmux is missing: $plugin_dir/catppuccin.tmux"
@@ -428,8 +429,8 @@ check_catppuccin_tmux() {
   if [[ -n "$installed_commit" && "$installed_commit" == "$pinned_commit" ]]; then
     pass "Catppuccin tmux is at the pinned $pin"
   else
-    fail "Catppuccin tmux is not at the pinned $pin: HEAD is" \
-      "${installed_commit:-unknown}, $pin is ${pinned_commit:-not in the checkout}"
+    installed_version="$(git -C "$plugin_dir" describe --tags --always HEAD 2>/dev/null || true)"
+    warning "Catppuccin tmux is at ${installed_version:-an unknown version}, not the pinned $pin"
   fi
 }
 

@@ -329,8 +329,9 @@ git -C "$plugin" -c user.name=Test -c user.email=test@example.invalid \
   commit -q --allow-empty -m 'past the pin'
 verify_reset
 XDG_DATA_HOME="$root/tmux-data" check_catppuccin_tmux >"$root/tmux.out" 2>&1 || true
-assert_verifier_counts 1 1 0
-assert_file_contains "$root/tmux.out" "Catppuccin tmux is not at the pinned $tmux_pin"
+assert_verifier_counts 1 0 1
+assert_file_contains "$root/tmux.out" "Catppuccin tmux is at $tmux_pin-1-g"
+assert_file_contains "$root/tmux.out" "not the pinned $tmux_pin"
 
 rm -f "$plugin/catppuccin.tmux"
 verify_reset
