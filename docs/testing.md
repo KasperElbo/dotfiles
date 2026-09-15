@@ -78,6 +78,32 @@ non-interactive startup and can enforce a budget with `--interactive-ms` /
 wall-clock timing is machine- and load-dependent, so a timing assertion in the
 fast suite would be a flaky gate rather than evidence.
 
+### Theme precedence and platform hooks
+
+Two suites carry issue #148.
+
+`tests/test-theme-precedence.sh` runs each platform installer with `--dry-run`
+across the whole precedence matrix: first install, explicit `--theme`, a plain
+rerun with an existing flavour, a missing theme file falling back to the
+remembered selection, a record belonging to another platform, an invalid theme
+file, and an unreadable or future-schema record. It also asserts that
+`./install.sh --rerun --dry-run` reconstructs the remembered flavour as an
+explicit `--theme` through the shared selection library, that a dry run changes
+no theme or lifecycle state, and that transient execution controls never appear
+in the persistent option manifest.
+
+`tests/test-theme-hooks.sh` builds machines with a recorded capability set and
+runs the real `theme` command against the real Fedora and Fedora WSL hooks. It
+proves a `--no-kde` machine never runs a KDE apply command — including when KDE
+assets are left over from an earlier install — that a selected capability with
+missing assets is still skipped, and that a machine with no recorded install
+decides by assets alone. For failure isolation it fails one action and requires
+the independent ones after it to still run, the failing one to be named, the
+shared state to be current, and the command to exit 3 rather than claiming a
+complete application; a hook that calls `exit` is contained the same way, while
+an unwritable shared state stops the command with status 1. It also asserts
+that no output claims a live Ghostty theme reload.
+
 ### Generated Starship configurations
 
 `tests/test-starship-themes.sh` owns the generated-prompt invariants (issues

@@ -11,12 +11,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/preflight.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/capabilities.sh"
 # shellcheck source=../../common/lib/install-lifecycle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
+# shellcheck source=../../common/lib/theme-selection.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
 # shellcheck source=lib/wsl.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/wsl.sh"
 # shellcheck source=lib/containers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/containers.sh"
 
-theme=macchiato; install_ocaml=false; install_latex=false
+theme="$THEME_DEFAULT_FLAVOUR"; theme_explicit=false
+install_ocaml=false; install_latex=false
 install_containers=false; containers_api_socket=false; install_ai=false
 # Empty means the sub-flag was omitted. install-ai.sh treats that as
 # additive -- keep whatever is already installed -- so it must stay
@@ -55,7 +58,7 @@ EOF
 
 while (($#)); do
   case "$1" in
-  --theme) [[ $# -ge 2 ]] || die '--theme requires a value'; theme="$2"; shift 2 ;;
+  --theme) [[ $# -ge 2 ]] || die '--theme requires a value'; theme="$2"; theme_explicit=true; shift 2 ;;
   --ocaml) install_ocaml=true; shift ;; --no-ocaml) install_ocaml=false; shift ;;
   --latex) install_latex=true; shift ;; --no-latex) install_latex=false; shift ;;
   --containers) install_containers=true; shift ;; --no-containers) install_containers=false; shift ;;
@@ -75,7 +78,13 @@ while (($#)); do
   *) die "Unknown option for fedora-wsl: $1" ;;
   esac
 done
-case "$theme" in latte | frappe | macchiato | mocha) ;; *) die "Invalid Catppuccin flavour: $theme" ;; esac
+# An explicit --theme wins; otherwise keep the flavour this machine already
+# has, then the one its last successful install recorded, and only then the
+# first-install default. A plain rerun must never reset a machine to the
+# default (issue #148).
+theme_resolve fedora-wsl "$theme_explicit" "$theme"
+theme="$THEME_RESOLVED"
+theme_source="$THEME_RESOLVED_SOURCE"
 [[ "$containers_api_socket" != true || "$install_containers" == true ]] || die '--containers-api-socket requires --containers'
 [[ -z "$ai_codex" || "$install_ai" == true ]] || die '--codex/--no-codex requires --ai'
 [[ -z "$ai_firstmate" || "$install_ai" == true ]] || die '--firstmate/--no-firstmate requires --ai'
@@ -156,7 +165,7 @@ if [[ "$dry_run" == true ]]; then
 
 Fedora WSL installation plan
 ----------------------------
-Catppuccin flavour: $theme
+Catppuccin flavour: $theme  (source: $theme_source — $(theme_source_description "$theme_source"))
 OCaml profile:      $install_ocaml
 LaTeX toolchain:    $install_latex
 Containers profile: $install_containers
@@ -183,6 +192,8 @@ fi
 
 if [[ "$interactive" == true ]]; then
   printf '\nFedora WSL workstation installation\n\n'
+  printf 'Catppuccin flavour: %s (source: %s — %s)\n' \
+    "$theme" "$theme_source" "$(theme_source_description "$theme_source")"
   if confirm 'Continue with installation?' y; then :; else
     result=$?; ((result == 1)) || die 'Invalid confirmation response'; printf 'Cancelled; no changes made.\n'; exit 0
   fi

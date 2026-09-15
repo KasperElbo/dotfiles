@@ -1234,7 +1234,14 @@ The selection is stored locally in:
 ~/.config/dotfiles/theme
 ```
 
-Changing flavor does **not** modify tracked dotfiles.
+Changing flavor does **not** modify tracked dotfiles, and a later installer run
+without `--theme` keeps whatever is stored there — see
+[Catppuccin theming](#catppuccin-theming) for the full precedence.
+
+`theme` reports what it applied. It exits 0 when everything applicable
+succeeded, 3 when the shared theme state is current but an independent platform
+action failed (naming it), and 1 when the shared state itself could not be
+written.
 
 ## 2. Git identity
 
@@ -3458,7 +3465,7 @@ before the remaining dotfiles are restowed.
 
 The repository installs all four Catppuccin flavors and uses one local selector.
 
-Default:
+First-install default:
 
 ```text
 macchiato
@@ -3469,6 +3476,112 @@ Accent where applicable:
 ```text
 mauve
 ```
+
+## Where a run's flavour comes from
+
+An installer resolves the flavour in this order, and says which tier it used in
+both the dry-run plan and the interactive confirmation:
+
+| Source | Meaning |
+|---|---|
+| `explicit` | `--theme FLAVOUR` on this invocation |
+| `existing` | the flavour this machine already has in `~/.config/dotfiles/theme` |
+| `remembered` | the flavour in the last successful install's recorded selection |
+| `default` | first install only |
+
+So an ordinary rerun never resets a machine to Macchiato:
+
+```bash
+./install.sh --theme latte     # installs Latte
+./install.sh                   # still Latte  (source: existing)
+./install.sh --theme mocha     # now Mocha    (source: explicit)
+```
+
+`existing` is checked before `remembered` because it is what the machine is
+actually wearing: `theme mocha` changes it without running an installer.
+`remembered` then covers a machine whose theme state file has been lost.
+
+The remembered value is the `theme` field of the structured selection the
+install lifecycle records (issues #210/#211) — there is no theme-specific state
+file competing with it, and no stored command text is ever parsed. It is
+validated against the current option manifest before use, so a record this
+checkout cannot interpret falls through to the next tier instead of being
+guessed at.
+
+`./install.sh --rerun` therefore replays the remembered flavour like any other
+remembered option, reconstructed as an explicit `--theme` by the shared
+selection library:
+
+```bash
+./install.sh --rerun --dry-run
+# Options:   --theme latte --no-kde --no-latex …
+```
+
+Only a *successful* install replaces the remembered configuration, so a failed
+or cancelled run leaves the previous flavour as the rerun target.
+
+## Applying a theme: named actions
+
+`theme <flavour>` applies a set of mostly independent effects, each a named
+action with its own error boundary:
+
+- the shared state files (`theme`, `ghostty.conf`, `git-theme`,
+  `tmux-theme.conf`) are **required** — if they cannot be written the command
+  stops with status 1 and applies nothing else;
+- every other action is independent. One failing action is named, does not stop
+  the others, and leaves the command with status 3 and a summary of what
+  applied and what did not.
+
+```text
+Catppuccin mocha was applied only partially.
+Applied:
+  - shared-state
+  - tmux
+Failed:
+  - fedora:kde (exit 9)
+```
+
+An action that is deliberately not run is reported separately, so "not
+installed here" stays distinct from "failed":
+
+```text
+Not applicable on this machine:
+  - fedora:kde (the KDE capability was not installed)
+```
+
+The last run's records stay in `~/.local/state/dotfiles/theme-actions.log`.
+
+## Hooks only apply what is installed
+
+A platform hook must never apply an identifier for assets that were never
+installed. The Fedora hook asks the install lifecycle state whether the `kde`
+capability was selected, and separately whether the Catppuccin KDE global theme
+for the chosen flavour is actually present:
+
+- installed with `--no-kde` → no KDE command runs at all, even if Plasma is
+  present and even if KDE themes are left over from an earlier install;
+- selected but assets missing (a machine that predates the capability record)
+  → still skipped, and the Fedora verifier reports it;
+- no recorded installation at all → the assets alone decide.
+
+The Fedora verifier checks exactly what the installed capability owns: with
+KDE selected it requires `kio-extras` and the global theme for the current
+flavour; with `--no-kde` it requires neither, and warns rather than fails if
+leftover KDE assets are present.
+
+The Parrot CTF guest deliberately installs no desktop theme hooks: it is a
+reduced lab profile, not a workstation, and parity is not a reason to give it
+desktop theming it has no use for.
+
+## Ghostty
+
+Ghostty applies a changed `theme` only on a **full restart**; a configuration
+reload does not change an already-set theme. Nothing in this repository claims
+otherwise. On Fedora the hook still requests a reload (it is worth doing for
+the rest of the configuration) and then says a restart is required; on a
+profile with no hook of its own — macOS — the portable command prints the same
+guidance. On Fedora WSL, Windows owns the terminal, so the Noctty bridge is
+what changes the theme and no Ghostty guidance is printed at all.
 
 ## KDE
 

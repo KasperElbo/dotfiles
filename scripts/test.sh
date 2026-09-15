@@ -78,6 +78,8 @@ default_tests=(
   tests/test-platform-boundary.sh
   tests/test-local-state.sh
   tests/test-theme.sh
+  tests/test-theme-hooks.sh
+  tests/test-theme-precedence.sh
   tests/test-starship-themes.sh
   tests/test-kde-theme.sh
   tests/test-sway-config.sh

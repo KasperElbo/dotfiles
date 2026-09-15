@@ -17,12 +17,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/preflight.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/capabilities.sh"
 # shellcheck source=../../common/lib/install-lifecycle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
+# shellcheck source=../../common/lib/theme-selection.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
 # shellcheck source=lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/macos.sh"
 # shellcheck source=lib/install-actions.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/install-actions.sh"
 
-theme=macchiato; install_ocaml=false; install_containers=false
+theme="$THEME_DEFAULT_FLAVOUR"; theme_explicit=false; install_ocaml=false; install_containers=false
 install_tailscale=false; apply_defaults=true; run_dev_workflows=false
 install_ai=false
 # Empty means the sub-flag was omitted. common/install-ai.sh treats that as
@@ -38,7 +40,7 @@ usage() {
 
 while (($#)); do
   case "$1" in
-  --theme) [[ $# -ge 2 ]] || die "--theme requires a value"; theme="$2"; shift 2 ;;
+  --theme) [[ $# -ge 2 ]] || die "--theme requires a value"; theme="$2"; theme_explicit=true; shift 2 ;;
   --ocaml) install_ocaml=true; shift ;; --no-ocaml) install_ocaml=false; shift ;;
   --containers) install_containers=true; shift ;; --no-containers) install_containers=false; shift ;;
   --tailscale) install_tailscale=true; shift ;; --no-tailscale) install_tailscale=false; shift ;;
@@ -63,7 +65,13 @@ See docs/macos.md, 'LaTeX is externally managed on macOS'."
   *) die "Unknown option for macos: $1" ;;
   esac
 done
-case "$theme" in latte | frappe | macchiato | mocha) ;; *) die "Invalid Catppuccin flavour: $theme" ;; esac
+# An explicit --theme wins; otherwise keep the flavour this machine already
+# has, then the one its last successful install recorded, and only then the
+# first-install default. A plain rerun must never reset a machine to the
+# default (issue #148).
+theme_resolve macos "$theme_explicit" "$theme"
+theme="$THEME_RESOLVED"
+theme_source="$THEME_RESOLVED_SOURCE"
 [[ -z "$ai_codex" || "$install_ai" == true ]] || die '--codex/--no-codex requires --ai'
 [[ -z "$ai_firstmate" || "$install_ai" == true ]] || die '--firstmate/--no-firstmate requires --ai'
 [[ -z "$ai_gnhf" || "$install_ai" == true ]] || die '--gnhf/--no-gnhf requires --ai'
@@ -210,7 +218,7 @@ if [[ "$dry_run" == true ]]; then
 
 Apple Silicon macOS installation plan
 --------------------------------------
-Catppuccin flavour: $theme
+Catppuccin flavour: $theme  (source: $theme_source — $(theme_source_description "$theme_source"))
 Window manager:     AeroSpace (Sway-compatible nine-workspace profile)
 macOS defaults:     $apply_defaults
 OCaml profile:      $install_ocaml
@@ -231,6 +239,8 @@ fi
 
 if [[ "$interactive" == true ]]; then
   printf '\nApple Silicon macOS workstation\n\n'
+  printf 'Catppuccin flavour: %s (source: %s — %s)\n' \
+    "$theme" "$theme_source" "$(theme_source_description "$theme_source")"
   if confirm 'Continue with installation?' y; then :; else
     result=$?; ((result == 1)) || die 'Invalid confirmation response'
     printf 'Cancelled; no changes made.\n'; exit 0

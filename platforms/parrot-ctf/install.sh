@@ -11,11 +11,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/preflight.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/capabilities.sh"
 # shellcheck source=../../common/lib/install-lifecycle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
+# shellcheck source=../../common/lib/theme-selection.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
 # shellcheck source=lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/parrot.sh"
 
-theme=macchiato
-theme_source=default
+theme="$THEME_DEFAULT_FLAVOUR"
+theme_explicit=false
 interactive=true
 dry_run=false
 
@@ -43,7 +45,7 @@ while (($#)); do
   --theme)
     [[ $# -ge 2 ]] || die "--theme requires a value"
     theme="$2"
-    theme_source=explicit
+    theme_explicit=true
     shift 2
     ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
@@ -55,18 +57,13 @@ while (($#)); do
   *) die "Unknown option for parrot-ctf: $1" ;;
   esac
 done
-case "$theme" in latte | frappe | macchiato | mocha) ;; *) die "Invalid Catppuccin flavour: $theme" ;; esac
-
-theme_state="$XDG_CONFIG_HOME/dotfiles/theme"
-if [[ "$theme_source" != explicit && -r "$theme_state" ]]; then
-  persisted_theme="$(tr -d '[:space:]' <"$theme_state")"
-  case "$persisted_theme" in
-  latte | frappe | macchiato | mocha)
-    theme="$persisted_theme"
-    theme_source=existing
-    ;;
-  esac
-fi
+# An explicit --theme wins; otherwise keep the flavour this machine already
+# has, then the one its last successful install recorded, and only then the
+# first-install default. A plain rerun must never reset a machine to the
+# default (issue #148).
+theme_resolve parrot-ctf "$theme_explicit" "$theme"
+theme="$THEME_RESOLVED"
+theme_source="$THEME_RESOLVED_SOURCE"
 
 # The resolved persistent configuration of this run; transient controls
 # (--dry-run, --non-interactive) are deliberately excluded.
@@ -118,7 +115,7 @@ if [[ "$dry_run" == true ]]; then
 
 Parrot Security Edition CTF VM plan
 -----------------------------------
-Theme:                  $theme ($theme_source)
+Theme:                  $theme ($theme_source — $(theme_source_description "$theme_source"))
 Hypervisor:             KVM/QEMU through qemu:///system
 Normal network:         libvirt default NAT
 Security tools:         Existing Parrot/APT catalogue (unchanged)
@@ -143,6 +140,8 @@ fi
 
 if [[ "$interactive" == true ]]; then
   printf '\nParrot Security Edition CTF guest installation\n\n'
+  printf 'Catppuccin flavour: %s (source: %s — %s)\n' \
+    "$theme" "$theme_source" "$(theme_source_description "$theme_source")"
   if confirm "Continue with the isolated lab profile?" y; then :; else
     result=$?; ((result == 1)) || die "Invalid confirmation response"
     printf 'Cancelled; no changes made.\n'; exit 0
