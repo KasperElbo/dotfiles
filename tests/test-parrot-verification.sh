@@ -79,7 +79,7 @@ exit 0
 EOF
 cat >"$mock_bin/starship" <<'EOF'
 #!/usr/bin/env bash
-[[ "${1:-}" == prompt ]]
+[[ "${1:-}" == prompt || "${1:-}" == --version ]]
 EOF
 cat >"$mock_bin/id" <<'EOF'
 #!/usr/bin/env bash
@@ -148,6 +148,11 @@ ln -s /usr/bin/jq "$mock_bin/jq"
 
 cat >"$mock_bin/git" <<'EOF'
 #!/usr/bin/env bash
+# The Catppuccin tmux fixture is a real repository; only the Lazy plugin
+# checkouts are simulated from the lockfile.
+if [[ "${1:-}" == -C && "${2:-}" == "$MOCK_TMUX_PLUGIN" ]]; then
+  exec /usr/bin/git "$@"
+fi
 if [[ "${1:-}" == -C && "${3:-}" == rev-parse && "${4:-}" == HEAD ]]; then
   plugin_name="$(basename "$2")"
   jq -r --arg plugin "$plugin_name" '.[$plugin].commit // empty' "$MOCK_LAZY_LOCK"
@@ -208,6 +213,17 @@ while IFS= read -r plugin_name; do
   mkdir -p "$data/nvim/lazy/$plugin_name"
 done < <(jq -r 'keys[]' "$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/lazy-lock.json")
 
+# The pinned Catppuccin tmux checkout, as common/install-tmux-theme.sh leaves it.
+tmux_plugin="$data/tmux/plugins/catppuccin"
+tmux_pin="$(sed -n 's/^version="\(v[0-9][0-9.]*\)"$/\1/p' "$repo_root/common/install-tmux-theme.sh")"
+mkdir -p "$tmux_plugin"
+/usr/bin/git -C "$tmux_plugin" init -q
+printf '# theme\n' >"$tmux_plugin/catppuccin.tmux"
+/usr/bin/git -C "$tmux_plugin" add catppuccin.tmux
+/usr/bin/git -C "$tmux_plugin" -c user.name=Test -c user.email=test@example.invalid \
+  commit -qm theme
+/usr/bin/git -C "$tmux_plugin" tag "$tmux_pin"
+
 verify_environment=(
   env
   "HOME=$home"
@@ -217,6 +233,7 @@ verify_environment=(
   "MISE_DATA_DIR=$data/mise"
   "MOCK_NVIM=$nvim_install"
   "MOCK_LAZY_LOCK=$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/lazy-lock.json"
+  "MOCK_TMUX_PLUGIN=$tmux_plugin"
   "MOCK_ZSH=$mock_bin/zsh"
   "MOCK_FONT=$data/fonts/HackNerdFont/3.4.0/HackNerdFontMono-Regular.ttf"
   "SHELL=$mock_bin/zsh"
@@ -230,6 +247,49 @@ verification_output="$(
     "$repo_root/platforms/parrot-ctf/scripts/verify.sh" 2>&1
 )"
 grep -Fq 'Parrot CTF verification passed.' <<<"$verification_output"
+grep -Fq "Catppuccin tmux is at the pinned $tmux_pin" <<<"$verification_output"
+
+# The APT packages the verifier checks are exactly the Parrot base and
+# vm-guest rows of the manifest, minus mise, the one declared package an
+# upstream installer rather than APT provides.
+expected_apt_packages() {
+  awk -F '\t' '$2 == "parrot-ctf" && ($1 == "base" || $1 == "vm-guest") { print $9 }' "$1" |
+    tr ',' '\n' | grep -vx -e mise -e - | sort -u
+}
+checked_apt_packages() {
+  sed -n 's/^.* \([^ ]*\) is APT-owned$/\1/p' <<<"$1" | sort -u
+}
+compare_apt_packages() {
+  local expected="$1" checked="$2" unchecked undeclared
+  unchecked="$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$checked"))"
+  undeclared="$(comm -13 <(printf '%s\n' "$expected") <(printf '%s\n' "$checked"))"
+  [[ -n "$unchecked$undeclared" ]] || return 0
+  printf 'Parrot verifier packages differ from config/capabilities.tsv; unchecked: %s; undeclared: %s\n' \
+    "${unchecked//$'\n'/ }" "${undeclared//$'\n'/ }" >&2
+  return 1
+}
+
+registry_packages="$(expected_apt_packages "$repo_root/config/capabilities.tsv")"
+[[ "$registry_packages" == *build-essential* && "$registry_packages" == *qemu-guest-agent* ]]
+compare_apt_packages "$registry_packages" "$(checked_apt_packages "$verification_output")"
+
+# Negative control: the verifier really reads the row. Drop one package from a
+# scratch copy of the manifest and the checked set no longer matches the
+# registry, naming the package that went unchecked.
+scratch_manifest="$test_root/capabilities.tsv"
+awk -F '\t' -v OFS='\t' '$1 == "base" && $2 == "parrot-ctf" { sub(/(^|,)curl,/, ",", $9); sub(/^,/, "", $9) } { print }' \
+  "$repo_root/config/capabilities.tsv" >"$scratch_manifest"
+scratch_output="$(
+  "${verify_environment[@]}" "CAPABILITY_MANIFEST=$scratch_manifest" \
+    "$repo_root/platforms/parrot-ctf/scripts/verify.sh" 2>&1
+)" || true
+if compare_apt_packages "$registry_packages" "$(checked_apt_packages "$scratch_output")" \
+  2>"$test_root/package-drift.log"; then
+  printf 'A package removed from the manifest row was still checked by the verifier.\n' >&2
+  exit 1
+fi
+grep -Fq 'unchecked: curl;' "$test_root/package-drift.log"
+printf 'PASS: the Parrot verifier checks exactly the registry package rows\n'
 grep -Fq 'python3 remains Parrot/APT-owned' <<<"$verification_output"
 grep -Fq 'Neovim 0.12.5 satisfies the >= 0.12 baseline' <<<"$verification_output"
 grep -Fq 'Mason inventory exactly matches the reduced Parrot profile' <<<"$verification_output"

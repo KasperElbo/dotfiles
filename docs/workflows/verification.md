@@ -64,9 +64,10 @@ about capabilities that were not — it also confirms that an unselected optiona
 profile left nothing behind. The Fedora verifier is the broadest one, and its
 sections are representative of all of them:
 
-- the Fedora security baseline: SELinux enforcing, firewalld active, Secure
+- the Fedora security baseline: SELinux enforcing, firewalld enabled and active, Secure
   Boot state (always, independent of `--hardening`)
-- required core commands, and the SFTP client baseline
+- required core commands, each run as well as found on PATH, and the SFTP
+  client baseline
 - Stow-managed links, and nested Git repositories or generated junk files
 - machine-local theme state, required theme assets, and the derived
   Ghostty/Delta/tmux theme overrides

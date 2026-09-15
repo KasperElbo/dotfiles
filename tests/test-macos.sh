@@ -257,6 +257,36 @@ if grep -Fq -- '--ocaml' "$macos_verifier"; then
   exit 1
 fi
 
+# The macOS installer applies a theme, restores the Mason inventory and
+# installs the pinned Catppuccin tmux plugin, so the verifier must check all
+# three, and must prove mise ownership of the runtimes mise manages rather than
+# accept whichever copy PATH finds. tests/test-macos-verification.sh runs these
+# sections against a mocked machine; this asserts they stay in the file.
+grep -Fq 'section "Theme"' "$macos_verifier" || {
+  printf 'macOS verifier has no theme section.\n' >&2
+  exit 1
+}
+# shellcheck disable=SC2016 # Matching the literal path expression in verify.sh.
+grep -Fq 'theme_file="$XDG_CONFIG_HOME/dotfiles/theme"' "$macos_verifier" || {
+  printf 'macOS verifier does not read the machine-local theme state.\n' >&2
+  exit 1
+}
+# shellcheck disable=SC2016 # Matching the literal call in verify.sh.
+grep -Fq 'check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"' \
+  "$macos_verifier" || {
+  printf 'macOS verifier does not iterate the tracked Mason inventory.\n' >&2
+  exit 1
+}
+grep -Fq 'check_catppuccin_tmux' "$macos_verifier" || {
+  printf 'macOS verifier does not check the pinned Catppuccin tmux plugin.\n' >&2
+  exit 1
+}
+# shellcheck disable=SC2016 # Matching the literal loop in verify.sh.
+grep -Fq 'for name in "${mise_tools[@]}"; do check_mise_owned "$name"; done' "$macos_verifier" || {
+  printf 'macOS verifier does not prove mise ownership of its runtimes.\n' >&2
+  exit 1
+}
+
 # ---------------------------------------------------------------------------
 # Platform consistency
 #

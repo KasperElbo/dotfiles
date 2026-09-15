@@ -4,29 +4,14 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../lib/wsl.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/wsl.sh"
 # shellcheck source=../lib/containers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/containers.sh"
 
-failures=0
-
-pass() {
-  printf '\033[1;32m✓\033[0m %s\n' "$*"
-}
-
-fail() {
-  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
-  failures=$((failures + 1))
-}
-
-warning() {
-  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
-}
-
-section() {
-  printf '\n\033[1m%s\033[0m\n' "$1"
-}
+verify_reset
 
 if ! require_fedora_wsl; then
   exit 1
@@ -69,10 +54,8 @@ else
   pass "current directory is on the WSL Linux filesystem"
 fi
 
-if ((failures > 0)); then
-  printf '\n\033[1;31mWSL container prerequisites failed:\033[0m %d failure(s)\n' \
-    "$failures"
-  exit 1
-fi
+# The Fedora verifier below replaces this process and reports its own summary,
+# so report this part's outcome, warnings included, before handing over.
+finish_verification "WSL container prerequisites" || exit 1
 
 exec "$DOTFILES_ROOT/platforms/fedora/scripts/verify-containers.sh" "$@"

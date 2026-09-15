@@ -23,6 +23,21 @@ capability_field() {
     "$CAPABILITY_MANIFEST"
 }
 
+# capability_packages <platform> <capability>: the row's declared packages,
+# one per line, in manifest order. A row that declares none ("-") prints
+# nothing; a row that does not exist fails, so a verifier looping over the
+# result cannot silently check an empty set because a name was mistyped.
+capability_packages() {
+  local platform="$1" capability="$2" packages package
+  local -a declared=()
+  packages="$(capability_field "$platform" "$capability" packages)" || return 1
+  [[ "$packages" != - ]] || return 0
+  IFS=, read -r -a declared <<<"$packages"
+  for package in "${declared[@]}"; do
+    printf '%s\n' "$package"
+  done
+}
+
 capability_is_selected() {
   local wanted="$1" selected
   shift

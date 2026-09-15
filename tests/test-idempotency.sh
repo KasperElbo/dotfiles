@@ -232,6 +232,7 @@ chmod +x \
 mock_commands=(
   ast-grep
   bat
+  curl
   delta
   dnf
   dotnet
@@ -241,6 +242,7 @@ mock_commands=(
   fzf
   gh
   ghostty
+  gpg
   lazygit
   lookandfeeltool
   makoctl
@@ -426,6 +428,31 @@ grep -Fq 'Default login shell is not Zsh: /bin/bash' \
   "$test_root/login-shell-verification.log"
 printf '%s\n' "$mock_bin/zsh" >"$shell_state"
 printf 'PASS: Fedora verification rejects a non-Zsh login shell\n'
+
+rm -f -- "$theme_install/catppuccin.tmux"
+if "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora/scripts/verify.sh" \
+  >"$test_root/tmux-missing-verification.log" 2>&1; then
+  printf 'Fedora verification accepted a missing Catppuccin tmux plugin\n'
+  exit 1
+fi
+grep -Fq 'Catppuccin tmux is missing' "$test_root/tmux-missing-verification.log"
+git -C "$theme_install" checkout -q -- catppuccin.tmux
+printf 'PASS: Fedora verification rejects a missing Catppuccin tmux plugin\n'
+
+git -C "$theme_install" -c user.name=Bootstrap-Test -c user.email=bootstrap@example.invalid \
+  commit -q --allow-empty -m 'past the pin'
+if ! "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora/scripts/verify.sh" \
+  >"$test_root/tmux-drift-verification.log" 2>&1; then
+  printf 'Fedora verification failed a Catppuccin tmux checkout past the pin:\n'
+  cat "$test_root/tmux-drift-verification.log"
+  exit 1
+fi
+grep -Fq 'Catppuccin tmux is at v2.3.0-1-g' "$test_root/tmux-drift-verification.log"
+grep -Fq 'not the pinned v2.3.0' "$test_root/tmux-drift-verification.log"
+git -C "$theme_install" checkout -q --detach v2.3.0
+printf 'PASS: Fedora verification warns about a Catppuccin tmux checkout past the pin\n'
 
 run_bootstrap --vm-guest
 vm_guest_state="$bootstrap_config/dotfiles/vm-guest.conf"

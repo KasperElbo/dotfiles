@@ -131,6 +131,7 @@ run_scenario() {
     'reload sshd.service'
     'is-enabled --quiet dnf5-automatic.timer'
     'enable --now dnf5-automatic.timer'
+    'is-enabled --quiet firewalld.service'
     'is-active --quiet firewalld.service'
     'is-active --quiet auditd.service'
     'is-enabled --quiet avahi-daemon.service'
@@ -474,7 +475,7 @@ SUDO_EOF
   fi
 
   assert_contains "$verify_output" 'SELinux is enforcing'
-  assert_contains "$verify_output" 'firewalld is active'
+  assert_contains "$verify_output" 'firewalld.service is enabled and active'
   # Every repository-owned control is actually inspected on the happy path,
   # not skipped: mode and content are asserted, not just existence.
   assert_contains "$verify_output" \
@@ -559,9 +560,23 @@ SUDO_EOF
     sed -i '/^auditd.service$/d' "$active_units"
     run_verify
     assert_failure
-    assert_contains "$TEST_OUTPUT" 'auditd is not active'
+    assert_contains "$TEST_OUTPUT" 'auditd.service is enabled but not active'
     assert_contains "$TEST_OUTPUT" 'recorded'
     printf 'auditd.service\n' >>"$active_units"
+
+    # 4b. A security service running now that will not come back after a
+    #     reboot: firewalld started by hand but no longer enabled. An
+    #     is-active check alone reported this as a pass.
+    sed -i '/^firewalld.service$/d' "$enabled_units"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'firewalld.service is active but not enabled; it will not start after a reboot'
+    assert_not_contains "$TEST_OUTPUT" 'firewalld.service is enabled and active'
+    [[ "$(sed $'s/\033\\[[0-9;]*m//g' <<<"$TEST_OUTPUT")" =~ failed:\ ([0-9]+)\ failure ]] &&
+      ((BASH_REMATCH[1] > 0)) ||
+      _test_die "active-but-disabled firewalld must be counted as a verifier failure"
+    printf 'firewalld.service\n' >>"$enabled_units"
 
     # 5. An owned control that is present on disk but ineffective: the rules
     #    file is intact, yet the running kernel has no dotfiles watches.

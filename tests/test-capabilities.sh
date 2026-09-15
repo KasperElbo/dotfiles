@@ -274,4 +274,73 @@ grep -Fq 'plasma9' "$fixture.platform.log"
 # does not model at all; without it both read as an em dash.
 grep -Fq 'not modelled' "$repo_root/docs/reference/capability-matrix.md"
 
+# ---------------------------------------------------------------------------
+# The verify direction
+#
+# Each rule that checks a verifier against its row is proven able to fail: a
+# scratch copy of the repository is broken in exactly the way the rule exists
+# to catch, and the validator in that copy must reject it, naming the item.
+# ---------------------------------------------------------------------------
+
+# Below "$fixture", so the suite's existing EXIT trap removes it.
+scratch_root="$fixture.verify"
+mkdir -p "$scratch_root"
+
+new_scratch() {
+  scratch="$scratch_root/$1"
+  mkdir -p "$scratch"
+  cp -R "$repo_root/." "$scratch/"
+  rm -rf -- "$scratch/.git"
+}
+
+expect_scratch_rejected() {
+  local name="$1" expected="$2"
+  if python3 "$scratch/scripts/validate-capabilities.py" 2>"$scratch_root/$name.log"; then
+    printf '%s: the validator accepted the broken scratch copy.\n' "$name" >&2
+    exit 1
+  fi
+  grep -Fq -- "$expected" "$scratch_root/$name.log" || {
+    printf '%s: expected the validator to report: %s\n' "$name" "$expected" >&2
+    cat "$scratch_root/$name.log" >&2
+    exit 1
+  }
+  printf 'PASS: %s\n' "$name"
+}
+
+# A verifier must check the theme, Mason and tmux components its Stow packages
+# rely on.
+new_scratch components
+sed -i '/^section "Theme"$/,/^section "Neovim tooling"$/{/^section "Neovim tooling"$/!d}' \
+  "$scratch/platforms/macos/scripts/verify.sh"
+expect_scratch_rejected 'a verifier without its theme section is rejected' \
+  "macos/base: Stow package 'starship' relies on theme, but platforms/macos/scripts/verify.sh never checks it"
+
+# A verifier reads its packages from the manifest, never a copy of it.
+new_scratch package-array
+sed -i 's/^for capability in base vm-guest; do$/packages=(bat curl)\n&/' \
+  "$scratch/platforms/parrot-ctf/scripts/verify.sh"
+expect_scratch_rejected 'a verifier with a literal package list is rejected' \
+  'platforms/parrot-ctf/scripts/verify.sh: verifier keeps its own packages=(...) list (bat curl)'
+
+# A verifier, and a verifier it runs, report through the shared library.
+new_scratch library
+sed -i '/common\/lib\/verify\.sh"$/d' "$scratch/platforms/fedora/scripts/verify-vm-host.sh"
+expect_scratch_rejected 'a verifier that does not source the library is rejected' \
+  'platforms/fedora/scripts/verify-vm-host.sh: verifier does not source common/lib/verify.sh'
+
+# A declared verifier must be run by the CI tier that can run it. The Fedora
+# job runs the dev-workflows verifier inside its integration script and the
+# macOS job runs it as a step; with both gone nothing proves it.
+new_scratch real-install
+sed -i '/test-dev-workflows\.sh/d' "$scratch/.github/workflows/real-install.yml"
+python3 "$scratch/scripts/validate-capabilities.py"
+sed -i '/test-dev-workflows\.sh/d' "$scratch/tests/integration/fedora-clean-install.sh"
+expect_scratch_rejected 'a verifier no real installation runs is rejected' \
+  'dev-workflows: verifier scripts/test-dev-workflows.sh is not run by .github/workflows/real-install.yml'
+
+new_scratch mocked-suite
+sed -i '/verify-desktop-tools\.sh/d' "$scratch/tests/test-desktop-tools.sh"
+expect_scratch_rejected 'a mocked verifier its suite never runs is rejected' \
+  'desktop-tools: tests/test-desktop-tools.sh is recorded as the CI evidence for platforms/fedora/scripts/verify-desktop-tools.sh but never runs it'
+
 printf 'Capability manifest validation passed.\n'

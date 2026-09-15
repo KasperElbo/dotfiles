@@ -190,4 +190,41 @@ fi
 grep -Fq 'rpmfusion' "$command_log"
 printf 'PASS: RPM Fusion is enabled for full multimedia codec support\n'
 
+# --- the verifier reports through the shared verification contract ---------
+
+# The verifier gets only these commands and the few tools the scripts need, so
+# a desktop application installed on the machine running the suite can never
+# stand in for a missing one.
+verify_bin="$test_root/verify-bin"
+mkdir -p "$verify_bin"
+for command_name in ark gwenview okular gimp pdfarranger mpv skanpage; do
+  ln -s /usr/bin/true "$verify_bin/$command_name"
+done
+for command_name in awk bash dirname env grep sed; do
+  ln -s "$(command -v "$command_name")" "$verify_bin/$command_name"
+done
+run_verifier() {
+  run_capture "${test_environment[@]}" "PATH=$verify_bin:$mock_bin" \
+    "$repo_root/platforms/fedora/scripts/verify-desktop-tools.sh"
+}
+
+run_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" 'Desktop-tools verification passed.'
+
+sed -i 's#^image/jpeg=.*#image/jpeg=some-other-viewer.desktop#' "$mime_store"
+run_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" 'image/jpeg default is some-other-viewer.desktop'
+assert_contains "$TEST_OUTPUT" 'Desktop-tools verification passed with warnings:'
+assert_contains "$TEST_OUTPUT" ' 1 warning(s)'
+
+rm -f "$verify_bin/gimp"
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'gimp not found'
+assert_contains "$TEST_OUTPUT" 'Desktop-tools verification failed:'
+assert_contains "$TEST_OUTPUT" ' 1 failure(s), 1 warning(s)'
+printf 'PASS: the desktop-tools verifier counts failures and warnings through the shared library\n'
+
 printf 'Desktop-tools package, MIME-association, and idempotency tests passed.\n'

@@ -187,13 +187,13 @@ run_as_user "$install_command"
 printf '\n==> Independent Fedora verifier\n'
 run_as_user './platforms/fedora/scripts/verify.sh'
 
-# The JSON workflow is the one editor capability that can be proved end to end
-# here: this is a real installed Neovim with its real Mason inventory, so
-# filetype detection, jsonls diagnostics and Conform formatting are exercised
-# against the tools the installer actually provisioned. The other workflows
-# need language ecosystems this container does not install and report SKIP.
-printf '\n==> Installed JSON editing, validation and formatting workflow\n'
-run_as_user './scripts/test-dev-workflows.sh --json'
+# The declared verifier of the dev-workflows capability, run against the real
+# installation: .NET, Angular/TypeScript, Python and JSON with the mise
+# runtimes, Neovim and Mason inventory the installer actually provisioned. It
+# runs from a fresh Zsh login, the environment a user runs it from, because
+# a workflow whose toolchain is not on PATH reports SKIP rather than running.
+printf '\n==> Installed development workflow smoke tests\n'
+run_as_user "zsh -lic './scripts/test-dev-workflows.sh --all'"
 
 printf '\n==> Idempotent rerun\n'
 run_as_user "$install_command"

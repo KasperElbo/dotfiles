@@ -452,24 +452,37 @@ chmod +x "$bootstrap_bin/mock-command" \
 chmod +x "$bootstrap_stub_root/handlers/sudo" "$bootstrap_bin/mktemp"
 
 bootstrap_commands=(
-  ast-grep bat biber curl delta dotnet dotnet-easydotnet eza fd fzf gh
-  latex latexindent latexmk lazygit lualatex neovim-node-host node npm npx
-  pdflatex python rg rpm shellcheck sqlite3 starship tmux tree-sitter uv
-  wslpath xelatex zoxide zsh
+  bat biber curl delta eza fd fzf gh latex latexindent latexmk lualatex
+  pdflatex rg rpm shellcheck sqlite3 starship tmux wslpath xelatex zoxide zsh
 )
 for command_name in "${bootstrap_commands[@]}"; do
   ln -s mock-command "$bootstrap_bin/$command_name"
 done
 
-rm -- "$bootstrap_bin/dotnet-easydotnet"
-cat >"$bootstrap_bin/dotnet-easydotnet" <<'EOF'
+# The runtimes mise owns are installed the way mise installs them: under its
+# installs directory, reached through its shims, and reported by `mise which`.
+# The verifier proves that ownership, so a plain PATH stub would not pass it.
+bootstrap_mise_tools=(
+  ast-grep dotnet dotnet-easydotnet lazygit neovim-node-host node npm npx
+  python tree-sitter uv
+)
+mkdir -p "$bootstrap_data/mise/shims"
+for command_name in "${bootstrap_mise_tools[@]}"; do
+  install_bin="$bootstrap_data/mise/installs/$command_name/latest/bin/$command_name"
+  mkdir -p "$(dirname "$install_bin")"
+  cp "$bootstrap_bin/mock-command" "$install_bin"
+  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$install_bin" \
+    >"$bootstrap_data/mise/shims/$command_name"
+  chmod +x "$install_bin" "$bootstrap_data/mise/shims/$command_name"
+done
+
+cat >"$bootstrap_data/mise/installs/dotnet-easydotnet/latest/bin/dotnet-easydotnet" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == healthcheck ]]; then
   printf '[{"type":"ok","name":"debugger.engine","value":"netcoredbg"},{"type":"ok","name":"debugger.source","value":"bundled"},{"type":"ok","name":"debugger.platform","value":"linux-x64"},{"type":"ok","name":"debugger.path","value":"%s"},{"type":"ok","name":"debugger.version","value":"NET Core debugger test version"}]\n' \
     "$MOCK_EASY_DOTNET_DEBUGGER"
 fi
 EOF
-chmod +x "$bootstrap_bin/dotnet-easydotnet"
 
 cat >"$bootstrap_bin/mise" <<'EOF'
 #!/usr/bin/env bash
@@ -531,10 +544,12 @@ EOF
 chmod +x "$bootstrap_bin/mise" "$bootstrap_bin/nvim"
 
 rm -- "$bootstrap_bin/zsh"
+# MOCK_LOGIN_PATH_PREFIX models a directory a real login would put ahead of
+# the mise shims, such as a dnf package's /usr/bin copy of a runtime.
 cat >"$bootstrap_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
 printf '\033[H\033[2J\033[3J'
-PATH="$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
+PATH="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
 if [[ "$*" == *'printf "%s\\n" "$PATH"'* ]]; then
   printf '%s\n' "$PATH"
 elif [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then
@@ -603,6 +618,54 @@ grep -Fq 'Ensuring explicit Windows executable interop stays available' \
   "$test_root/bootstrap.log"
 grep -Fq 'explicit Windows executable interop works' "$test_root/bootstrap.log"
 grep -Fq 'sudo install -m 0644' "$bootstrap_command_log"
+grep -Fq 'dotnet is mise-managed via shim' "$test_root/bootstrap.log"
+grep -Fq 'node is mise-managed via shim' "$test_root/bootstrap.log"
+
+# A dnf copy of a mise-owned runtime ahead of the mise shims in the login PATH
+# is Linux-native, so the Windows-path check alone accepted it. The verifier
+# must now name it.
+dnf_shadow="$test_root/dnf-shadow-bin"
+mkdir -p "$dnf_shadow"
+cp "$bootstrap_bin/mock-command" "$dnf_shadow/dotnet"
+if "${bootstrap_environment[@]}" "MOCK_LOGIN_PATH_PREFIX=$dnf_shadow" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/dnf-shadow.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a non-mise dotnet ahead of the mise shim.\n' >&2
+  exit 1
+fi
+grep -Fq "dotnet resolves outside mise in the configured login PATH: $dnf_shadow/dotnet" \
+  "$test_root/dnf-shadow.log"
+if grep -Fq 'node resolves outside mise' "$test_root/dnf-shadow.log"; then
+  printf 'The dotnet shadow fixture unexpectedly failed an unrelated runtime.\n' >&2
+  exit 1
+fi
+printf 'PASS: Fedora WSL verification rejects a non-mise runtime shadowing the mise shim\n'
+
+wsl_tmux_plugin="$bootstrap_data/tmux/plugins/catppuccin"
+rm -f -- "$wsl_tmux_plugin/catppuccin.tmux"
+if "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/tmux-missing.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a missing Catppuccin tmux plugin.\n' >&2
+  exit 1
+fi
+grep -Fq 'Catppuccin tmux is missing' "$test_root/tmux-missing.log"
+git -C "$wsl_tmux_plugin" checkout -q -- catppuccin.tmux
+printf 'PASS: Fedora WSL verification rejects a missing Catppuccin tmux plugin\n'
+
+git -C "$wsl_tmux_plugin" -c user.name=WSL-Test -c user.email=wsl@example.invalid \
+  commit -q --allow-empty -m 'past the pin'
+if ! "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/tmux-drift.log" 2>&1; then
+  printf 'Fedora WSL verification failed a Catppuccin tmux checkout past the pin:\n' >&2
+  cat "$test_root/tmux-drift.log" >&2
+  exit 1
+fi
+grep -Fq 'Catppuccin tmux is at v2.3.0-1-g' "$test_root/tmux-drift.log"
+grep -Fq 'not the pinned v2.3.0' "$test_root/tmux-drift.log"
+git -C "$wsl_tmux_plugin" checkout -q --detach v2.3.0
+printf 'PASS: Fedora WSL verification warns about a Catppuccin tmux checkout past the pin\n'
 
 bootstrap_identity="$(sha256sum "$bootstrap_config/git/local")"
 bootstrap_notes="$(sha256sum "$bootstrap_home/notes")"

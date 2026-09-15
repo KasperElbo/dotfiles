@@ -21,8 +21,14 @@ verify_reset
 
 section "Core commands"
 
+# Every command here is run, not only found on PATH: a binary that resolves but
+# cannot start is a broken install. common/lib/verify.sh owns the probe each
+# command answers. curl, gpg and jq are declared by the base package set, so
+# they are checked here unconditionally rather than only by the optional
+# sections that happen to use them.
 commands=(
   bat
+  curl
   delta
   eza
   fd
@@ -30,6 +36,8 @@ commands=(
   gh
   git
   ghostty
+  gpg
+  jq
   mise
   nvim
   rg
@@ -48,7 +56,7 @@ commands=(
 )
 
 for cmd in "${commands[@]}"; do
-  check_command "$cmd"
+  check_command "$cmd" --probe
 done
 
 # ---------------------------------------------------------------------------
@@ -139,7 +147,7 @@ unknown)
   ;;
 esac
 
-check_system_service_active firewalld.service
+check_system_service_enabled_and_active firewalld.service
 
 case "$(secure_boot_state)" in
 enabled)
@@ -484,46 +492,7 @@ fi
 
 section "Neovim tooling"
 
-mason_root="${XDG_DATA_HOME}/nvim/mason/packages"
-mason_inventory="$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
-mason_packages=()
-if [[ -r "$mason_inventory" ]]; then
-  mapfile -t mason_packages < <(
-    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$mason_inventory"
-  )
-else
-  fail "Mason package inventory missing: $mason_inventory"
-fi
-
-((${#mason_packages[@]} > 0)) || fail "Mason package inventory is empty"
-
-for package in "${mason_packages[@]}"; do
-  if [[ -d "$mason_root/$package" ]]; then
-    pass "Mason: $package"
-  else
-    fail "Mason package not installed: $package"
-  fi
-done
-
-if [[ -d "$mason_root" ]]; then
-  for package_dir in "$mason_root"/*; do
-    [[ -d "$package_dir" ]] || continue
-
-    package="$(basename "$package_dir")"
-    expected="false"
-
-    for expected_package in "${mason_packages[@]}"; do
-      if [[ "$package" == "$expected_package" ]]; then
-        expected="true"
-        break
-      fi
-    done
-
-    if [[ "$expected" == "false" ]]; then
-      warning "Unexpected Mason package (review ownership): $package"
-    fi
-  done
-fi
+check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
 
 # A Lua error raised from an Ex command does not become Neovim's exit status,
 # so the baseline check must turn a failed version test into `cquit` itself.
@@ -608,31 +577,8 @@ fi
 
 section "Catppuccin tmux"
 
-tmux_theme_dir="$XDG_DATA_HOME/tmux/plugins/catppuccin"
-
-if [[ -f "$tmux_theme_dir/catppuccin.tmux" ]]; then
-  pass "Catppuccin tmux installed"
-else
-  fail "Catppuccin tmux is missing"
-fi
-
-if [[ -d "$tmux_theme_dir/.git" ]]; then
-  expected_tag="v2.3.0"
-
-  installed_commit="$(
-    git -C "$tmux_theme_dir" rev-parse HEAD 2>/dev/null || true
-  )"
-
-  expected_commit="$(
-    git -C "$tmux_theme_dir" rev-list -n 1 "$expected_tag" 2>/dev/null || true
-  )"
-
-  if [[ -n "$installed_commit" && "$installed_commit" == "$expected_commit" ]]; then
-    pass "Catppuccin tmux $expected_tag"
-  else
-    warning "Catppuccin tmux is not at expected $expected_tag"
-  fi
-fi
+# The pinned plugin checkout at $XDG_DATA_HOME/tmux/plugins/catppuccin.
+check_catppuccin_tmux
 
 # ---------------------------------------------------------------------------
 # Optional machine hardware

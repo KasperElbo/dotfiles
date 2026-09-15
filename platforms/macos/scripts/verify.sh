@@ -67,8 +67,28 @@ mise_command="$(command -v mise 2>/dev/null || true)"
 if [[ -n "$mise_command" ]]; then
   eval "$("$mise_command" activate bash)"
 fi
-commands=(aerospace ast-grep bat delta dotnet dotnet-easydotnet eza fd fzf gh git jq lazygit mise node npm nvim python rg scp sftp shellcheck sqlite3 ssh starship stow tmux tree-sitter uv zoxide zsh)
-for name in "${commands[@]}"; do check_command "$name"; done
+# Every command is run, not only found: a stale Homebrew link or a binary for
+# the wrong architecture still resolves on PATH. aerospace is checked for
+# resolution only, because its CLI talks to the running window manager, which
+# the AeroSpace checks below report on their own terms.
+commands=(bat delta eza fd fzf gh git jq mise nvim rg scp sftp shellcheck sqlite3 ssh starship stow tmux zoxide zsh)
+for name in "${commands[@]}"; do check_command "$name" --probe; done
+check_command aerospace
+
+section "mise-owned runtimes"
+# mise owns these runtimes on every platform. On macOS a Homebrew formula of
+# the same name is the likely second copy, so each must resolve to the
+# mise-managed one in the PATH a fresh Zsh login configures, not merely exist.
+# shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
+VERIFY_CONFIGURED_LOGIN_PATH="$(
+  zsh -lic 'printf "\n__DOTFILES_VERIFY_PATH__%s\n" "$PATH"' 2>/dev/null |
+    sed -n 's/^__DOTFILES_VERIFY_PATH__//p' |
+    tail -n 1
+)"
+VERIFY_CALLER_PATH="$PATH"
+VERIFY_MISE_COMMAND="$mise_command"
+mise_tools=(ast-grep dotnet dotnet-easydotnet lazygit neovim-node-host node npm python tree-sitter uv)
+for name in "${mise_tools[@]}"; do check_mise_owned "$name"; done
 
 # ---------------------------------------------------------------------------
 # SFTP client baseline
@@ -210,6 +230,85 @@ if aerospace list-workspaces --focused >/dev/null 2>&1; then
 else
   warning "AeroSpace CLI cannot reach the window manager; open it and grant Accessibility access"
 fi
+
+# ---------------------------------------------------------------------------
+# Machine-local theme
+#
+# The installer applies the selected Catppuccin flavour through the portable
+# theme command. Prove the result a new terminal sees: a valid recorded
+# flavour, the Starship configuration for that flavour, the derived Delta,
+# Ghostty and tmux overrides, and a fresh Zsh login that selects the matching
+# Starship configuration and bat theme.
+# ---------------------------------------------------------------------------
+
+section "Theme"
+
+theme_file="$XDG_CONFIG_HOME/dotfiles/theme"
+current_theme=""
+[[ ! -r "$theme_file" ]] || current_theme="$(tr -d '[:space:]' <"$theme_file")"
+
+case "$current_theme" in
+latte | frappe | macchiato | mocha)
+  pass "Current Catppuccin flavour: $current_theme"
+  ;;
+"")
+  fail "Theme state is missing or empty: $theme_file"
+  ;;
+*)
+  fail "Invalid Catppuccin flavour in $theme_file: $current_theme"
+  current_theme=""
+  ;;
+esac
+
+if [[ -n "$current_theme" ]]; then
+  starship_config="$XDG_CONFIG_HOME/starship/catppuccin-${current_theme}.toml"
+  check_file_contains "Starship configuration selects the $current_theme palette" \
+    "$starship_config" "palette = 'catppuccin_${current_theme}'"
+  check_file_contains "Delta local theme override matches" \
+    "$XDG_CONFIG_HOME/dotfiles/git-theme" "features = catppuccin-${current_theme}"
+  check_file_contains "Ghostty local theme override matches" \
+    "$XDG_CONFIG_HOME/dotfiles/ghostty.conf" "theme = catppuccin-${current_theme}.conf"
+  check_file_contains "tmux local theme override matches" \
+    "$XDG_CONFIG_HOME/dotfiles/tmux-theme.conf" "@catppuccin_flavor \"${current_theme}\""
+
+  bat_theme="Catppuccin $(tr '[:lower:]' '[:upper:]' <<<"${current_theme:0:1}")${current_theme:1}"
+  if bat --list-themes 2>/dev/null | grep -Fxq "$bat_theme"; then
+    pass "bat provides the selected syntax theme: $bat_theme"
+  else
+    fail "bat does not provide the selected syntax theme: $bat_theme"
+  fi
+
+  # shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
+  login_theme="$(
+    zsh -lic 'printf "\n__DOTFILES_VERIFY_THEME__%s|%s\n" "${STARSHIP_CONFIG:-}" "${BAT_THEME:-}"' \
+      2>/dev/null |
+      sed -n 's/^__DOTFILES_VERIFY_THEME__//p' |
+      tail -n 1
+  )"
+  if [[ "${login_theme%%|*}" == "$starship_config" ]]; then
+    pass "Zsh login selects the $current_theme Starship configuration"
+  else
+    fail "Zsh login STARSHIP_CONFIG is ${login_theme%%|*}; expected $starship_config"
+  fi
+  if [[ "${login_theme#*|}" == "$bat_theme" ]]; then
+    pass "Zsh login selects the $bat_theme bat theme"
+  else
+    fail "Zsh login BAT_THEME is ${login_theme#*|}; expected $bat_theme"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Neovim tooling and the Catppuccin tmux theme
+#
+# Both are installed by the macOS installer from the same tracked sources as
+# every other workstation: the Mason inventory and the pinned tmux plugin.
+# ---------------------------------------------------------------------------
+
+section "Neovim tooling"
+check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
+
+section "Catppuccin tmux"
+check_catppuccin_tmux
 
 # ---------------------------------------------------------------------------
 # Optional AI-assisted development profile

@@ -177,6 +177,187 @@ verify_reset
 check_mise_owned tool || true
 assert_verifier_counts 0 1 0
 
+printf 'Functional command probe\n'
+probe_bin="$root/probe-bin"
+mkdir -p "$probe_bin"
+cat >"$probe_bin/working-tool" <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == --version ]] || exit 2
+printf 'working-tool 1.0\n'
+EOF
+# Resolves on PATH, cannot run: what a binary with a missing shared library or
+# the wrong architecture looks like to a verifier.
+printf '#!/usr/bin/env bash\nprintf "error while loading shared libraries\\n" >&2\nexit 127\n' \
+  >"$probe_bin/broken-tool"
+printf '#!/usr/bin/env bash\ncat >/dev/null\n' >"$probe_bin/stdin-tool"
+printf '#!/usr/bin/env bash\n[[ "${1:-}" == -V ]]\n' >"$probe_bin/ssh"
+printf '#!/usr/bin/env bash\nprintf "usage: scp [-346ABCOpqRrsTv] source target\\n" >&2\nexit 1\n' \
+  >"$probe_bin/scp"
+printf '#!/usr/bin/env bash\nexit 1\n' >"$probe_bin/sftp"
+chmod +x "$probe_bin"/*
+
+verify_reset
+PATH="$probe_bin:$PATH" check_command broken-tool
+assert_verifier_counts 1 0 0
+
+verify_reset
+PATH="$probe_bin:$PATH" check_command broken-tool --probe >"$root/probe.out" 2>&1 || true
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/probe.out" \
+  "broken-tool resolves to $probe_bin/broken-tool but does not run: 'broken-tool --version' exited 127"
+
+verify_reset
+PATH="$probe_bin:$PATH" check_command working-tool --probe
+PATH="$probe_bin:$PATH" check_command stdin-tool --probe
+PATH="$probe_bin:$PATH" check_command ssh --probe
+PATH="$probe_bin:$PATH" check_command scp --probe
+assert_verifier_counts 4 0 0
+
+verify_reset
+PATH="$probe_bin:$PATH" check_command working-tool --probe --help >/dev/null 2>&1 || true
+PATH="$probe_bin:$PATH" check_command sftp --probe >"$root/probe.out" 2>&1 || true
+PATH="$probe_bin:$PATH" check_command missing-tool --probe >/dev/null 2>&1 || true
+PATH="$probe_bin:$PATH" check_command working-tool --unknown >/dev/null 2>&1 || true
+assert_verifier_counts 0 4 0
+assert_file_contains "$root/probe.out" "sftp resolves to $probe_bin/sftp but does not run"
+if declare -F check_command_runs >/dev/null; then
+  _test_die "check_command_runs must stay retired; check_command --probe replaces it"
+fi
+
+printf 'Enabled-and-active service contract\n'
+service_bin="$root/service-bin"
+mkdir -p "$service_bin"
+cat >"$service_bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+scope=system
+if [[ "${1:-}" == --user ]]; then
+  scope=user
+  shift
+fi
+case "${1:-} ${2:-}" in
+"is-enabled --quiet") units="$MOCK_ENABLED" ;;
+"is-active --quiet") units="$MOCK_ACTIVE" ;;
+*) exit 96 ;;
+esac
+[[ " $units " == *" $scope:$3 "* ]]
+EOF
+chmod +x "$service_bin/systemctl"
+
+check_service() {
+  local enabled="$1" active="$2"
+  shift 2
+  PATH="$service_bin:$PATH" MOCK_ENABLED="$enabled" MOCK_ACTIVE="$active" "$@" \
+    >"$root/service.out" 2>&1 || true
+}
+
+verify_reset
+check_service system:firewalld.service system:firewalld.service \
+  check_system_service_enabled_and_active firewalld.service
+assert_verifier_counts 1 0 0
+assert_file_contains "$root/service.out" 'firewalld.service is enabled and active'
+
+verify_reset
+check_service "" system:firewalld.service \
+  check_system_service_enabled_and_active firewalld.service
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/service.out" \
+  'firewalld.service is active but not enabled; it will not start after a reboot'
+
+verify_reset
+check_service system:auditd.service "" \
+  check_system_service_enabled_and_active auditd.service
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/service.out" 'auditd.service is enabled but not active'
+
+verify_reset
+check_service "" "" check_system_service_enabled_and_active auditd.service
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/service.out" 'auditd.service is neither enabled nor active'
+
+# The user scope is its own unit namespace: a system unit of the same name
+# must not satisfy it.
+verify_reset
+check_service "system:podman.socket user:podman.socket" system:podman.socket \
+  check_user_service_enabled_and_active podman.socket
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/service.out" \
+  'podman.socket is enabled for the user but not active'
+
+printf 'Mason inventory\n'
+mkdir -p "$root/mason-data/nvim/mason/packages/lua-language-server"
+printf '# tools\nlua-language-server\n\nstylua\n' >"$root/mason-inventory.txt"
+
+verify_reset
+XDG_DATA_HOME="$root/mason-data" check_mason_inventory "$root/mason-inventory.txt" \
+  >"$root/mason.out" 2>&1 || true
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" 'Mason package not installed: stylua'
+
+mkdir -p "$root/mason-data/nvim/mason/packages/stylua" \
+  "$root/mason-data/nvim/mason/packages/untracked-tool"
+verify_reset
+XDG_DATA_HOME="$root/mason-data" check_mason_inventory "$root/mason-inventory.txt" \
+  >"$root/mason.out" 2>&1
+assert_verifier_counts 2 0 1
+assert_file_contains "$root/mason.out" \
+  'Unexpected Mason package (review ownership): untracked-tool'
+
+verify_reset
+XDG_DATA_HOME="$root/mason-data" check_mason_inventory "$root/missing-inventory.txt" \
+  >"$root/mason.out" 2>&1 || true
+assert_verifier_counts 0 1 0
+
+printf 'Pinned Catppuccin tmux\n'
+tmux_pin="$(verify_catppuccin_tmux_pin)"
+assert_eq \
+  "$(awk -F '\t' '$1 == "catppuccin-tmux" { print $8 }' "$repo_root/config/network-sources.tsv")" \
+  "$tmux_pin" "the verifier reads the pin the installer and network-source registry declare"
+
+plugin="$root/tmux-data/tmux/plugins/catppuccin"
+mkdir -p "$plugin"
+git -C "$plugin" init -q
+printf '# theme\n' >"$plugin/catppuccin.tmux"
+git -C "$plugin" add catppuccin.tmux
+git -C "$plugin" -c user.name=Test -c user.email=test@example.invalid commit -qm theme
+git -C "$plugin" tag "$tmux_pin"
+
+verify_reset
+XDG_DATA_HOME="$root/tmux-data" check_catppuccin_tmux >/dev/null 2>&1
+assert_verifier_counts 2 0 0
+
+git -C "$plugin" -c user.name=Test -c user.email=test@example.invalid \
+  commit -q --allow-empty -m 'past the pin'
+verify_reset
+XDG_DATA_HOME="$root/tmux-data" check_catppuccin_tmux >"$root/tmux.out" 2>&1 || true
+assert_verifier_counts 1 0 1
+assert_file_contains "$root/tmux.out" "Catppuccin tmux is at $tmux_pin-1-g"
+assert_file_contains "$root/tmux.out" "not the pinned $tmux_pin"
+
+rm -f "$plugin/catppuccin.tmux"
+verify_reset
+XDG_DATA_HOME="$root/tmux-data" check_catppuccin_tmux >"$root/tmux.out" 2>&1 || true
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/tmux.out" 'Catppuccin tmux is missing'
+
+printf 'Verifiers share one reporting contract\n'
+for verifier in "$repo_root"/platforms/*/scripts/verify*.sh; do
+  relative="${verifier#"$repo_root/"}"
+  if [[ "$relative" == platforms/fedora/scripts/verify-parrot-isolation.sh ]]; then
+    # A host-side argument wrapper that hands off to
+    # verify-parrot-isolation.py; it reports nothing itself.
+    if grep -Eq '^[[:space:]]*(pass|fail|warning) ' "$verifier"; then
+      _test_die "$relative now reports results, so it must use common/lib/verify.sh"
+    fi
+    continue
+  fi
+  if grep -Eq '^[[:space:]]*(pass|fail|warning|section)[[:space:]]*\(\)' "$verifier"; then
+    _test_die "$relative defines its own reporting helpers instead of using common/lib/verify.sh"
+  fi
+  grep -Eq '^[[:space:]]*source .*common/lib/verify\.sh"$' "$verifier" ||
+    _test_die "$relative does not source common/lib/verify.sh"
+done
+printf 'PASS: every platform verifier reports through common/lib/verify.sh\n'
+
 printf 'Common-library shell-option invariance\n'
 for library in common/lib/*.sh; do
   for policy in none strict errexit nounset pipefail; do

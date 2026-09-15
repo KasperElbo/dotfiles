@@ -73,27 +73,88 @@ finish_verification() {
   return 0
 }
 
-check_command() {
-  local command_name="$1"
-  local command_path
-
-  command_path="$(command -v "$command_name" 2>/dev/null || true)"
-  if [[ -n "$command_path" ]]; then
-    pass "$command_name: $command_path"
-  else
-    fail "$command_name not found"
-  fi
+# verify_default_probe <name>
+#
+# Print the functional probe `check_command <name> --probe` runs, as
+# "<arguments>|<required output>". Most commands answer --version and exit 0.
+# The exceptions are documented here rather than at each call site:
+#
+#   ssh, tmux  report their version with -V; --version is an unknown option.
+#   scp, sftp  have no offline invocation that exits 0. Run with no operands
+#              they print their own usage text and exit 1, so that text is the
+#              proof the binary started; a binary the loader cannot start
+#              prints nothing of the kind.
+#
+# wl-copy and wl-paste need no override: they answer --version before they
+# connect to a Wayland display, so the probe works in a headless session.
+verify_default_probe() {
+  case "$1" in
+  ssh | tmux) printf '%s|\n' -V ;;
+  scp | sftp) printf '|usage: %s\n' "$1" ;;
+  *) printf '%s|\n' --version ;;
+  esac
 }
 
-check_command_runs() {
-  local label="$1"
+# check_command <name> [--probe [arguments]]
+#
+# Without --probe this proves only that <name> resolves on PATH, which is not
+# the same as a command that works: a corrupt install, a binary linked against
+# a missing shared library, a wrong-architecture binary and a stale Homebrew or
+# Mason symlink all resolve. --probe also runs the resolved command, with
+# verify_default_probe's arguments or with the space-separated arguments given,
+# and fails unless it exits 0 (or prints the output a default probe requires).
+# Standard input is closed so a probe can never wait for it.
+check_command() {
+  local command_name="$1"
+  local command_path probe_spec probe_output
+  local probe="false" probe_arguments="" probe_expected="" probe_status=0
+  local -a probe_argv=()
   shift
 
-  if "$@" >/dev/null 2>&1; then
-    pass "$label"
-  else
-    fail "$label"
+  case "${1:-}" in
+  "") ;;
+  --probe)
+    probe="true"
+    if (($# >= 2)); then
+      probe_arguments="$2"
+    else
+      probe_spec="$(verify_default_probe "$command_name")"
+      probe_arguments="${probe_spec%%|*}"
+      probe_expected="${probe_spec#*|}"
+    fi
+    ;;
+  *)
+    fail "check_command $command_name: unsupported argument: $1"
+    return 1
+    ;;
+  esac
+
+  command_path="$(command -v "$command_name" 2>/dev/null || true)"
+  if [[ -z "$command_path" ]]; then
+    fail "$command_name not found"
+    return 1
   fi
+  if [[ "$probe" == false ]]; then
+    pass "$command_name: $command_path"
+    return 0
+  fi
+
+  read -r -a probe_argv <<<"$probe_arguments"
+  probe_output="$("$command_path" ${probe_argv[@]+"${probe_argv[@]}"} </dev/null 2>&1)" ||
+    probe_status=$?
+  if [[ -n "$probe_expected" ]]; then
+    if [[ "$probe_output" == *"$probe_expected"* ]]; then
+      pass "$command_name runs: $command_path"
+      return 0
+    fi
+  elif ((probe_status == 0)); then
+    pass "$command_name runs: $command_path"
+    return 0
+  fi
+
+  fail "$command_name resolves to $command_path but does not run:" \
+    "'$command_name${probe_arguments:+ $probe_arguments}' exited $probe_status" \
+    "(${probe_output%%$'\n'*})"
 }
 
 verify_version_at_least() {
@@ -240,6 +301,136 @@ check_user_service_active() {
     pass "$unit is active for the user"
   else
     fail "$unit is not active for the user"
+  fi
+}
+
+# verify_unit_state <system|user> <is-enabled|is-active> <unit>
+verify_unit_state() {
+  if [[ "$1" == user ]]; then
+    systemctl --user "$2" --quiet "$3" 2>/dev/null
+  else
+    systemctl "$2" --quiet "$3" 2>/dev/null
+  fi
+}
+
+verify_service_enabled_and_active() {
+  local scope="$1" unit="$2" owner="" enabled="false" active="false"
+
+  [[ "$scope" != user ]] || owner=" for the user"
+  verify_unit_state "$scope" is-enabled "$unit" && enabled="true"
+  verify_unit_state "$scope" is-active "$unit" && active="true"
+
+  case "$enabled:$active" in
+  true:true)
+    pass "$unit is enabled and active$owner"
+    ;;
+  true:false)
+    fail "$unit is enabled$owner but not active; it is not running now"
+    ;;
+  false:true)
+    fail "$unit is active$owner but not enabled; it will not start after a reboot"
+    ;;
+  *)
+    fail "$unit is neither enabled nor active$owner"
+    ;;
+  esac
+}
+
+# check_system_service_enabled_and_active <unit>
+# check_user_service_enabled_and_active <unit>
+#
+# A service that is running but not enabled passes an is-active check today
+# and is gone after the next reboot, so a service this repository relies on to
+# stay up must be both. The failure names the missing half, because "enabled
+# but stopped" and "running but will not survive a reboot" are fixed
+# differently. is-active alone remains the right check for a unit that is
+# activated by a device or started on demand, whose enablement is not what
+# brings it up.
+check_system_service_enabled_and_active() {
+  verify_service_enabled_and_active system "$1"
+}
+
+check_user_service_enabled_and_active() {
+  verify_service_enabled_and_active user "$1"
+}
+
+# check_mason_inventory <inventory>
+#
+# Every package the tracked Mason inventory lists must be installed under
+# Mason's package root. A package Mason holds that the inventory does not list
+# is a warning rather than a failure: it may be a deliberate local addition,
+# but nothing in this repository owns it.
+check_mason_inventory() {
+  local inventory="$1"
+  local mason_root="${XDG_DATA_HOME:-$HOME/.local/share}/nvim/mason/packages"
+  local package package_dir listed status=0
+  local -a packages=()
+
+  if [[ ! -r "$inventory" ]]; then
+    fail "Mason package inventory missing: $inventory"
+    return 1
+  fi
+  mapfile -t packages < <(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$inventory")
+  if ((${#packages[@]} == 0)); then
+    fail "Mason package inventory is empty: $inventory"
+    return 1
+  fi
+
+  for package in "${packages[@]}"; do
+    if [[ -d "$mason_root/$package" ]]; then
+      pass "Mason: $package"
+    else
+      fail "Mason package not installed: $package"
+      status=1
+    fi
+  done
+
+  for package_dir in "$mason_root"/*; do
+    [[ -d "$package_dir" ]] || continue
+    package="${package_dir##*/}"
+    for listed in "${packages[@]}"; do
+      [[ "$package" != "$listed" ]] || continue 2
+    done
+    warning "Unexpected Mason package (review ownership): $package"
+  done
+  return "$status"
+}
+
+# The Catppuccin tmux version common/install-tmux-theme.sh pins. It is read
+# from the installer rather than repeated here, so bumping the pin cannot
+# leave a verifier expecting the previous tag.
+verify_catppuccin_tmux_pin() {
+  sed -n 's/^version="\(v[0-9][0-9.]*\)"$/\1/p' \
+    "$DOTFILES_ROOT/common/install-tmux-theme.sh" 2>/dev/null
+}
+
+# check_catppuccin_tmux
+#
+# The plugin checkout tmux/.tmux.conf runs must exist. A checkout that has moved
+# off the pinned tag still works, so it is a warning naming both versions.
+check_catppuccin_tmux() {
+  local plugin_dir="${XDG_DATA_HOME:-$HOME/.local/share}/tmux/plugins/catppuccin"
+  local pin installed_commit pinned_commit installed_version
+
+  if [[ ! -f "$plugin_dir/catppuccin.tmux" ]]; then
+    fail "Catppuccin tmux is missing: $plugin_dir/catppuccin.tmux"
+    return 1
+  fi
+  pass "Catppuccin tmux installed: $plugin_dir"
+
+  pin="$(verify_catppuccin_tmux_pin)"
+  if [[ -z "$pin" ]]; then
+    fail "Could not read the pinned Catppuccin tmux version from" \
+      "$DOTFILES_ROOT/common/install-tmux-theme.sh"
+    return 1
+  fi
+  installed_commit="$(git -C "$plugin_dir" rev-parse HEAD 2>/dev/null || true)"
+  pinned_commit="$(git -C "$plugin_dir" rev-list -n 1 "$pin" 2>/dev/null || true)"
+  if [[ -n "$installed_commit" && "$installed_commit" == "$pinned_commit" ]]; then
+    pass "Catppuccin tmux is at the pinned $pin"
+  else
+    installed_version="$(git -C "$plugin_dir" describe --tags --always HEAD 2>/dev/null || true)"
+    warning "Catppuccin tmux is at ${installed_version:-an unknown version}, not the pinned $pin"
   fi
 }
 
