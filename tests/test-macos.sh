@@ -41,7 +41,7 @@ assert_contains "$dry_run" 'OCaml profile:      true'
 assert_contains "$dry_run" 'Containers profile: true'
 assert_contains "$dry_run" 'Development workflow smoke tests: true'
 assert_contains "$dry_run" 'Podman machine'
-assert_contains "$dry_run" 'AI tooling profile: unavailable until repository issue #16 lands'
+assert_contains "$dry_run" 'AI tooling profile: false'
 assert_contains "$dry_run" 'No changes were made.'
 
 no_defaults="$("$repo_root"/install.sh --platform macos --dry-run --no-defaults)"

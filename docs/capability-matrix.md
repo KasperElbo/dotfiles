@@ -4,16 +4,16 @@ Generated from `config/capabilities.tsv`; do not edit this table by hand.
 
 | Capability | Fedora | Fedora WSL | macOS | Parrot CTF |
 |---|---|---|---|---|
-| `ai` | ✓ `mise` | ✓ `mise` | — unsupported | — unsupported |
-| `backpass` | ✓ `mise-npm` | ✓ `mise-npm` | — | — |
+| `ai` | ✓ `mise` | ✓ `mise` | ✓ `mise` | — unsupported |
+| `backpass` | ✓ `mise-npm` | ✓ `mise-npm` | ✓ `mise-npm` | — |
 | `base` | ✓ `dnf+terra` | ✓ `dnf+upstream` | ✓ `homebrew` | ✓ `apt+upstream` |
-| `codex` | ✓ `mise-npm` | ✓ `mise-npm` | — | — |
+| `codex` | ✓ `mise-npm` | ✓ `mise-npm` | ✓ `mise-npm` | — |
 | `containers` | ✓ `dnf` | ✓ `dnf` | ✓ `homebrew` | — unsupported |
 | `desktop-tools` | ✓ `dnf+rpmfusion` | — unsupported | — unsupported | — unsupported |
 | `dev-workflows` | ✓ `repository` | ✓ `repository` | ✓ `repository` | — unsupported |
 | `dotnet-debug` | ✓ `mise-easydotnet` | ✓ `mise-easydotnet` | ✓ `mise-easydotnet` | — unsupported |
-| `firstmate` | ✓ `mise+upstream-scripts` | ✓ `mise+upstream-scripts` | — | — |
-| `gnhf` | ✓ `mise-npm` | ✓ `mise-npm` | — | — |
+| `firstmate` | ✓ `mise+upstream-scripts` | ✓ `mise+upstream-scripts` | ✓ `mise+upstream-scripts` | — |
+| `gnhf` | ✓ `mise-npm` | ✓ `mise-npm` | ✓ `mise-npm` | — |
 | `hardening` | ✓ `dnf` | — unsupported | — unsupported | — unsupported |
 | `hardware` | ✓ `dnf+copr` | — unsupported | — unsupported | — unsupported |
 | `kde` | ✓ `dnf+upstream-theme` | — unsupported | — unsupported | — unsupported |

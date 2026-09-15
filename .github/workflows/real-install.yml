@@ -90,6 +90,7 @@ jobs:
         run: >-
           ./install.sh --platform macos --theme mocha
           --ocaml --no-containers --no-tailscale --defaults
+          --ai --codex --firstmate --gnhf --backpass
           --non-interactive
 
       - name: Verify transitioned state
@@ -97,6 +98,108 @@ jobs:
           grep -Fxq mocha "${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/theme"
           ./platforms/macos/scripts/verify.sh --defaults
           ./common/verify-ocaml.sh
+          ./common/verify-ai.sh
+
+      # Support claims in config/capabilities.tsv and docs/macos.md rest on this
+      # step, not on mocked tests: every advertised AI command must resolve
+      # through mise on a real arm64 Mac and run a harmless self-description. A
+      # component that cannot do that here must be demoted to unsupported.
+      - name: Prove each advertised AI component on Apple Silicon
+        run: |
+          set -euo pipefail
+          eval "$(/opt/homebrew/bin/brew shellenv)"
+          eval "$(mise activate bash)"
+          failures=0
+          probe() {
+            name="$1"
+            shift
+            resolved="$(command -v "$name" 2>/dev/null || true)"
+            if [ -z "$resolved" ]; then
+              printf '::error::%s is advertised but not on PATH\n' "$name"
+              failures=$((failures + 1))
+              return
+            fi
+            mise_resolved="$(mise which "$name" 2>/dev/null || true)"
+            if [ -z "$mise_resolved" ]; then
+              printf '::error::%s is not owned by mise (resolved %s)\n' "$name" "$resolved"
+              failures=$((failures + 1))
+            fi
+            case "$resolved" in
+              /opt/homebrew/* | /usr/local/*)
+                printf '::error::%s resolved to a Homebrew duplicate: %s\n' "$name" "$resolved"
+                failures=$((failures + 1))
+                ;;
+            esac
+            architecture="$(file -L "${mise_resolved:-$resolved}" 2>/dev/null || true)"
+            case "$architecture" in
+              *x86_64* | *i386*)
+                printf '::error::%s is Intel-only: %s\n' "$name" "$architecture"
+                failures=$((failures + 1))
+                ;;
+            esac
+            if "$@" >/dev/null 2>&1; then
+              printf 'ok: %s (%s)\n' "$name" "${mise_resolved:-$resolved}"
+            else
+              printf '::error::%s did not run a harmless self-description\n' "$name"
+              failures=$((failures + 1))
+            fi
+          }
+          probe claude claude --version
+          probe herdr herdr --help
+          probe codex codex --version
+          probe gnhf gnhf --help
+          probe backpass backpass --help
+          probe acpx acpx --help
+          probe gh-axi gh-axi --help
+          probe chrome-devtools-axi chrome-devtools-axi --help
+          probe lavish-axi lavish-axi --help
+          probe tasks-axi tasks-axi --help
+          probe quota-axi quota-axi --help
+          for own_script in treehouse no-mistakes; do
+            target="$HOME/.local/bin/$own_script"
+            if [ ! -x "$target" ]; then
+              printf '::error::%s was not installed at %s\n' "$own_script" "$target"
+              failures=$((failures + 1))
+              continue
+            fi
+            architecture="$(file -L "$target" 2>/dev/null || true)"
+            case "$architecture" in
+              *x86_64* | *i386*)
+                printf '::error::%s is Intel-only: %s\n' "$own_script" "$architecture"
+                failures=$((failures + 1))
+                ;;
+            esac
+            if "$target" --version >/dev/null 2>&1 || "$target" --help >/dev/null 2>&1; then
+              printf 'ok: %s (%s)\n' "$own_script" "$target"
+            else
+              printf '::error::%s did not run a harmless self-description\n' "$own_script"
+              failures=$((failures + 1))
+            fi
+          done
+          [ -d "${XDG_DATA_HOME:-$HOME/.local/share}/firstmate/.git" ] || {
+            printf '::error::FirstMate was not cloned\n'
+            failures=$((failures + 1))
+          }
+          [ "$failures" -eq 0 ] || exit 1
+
+      - name: Replay the remembered selection and reverify
+        run: |
+          set -euo pipefail
+          state="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/install.conf"
+          selection="$(awk -F= '$1 == "last_successful_selection" { print substr($0, 27) }' "$state")"
+          printf 'Remembered selection: %s\n' "$selection"
+          # The optional AI subcomponents have to survive the round trip, or
+          # --rerun would reapply a different machine than the one recorded.
+          for expected in ocaml:true ai:true codex:true firstmate:true gnhf:true backpass:true; do
+            case ",$selection," in
+              *",$expected,"*) ;;
+              *) printf '::error::remembered selection dropped %s: %s\n' "$expected" "$selection"; exit 1 ;;
+            esac
+          done
+          ./install.sh --rerun --non-interactive
+          ./platforms/macos/scripts/verify.sh --defaults
+          ./common/verify-ocaml.sh
+          ./common/verify-ai.sh
 
       - name: Record evidence boundary
         if: always()
@@ -106,6 +209,13 @@ jobs:
           The runner is real Apple Silicon macOS and is disposable for every
           job. It is not a factory-fresh Mac and CI cannot grant interactive
           AeroSpace Accessibility or Tailscale approvals.
+
+          The AI component probe is the evidence behind every macOS AI support
+          claim in config/capabilities.tsv and docs/macos.md. It is not a mock:
+          each advertised command must resolve through mise on this arm64 host,
+          must not be an Intel-only binary or a Homebrew duplicate, and must run
+          a harmless self-description. Authentication is never exercised, so
+          "supported" here means installable and runnable, not logged in.
           EOF_SUMMARY
 
   windows-boundary:

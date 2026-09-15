@@ -139,8 +139,9 @@ xcode-select --install
 ```
 
 The [macOS guide](docs/macos.md) covers permissions, AeroSpace keys,
-multi-monitor behavior, deliberate defaults, development smoke tests, optional
-OCaml/Podman profiles, security, and rollback.
+multi-monitor behavior, deliberate defaults, development smoke tests, the
+optional OCaml, Podman, Tailscale and AI profiles, which parts of the LaTeX
+workflow macOS deliberately does not own, security, and rollback.
 
 The installer makes Zsh the invoking user's default login shell. Reboot after
 the first installation so Plasma, the systemd user manager, and D-Bus discard
@@ -2526,6 +2527,22 @@ Select it explicitly:
 rejected otherwise (`--backpass` does not require `--firstmate` — the two
 are independent). The profile is also independently callable and safe to
 rerun:
+
+### Platform scope
+
+Fedora, Fedora WSL, and macOS all expose `--ai` and every subcomponent flag,
+and all three run the same `common/install-ai.sh` and `common/verify-ai.sh`.
+There is no platform-specific AI installer, and no platform adds a Homebrew,
+DNF, or global-npm copy of a tool mise already owns. On macOS the AI step is
+planned after mise so every command resolves through the same mise environment;
+see [the macOS guide](docs/macos.md#ai-assisted-development-toolchain) for the
+per-component Apple Silicon support table and the real-runner evidence behind
+it. The Parrot CTF profile declares the AI profile unsupported.
+
+Support for a component is per platform, and losing one never disables `--ai`:
+if `config/capabilities.tsv` demotes a component on a platform, that
+platform's installer rejects exactly that sub-flag with an actionable message
+and installs the rest of the profile normally.
 
 ```bash
 ./scripts/install-ai.sh [--codex] [--firstmate] [--gnhf] [--backpass] \

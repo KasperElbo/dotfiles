@@ -268,8 +268,51 @@ rm ~/.config/dotfiles/macos-containers.conf
 `podman machine rm` deletes that VM and its container/image/volume storage, so
 export anything needed before running it.
 
-The optional AI profile from issue #16 was not present on `main` when this
-profile was added. No independent Codex/Claude installer is added here.
+### AI-assisted development toolchain
+
+```bash
+./install.sh --platform macos --ai
+./install.sh --platform macos --ai --codex --firstmate
+./install.sh --platform macos --ai --gnhf --backpass
+```
+
+macOS uses the shared `common/install-ai.sh` and `common/verify-ai.sh`. There
+is no macOS-specific AI installer, and nothing here is installed through
+Homebrew or a global npm prefix: the AI step runs after the mise environment is
+active, and mise owns every command. The step is planned after `mise` for
+exactly that reason.
+
+`--ai` installs Claude Code and Herdr. The subcomponents are additive and
+behave identically to every other platform: omitting `--codex` leaves an
+already-installed Codex alone, and only `--no-codex` removes it, after a
+confirmation and only when recorded provenance still proves this repository
+installed it. See the README's "AI-assisted development toolchain" for what
+each component is and which ones need manual, deliberate setup afterwards.
+
+| Component | Flag | Provider | Apple Silicon support |
+| --- | --- | --- | --- |
+| Claude Code | `--ai` | mise (npm backend) | supported |
+| Herdr | `--ai` | mise (registry backend) | supported |
+| Codex | `--codex` | mise (npm backend) | supported |
+| FirstMate | `--firstmate` | git clone to `~/.local/share/firstmate` | supported |
+| Treehouse | `--firstmate` | staged upstream install script | supported |
+| No Mistakes | `--firstmate` | staged upstream install script | supported |
+| gh-axi, chrome-devtools-axi, tasks-axi, quota-axi | `--firstmate` | mise (npm backend) | supported |
+| lavish-axi | `--firstmate` or `--backpass` | mise (npm backend) | supported |
+| GNHF | `--gnhf` | mise (npm backend) | supported |
+| backpass, acpx | `--backpass` | mise (npm backend) | supported |
+
+Support here means the component was installed and executed on a real Apple
+Silicon runner by the `macos` job in `.github/workflows/real-install.yml`, not
+that a mocked test passed. `config/capabilities.tsv` is the authority: if a
+component is demoted to `unsupported` there, the macOS installer rejects that
+one sub-flag with an actionable message and leaves the rest of the profile
+installable. Losing one optional component never disables `--ai`.
+
+macOS verification adds two checks the shared verifier cannot make: every
+advertised command must be arm64-native or a script running under the arm64
+Node runtime — an Intel-only binary that would need Rosetta fails — and none of
+them may resolve to a Homebrew path or appear in a global npm prefix.
 
 ### Optional Tailscale
 

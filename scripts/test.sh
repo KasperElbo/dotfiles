@@ -117,6 +117,7 @@ default_tests=(
   tests/test-windows-bootstrap.sh
   tests/test-macos-bootstrap.sh
   tests/test-macos.sh
+  tests/test-macos-ai.sh
   tests/test-macos-login-shell.sh
 )
 

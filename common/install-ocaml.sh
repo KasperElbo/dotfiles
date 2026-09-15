@@ -8,9 +8,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/profile-state.sh"
 
 require_command opam
 
-compiler_version="${OCAML_COMPILER_VERSION:-5.5.0}"
-switch_name="dotfiles-ocaml-${compiler_version}"
 state_file="$XDG_CONFIG_HOME/dotfiles/ocaml.conf"
+
+# A compiler chosen once must survive a rerun. Without this, rerunning the
+# installer without OCAML_COMPILER_VERSION set would silently build the default
+# switch and select it, quietly abandoning the switch the override created --
+# and rewriting the recorded state, so verification could not notice either.
+# An explicit override still wins, so changing compilers stays one command.
+recorded_compiler=""
+if [[ -f "$state_file" ]]; then
+  recorded_compiler="$(profile_state_read "$state_file" compiler ocaml 2>/dev/null || true)"
+fi
+compiler_version="${OCAML_COMPILER_VERSION:-${recorded_compiler:-5.5.0}}"
+switch_name="dotfiles-ocaml-${compiler_version}"
 
 [[ "$compiler_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   die "OCAML_COMPILER_VERSION must be a stable x.y.z release"

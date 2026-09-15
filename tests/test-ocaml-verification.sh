@@ -315,4 +315,36 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "profile state is missing"
 printf 'PASS: a mid-install run still fails a selected profile that never installed\n'
 
+# A compiler chosen once must survive a plain rerun, or the override would not
+# round-trip at all: the installer would rebuild the default switch and rewrite
+# the state, leaving verification nothing to catch.
+new_machine base,dotnet-debug,ocaml
+run_capture env \
+  "HOME=$MACHINE/home" \
+  "XDG_CONFIG_HOME=$MACHINE/config" \
+  "XDG_DATA_HOME=$MACHINE/data" \
+  "XDG_STATE_HOME=$MACHINE/state" \
+  "XDG_CACHE_HOME=$MACHINE/cache" \
+  "MOCK_OPAM_STATE=$OPAM_STATE" \
+  "PATH=$BREW_PREFIX/bin:$PATH" \
+  OCAML_COMPILER_VERSION=5.4.1 \
+  "$installer"
+assert_success
+assert_file_line "$MACHINE/config/dotfiles/ocaml.conf" compiler=5.4.1
+run_capture env \
+  "HOME=$MACHINE/home" \
+  "XDG_CONFIG_HOME=$MACHINE/config" \
+  "XDG_DATA_HOME=$MACHINE/data" \
+  "XDG_STATE_HOME=$MACHINE/state" \
+  "XDG_CACHE_HOME=$MACHINE/cache" \
+  "MOCK_OPAM_STATE=$OPAM_STATE" \
+  "PATH=$BREW_PREFIX/bin:$PATH" \
+  "$installer"
+assert_success
+assert_file_line "$MACHINE/config/dotfiles/ocaml.conf" compiler=5.4.1
+assert_file_line "$MACHINE/config/dotfiles/ocaml.conf" switch=dotfiles-ocaml-5.4.1
+run_verifier
+assert_success
+printf 'PASS: a compiler override survives a rerun that does not repeat it\n'
+
 printf 'OCaml profile verification contract tests passed.\n'
