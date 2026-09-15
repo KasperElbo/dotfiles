@@ -11,6 +11,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 test_install_cleanup_trap
+test_isolate_path git jq zsh
 
 verifier="$repo_root/common/verify-ocaml.sh"
 installer="$repo_root/common/install-ocaml.sh"
@@ -188,7 +189,7 @@ assert_contains "$TEST_OUTPUT" "Generated opam shell hook parses as Zsh"
 printf 'PASS: a healthy selected OCaml profile verifies\n'
 
 new_machine base,dotnet-debug
-VERIFIER_PATH="$MACHINE/empty-bin:/usr/bin:/bin" run_verifier
+VERIFIER_PATH="$MACHINE/empty-bin:$PATH" run_verifier
 assert_success
 assert_contains "$TEST_OUTPUT" "not selected and not installed (not applicable)"
 assert_contains "$TEST_OUTPUT" "opam is absent, as expected"
@@ -202,7 +203,7 @@ printf 'PASS: a selected profile with no recorded state fails\n'
 
 new_machine
 record_ocaml_state
-VERIFIER_PATH="$MACHINE/empty-bin:/usr/bin:/bin" run_verifier
+VERIFIER_PATH="$MACHINE/empty-bin:$PATH" run_verifier
 assert_failure
 assert_contains "$TEST_OUTPUT" "opam is not available"
 printf 'PASS: an installed profile without opam fails\n'

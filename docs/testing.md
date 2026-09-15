@@ -89,6 +89,19 @@ extra cleanup, such as restoring a tracked file a negative case edited in place,
 passes a function name to `test_install_cleanup_trap` instead of installing its
 own EXIT trap; `tests/test-test-support.sh` enforces both rules.
 
+A suite whose code under test probes for tools on `PATH` calls
+`test_isolate_path [command ...]` right after that trap. It replaces `PATH` with
+one directory linking only a small portable base userland plus the host commands
+the suite names (for example `git`, `jq` or `zsh`), so a tool that happens to be
+installed on the machine running the tests, such as a real `opam`, `mise` or
+`tailscale`, cannot satisfy a lookup the suite meant to mock or to find absent.
+Mocks go in front (`PATH="$mock_bin:$PATH"`); never append `/usr/bin` or `/bin`.
+A named command the runner lacks fails the suite rather than silently narrowing
+`PATH`. Host state that is not a command, such as the runner's user id or its
+DNF repository files, is pinned the same way through the suite's mocks and the
+product's override variables (`DNF_REPO_DIR`, `OS_RELEASE_FILE`, ...). The goal
+is the same result on a developer workstation as in the pinned CI container.
+
 ### Shared shell startup and ergonomics
 
 `tests/test-shell-startup.sh` covers the shared Zsh profile (issues #157 and

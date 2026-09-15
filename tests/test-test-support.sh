@@ -129,6 +129,48 @@ suite_root="$(head -n1 <<<"$TEST_OUTPUT")"
 assert_contains "$TEST_OUTPUT" "hook saw $suite_root"
 assert_path_missing "$suite_root"
 
+printf 'An isolated PATH exposes only the base and named host commands\n'
+host_bin="$root/host-bin"
+mkdir -p "$host_bin"
+for command_name in dotfiles-named-tool dotfiles-unnamed-tool; do
+  printf '#!/bin/sh\nexit 0\n' >"$host_bin/$command_name"
+  chmod +x "$host_bin/$command_name"
+done
+run_capture env PATH="$host_bin:$PATH" bash -c '
+  set -euo pipefail
+  source "$1/tests/lib/test.sh"
+  test_install_cleanup_trap
+  test_isolate_path dotfiles-named-tool
+  printf "isolated=%s\n" "$PATH"
+  command -v dotfiles-named-tool >/dev/null && printf "named tool visible\n"
+  command -v dotfiles-unnamed-tool >/dev/null || printf "unnamed tool hidden\n"
+  [[ "$(command -v bash)" -ef "$BASH" ]] && printf "bash is the running interpreter\n"
+  test_new_root
+  test_cleanup
+  [[ -x "$PATH/rm" ]] && printf "isolated PATH survives test_cleanup\n"
+' _ "$repo_root"
+assert_status 0
+assert_contains "$TEST_OUTPUT" 'named tool visible'
+assert_contains "$TEST_OUTPUT" 'unnamed tool hidden'
+assert_contains "$TEST_OUTPUT" 'bash is the running interpreter'
+assert_contains "$TEST_OUTPUT" 'isolated PATH survives test_cleanup'
+isolated_path="$(sed -n 's/^isolated=//p' <<<"$TEST_OUTPUT")"
+[[ "$isolated_path" == /* && "$isolated_path" != *:* ]] ||
+  _test_die "expected one absolute isolated PATH directory, got '$isolated_path'"
+assert_path_missing "$isolated_path"
+
+printf 'A host command an isolated suite names but the runner lacks fails the suite\n'
+run_capture bash -c '
+  set -uo pipefail
+  source "$1/tests/lib/test.sh"
+  test_install_cleanup_trap
+  test_isolate_path dotfiles-absent-tool || printf "helper returned failure\n"
+  printf "suite reached its end\n"
+' _ "$repo_root"
+assert_status 1
+assert_contains "$TEST_OUTPUT" 'host command not found on PATH: dotfiles-absent-tool'
+assert_contains "$TEST_OUTPUT" 'helper returned failure'
+
 printf 'Every suite that sources the library keeps its failure accumulator\n'
 for suite in "$repo_root"/tests/test-*.sh; do
   grep -Fq 'source "$repo_root/tests/lib/test.sh"' "$suite" || continue

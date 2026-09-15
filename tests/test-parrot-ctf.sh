@@ -6,6 +6,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
+test_isolate_path python3 rg sha256sum zsh
 test_new_root
 test_root="$TEST_ROOT"
 
@@ -50,7 +51,9 @@ channels="$test_root/virtio-ports"
 mkdir -p "$mock_bin" "$config" "$channels"
 printf 'ID=parrot\n' >"$test_root/os-release"
 printf '/bin/bash\n' >"$shell_state"
-printf '/usr/bin/zsh\n' >"$shells_file"
+# The isolated PATH decides which Zsh the installer resolves and registers.
+zsh_path="$(command -v zsh)"
+printf '%s\n' "$zsh_path" >"$shells_file"
 touch "$channels/org.qemu.guest_agent.0" "$channels/com.redhat.spice.0"
 
 test_stub_init "$test_root"
@@ -74,7 +77,7 @@ test_stub_allow "$test_root" sudo apt-get install -y --no-install-recommends \
   "${parrot_packages[@]}"
 test_stub_allow "$test_root" sudo apt-get install -y --no-install-recommends \
   qemu-guest-agent spice-vdagent
-test_stub_allow "$test_root" sudo usermod --shell /usr/bin/zsh parrot-test
+test_stub_allow "$test_root" sudo usermod --shell "$zsh_path" parrot-test
 test_stub_allow "$test_root" sudo systemctl start qemu-guest-agent.service
 test_stub_allow "$test_root" sudo systemctl start spice-vdagentd.socket
 test_stub_allow "$test_root" systemctl start qemu-guest-agent.service
@@ -151,7 +154,7 @@ test_environment=(
   env
   "HOME=$home"
   "XDG_CONFIG_HOME=$config"
-  "PATH=$mock_bin:/usr/bin:/bin"
+  "PATH=$mock_bin:$PATH"
   "OS_RELEASE_FILE=$test_root/os-release"
   "COMMAND_LOG=$command_log"
   "SHELL_STATE=$shell_state"
@@ -175,7 +178,7 @@ if grep -Eq '(^| )neovim( |$)' "$command_log"; then
   printf 'Parrot APT package list still owns Neovim.\n' >&2
   exit 1
 fi
-grep -Fqx '/usr/bin/zsh' "$shell_state"
+grep -Fqx "$zsh_path" "$shell_state"
 
 usermod_count="$(grep -Fc 'sudo usermod --shell' "$command_log")"
 if "${test_environment[@]}" env MOCK_ROOT=true \
@@ -254,7 +257,7 @@ for expected_path in /usr/bin /bin /usr/local/sbin /usr/sbin /sbin; do
   [[ "$(grep -Fxc "$expected_path" <<<"$path_output")" == 1 ]]
 done
 shell_output="$(
-  PATH="$mock_bin:/usr/bin:/bin" zsh -f -c \
+  PATH="$mock_bin:$PATH" zsh -f -c \
     "source '$parrot_zsh'; alias x-copy; hex-encode CTF; hex-decode 435446; rot13 CTF"
 )"
 assert_contains "$shell_output" "x-copy='xclip -selection clipboard'"
@@ -304,7 +307,7 @@ if grep -Eiq 'metasploit|nmap|sqlmap|burpsuite|parrot-tools' \
 fi
 
 printf 'ID=fedora\n' >"$test_root/not-parrot"
-if OS_RELEASE_FILE="$test_root/not-parrot" PATH="$mock_bin:/usr/bin:/bin" \
+if OS_RELEASE_FILE="$test_root/not-parrot" PATH="$mock_bin:$PATH" \
   "$repo_root/platforms/parrot-ctf/scripts/install-system.sh" \
   >"$test_root/not-parrot.log" 2>&1; then
   printf 'Parrot package installer accepted Fedora.\n' >&2

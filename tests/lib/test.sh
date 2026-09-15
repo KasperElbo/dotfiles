@@ -4,6 +4,9 @@
 # own shell policy; sourcing this file intentionally does not change options.
 
 TEST_ROOTS=()
+# Isolated PATH directories are not test roots: they must stay resolvable for
+# the whole suite, so only the exit trap removes them, after everything else.
+TEST_PATH_ROOTS=()
 TEST_ROOT=""
 TEST_OUTPUT=""
 TEST_STATUS=0
@@ -59,11 +62,55 @@ _test_exit_trap() {
     "$TEST_EXIT_HOOK"
   fi
   test_cleanup
+  # Last, and in one rm: these directories hold rm itself.
+  if ((${#TEST_PATH_ROOTS[@]} > 0)); then
+    rm -rf -- "${TEST_PATH_ROOTS[@]}"
+  fi
   if ((status == 0 && TEST_FAILURES > 0)); then
     printf 'TEST FAILURE: %d failed assertion(s); failing a suite that would have exited 0\n' \
       "$TEST_FAILURES" >&2
     exit 1
   fi
+}
+
+# Host commands every isolated suite may resolve: the portable part of the
+# supported-base commands in config/fedora-command-providers.tsv plus the basic
+# userland the suites themselves use, all present on both the pinned Fedora
+# validation image and macOS. Anything else a suite needs from the host, such as
+# git, jq, zsh or the Linux-only getent, is named explicitly by that suite.
+TEST_HOST_COMMANDS=(
+  awk basename bash cat chmod cp cut date dirname echo env find grep head id
+  install ln ls mkdir mktemp mv paste pwd readlink realpath rm rmdir sed sh
+  sleep sort stat sync tail tee touch tr uname uniq wc xargs
+)
+
+# test_isolate_path [command ...]: replace PATH with one directory that links
+# only TEST_HOST_COMMANDS and the named commands, resolved from the current
+# PATH.
+#
+# Without this, a tool installed on the machine running the tests (a real
+# opam, mise or tailscale, or a workstation PATH full of agents) satisfies a
+# lookup the suite meant to mock or to find absent, and the same suite passes in
+# CI and fails on a workstation. Suites put their mocks in front, as in
+# PATH="$mock_bin:$PATH", and never append /usr/bin or /bin. A missing host
+# command is a test failure, never a silently narrower PATH. bash links to the
+# running interpreter so `#!/usr/bin/env bash` scripts run under the suite's
+# own Bash.
+test_isolate_path() {
+  local bin name resolved
+  bin="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-test-path.XXXXXX")" || return 1
+  TEST_PATH_ROOTS+=("$bin")
+  for name in "${TEST_HOST_COMMANDS[@]}" "$@"; do
+    if [[ "$name" == bash ]]; then
+      resolved="$BASH"
+    else
+      resolved="$(type -P -- "$name")" ||
+        _test_die "test_isolate_path: host command not found on PATH: $name" ||
+        return 1
+    fi
+    ln -sf -- "$resolved" "$bin/$name" || return 1
+  done
+  export PATH="$bin"
 }
 
 test_env_args() {

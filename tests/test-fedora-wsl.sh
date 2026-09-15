@@ -6,6 +6,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
+test_isolate_path git jq sha256sum stow timeout
 test_new_root
 test_root="$TEST_ROOT"
 
@@ -240,7 +241,7 @@ test_environment=(
   env
   "HOME=$home"
   "XDG_CONFIG_HOME=$config"
-  "PATH=$mock_bin:/usr/bin:/bin"
+  "PATH=$mock_bin:$PATH"
   "WSL_DISTRO_NAME=FedoraLinux"
   "OS_RELEASE_FILE=$test_root/os-release"
   "COMMAND_LOG=$command_log"
@@ -254,7 +255,7 @@ assert_contains "$install_system_output" \
   'This Noctty session was started before that change; open a new Noctty/WSL'
 [[ -x "$home/.local/bin/mise" ]]
 [[ -x "$home/.local/bin/starship" ]]
-expected_zsh_path="$(PATH="$mock_bin:/usr/bin:/bin" command -v zsh)"
+expected_zsh_path="$(PATH="$mock_bin:$PATH" command -v zsh)"
 grep -Fq 'sudo dnf install -y bat bzip2 curl eza fd-find fzf gawk' "$command_log"
 grep -Fq 'gh git git-delta jq libicu' "$command_log"
 grep -Fq "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log"
@@ -276,7 +277,7 @@ first_mise="$(sha256sum "$home/.local/bin/mise")"
 [[ "$(grep -Fc "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log")" == 1 ]]
 
 STOW_LOG="$stow_log" HOME="$home" XDG_CONFIG_HOME="$config" \
-  PATH="$mock_bin:/usr/bin:/bin" \
+  PATH="$mock_bin:$PATH" \
   "$repo_root/platforms/fedora-wsl/scripts/stow.sh" >/dev/null
 
 for package in bat bin fzf git lazygit mise nvim-lazyvim starship tmux zsh \
