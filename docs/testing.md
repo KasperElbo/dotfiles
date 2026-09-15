@@ -155,6 +155,18 @@ Three suites carry the invariants from the AI/mise/supply-chain workstream:
   interrupted transition and its recovery, and a lost state file. Each step
   asserts both the profile state and the filesystem.
 
+### Repository hygiene
+
+`tests/test-repository-hygiene.sh` owns the rules in
+`scripts/validate-repository-hygiene.py` (issue #162). Each negative case
+builds a minimal tree that is valid except for one defect, so a rule that stops
+working fails visibly rather than passing vacuously: a lone root npm lockfile,
+a retained upstream licence text nothing references, a third-party notice
+pointing at a path that no longer exists, and a licensing page whose stated
+decision disagrees with the tree. The positive cases prove the rules do not
+over-reach — a lockfile beside its own manifest, and a fixture project below
+the root, are both accepted.
+
 ### Installer lifecycle repeatability
 
 `tests/test-install-rerun.sh` owns the `./install.sh --rerun` contract. It

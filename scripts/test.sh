@@ -63,6 +63,7 @@ default_tests=(
   tests/test-test-support.sh
   tests/test-test-runner.sh
   tests/test-capabilities.sh
+  tests/test-repository-hygiene.sh
   tests/test-fedora-dependency-closure.sh
   tests/test-supply-chain.sh
   tests/test-profile-state.sh
