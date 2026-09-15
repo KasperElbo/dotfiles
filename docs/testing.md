@@ -5,9 +5,43 @@ The repository deliberately separates **fast mocked/contract evidence** from
 as proof that a clean machine can install, survive a new login, or converge on
 a second run.
 
+## Contributor toolchain
+
+`./scripts/lint.sh` and `./scripts/test.sh` are the two entry points a
+contributor runs locally before opening a pull request, and both preflight
+their own dependencies rather than failing partway through. The tools they
+expect, matching `./scripts/test.sh`'s aggregate preflight list and the
+`.github/workflows/validate.yml` `repository` job's installed packages:
+
+| Tool | Minimum version | Used by |
+| --- | --- | --- |
+| ShellCheck | any version supporting `-S warning` (`./scripts/lint.sh` pins the severity threshold so info-level notes never fail CI on version drift) | `./scripts/lint.sh` |
+| Neovim (`nvim`) | >= 0.10 | `./scripts/test.sh` preflight and the Neovim/editor suites |
+| zsh | any recent release | shell-startup and profile suites |
+| GNU Stow (`stow`) | any recent release | install/stow suites |
+| OpenSSH client tools (`ssh`, `scp`, `sftp`) | any recent release | SFTP/remote-access suites |
+| Python 3 (`python3`) | 3.11+ | every `scripts/*.py` validator and generator |
+| jq | any recent release | JSON-fixture and action-registry suites |
+| ripgrep (`rg`) | any recent release | `./scripts/test.sh` preflight and search-based checks |
+
+`./scripts/test.sh` also preflights `awk`, `bash`, `find`, `git`, `grep`,
+`mktemp`, `sed` and `timeout`, which are assumed already present on any
+supported development machine.
+
 ## Fast PR validation
 
-`./scripts/test.sh` is the normal aggregate runner. It:
+`.github/workflows/validate.yml` is the workflow that runs on every pull
+request and on pushes to `main`. It has four independent jobs:
+
+| Job | Runner / image | What it runs |
+| --- | --- | --- |
+| `repository` (Repository validation) | `ubuntu-latest`, inside a pinned `fedora:44` container | `./scripts/lint.sh`, `./scripts/test.sh`, and a whitespace check (`git diff --check`) against the PR's base |
+| `cheatsheets` (Printable cheat sheets) | `ubuntu-latest`, inside the same pinned `fedora:44` container, with a LaTeX toolchain installed | `./docs/cheatsheets/verify.sh`, then asserts the compiled PDFs are left untracked |
+| `windows` (Windows PowerShell validation) | `windows-latest` | `tests/test-windows-bootstrap.ps1`, `tests/test-windows-verifier.ps1`, and a `verify.ps1` smoke test against a fixture |
+| `macos` (macOS 26 arm64 validation) | `macos-26` | `tests/integration/macos-dotnet-debug.sh`, `./scripts/lint.sh`, portable-verifier/shell-test/profile-state suites, a `--dry-run` macOS install, `tests/test-macos.sh`/`tests/test-macos-ai.sh`/`tests/test-ocaml-verification.sh`, and a whitespace check |
+
+`./scripts/test.sh` is the normal aggregate runner that the `repository` job
+above invokes. It:
 
 - preflights the normal Linux aggregate toolchain before the default suite set;
 - runs independent suites to completion by default;

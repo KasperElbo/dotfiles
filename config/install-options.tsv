@@ -1,7 +1,7 @@
 platform	option	kind	on_flag	off_flag	default	values	capability	summary
 fedora	theme	value	--theme	-	macchiato	latte|frappe|macchiato|mocha	-	Catppuccin flavour
-fedora	kde	boolean	--kde	--no-kde	false	-	kde	KDE integration
-fedora	latex	boolean	--latex	--no-latex	false	-	latex	LaTeX toolchain
+fedora	kde	boolean	--kde	--no-kde	auto	-	kde	KDE integration
+fedora	latex	boolean	--latex	--no-latex	auto	-	latex	LaTeX toolchain
 fedora	ocaml	boolean	--ocaml	--no-ocaml	false	-	ocaml	OCaml profile
 fedora	sway	boolean	--sway	--no-sway	false	-	sway	Sway session
 fedora	vm-host	boolean	--vm-host	-	false	-	vm-host	KVM/QEMU + libvirt host profile

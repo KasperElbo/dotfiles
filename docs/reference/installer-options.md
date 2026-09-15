@@ -18,8 +18,8 @@ Platform guide: [../platforms/fedora.md](../platforms/fedora.md)
 | Option | Enable | Disable | Default | Values | Summary | Capability | Documented in |
 |---|---|---|---|---|---|---|---|
 | `theme` | `--theme` | — | `macchiato` | `latte\|frappe\|macchiato\|mocha` | Catppuccin flavour | — | — |
-| `kde` | `--kde` | `--no-kde` | `false` | — | KDE integration | `kde` | [docs/workflows/theming.md](../workflows/theming.md#kde) |
-| `latex` | `--latex` | `--no-latex` | `false` | — | LaTeX toolchain | `latex` | [docs/workflows/latex.md](../workflows/latex.md#latex-editing-workflow) |
+| `kde` | `--kde` | `--no-kde` | `auto` | — | KDE integration | `kde` | [docs/platforms/fedora.md](../platforms/fedora.md#defaults-that-resolve-themselves) |
+| `latex` | `--latex` | `--no-latex` | `auto` | — | LaTeX toolchain | `latex` | [docs/platforms/fedora.md](../platforms/fedora.md#defaults-that-resolve-themselves) |
 | `ocaml` | `--ocaml` | `--no-ocaml` | `false` | — | OCaml profile | `ocaml` | [docs/workflows/development.md](../workflows/development.md#ocaml-development) |
 | `sway` | `--sway` | `--no-sway` | `false` | — | Sway session | `sway` | [docs/platforms/fedora.md](../platforms/fedora.md#optional-sway-session) |
 | `vm-host` | `--vm-host` | — | `false` | — | KVM/QEMU + libvirt host profile | `vm-host` | [docs/profiles/vm-host.md](../profiles/vm-host.md) |
@@ -87,11 +87,11 @@ These control one invocation and are never part of the remembered
 configuration, so they have no manifest row. `./install.sh --help` prints the
 authoritative list for this checkout.
 
-| Control | Meaning |
-|---|---|
-| `--platform PLATFORM` | Select the platform installer: `fedora` (default), `fedora-wsl`, `macos`, `parrot-ctf`. |
-| `--rerun` | Reapply this machine's last successful configuration. See [rerun.md](../workflows/rerun.md). |
-| `--dry-run` | Resolve and print the plan; change nothing. |
-| `--non-interactive` | Never prompt; resolve every choice from the given options and their defaults. Requires cached sudo (run `sudo -v` first) where the run needs it. |
-| `--dev-workflows` | Run the disposable development-workflow smoke tests after installing. |
-| `-h`, `--help` | Print the platform installer's own help, which is authoritative for this checkout. |
+| Control | Platforms | Meaning |
+|---|---|---|
+| `--platform PLATFORM` | all | Select the platform installer: `fedora` (default), `fedora-wsl`, `macos`, `parrot-ctf`. Selects which `platforms/NAME/install.sh` runs. |
+| `--rerun` | all | Reapply this machine's last successful configuration. See [rerun.md](../workflows/rerun.md). |
+| `--dry-run` | all | Resolve and print the plan; change nothing. |
+| `--non-interactive` | all | Never prompt; resolve every choice from the given options and their defaults. Requires cached sudo (run `sudo -v` first) where the run needs it. |
+| `--dev-workflows` | `fedora`, `fedora-wsl`, `macos` | Run the disposable development-workflow smoke tests after installing. |
+| `-h`, `--help` | all | Print the platform installer's own help, which is authoritative for this checkout. |

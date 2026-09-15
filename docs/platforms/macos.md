@@ -141,6 +141,13 @@ EasyDotnet's pinned companion tool bundles the native `osx-arm64`
 rejects a Mason-owned or `osx-x64` debugger path, while the CI probe records
 legacy Intel behavior without installing Rosetta.
 
+## Terminal
+
+The terminal is **Ghostty**, installed from the Brewfile as part of the
+baseline and configured by the portable `ghostty` Stow package. Like the rest
+of the baseline it is not optional and has no flag; Terminal.app and iTerm are
+left untouched.
+
 ## 4. Development workflows
 
 **Automated, optional validation:** Run all default workflow fixtures during

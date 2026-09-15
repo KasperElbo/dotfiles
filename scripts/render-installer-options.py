@@ -21,11 +21,17 @@ import csv
 import pathlib
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import supported_platforms  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPTIONS = ROOT / "config" / "install-options.tsv"
 CAPABILITIES = ROOT / "config" / "capabilities.tsv"
 TARGET = ROOT / "docs" / "reference" / "installer-options.md"
 
+# Titles and guide paths are human-authored; which platforms exist is not.
+# supported_platforms() decides the set and the order, and a platform missing
+# a title or a guide below fails rather than rendering an unlabelled section.
 PLATFORM_TITLES = {
     "fedora": "Fedora workstation (`--platform fedora`, the default)",
     "fedora-wsl": "Fedora on WSL (`--platform fedora-wsl`)",
@@ -41,19 +47,37 @@ PLATFORM_GUIDES = {
 }
 
 # Controls that apply to one invocation and are never remembered. They have no
-# manifest row by design; `install-selection.sh` documents why.
+# manifest row by design; `install-selection.sh` documents why. Not all of them
+# are universal, so each one says which platforms accept it: `--dev-workflows`
+# is rejected outright by the CTF guest, whose installer runs no smoke tests.
+# `None` means every supported platform.
 TRANSIENT = [
-    ("`--platform PLATFORM`", "Select the platform installer: `fedora` (default), `fedora-wsl`, `macos`, `parrot-ctf`."),
-    ("`--rerun`", "Reapply this machine's last successful configuration. See [rerun.md](../workflows/rerun.md)."),
-    ("`--dry-run`", "Resolve and print the plan; change nothing."),
-    (
-        "`--non-interactive`",
-        "Never prompt; resolve every choice from the given options and their "
-        "defaults. Requires cached sudo (run `sudo -v` first) where the run needs it.",
-    ),
-    ("`--dev-workflows`", "Run the disposable development-workflow smoke tests after installing."),
-    ("`-h`, `--help`", "Print the platform installer's own help, which is authoritative for this checkout."),
+    ("`--platform PLATFORM`", None,
+     "Select the platform installer: {platforms}. Selects which "
+     "`platforms/NAME/install.sh` runs."),
+    ("`--rerun`", None,
+     "Reapply this machine's last successful configuration. See [rerun.md](../workflows/rerun.md)."),
+    ("`--dry-run`", None, "Resolve and print the plan; change nothing."),
+    ("`--non-interactive`", None,
+     "Never prompt; resolve every choice from the given options and their "
+     "defaults. Requires cached sudo (run `sudo -v` first) where the run needs it."),
+    ("`--dev-workflows`", ("fedora", "fedora-wsl", "macos"),
+     "Run the disposable development-workflow smoke tests after installing."),
+    ("`-h`, `--help`", None,
+     "Print the platform installer's own help, which is authoritative for this checkout."),
 ]
+
+
+def platforms_in_order() -> list[str]:
+    platforms = list(supported_platforms())
+    missing = [
+        platform for platform in platforms
+        if platform not in PLATFORM_TITLES or platform not in PLATFORM_GUIDES
+    ]
+    if missing:
+        print(f"No title or platform guide for: {', '.join(missing)}", file=sys.stderr)
+        raise SystemExit(1)
+    return platforms
 
 
 def code(value: str) -> str:
@@ -89,7 +113,9 @@ def render() -> str:
         "",
     ]
 
-    for platform, title in PLATFORM_TITLES.items():
+    supported = platforms_in_order()
+    for platform in supported:
+        title = PLATFORM_TITLES[platform]
         platform_rows = [row for row in rows if row["platform"] == platform]
         lines.append(f"## {title}")
         lines.append("")
@@ -138,10 +164,25 @@ def render() -> str:
     )
     lines.append("authoritative list for this checkout.")
     lines.append("")
-    lines.append("| Control | Meaning |")
-    lines.append("|---|---|")
-    for control, meaning in TRANSIENT:
-        lines.append(f"| {control} | {meaning} |")
+    lines.append("| Control | Platforms | Meaning |")
+    lines.append("|---|---|---|")
+    for control, platforms, meaning in TRANSIENT:
+        if platforms is None:
+            accepted = "all"
+        else:
+            missing = [platform for platform in platforms if platform not in supported]
+            if missing:
+                print(f"{control} names platforms that are not supported: {', '.join(missing)}",
+                      file=sys.stderr)
+                raise SystemExit(1)
+            accepted = ", ".join(f"`{platform}`" for platform in supported if platform in platforms)
+        rendered_platforms = ", ".join(
+            f"`{platform}`" + (" (default)" if platform == supported[0] else "")
+            for platform in supported
+        )
+        lines.append(
+            f"| {control} | {accepted} | {meaning.format(platforms=rendered_platforms)} |"
+        )
     lines.append("")
 
     rendered = "\n".join(line.rstrip() for line in lines).replace("\n\n\n", "\n\n")

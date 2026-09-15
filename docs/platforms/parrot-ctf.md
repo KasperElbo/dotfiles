@@ -101,6 +101,14 @@ Konsole, and installs the four pinned Catppuccin bat themes referenced by the
 shared Git/Delta configuration. It does not install Ghostty or apply general
 KDE theming.
 
+## Terminal
+
+The guest's terminal is Parrot's own **Konsole**, configured rather than
+replaced: `install-terminal.sh` installs pinned Hack Nerd Font Mono
+user-locally, selects it in the managed `Dotfiles-Parrot-CTF.profile`, and
+installs the pinned Catppuccin bat themes. Ghostty is deliberately not
+installed here, and no general KDE theming is applied.
+
 The final rerun is the idempotency check. Without `--theme`, it preserves an
 existing valid flavour; an explicit `--theme FLAVOUR` changes it. The guest
 verifier checks observable guest state: Parrot and KVM/QEMU detection, both

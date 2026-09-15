@@ -134,6 +134,12 @@ test is:
 ./scripts/test-dev-workflows.sh --latex
 ```
 
+On native Fedora, `platforms/fedora/scripts/verify.sh` also checks the toolchain
+itself: when the recorded installation selected `latex` it requires `biber`,
+`latex`, `latexindent`, `latexmk`, `lualatex`, `pdflatex`, and `xelatex`, and
+when it did not it reports the toolchain as not applicable and warns if
+`latexmk` is installed anyway.
+
 Where a platform's installer owns TeX and the `latex` capability is recorded as
 installed, a missing `latexmk`, `pdflatex`, `biber`, or `latexindent` is a
 broken installation and the workflow FAILs. Where TeX is externally managed, as

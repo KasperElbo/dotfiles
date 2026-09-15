@@ -213,6 +213,39 @@ assert_contains "$TEST_OUTPUT" 'option --charge-limit was added after this confi
 assert_contains "$TEST_OUTPUT" 'Battery limit:       unchanged'
 printf 'PASS: an option added after the record is reported, not silently dropped\n'
 
+# Fedora's kde and latex resolve themselves -- KDE by detecting plasmashell,
+# LaTeX by asking -- so their manifest default is auto rather than false. A
+# record written before such an option existed must reconstruct to *neither*
+# flag and let that resolution run. Emitting the off flag would silently turn
+# "never recorded" into "this machine said no", which is a different
+# configuration than the one that was recorded.
+
+drop_option() {
+  local record="$1" wanted="$2" pair result=""
+  local -a pairs=()
+  IFS=, read -r -a pairs <<<"$record"
+  for pair in "${pairs[@]}"; do
+    [[ "${pair%%:*}" != "$wanted" ]] || continue
+    result+="${result:+,}$pair"
+  done
+  printf '%s\n' "$result"
+}
+
+for auto_option in latex kde; do
+  pre_option_record="$(drop_option "$selection_b" "$auto_option")"
+  [[ "$pre_option_record" != "$selection_b" ]] ||
+    _test_die "fixture did not drop the $auto_option option"
+  record_success fedora base,dotnet-debug,ocaml "$pre_option_record"
+  run_capture "$repo_root/install.sh" --rerun --dry-run
+  assert_success
+  assert_contains "$TEST_OUTPUT" \
+    "option --$auto_option was added after this configuration was recorded"
+  options_line="$(sed -n 's/^Options:   //p' <<<"$TEST_OUTPUT")"
+  assert_not_contains "$options_line" "--$auto_option"
+  assert_not_contains "$options_line" "--no-$auto_option"
+  printf 'PASS: an unrecorded %s reconstructs to neither flag\n' "$auto_option"
+done
+
 # --- 14-16. Missing, incomplete, corrupt and unsupported state ---------------
 
 record_success fedora base,dotnet-debug,ocaml "$selection_b"

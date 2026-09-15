@@ -59,11 +59,14 @@ if [ "$rerun" = "true" ] && [ "$platform_explicit" = "false" ]; then
   if [ -r "$install_state" ]; then
     remembered_platform="$(awk -F= \
       '$1 == "last_successful_platform" { print $2; exit }' "$install_state")"
-    case "$remembered_platform" in
-      fedora | fedora-wsl | macos | parrot-ctf)
-        platform="$remembered_platform"
-        ;;
-    esac
+    # The supported names live in config/capabilities.tsv, as its implemented
+    # base rows. Asking the manifest here keeps this guard from drifting away
+    # from the list scripts/install-main.sh validates against.
+    if [ -n "$remembered_platform" ] && awk -F '\t' -v p="$remembered_platform" \
+      'NR > 1 && $1 == "base" && $2 == p && $15 == "implemented" { found = 1 }
+       END { exit !found }' "$repo_root/config/capabilities.tsv" 2>/dev/null; then
+      platform="$remembered_platform"
+    fi
   fi
 fi
 

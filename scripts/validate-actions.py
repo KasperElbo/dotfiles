@@ -39,12 +39,17 @@ import re
 import sys
 import tomllib
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import supported_platforms  # noqa: E402
+
 FIELDS = [
     "id", "platform", "profile", "component", "origin", "input", "binding",
     "action", "source", "source_pattern", "discoverability", "print",
     "sheets", "print_reason",
 ]
-PLATFORMS = {"all", "fedora", "fedora-wsl", "macos", "parrot-ctf"}
+# "all" is this registry's sentinel for every platform; the named ones come
+# from config/capabilities.tsv rather than being repeated here.
+PLATFORMS = {"all", *supported_platforms()}
 ORIGINS = {"repository", "upstream"}
 INPUTS = {"key", "mouse", "click", "command", "mode"}
 DISCOVERABILITY = {"whichkey", "tool-help", "shell-help", "status-bar", "config-only", "documented"}
