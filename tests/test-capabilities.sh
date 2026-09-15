@@ -6,7 +6,7 @@ python3 "$repo_root/scripts/validate-capabilities.py"
 python3 "$repo_root/scripts/render-capability-matrix.py" --check
 
 fixture="$(mktemp)"
-trap 'rm -f -- "$fixture" "$fixture".*' EXIT
+trap 'rm -rf -- "$fixture" "$fixture".*' EXIT
 cp "$repo_root/config/capabilities.tsv" "$fixture"
 duplicate_row="$(sed -n '2p' "$fixture")"
 printf '%s\n' "$duplicate_row" >>"$fixture"
@@ -110,6 +110,86 @@ fi
 grep -Fq "vm_guest_packages installs 'xclip', which no fedora capability owns" \
   "$fixture.unowned.log"
 
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "ai" && $2 == "fedora" {$9 = $9 ",totally-fake-nonexistent-package"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.fabricated"
+if CAPABILITY_MANIFEST="$fixture.fabricated" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.fabricated.log"; then
+  printf 'Fabricated AI package fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora/ai: package 'totally-fake-nonexistent-package' is declared but is not requested by common/install-ai.sh" \
+  "$fixture.fabricated.log"
+
+# A mise configuration is parsed rather than searched, so a package is only
+# requested there when it is a declared tool.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "dotnet-debug" && $2 == "fedora" {$9 = "EasyDotnetCli"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.mise"
+if CAPABILITY_MANIFEST="$fixture.mise" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.mise.log"; then
+  printf 'Undeclared mise tool fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora/dotnet-debug: package 'EasyDotnetCli' is declared but is not requested by mise/.config/mise/config.toml" \
+  "$fixture.mise.log"
+
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "dotnet-debug" && $2 == "macos" {$16 = "-"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.installers"
+if CAPABILITY_MANIFEST="$fixture.installers" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.installers.log"; then
+  printf 'Package row without installers unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq 'macos/dotnet-debug: declares packages (EasyDotnet) but names no installers' \
+  "$fixture.installers.log"
+
+# Every capability an installer option selects must be implemented on that
+# platform; deleting its row is not a silent way to drop it (#242).
+awk -F '\t' '!($1 == "hardening" && $2 == "fedora")' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.deleted"
+if CAPABILITY_MANIFEST="$fixture.deleted" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.deleted.log"; then
+  printf 'Deleted implemented capability fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq 'fedora/hardening: selects capability hardening, which has no implemented fedora row' \
+  "$fixture.deleted.log"
+
+# The stow column drives preflight conflict detection, so it must name exactly
+# what the Stow scripts deploy on each platform, in both directions (#242).
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "base" && $2 == "fedora" {sub(/,ghostty,/, ",", $10)} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.stow"
+if CAPABILITY_MANIFEST="$fixture.stow" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.stow.log"; then
+  printf 'Undeclared Stow package fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora: Stow package 'ghostty' is deployed by the Stow scripts but no fedora capability declares it" \
+  "$fixture.stow.log"
+
+# Fedora WSL runs the portable Stow script with --headless, which drops Ghostty.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "base" && $2 == "fedora-wsl" {$10 = $10 ",ghostty"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.headless"
+if CAPABILITY_MANIFEST="$fixture.headless" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.headless.log"; then
+  printf 'Stow package the headless platform never deploys unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora-wsl: Stow package 'ghostty' is declared in the stow column but no Stow script deploys it" \
+  "$fixture.headless.log"
+
+# The scripts side needs a scratch copy of the repository: the validator reads
+# the Stow scripts next to itself, and this checkout is never modified.
+mkdir -p "$fixture.tree"
+cp -R "$repo_root/." "$fixture.tree/"
+rm -rf -- "$fixture.tree/.git"
+printf 'packages+=(nonexistent)\n' >>"$fixture.tree/platforms/fedora/scripts/stow.sh"
+if python3 "$fixture.tree/scripts/validate-capabilities.py" 2>"$fixture.tree.log"; then
+  printf 'Stow script package no capability declares unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora: Stow package 'nonexistent' is deployed by the Stow scripts but no fedora capability declares it" \
+  "$fixture.tree.log"
+
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
 # shellcheck source=../common/lib/capabilities.sh
@@ -135,8 +215,11 @@ hardware_packages="$(awk -F '\t' '$1=="hardware" && $2=="fedora" {print $9; exit
 [[ ",$hardware_packages," == *,akmods,* ]]
 
 fedora_installer="$repo_root/platforms/fedora/install.sh"
-[[ "$(grep -Fc "\"\$hardware_selected:hardware\"" "$fedora_installer")" -ge 2 ]] || {
-  printf 'Fedora hardware selection is not included in both preflight and lifecycle capability resolution.\n' >&2
+# The selection is resolved by one function, whose every consumer -- the
+# selection check, preflight and the lifecycle record -- calls it.
+grep -Fq "\"\$hardware_selected:hardware\"" "$fedora_installer"
+[[ "$(grep -Fc 'fedora_selected_capabilities' "$fedora_installer")" -ge 4 ]] || {
+  printf 'Fedora hardware selection is not shared by the selection check, preflight and lifecycle capability resolution.\n' >&2
   exit 1
 }
 # The command a failed run prints is rendered from the resolved selection by
@@ -177,7 +260,7 @@ helper_platforms="$(PYTHONPATH="$repo_root/scripts/lib" python3 -c \
 }
 
 cp "$repo_root/config/capabilities.tsv" "$fixture.platform"
-printf 'base\tplasma9\tworkstation\t-\tenabled\t-\t-\tdnf\t-\t-\tplatforms/fedora/scripts/verify.sh\t-\tdocs/platforms/fedora.md\tnative\timplemented\n' \
+printf 'base\tplasma9\tworkstation\t-\tenabled\t-\t-\tdnf\t-\t-\tplatforms/fedora/scripts/verify.sh\t-\tdocs/platforms/fedora.md\tnative\timplemented\t-\n' \
   >>"$fixture.platform"
 if CAPABILITY_MANIFEST="$fixture.platform" \
   python3 "$repo_root/scripts/render-capability-matrix.py" --check \

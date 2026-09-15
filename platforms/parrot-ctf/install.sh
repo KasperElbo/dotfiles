@@ -73,6 +73,18 @@ install_selection_reset parrot-ctf
 install_selection_set theme "$theme"
 install_selection="$(install_selection_serialize)"
 
+# The reduced guest has no optional capabilities: its selection is fixed, and
+# still resolved in one place for the selection check, preflight and the
+# lifecycle record.
+parrot_selected_capabilities() { printf '%s\n' base vm-guest; }
+# Checked for every run, --dry-run included: a dry run exits before
+# plan_preflight, and it must not show a plan for a capability this platform's
+# manifest does not implement.
+selected_capabilities=()
+while IFS= read -r capability; do selected_capabilities+=("$capability"); done < <(parrot_selected_capabilities)
+capability_validate_selection parrot-ctf "${selected_capabilities[@]}" ||
+  die 'The selected capabilities cannot be installed on parrot-ctf.'
+
 preflight_parrot() {
   require_regular_user
   require_parrot
@@ -84,15 +96,17 @@ preflight_parrot() {
   preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"
   preflight_writable_path "$(profile_state_dir)"
-  local specs=() spec
-  capability_validate_selection parrot-ctf base vm-guest
-  while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs parrot-ctf base vm-guest)
+  local specs=() spec capability
+  local selected=()
+  while IFS= read -r capability; do selected+=("$capability"); done < <(parrot_selected_capabilities)
+  capability_validate_selection parrot-ctf "${selected[@]}"
+  while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs parrot-ctf "${selected[@]}")
   preflight_stow_packages "${specs[@]}"
 }
 
 apply_system() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-system.sh"; }
 apply_guest() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-guest-integration.sh"; }
-apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" "$theme"; }
+apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" parrot-ctf "$theme"; }
 apply_stow() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/stow.sh"; }
 apply_terminal() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-terminal.sh"; }
 apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
@@ -103,7 +117,7 @@ verify_parrot() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/verify.sh"; }
 
 plan_add system 'Install Parrot-owned working-environment prerequisites' apply preflight_parrot apply_system : 'platforms/parrot-ctf/scripts/install-system.sh; security catalogue unchanged'
 plan_add guest 'Install and activate KVM/QEMU guest integration' apply : apply_guest : 'qemu-guest-agent and SPICE; host secrets and shared folders remain disabled'
-plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh $theme"
+plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh parrot-ctf $theme"
 plan_add stow 'Deploy the reduced portable and narrow Parrot configuration' apply : apply_stow : 'platforms/parrot-ctf/scripts/stow.sh'
 plan_add terminal 'Install the pinned Nerd Font, bat themes, and Konsole profile' apply : apply_terminal : 'platforms/parrot-ctf/scripts/install-terminal.sh'
 plan_add mise 'Install the narrow mise-managed uv and Neovim runtimes' apply : apply_mise : 'common/install-mise.sh'
@@ -152,7 +166,9 @@ fi
 
 plan_preflight
 DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command parrot-ctf "$install_selection")"
-install_lifecycle_begin parrot-ctf base,vm-guest "$DOTFILES_RERUN_COMMAND" "$install_selection"
+capabilities=''
+while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(parrot_selected_capabilities)
+install_lifecycle_begin parrot-ctf "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?
   install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"

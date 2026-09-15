@@ -64,6 +64,7 @@ default_tests=(
   tests/test-test-support.sh
   tests/test-test-runner.sh
   tests/test-capabilities.sh
+  tests/test-install-option-parsers.sh
   tests/test-repository-hygiene.sh
   tests/test-documentation.sh
   tests/test-compat-wrappers.sh

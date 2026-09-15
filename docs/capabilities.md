@@ -32,6 +32,7 @@ platform and profile:
 | `docs` | Where it is documented | a path, optionally with an `#anchor` |
 | `provenance` | Where the thing itself comes from | any |
 | `status` | Whether this repository provides it | `implemented`, `unsupported` |
+| `installers` | The files that request its packages | repository-relative paths, or `-` |
 
 An `implemented` row must name a provider, a verifier, documentation and a
 provenance; an `unsupported` row must name who owns that absence. Deliberate
@@ -53,7 +54,7 @@ it, so an option that is not here is one the installer rejects.
 | `kind` | What kind of value it carries | `boolean`, `tristate`, `value` |
 | `on_flag` / `off_flag` | How it is turned on and off | a flag, or `-` |
 | `default` | What it resolves to when neither flag is given | `true`, `false`, `auto` (boolean); `true`, `false`, `inherit`, `auto` (tristate); a value or `-` (value) |
-| `values` | The permitted values of a `value` option | a regex alternation, or `-` |
+| `values` | The permitted values of a `value` option; the installer and `common/setup-local.sh` read `theme`'s flavours from here | a regex alternation, or `-` |
 | `capability` | The capability the option selects | a name, or `-` |
 | `summary` | The one-line description the reference renders | any |
 
@@ -74,11 +75,32 @@ replay them.
   and `auto` is `auto`. Changing a default in one manifest alone fails lint.
 - `--dev-workflows` is the one flag with no option row, carried as an explicit
   exception because it is a transient control.
+- An option that selects a capability needs an `implemented` row for that
+  capability on its platform, so deleting a row cannot quietly drop an option.
 - Packages are compared with the files that install them, in both directions:
-  a package a row declares must be requested by that capability's installers,
-  and every entry of a `*packages=(...)` array in an installer must be owned
-  by some capability on that platform.
+  a package a row declares must be requested by one of the files its
+  `installers` column names (a mise configuration is parsed, so the package
+  must be a declared tool), and every entry of a `*packages=(...)` array in an
+  installer must be owned by some capability on that platform. A row that
+  declares packages but names no installers fails, unless it is listed with
+  its reason in `PACKAGES_CHECKED_ELSEWHERE`.
+- The `stow` column, which preflight uses to find conflicting dotfiles before
+  anything is installed, must name exactly the Stow packages
+  `common/stow.sh` and `platforms/<platform>/scripts/stow.sh` can deploy on
+  that platform, conditional branches included.
 - Conflicts must be declared on both rows of a pair.
+
+`./scripts/validate-install-options.py` closes the loop with the code that
+reads the options: every flag a `platforms/<platform>/install.sh` argv parser
+accepts must be an `on_flag` or `off_flag` of that platform, and every such flag
+must have a case arm, reported by name in both directions. Transient controls
+and deprecated aliases are listed in the validator, and so are the flags a
+platform deliberately rejects with an explanation (`--tailscale` on Fedora WSL,
+`--latex` on macOS), whose arms must really `die`.
+
+`--dry-run` stops before preflight, but it still runs the pure
+`capability_validate_selection` check, so a plan is never shown for a
+capability the manifest does not implement.
 
 ## To add or change a capability
 
@@ -90,7 +112,8 @@ replay them.
    listed explicitly in `./scripts/validate-capabilities.py` with its reason.
 3. Give it a row in `config/install-options.tsv` if it has a `cli_flag`, and
    add the installer implementation and verifier before marking it
-   `implemented`.
+   `implemented`. Name the files that request its packages in `installers`,
+   and its Stow packages in `stow` next to the Stow script that deploys them.
 4. Add focused positive and negative tests, then run `./scripts/lint.sh` and
    `./scripts/test.sh`. Lint runs every validator and every generator in
    `--check` mode, so a manifest change that was not regenerated fails there;

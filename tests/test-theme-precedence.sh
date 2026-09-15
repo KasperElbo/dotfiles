@@ -277,4 +277,37 @@ dry_run fedora --theme mocha
 assert_contains "$TEST_OUTPUT" 'explicit --theme on this run'
 printf 'PASS: dry-run output explains where the flavour came from\n'
 
+# --- One list of flavours ---------------------------------------------------
+#
+# The supported flavours are the theme option's values in the option manifest
+# (#242). The runtime checks read them rather than repeating them, so a value
+# added to the manifest is accepted and a value it does not list is not.
+
+new_machine
+flavour_manifest="$machine/install-options.tsv"
+awk -F '\t' 'BEGIN { OFS = "\t" } $2 == "theme" { $7 = $7 "|oled" } { print }' \
+  "$repo_root/config/install-options.tsv" >"$flavour_manifest"
+flavour_check='source "$1/common/lib/common.sh"; source "$1/common/lib/theme-selection.sh"
+  theme_flavour_is_valid "$2" "$3"'
+run_capture env "INSTALL_OPTION_MANIFEST=$flavour_manifest" \
+  bash -c "$flavour_check" _ "$repo_root" fedora oled
+assert_success
+run_capture env "INSTALL_OPTION_MANIFEST=$flavour_manifest" \
+  bash -c "$flavour_check" _ "$repo_root" parrot-ctf espresso
+assert_failure
+run_capture bash -c "$flavour_check" _ "$repo_root" macos oled
+assert_failure
+printf 'PASS: the valid flavours are the option manifest theme values\n'
+
+run_capture env "HOME=$machine/home" "XDG_CONFIG_HOME=$machine/config" \
+  "$repo_root/common/setup-local.sh" fedora oled
+assert_failure
+assert_contains "$TEST_OUTPUT" 'Invalid Catppuccin flavour: oled'
+run_capture env "HOME=$machine/home" "XDG_CONFIG_HOME=$machine/config" \
+  "$repo_root/common/setup-local.sh" nowhere macchiato
+assert_failure
+assert_contains "$TEST_OUTPUT" 'No theme option is declared for platform: nowhere'
+assert_path_missing "$machine/config/dotfiles/theme"
+printf 'PASS: local setup checks the flavour against the same manifest\n'
+
 printf 'Theme precedence and rerun-preservation tests passed.\n'

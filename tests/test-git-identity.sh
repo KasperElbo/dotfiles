@@ -296,7 +296,7 @@ run_capture env \
   "XDG_DATA_HOME=$machine/home/.local/share" \
   "XDG_STATE_HOME=$machine/home/.local/state" \
   "DOTFILES_GIT_IDENTITY_BACKUP_DIR=$machine/backup" \
-  "$repo_root/common/setup-local.sh" macchiato
+  "$repo_root/common/setup-local.sh" fedora macchiato
 assert_success
 assert_contains "$TEST_OUTPUT" "2 slot(s) migrated"
 assert_not_contains "$TEST_OUTPUT" "$identity_email"
@@ -323,7 +323,7 @@ run_capture env \
   "XDG_DATA_HOME=$machine/home/.local/share" \
   "XDG_STATE_HOME=$machine/home/.local/state" \
   "DOTFILES_GIT_IDENTITY_BACKUP_DIR=$machine/backup" \
-  "$repo_root/common/setup-local.sh" macchiato
+  "$repo_root/common/setup-local.sh" fedora macchiato
 assert_success
 assert_contains "$TEST_OUTPUT" "need manual action"
 for slot in local drdk; do

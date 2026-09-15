@@ -10,6 +10,7 @@ capability_field_number() {
   conflicts) printf 7 ;; provider) printf 8 ;; packages) printf 9 ;;
   stow) printf 10 ;; verifier) printf 11 ;; state) printf 12 ;;
   docs) printf 13 ;; provenance) printf 14 ;; status) printf 15 ;;
+  installers) printf 16 ;;
   *) return 1 ;;
   esac
 }

@@ -7,9 +7,12 @@ that needs that list reads it from here instead of repeating the four names,
 so adding or retiring a platform is one manifest edit rather than a hunt
 through the scripts.
 
-`scripts/validate-capabilities.py` deliberately does not use this helper: it
-validates the very file the helper reads, and a check derived from its input
-would agree with any typo it is meant to catch.
+`scripts/validate-capabilities.py` deliberately does not use the capability
+readers: it validates the very file they read, and a check derived from its
+input would agree with any typo it is meant to catch. It does share the readers
+of the *other* side of that comparison -- the Stow scripts and the mise
+configuration -- so a generated page and the check against the manifest can
+never parse those files two different ways.
 """
 
 from __future__ import annotations
@@ -17,6 +20,8 @@ from __future__ import annotations
 import csv
 import os
 import pathlib
+import re
+import tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CAPABILITY_MANIFEST = pathlib.Path(
@@ -68,3 +73,36 @@ def capability_names(manifest: pathlib.Path | None = None) -> tuple[str, ...]:
             if row["capability"] not in names:
                 names.append(row["capability"])
     return tuple(names)
+
+
+# The `packages=(…)` array a Stow script iterates, and every `packages+=(…)`
+# append to it, conditional or not.
+STOW_PACKAGES_ARRAY = re.compile(r"^\s*packages=\((?P<names>[^)]*)\)", re.MULTILINE)
+STOW_PACKAGES_APPEND = re.compile(r"^\s*packages\+=\((?P<names>[^)]*)\)", re.MULTILINE)
+
+
+def stow_packages(script: pathlib.Path) -> list[str]:
+    """Every Stow package a script can deploy, including conditional appends."""
+    text = script.read_text(encoding="utf-8")
+    names: list[str] = []
+    for pattern in (STOW_PACKAGES_ARRAY, STOW_PACKAGES_APPEND):
+        for match in pattern.finditer(text):
+            names.extend(match.group("names").split())
+    if not names:
+        raise SystemExit(f"No packages=( … ) array found in {script}")
+    return names
+
+
+def mise_tools(config: pathlib.Path) -> dict[str, str]:
+    """The `[tools]` table of a mise configuration: tool spec to version."""
+    with config.open("rb") as stream:
+        return tomllib.load(stream).get("tools", {})
+
+
+def mise_tool_package(spec: str) -> str:
+    """The package a mise tool spec names, without its backend prefix.
+
+    `dotnet:EasyDotnet` and `npm:@openai/codex` are the `EasyDotnet` and
+    `@openai/codex` packages; a registry tool such as `lazygit` has no prefix.
+    """
+    return spec.partition(":")[2] or spec

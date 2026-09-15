@@ -108,17 +108,32 @@ install_selection_set gnhf "${ai_gnhf:-inherit}"
 install_selection_set backpass "${ai_backpass:-inherit}"
 install_selection="$(install_selection_serialize)"
 
+# The selected capability set is resolved once and reused by the selection
+# check, preflight and the lifecycle record, so those three can never disagree.
+wsl_selected_capabilities() {
+  local selection
+  printf '%s\n' base dotnet-debug
+  for selection in "$install_ocaml:ocaml" "$install_latex:latex" "$install_containers:containers" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
+    [[ "${selection%%:*}" != true ]] || printf '%s\n' "${selection#*:}"
+  done
+}
+# Checked for every run, --dry-run included: a dry run exits before
+# plan_preflight, and it must not show a plan for a capability this platform's
+# manifest does not implement.
+selected_capabilities=()
+while IFS= read -r capability; do selected_capabilities+=("$capability"); done < <(wsl_selected_capabilities)
+capability_validate_selection fedora-wsl "${selected_capabilities[@]}" ||
+  die 'The selected capabilities cannot be installed on fedora-wsl.'
+
 preflight_wsl() {
   require_regular_user; require_fedora_wsl
   preflight_platform_command_providers fedora-wsl; preflight_sudo "$interactive"
   [[ "$install_containers" != true ]] || require_wsl_containers_prereqs
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
-  local specs=() spec
-  local selected=(base dotnet-debug)
-  for selection in "$install_ocaml:ocaml" "$install_latex:latex" "$install_containers:containers" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
-    [[ "${selection%%:*}" != true ]] || selected+=("${selection#*:}")
-  done
+  local specs=() spec capability
+  local selected=()
+  while IFS= read -r capability; do selected+=("$capability"); done < <(wsl_selected_capabilities)
   capability_validate_selection fedora-wsl "${selected[@]}"
   while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs fedora-wsl "${selected[@]}")
   preflight_stow_packages "${specs[@]}"
@@ -128,7 +143,7 @@ apply_system() { "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/install-system.sh"
 apply_interop() { info 'Ensuring explicit Windows executable interop stays available'; "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/configure-interop.sh"; }
 apply_ocaml_native() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-ocaml.sh" --wsl; }
 apply_latex() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-latex.sh"; }
-apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" "$theme"; }
+apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" fedora-wsl "$theme"; }
 apply_stow() { "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/stow.sh"; }
 apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
 apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh"; }
@@ -143,7 +158,7 @@ plan_add system 'Install Fedora command-line prerequisites and Linux-native mise
 plan_add interop 'Preserve explicit Windows executable interop without Windows PATH entries' apply : apply_interop : 'platforms/fedora-wsl/scripts/configure-interop.sh; enabled=true, appendWindowsPath=false'
 [[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora OCaml build prerequisites' apply : apply_ocaml_native : 'platforms/fedora/scripts/install-ocaml.sh --wsl'
 [[ "$install_latex" != true ]] || plan_add latex 'Install the optional Fedora-owned LaTeX toolchain' apply : apply_latex : 'platforms/fedora/scripts/install-latex.sh; latexmk, latexindent, Biber'
-plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh $theme"
+plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh fedora-wsl $theme"
 plan_add stow 'Deploy portable and Fedora WSL configuration' apply : apply_stow : 'platforms/fedora-wsl/scripts/stow.sh'
 plan_add mise 'Install mise-managed Linux runtimes and developer CLIs' apply : apply_mise : 'common/install-mise.sh'
 plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim : 'common/install-neovim-tools.sh'
@@ -201,8 +216,8 @@ if [[ "$interactive" == true ]]; then
   fi
 fi
 plan_preflight
-capabilities=base,dotnet-debug
-for selection in "$install_ocaml:ocaml" "$install_latex:latex" "$install_containers:containers" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do [[ "${selection%%:*}" != true ]] || capabilities+=,"${selection#*:}"; done
+capabilities=''
+while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(wsl_selected_capabilities)
 DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command fedora-wsl "$install_selection")"
 install_lifecycle_begin fedora-wsl "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else

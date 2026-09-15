@@ -22,11 +22,10 @@ from __future__ import annotations
 
 import csv
 import pathlib
-import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import supported_platforms  # noqa: E402
+from manifests import stow_packages, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CAPABILITIES = ROOT / "config" / "capabilities.tsv"
@@ -43,9 +42,6 @@ PLATFORM_TITLES = {
     "macos": "Apple Silicon macOS",
     "parrot-ctf": "Parrot Security Edition CTF guest",
 }
-
-PACKAGES_ARRAY = re.compile(r"^\s*packages=\((?P<names>[^)]*)\)", re.MULTILINE)
-PACKAGES_APPEND = re.compile(r"^\s*packages\+=\((?P<names>[^)]*)\)", re.MULTILINE)
 
 # Files written outside a capability's own component state. Each entry names
 # the code that writes it, so the claim stays checkable by reading one file.
@@ -75,17 +71,6 @@ UNTRACKED_FILES = [
     ("~/.config/sway/local.conf", "output names, positions, modes, and scaling"),
     ("~/.config/mise/conf.d/ai.toml", "the untracked AI toolchain mise fragment"),
 ]
-
-
-def stow_packages(script: pathlib.Path) -> list[str]:
-    text = script.read_text(encoding="utf-8")
-    names: list[str] = []
-    for pattern in (PACKAGES_ARRAY, PACKAGES_APPEND):
-        for match in pattern.finditer(text):
-            names.extend(match.group("names").split())
-    if not names:
-        raise SystemExit(f"No packages=( … ) array found in {script}")
-    return names
 
 
 def render_stow() -> str:

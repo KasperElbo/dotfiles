@@ -112,6 +112,13 @@ macos_selected_capabilities() {
     [[ "${selection%%:*}" != true ]] || printf '%s\n' "${selection#*:}"
   done
 }
+# Checked for every run, --dry-run included: a dry run exits before
+# plan_preflight, and it must not show a plan for a capability this platform's
+# manifest does not implement.
+selected_capabilities=()
+while IFS= read -r capability; do selected_capabilities+=("$capability"); done < <(macos_selected_capabilities)
+capability_validate_selection macos "${selected_capabilities[@]}" ||
+  die 'The selected capabilities cannot be installed on macos.'
 
 # The note the plan and dry-run show for the AI step, and the exact argument
 # vector apply_ai passes, are built from one function so a dry-run can never
@@ -178,7 +185,7 @@ apply_system() {
 apply_ocaml_native() { "$DOTFILES_ROOT/platforms/macos/scripts/install-ocaml.sh"; }
 apply_containers() { "$DOTFILES_ROOT/platforms/macos/scripts/install-containers.sh"; }
 apply_tailscale() { "$DOTFILES_ROOT/platforms/macos/scripts/install-tailscale.sh"; }
-apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" "$theme"; }
+apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" macos "$theme"; }
 apply_stow() { "$DOTFILES_ROOT/platforms/macos/scripts/stow.sh"; }
 apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
 apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh"; }
@@ -202,7 +209,7 @@ plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' ap
 [[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Homebrew OCaml prerequisites' apply : apply_ocaml_native : 'platforms/macos/scripts/install-ocaml.sh'
 [[ "$install_containers" != true ]] || plan_add containers 'Install and start a rootless Podman machine' apply : apply_containers : 'Run an ARM64 smoke test with the Podman machine.'
 [[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale profile (Homebrew cask, interactive login).' apply : apply_tailscale : 'Authentication and Network Extension approval remain interactive.'
-plan_add local 'Initialize local Git and theme state' apply : apply_local : "common/setup-local.sh $theme"
+plan_add local 'Initialize local Git and theme state' apply : apply_local : "common/setup-local.sh macos $theme"
 plan_add stow 'Deploy shared and macOS configuration' apply : apply_stow : 'platforms/macos/scripts/stow.sh'
 plan_add mise 'Install mise-managed runtimes' apply : apply_mise : 'common/install-mise.sh'
 plan_add nvim 'Restore LazyVim and Mason tools' apply : apply_nvim : 'common/install-neovim-tools.sh'

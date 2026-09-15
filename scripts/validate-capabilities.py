@@ -6,6 +6,12 @@ CLI contract from two directions: the first says what a capability is and how
 it defaults, the second says what the parser accepts and what a machine may
 remember. They are checked against each other here, so a default can never be
 changed in one manifest alone.
+
+The manifest is also checked against the shell code that implements it: the
+packages a row declares against the installers it names, and the Stow packages
+it declares against the Stow scripts that deploy them. The installer argv
+parsers are compared with `config/install-options.tsv` by
+`scripts/validate-install-options.py`.
 """
 
 from __future__ import annotations
@@ -16,12 +22,15 @@ import pathlib
 import re
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import mise_tool_package, mise_tools, stow_packages  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = pathlib.Path(os.environ.get("CAPABILITY_MANIFEST", ROOT / "config" / "capabilities.tsv"))
 FIELDS = [
     "capability", "platform", "profile", "cli_flag", "default",
     "dependencies", "conflicts", "provider", "packages", "stow",
-    "verifier", "state", "docs", "provenance", "status",
+    "verifier", "state", "docs", "provenance", "status", "installers",
 ]
 PLATFORMS = {"fedora", "fedora-wsl", "macos", "parrot-ctf"}
 PLATFORM_VERIFIER = re.compile(r"^platforms/[^/]+/scripts/verify\.sh$")
@@ -64,45 +73,15 @@ OPTION_DEFAULTS = {
 # would read as the ownership mistake the check exists to catch.
 CO_OWNED_PACKAGES = {"lavish-axi": {"firstmate", "backpass"}}
 
-# Where a capability's native packages are actually requested. The manifest is
-# a claim about what gets installed; these files are what does the installing,
-# so every package a row declares has to be named in one of them.
-CAPABILITY_INSTALLERS = {
-    ("base", "fedora"): [
-        "platforms/fedora/scripts/install-system.sh",
-        "platforms/fedora/scripts/install-terra.sh",
-    ],
-    ("base", "fedora-wsl"): ["platforms/fedora-wsl/scripts/install-system.sh"],
-    ("base", "macos"): ["platforms/macos/Brewfile"],
-    ("base", "parrot-ctf"): ["platforms/parrot-ctf/scripts/install-system.sh"],
-    ("kde", "fedora"): ["platforms/fedora/scripts/install-kde-theme.sh"],
-    ("latex", "fedora"): ["platforms/fedora/scripts/install-latex.sh"],
-    ("latex", "fedora-wsl"): ["platforms/fedora/scripts/install-latex.sh"],
-    ("ocaml", "fedora"): ["platforms/fedora/scripts/install-ocaml.sh"],
-    ("ocaml", "fedora-wsl"): ["platforms/fedora/scripts/install-ocaml.sh"],
-    ("ocaml", "macos"): ["platforms/macos/scripts/install-ocaml.sh"],
-    ("sway", "fedora"): ["platforms/fedora/scripts/install-sway.sh"],
-    ("vm-host", "fedora"): ["platforms/fedora/scripts/install-vm-host.sh"],
-    ("vm-guest", "fedora"): ["platforms/fedora/scripts/install-vm-guest.sh"],
-    ("vm-guest", "parrot-ctf"): [
-        "platforms/parrot-ctf/scripts/install-guest-integration.sh"
-    ],
-    ("hardware", "fedora"): ["platforms/fedora/scripts/install-asus-hardware.sh"],
-    ("hardening", "fedora"): [
-        "platforms/fedora/scripts/install-hardening.sh",
-        "platforms/fedora/lib/hardening.sh",
-    ],
-    ("desktop-tools", "fedora"): [
-        "platforms/fedora/scripts/install-desktop-tools.sh"
-    ],
-    ("containers", "fedora"): ["platforms/fedora/scripts/install-containers.sh"],
-    # The WSL wrapper delegates to the Fedora installer, which is where the
-    # packages are actually named.
-    ("containers", "fedora-wsl"): ["platforms/fedora/scripts/install-containers.sh"],
-    ("containers", "macos"): ["platforms/macos/scripts/install-containers.sh"],
-    ("tailscale", "fedora"): ["platforms/fedora/scripts/install-tailscale.sh"],
-    ("tailscale", "macos"): ["platforms/macos/scripts/install-tailscale.sh"],
-}
+# A row that declares packages names the files that request them in its
+# `installers` column, and check_installer_packages() compares the two. A row
+# whose packages are requested somewhere that column cannot point at -- a
+# provider with no file in this repository -- has to be listed here with the
+# place its packages are checked instead. An implemented row with packages, no
+# installers and no entry here fails, so a missing mapping can never read as
+# "nothing to check". Empty today: every package-declaring row names its
+# installers.
+PACKAGES_CHECKED_ELSEWHERE: dict[tuple[str, str], str] = {}
 
 # Which capability each shell package array belongs to. `None` marks an array
 # of packages this repository requests but does not own -- the platform image
@@ -132,6 +111,16 @@ ARRAY_OWNERS = {
 }
 
 PACKAGE_ARRAY = re.compile(r"^\s*(\w*packages)=\(([^)]*)\)", re.M)
+
+COMMON_STOW = pathlib.Path("common") / "stow.sh"
+# How a platform Stow script runs the portable one, and which of the portable
+# script's own flags switch a `packages+=(…)` branch off.
+COMMON_STOW_CALL = re.compile(r'"\$DOTFILES_ROOT/common/stow\.sh"(?P<flags>(?:[ \t]+--[\w-]+)*)')
+STOW_FLAG = re.compile(r'^\s*(?P<flag>--[\w-]+)\)\s*(?P<variable>\w+)="true"', re.M)
+STOW_GUARDED_APPEND = re.compile(
+    r'if \[\[ "\$(?P<variable>\w+)" == "false" \]\]; then\s*'
+    r"packages\+=\((?P<names>[^)]*)\)"
+)
 
 
 def split(value: str) -> list[str]:
@@ -167,6 +156,22 @@ def check_option_manifest(rows: list[dict[str, str]]) -> int:
             fail_options(f"unexpected columns: {reader.fieldnames}")
             return 1
         options = list(reader)
+
+    implemented = {
+        (row["platform"], row["capability"])
+        for row in rows
+        if row["status"] == "implemented"
+    }
+    for option in options:
+        if option["capability"] in {"", "-"}:
+            continue
+        if (option["platform"], option["capability"]) not in implemented:
+            fail_options(
+                f"{option['platform']}/{option['option']}: selects capability "
+                f"{option['capability']}, which has no implemented "
+                f"{option['platform']} row in the capability manifest"
+            )
+            errors += 1
 
     by_flag = {(row["platform"], row["on_flag"]): row for row in options}
     for row in rows:
@@ -220,6 +225,20 @@ def package_arrays(path: pathlib.Path) -> dict[str, list[str]]:
     return found
 
 
+def requested_packages(path: pathlib.Path) -> set[str]:
+    """The package names an installer file can be said to request.
+
+    A mise configuration is parsed, so a package must be a tool it declares. Any
+    other file is searched for the name as a whole word. Words are split two
+    ways, with and without `@` and `/` as word characters, so a scoped npm
+    package such as `@openai/codex` is found as well as a plain name.
+    """
+    if path.suffix == ".toml":
+        return {mise_tool_package(spec) for spec in mise_tools(path)}
+    text = path.read_text(encoding="utf-8")
+    return set(re.split(r"[^\w.+-]+", text)) | set(re.split(r"[^\w.+@/-]+", text))
+
+
 def check_installer_packages(rows: list[dict[str, str]]) -> int:
     """Compare each row's package list with the files that install them.
 
@@ -237,22 +256,41 @@ def check_installer_packages(rows: list[dict[str, str]]) -> int:
             owners.setdefault(row["platform"], set()).add(package)
 
     for row in rows:
-        if row["status"] != "implemented":
-            continue
-        installers = CAPABILITY_INSTALLERS.get((row["capability"], row["platform"]))
-        if installers is None:
-            continue
         where = f"{row['platform']}/{row['capability']}"
-        words: set[str] = set()
+        key = (row["capability"], row["platform"])
+        installers = split(row["installers"])
+        packages = split(row["packages"])
+        if row["status"] != "implemented":
+            if installers:
+                fail(f"{where}: an unsupported row names installers")
+                errors += 1
+            continue
+        if key in PACKAGES_CHECKED_ELSEWHERE and (installers or not packages):
+            fail(f"{where}: listed in PACKAGES_CHECKED_ELSEWHERE, but it "
+                 f"{'names installers' if installers else 'declares no packages'}; "
+                 f"remove the stale entry")
+            errors += 1
+        if not packages:
+            if installers:
+                fail(f"{where}: names installers but declares no packages")
+                errors += 1
+            continue
+        if not installers:
+            if key not in PACKAGES_CHECKED_ELSEWHERE:
+                fail(f"{where}: declares packages ({', '.join(packages)}) but "
+                     f"names no installers, so nothing checks they are installed")
+                errors += 1
+            continue
+        requested: set[str] = set()
         for installer in installers:
             path = ROOT / installer
             if not path.is_file():
                 fail(f"{where}: declared installer does not exist: {installer}")
                 errors += 1
                 continue
-            words |= set(re.split(r"[^\w.+-]+", path.read_text(encoding="utf-8")))
-        for package in split(row["packages"]):
-            if package not in words:
+            requested |= requested_packages(path)
+        for package in packages:
+            if package not in requested:
                 fail(f"{where}: package {package!r} is declared but is not "
                      f"requested by {', '.join(installers)}")
                 errors += 1
@@ -275,6 +313,73 @@ def check_installer_packages(rows: list[dict[str, str]]) -> int:
                     fail(f"{relative}: {name} installs {package!r}, which no "
                          f"{platform} capability owns")
                     errors += 1
+    return errors
+
+
+def scripted_stow_packages(platform: str) -> tuple[set[str], int]:
+    """Every Stow package a platform's scripts can deploy, and an error count.
+
+    The platform script's own packages count whether or not they sit behind a
+    condition, because the manifest records that condition by putting the
+    package on the optional capability's row (`sway: sway,waybar`). The
+    portable script's packages count too, less any branch the platform switches
+    off when it runs it (`--headless` drops Ghostty).
+    """
+    script = ROOT / "platforms" / platform / "scripts" / "stow.sh"
+    relative = script.relative_to(ROOT).as_posix()
+    if not script.is_file():
+        fail(f"{platform}: Stow script does not exist: {relative}")
+        return set(), 1
+    names = set(stow_packages(script))
+    call = COMMON_STOW_CALL.search(script.read_text(encoding="utf-8"))
+    if call is None:
+        return names, 0
+
+    errors = 0
+    common_text = (ROOT / COMMON_STOW).read_text(encoding="utf-8")
+    variables = {m.group("flag"): m.group("variable") for m in STOW_FLAG.finditer(common_text)}
+    switched_off: set[str] = set()
+    for flag in call.group("flags").split():
+        if flag not in variables:
+            fail(f"{relative}: runs {COMMON_STOW.as_posix()} with {flag}, which "
+                 f"that script does not accept")
+            errors += 1
+            continue
+        switched_off.add(variables[flag])
+    omitted: set[str] = set()
+    for match in STOW_GUARDED_APPEND.finditer(common_text):
+        if match.group("variable") in switched_off:
+            omitted |= set(match.group("names").split())
+    return names | (set(stow_packages(ROOT / COMMON_STOW)) - omitted), errors
+
+
+def check_stow_ownership(rows: list[dict[str, str]]) -> int:
+    """Compare each platform's `stow` cells with what its Stow scripts deploy.
+
+    The column drives preflight conflict detection, so a package the scripts
+    deploy but no row declares is a dotfile conflict preflight never looks for;
+    a package a row declares but no script deploys is a promise nothing keeps.
+    """
+    errors = 0
+    declared: dict[str, set[str]] = {}
+    for row in rows:
+        if row["platform"] not in PLATFORMS:
+            continue
+        cell = split(row["stow"]) if row["status"] == "implemented" else []
+        declared.setdefault(row["platform"], set()).update(cell)
+
+    for platform in sorted(declared):
+        scripted, script_errors = scripted_stow_packages(platform)
+        errors += script_errors
+        for package in sorted(declared[platform] - scripted):
+            fail(f"{platform}: Stow package {package!r} is declared in the stow "
+                 f"column but no Stow script deploys it on {platform}")
+            errors += 1
+        for package in sorted(scripted - declared[platform]):
+            fail(f"{platform}: Stow package {package!r} is deployed by the Stow "
+                 f"scripts but no {platform} capability declares it in the stow "
+                 f"column, so preflight never checks it for conflicts")
+            errors += 1
     return errors
 
 
@@ -402,6 +507,7 @@ def main() -> int:
 
     errors += check_option_manifest(rows)
     errors += check_installer_packages(rows)
+    errors += check_stow_ownership(rows)
     return 1 if errors else 0
 
 

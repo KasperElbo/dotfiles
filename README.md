@@ -106,7 +106,7 @@ documentation both read:
 
 | Manifest | Owns |
 |---|---|
-| `config/capabilities.tsv` | Which capability exists on which platform, its provider, packages, Stow packages, verifier, state file and documentation |
+| `config/capabilities.tsv` | Which capability exists on which platform, its provider, packages and their installers, Stow packages, verifier, state file and documentation |
 | `config/install-options.tsv` | Every persistent installer option: flag spelling, kind, default, permitted values |
 | `config/network-sources.tsv` | Every network source the repository fetches, its provenance tier, privilege and integrity mechanism |
 | `config/fedora-command-providers.tsv` | The Fedora bootstrap command closure: which capability owns each native command |
