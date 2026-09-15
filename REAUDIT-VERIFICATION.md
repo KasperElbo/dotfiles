@@ -13,13 +13,17 @@ duplicates of another entry and are merged. Six entries needed a correction to t
 their numbers or their reasoning; the correction is recorded with the finding and, in one
 case, materially shrinks it.
 
-| Outcome | Count |
+| Outcome | Findings |
 |---|---|
-| Confirmed by live negative control (I broke something and watched the gate stay green) | 21 |
-| Confirmed by code reading, mechanism proven, behavioural proof blocked by a missing tool | 6 |
-| Confirmed by measurement (counted, diffed or parsed the real files) | 12 |
+| Confirmed by live negative control — I broke something and watched the gate stay green | 16 |
+| Confirmed by measurement — counted, diffed or parsed the real files | 13 |
+| Confirmed by code reading — mechanism proven, behavioural proof blocked by a missing tool | 10 |
 | Refuted | 0 |
-| Merged into another finding as a duplicate | 9 (of the 47 entries) |
+| **Total distinct findings** | **39** |
+
+(47 interim entries in; 9 were duplicates of another entry and are merged, leaving 39. The 16
+negative-control findings took 21 separate reproductions, because four findings needed more
+than one.)
 
 The interim report predicted that "roughly one finding in five does not survive verification."
 That did not happen here. What happened instead is that the report's *counts* were sometimes
@@ -248,3 +252,27 @@ extended, not replaced.
 The report's own closing observation is the right summary and survives verification intact:
 **the registry covers the install direction and the documentation direction, and stops at the
 verify direction and at the argv parser.** WS-H and WS-K are those two gaps.
+
+
+## 6. Where these findings went
+
+Grouped into seven workstream issues, continuing the repository's `WS-A`…`WS-G` lettering from
+the documentation audit. Ordering is deliberate: WS-H is the largest cluster and the one the
+rest of the registry work depends on.
+
+| Workstream | Theme | Findings | Issue |
+|---|---|---|---|
+| WS-H | Close the registry↔parser loop | 5 (3 High, 2 Medium) | [#242](https://github.com/KasperElbo/dotfiles/issues/242) |
+| WS-I | Facts the shell states twice | 4 (2 High, 2 Medium) | [#243](https://github.com/KasperElbo/dotfiles/issues/243) |
+| WS-J | Tests that cannot fail | 6 (2 High, 1 Medium, 3 Low) | [#244](https://github.com/KasperElbo/dotfiles/issues/244) |
+| WS-K | The verify direction | 8 (4 High, 4 Medium) | [#245](https://github.com/KasperElbo/dotfiles/issues/245) |
+| WS-L | Supply chain and privilege disclosure | 4 (1 High, 2 Medium, 1 Low) | [#246](https://github.com/KasperElbo/dotfiles/issues/246) |
+| WS-M | Error boundaries and install-time safety | 6 (2 High, 4 Medium) | [#247](https://github.com/KasperElbo/dotfiles/issues/247) |
+| WS-N | Schema hygiene and remaining parity | 6 (1 High, 2 Medium, 3 Low) | [#248](https://github.com/KasperElbo/dotfiles/issues/248) |
+
+Cross-workstream dependencies worth respecting: RA-05 (WS-H) before RA-28 (WS-M), so the stow
+preflight reads one list rather than two; RA-11 (WS-J) before RA-19 (WS-K), so the shadow branch
+is tested before three more verifiers depend on it; RA-12 (WS-J) and RA-25 (WS-L) share their
+stub scaffolding; RA-29 (WS-M) before RA-39 (WS-N), because the doc has to state the corrected
+errexit semantics; and RA-30 (WS-M) needs the 0.10-versus-0.12 contradiction settled before its
+fix can be written at all.
