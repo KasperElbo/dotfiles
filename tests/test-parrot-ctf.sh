@@ -233,7 +233,14 @@ if grep -Eq '^[[:space:]]*python[[:space:]]*=' "$mise_manifest"; then
   exit 1
 fi
 
-for config in "$repo_root"/starship/.config/starship/{template,catppuccin-latte,catppuccin-frappe,catppuccin-macchiato,catppuccin-mocha}.toml; do
+# A glob tracks whatever the Starship generator currently produces; a missing
+# file must never read as "symbol not present".
+starship_configs=("$repo_root"/starship/.config/starship/*.toml)
+if [[ ! -f "${starship_configs[0]}" ]]; then
+  printf 'No generated Starship configurations found to check.\n' >&2
+  exit 1
+fi
+for config in "${starship_configs[@]}"; do
   if grep -Fq 'AOSC =' "$config"; then
     printf 'Unsupported AOSC Starship symbol remains in %s.\n' "$config" >&2
     exit 1

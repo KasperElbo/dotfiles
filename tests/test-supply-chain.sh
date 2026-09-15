@@ -172,6 +172,105 @@ while IFS=$'\t' read -r releasever fingerprint; do
 done <"$repo_root/config/terra-keys.tsv"
 printf 'PASS: the Terra bootstrap is key-verified and carries no --nogpgcheck\n'
 
+# --- Terra: the fingerprint gate decides whether the key is imported --------
+
+# Behavioural, offline cases. The manifest is a fixture so pinning or retiring a
+# real release never changes what these cases prove.
+terra_bin="$test_root/terra-bin"
+terra_log="$test_root/terra-commands.log"
+terra_state="$test_root/terra-state"
+terra_manifest="$test_root/terra-keys.tsv"
+terra_pinned_fpr=1111111111111111111111111111111111111111
+terra_other_fpr=2222222222222222222222222222222222222222
+mkdir -p "$terra_bin"
+printf '# releasever\tfingerprint\n90\t%s\n' "$terra_pinned_fpr" >"$terra_manifest"
+
+cat >"$terra_bin/rpm" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+-q) [[ -e "$MOCK_STATE/terra-release" ]] ;;
+-E) printf '%s\n' "$MOCK_RELEASEVER" ;;
+--import) printf 'rpm %s\n' "$*" >>"$MOCK_LOG" ;;
+*) exit 64 ;;
+esac
+EOF
+cat >"$terra_bin/gpg" <<'EOF'
+#!/usr/bin/env bash
+[[ "$1 $2" == '--show-keys --with-colons' ]] || exit 64
+printf 'pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:\n'
+printf 'fpr:::::::::%s:\n' "$MOCK_FPR"
+EOF
+cat >"$terra_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+while (($#)); do
+  case "$1" in
+  --output) output="$2"; shift 2 ;;
+  *) shift ;;
+  esac
+done
+printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nfixture\n' >"$output"
+EOF
+cat >"$terra_bin/sudo" <<'EOF'
+#!/usr/bin/env bash
+printf 'sudo %s\n' "$*" >>"$MOCK_LOG"
+exec "$@"
+EOF
+cat >"$terra_bin/dnf" <<'EOF'
+#!/usr/bin/env bash
+printf 'dnf %s\n' "$*" >>"$MOCK_LOG"
+: >"$MOCK_STATE/terra-release"
+EOF
+chmod +x "$terra_bin"/*
+
+# run_terra <releasever> <served fingerprint> [env assignment ...]
+# shellcheck disable=SC2016 # $1 is the inner shell's positional argument.
+run_terra() {
+  local releasever="$1" fingerprint="$2"
+  shift 2
+  rm -rf -- "$terra_state"
+  mkdir -p "$terra_state"
+  : >"$terra_log"
+  run_capture env PATH="$terra_bin:$PATH" \
+    MOCK_LOG="$terra_log" MOCK_STATE="$terra_state" \
+    MOCK_RELEASEVER="$releasever" MOCK_FPR="$fingerprint" \
+    TERRA_KEY_MANIFEST="$terra_manifest" \
+    DOTFILES_FETCH_ATTEMPTS=1 DOTFILES_FETCH_RETRY_DELAY=0 \
+    "$@" \
+    bash -c '
+      set -euo pipefail
+      source "$1/common/lib/common.sh"
+      source "$1/platforms/fedora/lib/fedora.sh"
+      ensure_terra_repository
+    ' _ "$repo_root" </dev/null
+}
+
+run_terra 90 "$terra_pinned_fpr"
+assert_success
+assert_contains "$TEST_OUTPUT" "matches the pinned fingerprint $terra_pinned_fpr"
+assert_file_contains "$terra_log" 'rpm --import'
+assert_file_contains "$terra_log" '--setopt=terra.gpgcheck=1'
+assert_eq 'sudo rpm --import' "$(head -n1 "$terra_log" | cut -d' ' -f1-3)" \
+  'the pinned key must be imported before terra-release is installed'
+printf 'PASS: a key matching the pinned fingerprint is imported before terra-release\n'
+
+run_terra 90 "$terra_other_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'fingerprint mismatch'
+assert_file_empty "$terra_log"
+printf 'PASS: a key that does not match the pin is refused before any import\n'
+
+run_terra 91 "$terra_other_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'Refusing to import an unpinned Terra signing key'
+assert_file_empty "$terra_log"
+printf 'PASS: an unpinned release is refused without an acknowledgement\n'
+
+run_terra 91 "$terra_other_fpr" TERRA_TRUST_KEY_FINGERPRINT="$terra_other_fpr"
+assert_success
+assert_contains "$TEST_OUTPUT" "caller's explicit acknowledgement"
+assert_file_contains "$terra_log" 'rpm --import'
+printf 'PASS: an acknowledged unpinned key is imported\n'
+
 # --- Bounded fetch behaviour ------------------------------------------------
 
 fetch_bin="$test_root/fetch-bin"

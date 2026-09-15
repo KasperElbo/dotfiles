@@ -77,4 +77,67 @@ run_capture env TEST_STUB_ROOT="$root" PATH="$path" \
   systemctl stop handler-test.service
 assert_status 96
 
+# --- A failed assertion always fails the suite ------------------------------
+
+# run_suite <shell options> <body>: a throwaway suite in a child bash that
+# sources the library and installs its exit trap, as a real suite does.
+run_suite() {
+  local options="$1" body="$2"
+  run_capture bash -c "
+    set $options
+    source \"\$1/tests/lib/test.sh\"
+    test_install_cleanup_trap
+    $body
+  " _ "$repo_root"
+}
+
+printf 'A failed assertion fails a suite that runs without errexit\n'
+run_suite '-uo pipefail' 'assert_eq expected actual "negative control"
+printf "suite reached its end\n"'
+assert_status 1
+assert_contains "$TEST_OUTPUT" 'TEST FAILURE: negative control'
+assert_contains "$TEST_OUTPUT" 'suite reached its end'
+assert_contains "$TEST_OUTPUT" '1 failed assertion(s)'
+
+printf 'A swallowed assertion status still fails the suite\n'
+run_suite '-euo pipefail' 'assert_eq expected actual "negative control" || true
+printf "suite reached its end\n"'
+assert_status 1
+assert_contains "$TEST_OUTPUT" 'suite reached its end'
+
+printf 'Under errexit an assertion still aborts at the first failure\n'
+run_suite '-euo pipefail' 'assert_eq expected actual "negative control"
+printf "suite reached its end\n"'
+assert_status 1
+assert_not_contains "$TEST_OUTPUT" 'suite reached its end'
+
+printf 'A passing suite exits 0 and a suite-chosen status is kept\n'
+run_suite '-euo pipefail' 'assert_eq same same'
+assert_status 0
+assert_not_contains "$TEST_OUTPUT" 'TEST FAILURE'
+run_suite '-uo pipefail' 'assert_eq expected actual "negative control"
+exit 7'
+assert_status 7
+
+printf 'The exit hook runs before the test roots are removed\n'
+run_suite '-euo pipefail' 'restore() { [[ -d "$TEST_ROOT" ]] && printf "hook saw %s\n" "$TEST_ROOT"; }
+test_install_cleanup_trap restore
+test_new_root
+printf "%s\n" "$TEST_ROOT"'
+assert_status 0
+suite_root="$(head -n1 <<<"$TEST_OUTPUT")"
+assert_contains "$TEST_OUTPUT" "hook saw $suite_root"
+assert_path_missing "$suite_root"
+
+printf 'Every suite that sources the library keeps its failure accumulator\n'
+for suite in "$repo_root"/tests/test-*.sh; do
+  grep -Fq 'source "$repo_root/tests/lib/test.sh"' "$suite" || continue
+  assert_file_contains "$suite" 'test_install_cleanup_trap'
+  # A suite-owned EXIT trap replaces the library's and drops the check; extra
+  # cleanup belongs in the test_install_cleanup_trap hook instead.
+  if grep -Eq '^[[:space:]]*trap[[:space:]].*EXIT' "$suite"; then
+    _test_die "$suite installs its own EXIT trap; pass cleanup to test_install_cleanup_trap"
+  fi
+done
+
 printf 'Shared test-support tests passed.\n'

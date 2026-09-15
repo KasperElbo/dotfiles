@@ -7,8 +7,14 @@ TEST_ROOTS=()
 TEST_ROOT=""
 TEST_OUTPUT=""
 TEST_STATUS=0
+# Every failed assertion in this shell, whatever the suite's shell policy.
+TEST_FAILURES=0
+TEST_EXIT_HOOK=""
 
+# Assertions count the failure and still return 1, so an errexit suite aborts
+# at the first one and the exit trap fails any suite that carried on.
 _test_die() {
+  TEST_FAILURES=$((TEST_FAILURES + 1))
   printf 'TEST FAILURE: %s\n' "$*" >&2
   return 1
 }
@@ -32,8 +38,32 @@ test_cleanup() {
   TEST_ROOT=""
 }
 
+# test_install_cleanup_trap [hook]: on exit, run the optional suite-owned hook
+# (for example restoring a tracked file a negative case edited in place), remove
+# every test root, and fail the suite if any assertion failed.
+#
+# The failure check is what makes an assertion binding on a suite that runs
+# without errexit, swallows an assertion status, or ends on an unrelated
+# command that succeeds. Give extra cleanup to the hook; a replacement EXIT
+# trap would drop the check.
 test_install_cleanup_trap() {
-  trap test_cleanup EXIT INT TERM
+  TEST_EXIT_HOOK="${1:-}"
+  trap _test_exit_trap EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
+_test_exit_trap() {
+  local status=$?
+  if [[ -n "$TEST_EXIT_HOOK" ]]; then
+    "$TEST_EXIT_HOOK"
+  fi
+  test_cleanup
+  if ((status == 0 && TEST_FAILURES > 0)); then
+    printf 'TEST FAILURE: %d failed assertion(s); failing a suite that would have exited 0\n' \
+      "$TEST_FAILURES" >&2
+    exit 1
+  fi
 }
 
 test_env_args() {

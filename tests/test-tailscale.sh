@@ -5,6 +5,8 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 
+test_install_cleanup_trap
+
 new_test_root() {
   local test_root
   test_root="$(mktemp -d)"
