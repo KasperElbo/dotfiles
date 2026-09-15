@@ -13,9 +13,12 @@ packages=(
   eza
   fd-find
   fzf
+  firewalld
   gh
   git
   git-delta
+  gnupg2
+  jq
   libicu
   neovim
   openssh-clients
@@ -36,7 +39,16 @@ packages=(
 
 info "Installing Fedora packages"
 sudo dnf install -y "${packages[@]}"
+if systemctl cat firewalld.service >/dev/null 2>&1; then
+  info "Activating the firewalld service"
+  sudo systemctl enable --now firewalld.service
+else
+  warn "firewalld.service is not provided by the installed package"
+fi
 
 ensure_zsh_login_shell
+if [[ "${ZSH_LOGIN_SHELL_CHANGED:-false}" == "true" ]]; then
+  warn "Login shell changed; reboot before expecting Ghostty to use Zsh. Plasma and user services can retain the previous SHELL value until then."
+fi
 
 success "Fedora packages installed"

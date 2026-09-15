@@ -1,0 +1,118 @@
+{
+  "State": {
+    "Exists": true,
+    "Error": null,
+    "SchemaVersion": 1,
+    "NocttySelected": true,
+    "NocttyConfigurationSelected": true,
+    "WslRequired": true,
+    "FedoraDistribution": "FedoraLinux-44"
+  },
+  "Scoop": {
+    "Available": true,
+    "Root": "C:\\Users\\fixture\\scoop",
+    "CommandPath": "C:\\Users\\fixture\\scoop\\shims\\scoop.ps1",
+    "Bucket": {
+      "Name": "noctty",
+      "Exists": true,
+      "Path": "C:\\Users\\fixture\\scoop\\buckets\\noctty"
+    },
+    "Package": {
+      "Name": "noctty",
+      "Exists": true,
+      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\noctty\\current\\noctty.exe",
+      "CommandPath": "C:\\Users\\fixture\\scoop\\shims\\noctty.exe"
+    }
+  },
+  "Configuration": {
+    "ManagedBlockValid": true,
+    "Files": [
+      {
+        "Name": "Noctty root configuration",
+        "Target": "C:\\Users\\fixture\\AppData\\Local\\noctty\\config.ghostty",
+        "Source": null,
+        "Exists": true,
+        "BrokenLink": false,
+        "StaleLink": false,
+        "LinkTarget": null,
+        "MatchesSource": true
+      },
+      {
+        "Name": "shared Ghostty configuration",
+        "Target": "C:\\Users\\fixture\\AppData\\Local\\noctty\\dotfiles\\ghostty.conf",
+        "Source": "C:\\src\\dotfiles\\ghostty\\.config\\ghostty\\shared.conf",
+        "Exists": true,
+        "BrokenLink": false,
+        "StaleLink": false,
+        "LinkTarget": null,
+        "MatchesSource": true
+      },
+      {
+        "Name": "Noctty theme helper",
+        "Target": "C:\\Users\\fixture\\AppData\\Local\\noctty\\dotfiles\\set-theme.ps1",
+        "Source": "C:\\src\\dotfiles\\platforms\\windows\\set-noctty-theme.ps1",
+        "Exists": true,
+        "BrokenLink": false,
+        "StaleLink": false,
+        "LinkTarget": null,
+        "MatchesSource": true
+      },
+      {
+        "Name": "Noctty selected theme",
+        "Target": "C:\\Users\\fixture\\AppData\\Local\\noctty\\dotfiles\\theme.conf",
+        "Source": null,
+        "Exists": true,
+        "BrokenLink": false,
+        "StaleLink": false,
+        "LinkTarget": null,
+        "MatchesSource": true
+      },
+      {
+        "Name": "Noctty theme catppuccin-frappe.conf",
+        "Target": "C:\\Users\\fixture\\AppData\\Local\\noctty\\themes\\catppuccin-frappe.conf",
+        "Source": "C:\\src\\dotfiles\\ghostty\\.config\\ghostty\\themes\\catppuccin-frappe.conf",
+        "Exists": true,
+        "BrokenLink": false,
+        "StaleLink": false,
+        "LinkTarget": null,
+        "MatchesSource": true
+      },
+      {
+        "Name": "Noctty theme catppuccin-latte.conf",
+        "Target": "C:\\Users\\fixture\\AppData\\Local\\noctty\\themes\\catppuccin-latte.conf",
+        "Source": "C:\\src\\dotfiles\\ghostty\\.config\\ghostty\\themes\\catppuccin-latte.conf",
+        "Exists": true,
+        "BrokenLink": false,
+        "StaleLink": false,
+        "LinkTarget": null,
+        "MatchesSource": true
+      },
+      {
+        "Name": "Noctty theme catppuccin-macchiato.conf",
+        "Target": "C:\\Users\\fixture\\AppData\\Local\\noctty\\themes\\catppuccin-macchiato.conf",
+        "Source": "C:\\src\\dotfiles\\ghostty\\.config\\ghostty\\themes\\catppuccin-macchiato.conf",
+        "Exists": true,
+        "BrokenLink": false,
+        "StaleLink": false,
+        "LinkTarget": null,
+        "MatchesSource": true
+      },
+      {
+        "Name": "Noctty theme catppuccin-mocha.conf",
+        "Target": "C:\\Users\\fixture\\AppData\\Local\\noctty\\themes\\catppuccin-mocha.conf",
+        "Source": "C:\\src\\dotfiles\\ghostty\\.config\\ghostty\\themes\\catppuccin-mocha.conf",
+        "Exists": true,
+        "BrokenLink": false,
+        "StaleLink": false,
+        "LinkTarget": null,
+        "MatchesSource": true
+      }
+    ]
+  },
+  "Wsl": {
+    "CommandAvailable": true,
+    "InstalledVersion": "2.7.13",
+    "DistributionPresent": true,
+    "DistributionVersion": 2
+  }
+}

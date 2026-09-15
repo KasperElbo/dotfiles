@@ -1,0 +1,43 @@
+platform	option	kind	on_flag	off_flag	default	values	capability	summary
+fedora	theme	value	--theme	-	macchiato	latte|frappe|macchiato|mocha	-	Catppuccin flavour
+fedora	kde	boolean	--kde	--no-kde	auto	-	kde	KDE integration
+fedora	latex	boolean	--latex	--no-latex	auto	-	latex	LaTeX toolchain
+fedora	ocaml	boolean	--ocaml	--no-ocaml	false	-	ocaml	OCaml profile
+fedora	sway	boolean	--sway	--no-sway	false	-	sway	Sway session
+fedora	vm-host	boolean	--vm-host	-	false	-	vm-host	KVM/QEMU + libvirt host profile
+fedora	vm-guest	boolean	--vm-guest	-	false	-	vm-guest	Explicit KVM/QEMU guest profile
+fedora	hardening	boolean	--hardening	--no-hardening	false	-	hardening	Security-hardening profile
+fedora	desktop-tools	boolean	--desktop-tools	--no-desktop-tools	false	-	desktop-tools	Desktop application profile
+fedora	desktop-tools-force-defaults	boolean	--desktop-tools-force-defaults	-	false	-	-	Override existing application defaults
+fedora	containers	boolean	--containers	--no-containers	false	-	containers	Rootless Podman profile
+fedora	containers-api-socket	boolean	--containers-api-socket	-	false	-	-	Rootless Podman API socket
+fedora	tailscale	boolean	--tailscale	--no-tailscale	false	-	tailscale	Tailscale networking profile
+fedora	ai	boolean	--ai	--no-ai	false	-	ai	AI-assisted development profile
+fedora	codex	tristate	--codex	--no-codex	inherit	-	codex	AI subcomponent: Codex CLI
+fedora	firstmate	tristate	--firstmate	--no-firstmate	inherit	-	firstmate	AI subcomponent: FirstMate toolchain
+fedora	gnhf	tristate	--gnhf	--no-gnhf	inherit	-	gnhf	AI subcomponent: GNHF
+fedora	backpass	tristate	--backpass	--no-backpass	inherit	-	backpass	AI subcomponent: backpass
+fedora	hardware	value	--hardware	-	-	ga402xz|ga402rk	hardware	ASUS hardware model
+fedora	secure-boot	boolean	--secure-boot	-	false	-	-	Require Secure Boot for the selected hardware
+fedora	charge-limit	value	--charge-limit	-	-	[4-9][0-9]|100	-	ASUS battery charge limit
+fedora-wsl	theme	value	--theme	-	macchiato	latte|frappe|macchiato|mocha	-	Catppuccin flavour
+fedora-wsl	ocaml	boolean	--ocaml	--no-ocaml	false	-	ocaml	OCaml profile
+fedora-wsl	latex	boolean	--latex	--no-latex	false	-	latex	LaTeX toolchain
+fedora-wsl	containers	boolean	--containers	--no-containers	false	-	containers	Rootless Podman profile
+fedora-wsl	containers-api-socket	boolean	--containers-api-socket	-	false	-	-	Rootless Podman API socket
+fedora-wsl	ai	boolean	--ai	--no-ai	false	-	ai	AI-assisted development profile
+fedora-wsl	codex	tristate	--codex	--no-codex	inherit	-	codex	AI subcomponent: Codex CLI
+fedora-wsl	firstmate	tristate	--firstmate	--no-firstmate	inherit	-	firstmate	AI subcomponent: FirstMate toolchain
+fedora-wsl	gnhf	tristate	--gnhf	--no-gnhf	inherit	-	gnhf	AI subcomponent: GNHF
+fedora-wsl	backpass	tristate	--backpass	--no-backpass	inherit	-	backpass	AI subcomponent: backpass
+macos	theme	value	--theme	-	macchiato	latte|frappe|macchiato|mocha	-	Catppuccin flavour
+macos	ocaml	boolean	--ocaml	--no-ocaml	false	-	ocaml	OCaml profile
+macos	containers	boolean	--containers	--no-containers	false	-	containers	Podman machine profile
+macos	tailscale	boolean	--tailscale	--no-tailscale	false	-	tailscale	Tailscale networking profile
+macos	defaults	boolean	--defaults	--no-defaults	true	-	-	Reversible macOS defaults
+macos	ai	boolean	--ai	--no-ai	false	-	ai	AI-assisted development profile
+macos	codex	tristate	--codex	--no-codex	inherit	-	codex	AI subcomponent: Codex CLI
+macos	firstmate	tristate	--firstmate	--no-firstmate	inherit	-	firstmate	AI subcomponent: FirstMate toolchain
+macos	gnhf	tristate	--gnhf	--no-gnhf	inherit	-	gnhf	AI subcomponent: GNHF
+macos	backpass	tristate	--backpass	--no-backpass	inherit	-	backpass	AI subcomponent: backpass
+parrot-ctf	theme	value	--theme	-	macchiato	latte|frappe|macchiato|mocha	-	Catppuccin flavour

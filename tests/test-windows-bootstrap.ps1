@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $installer = Join-Path $repoRoot 'platforms\windows\install.ps1'
+$wslVersionHelper = Join-Path $repoRoot 'platforms\windows\lib\wsl-version.ps1'
 $themeHelper = Join-Path $repoRoot 'platforms\windows\set-noctty-theme.ps1'
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) (
     'dotfiles-windows-test-{0}' -f [guid]::NewGuid().ToString('N')
@@ -16,8 +17,10 @@ $originalUserProfile = $env:USERPROFILE
 function Assert-Equal {
     param(
         [Parameter(Mandatory = $true)]
+        [AllowNull()]
         [object]$Actual,
         [Parameter(Mandatory = $true)]
+        [AllowNull()]
         [object]$Expected,
         [Parameter(Mandatory = $true)]
         [string]$Message
@@ -28,8 +31,28 @@ function Assert-Equal {
     }
 }
 
+function Assert-WslVersionCase {
+    param(
+        [string]$Output,
+        [AllowNull()]
+        [object]$ExpectedVersion,
+        [string]$ExpectedStatus
+    )
+
+    $version = ConvertFrom-WslVersionOutput -Lines @($Output)
+    $actualVersion = if ($null -eq $version) { $null } else { $version.ToString() }
+    Assert-Equal -Actual $actualVersion -Expected $ExpectedVersion `
+        -Message "Unexpected parsed version for '$Output'."
+    Assert-Equal `
+        -Actual (Get-WslSupportStatus `
+            -InstalledVersion $version `
+            -MinimumProvenVersion ([version]'2.7.13')) `
+        -Expected $ExpectedStatus `
+        -Message "Unexpected support status for '$Output'."
+}
+
 try {
-    foreach ($powershellFile in @($installer, $themeHelper)) {
+    foreach ($powershellFile in @($installer, $wslVersionHelper, $themeHelper)) {
         $tokens = $null
         $errors = $null
         [System.Management.Automation.Language.Parser]::ParseFile(
@@ -42,6 +65,31 @@ try {
             throw "PowerShell parse failure in ${powershellFile}: $($errors -join '; ')"
         }
     }
+
+    . $wslVersionHelper
+    Assert-WslVersionCase -Output 'WSL version: 2.7.13' `
+        -ExpectedVersion '2.7.13' -ExpectedStatus Proven
+    Assert-WslVersionCase -Output 'WSL version: 2.7.14.0' `
+        -ExpectedVersion '2.7.14.0' -ExpectedStatus Proven
+    Assert-WslVersionCase -Output 'WSL version: 2.8.0.0' `
+        -ExpectedVersion '2.8.0.0' -ExpectedStatus Proven
+    Assert-WslVersionCase -Output 'WSL version: 3.0.0.0' `
+        -ExpectedVersion '3.0.0.0' -ExpectedStatus Proven
+    Assert-WslVersionCase -Output 'WSL version: 2.7.12.0' `
+        -ExpectedVersion '2.7.12.0' -ExpectedStatus Older
+    Assert-WslVersionCase -Output 'unrecognized output' `
+        -ExpectedVersion $null -ExpectedStatus Unknown
+    Assert-WslVersionCase `
+        -Output "WSL-Version: 2.7.13.0`0" `
+        -ExpectedVersion '2.7.13.0' -ExpectedStatus Proven
+
+    $componentOnlyOutput = @(
+        'unrecognized WSL package line',
+        'Kernel version: 6.6.87.2'
+    )
+    $componentOnlyVersion = ConvertFrom-WslVersionOutput -Lines $componentOnlyOutput
+    Assert-Equal -Actual $componentOnlyVersion -Expected $null `
+        -Message 'A later component version was mistaken for the WSL package version.'
 
     $env:LOCALAPPDATA = Join-Path $testRoot 'LocalAppData'
     $env:USERPROFILE = Join-Path $testRoot 'UserProfile'

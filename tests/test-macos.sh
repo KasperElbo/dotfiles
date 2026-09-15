@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 macos_root="$repo_root/platforms/macos"
+# shellcheck source=../platforms/macos/lib/macos.sh
+source "$macos_root/lib/macos.sh"
 config="$macos_root/stow/aerospace/.config/aerospace/aerospace.toml"
 grid="$macos_root/stow/aerospace/.local/bin/aerospace-workspace-grid"
 brewfile="$macos_root/Brewfile"
@@ -18,15 +20,28 @@ assert_contains() {
   }
 }
 
-dry_run="$("$repo_root"/install.sh --platform macos --dry-run --ocaml --containers --workflows)"
+# Only GitHub-hosted runners may treat an unobservable SIP state as an
+# evidence-boundary outcome. Self-hosted Actions machines are real hosts and
+# must retain the normal invariant check.
+GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted macos_is_github_hosted_runner
+if GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted macos_is_github_hosted_runner; then
+  printf 'A self-hosted GitHub Actions runner was mistaken for a hosted runner.\n' >&2
+  exit 1
+fi
+if GITHUB_ACTIONS=false RUNNER_ENVIRONMENT=github-hosted macos_is_github_hosted_runner; then
+  printf 'A non-Actions process was mistaken for a GitHub-hosted runner.\n' >&2
+  exit 1
+fi
+
+dry_run="$("$repo_root"/install.sh --platform macos --dry-run --ocaml --containers --dev-workflows)"
 assert_contains "$dry_run" 'Apple Silicon macOS installation plan'
 assert_contains "$dry_run" 'AeroSpace (Sway-compatible nine-workspace profile)'
 assert_contains "$dry_run" 'Homebrew at /opt/homebrew'
 assert_contains "$dry_run" 'OCaml profile:      true'
 assert_contains "$dry_run" 'Containers profile: true'
-assert_contains "$dry_run" 'Development tests:  true'
+assert_contains "$dry_run" 'Development workflow smoke tests: true'
 assert_contains "$dry_run" 'Podman machine'
-assert_contains "$dry_run" 'AI tooling profile: unavailable until repository issue #16 lands'
+assert_contains "$dry_run" 'AI tooling profile: false'
 assert_contains "$dry_run" 'No changes were made.'
 
 no_defaults="$("$repo_root"/install.sh --platform macos --dry-run --no-defaults)"
@@ -160,10 +175,17 @@ assert_contains "$apply_plan" 'defaults write com.apple.dock mru-spaces -bool fa
 assert_contains "$restore_plan" 'defaults delete com.apple.dock autohide'
 assert_contains "$restore_plan" 'defaults delete NSGlobalDomain KeyRepeat'
 
-grep -Fq 'SIP and Gatekeeper remain enabled' "$repo_root/docs/macos.md"
-grep -Fq 'Command+Space' "$repo_root/docs/macos.md"
-grep -Fq 'Displays have separate Spaces' "$repo_root/docs/macos.md"
-grep -Fq 'platforms/macos/scripts/apply-defaults.sh --restore' "$repo_root/docs/macos.md"
+grep -Fq 'SIP and Gatekeeper remain enabled' "$repo_root/docs/platforms/macos.md"
+grep -Fq 'Displays have separate Spaces' "$repo_root/docs/platforms/macos.md"
+grep -Fq 'platforms/macos/scripts/apply-defaults.sh --restore' "$repo_root/docs/platforms/macos.md"
+
+# The bindings themselves belong to config/actions.tsv and the reference it
+# generates, not to a second table on the platform page. The platform page
+# keeps the modifier rationale and points at that reference.
+grep -Fq 'Control+Option' "$repo_root/docs/platforms/macos.md"
+grep -Fq 'reference/keybindings.md' "$repo_root/docs/platforms/macos.md"
+grep -Fq 'Command+Space' "$repo_root/config/actions.tsv"
+grep -Fq 'Command+Space' "$repo_root/docs/reference/keybindings.md"
 
 # The shared VimTeX fallback only reaches Okular or xdg-open, neither of
 # which exists on macOS; a platform override is mandatory, matching the
@@ -180,6 +202,115 @@ if rg -l 'xdg-open' "$macos_root" | grep -q .; then
 fi
 grep -Fq 'nvim-macos' "$macos_root/scripts/stow.sh"
 grep -Fq 'nvim-macos' "$macos_root/scripts/verify.sh"
-grep -Fq './scripts/test-dev-workflows.sh --latex' "$repo_root/docs/macos.md"
+grep -Fq './scripts/test-dev-workflows.sh --latex' "$repo_root/docs/platforms/macos.md"
+grep -Fq './install.sh --platform macos --dev-workflows' "$repo_root/docs/platforms/macos.md"
+
+# gnubin supplies GNU tools macOS does not ship without shadowing Apple's
+# coreutils. /etc/zprofile runs path_helper after .zshenv, so nothing set there
+# keeps a fixed PATH index in a login shell: the verifier must assert tool
+# resolution, and the PATH itself must leave Apple's tools in front.
+platform_env="$macos_root/stow/zsh-platform/.config/zsh/platform-env.zsh"
+grep -Fq 'timeout --version' "$macos_root/scripts/verify.sh" || {
+  printf 'macOS verifier must assert a GNU timeout is available.\n' >&2
+  exit 1
+}
+grep -Fq "shadows Apple's coreutils" "$macos_root/scripts/verify.sh" || {
+  printf 'macOS verifier must assert Apple coreutils are not shadowed.\n' >&2
+  exit 1
+}
+# shellcheck disable=SC2016 # Matching the literal expression in verify.sh.
+if grep -Fq '${PATH%%:*}' "$macos_root/scripts/verify.sh"; then
+  printf 'macOS verifier must not assert a fixed first PATH entry.\n' >&2
+  exit 1
+fi
+
+gnubin_line="$(grep -n 'coreutils/libexec/gnubin' "$platform_env" | grep -v '^[0-9]*:#' | head -n1 | cut -d: -f1)"
+# shellcheck disable=SC2016 # Matching the literal zsh array entry.
+inherited_line="$(grep -n '^  \$path$' "$platform_env" | head -n1 | cut -d: -f1)"
+if [[ -z "$gnubin_line" || -z "$inherited_line" ]]; then
+  printf 'platform-env.zsh must list both the inherited path entry and gnubin.\n' >&2
+  exit 1
+fi
+if ((gnubin_line < inherited_line)); then
+  printf 'platform-env.zsh must append gnubin last so Apple coreutils win.\n' >&2
+  exit 1
+fi
+
+# The macOS verifier must reach OCaml through the one shared verifier, and must
+# hand it the Homebrew prefix so opam ownership is provable rather than assumed
+# from a PATH hit. A macOS-only OCaml check would be a second implementation.
+macos_verifier="$macos_root/scripts/verify.sh"
+grep -Fq 'common/verify-ocaml.sh' "$macos_verifier" || {
+  printf 'macOS verifier does not run the shared OCaml verifier.\n' >&2
+  exit 1
+}
+grep -Fq 'DOTFILES_NATIVE_PREFIX=' "$macos_verifier" || {
+  printf 'macOS verifier does not pass its native prefix to the OCaml verifier.\n' >&2
+  exit 1
+}
+if grep -Eq 'opam (switch|exec|var)' "$macos_verifier"; then
+  printf 'macOS verifier duplicates OCaml checks instead of reusing the shared one.\n' >&2
+  exit 1
+fi
+if grep -Fq -- '--ocaml' "$macos_verifier"; then
+  printf 'macOS verifier takes a redundant --ocaml flag instead of reading state.\n' >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Platform consistency
+#
+# The manifest, the help text, the parser and the dry-run must advertise one
+# capability set. A capability documented but unreachable, or installable but
+# undeclared, is exactly the drift this asserts against.
+# ---------------------------------------------------------------------------
+
+manifest="$repo_root/config/capabilities.tsv"
+macos_help="$("$repo_root/install.sh" --platform macos --help)"
+macos_installer="$macos_root/install.sh"
+# Read the manifest once: the loop body queries it again for dependency flags,
+# and a redirection plus a nested read of the same file is a lint hazard.
+manifest_rows="$(cat "$manifest")"
+
+while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ verifier _ docs _ status; do
+  [[ "$platform" == macos ]] || continue
+
+  if [[ "$status" != implemented ]]; then
+    [[ "$cli_flag" == - ]] ||
+      { printf 'Unimplemented macOS capability %s still declares the flag %s.\n' \
+        "$capability" "$cli_flag" >&2; exit 1; }
+    continue
+  fi
+
+  [[ -f "$repo_root/$verifier" ]] ||
+    { printf 'macOS capability %s names a verifier that does not exist: %s\n' \
+      "$capability" "$verifier" >&2; exit 1; }
+  [[ -f "$repo_root/${docs%%#*}" ]] ||
+    { printf 'macOS capability %s names documentation that does not exist: %s\n' \
+      "$capability" "$docs" >&2; exit 1; }
+
+  [[ "$cli_flag" != - ]] || continue
+
+  assert_contains "$macos_help" "$cli_flag"
+  grep -Fq -- "  $cli_flag)" "$macos_installer" ||
+    { printf 'macOS parser does not accept the implemented flag %s.\n' "$cli_flag" >&2; exit 1; }
+
+  # A flag the manifest calls implemented must actually resolve a plan, with
+  # whatever its declared dependencies require alongside it.
+  selection=("$cli_flag")
+  if [[ "$dependencies" != - ]]; then
+    IFS=, read -r -a declared_dependencies <<<"$dependencies"
+    for dependency in "${declared_dependencies[@]}"; do
+      dependency_flag="$(awk -F '\t' -v c="$dependency" \
+        '$1 == c && $2 == "macos" { print $4; exit }' "$manifest")"
+      [[ "$dependency_flag" == - || -z "$dependency_flag" ]] ||
+        selection=("$dependency_flag" "${selection[@]}")
+    done
+  fi
+  "$repo_root/install.sh" --platform macos --dry-run "${selection[@]}" >/dev/null ||
+    { printf 'macOS dry run rejected the implemented selection: %s\n' \
+      "${selection[*]}" >&2; exit 1; }
+done <<<"$manifest_rows"
+printf 'macOS manifest, help, parser and dry run advertise one capability set.\n'
 
 printf 'macOS profile configuration checks passed.\n'

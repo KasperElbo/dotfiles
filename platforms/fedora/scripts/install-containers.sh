@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 # shellcheck source=../lib/containers.sh
@@ -159,12 +161,14 @@ ensure_dir "$(dirname "$state_file")"
   printf 'compose_provider=podman-compose\n'
   printf 'api_socket=%s\n' "$api_socket_state"
   printf 'user=%s\n' "$target_user"
-} | atomic_write_file "$state_file"
+} | profile_state_write_content "$state_file" containers applying
 
 info "Validating the Fedora containers profile"
 if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-containers.sh"; then
+  profile_state_set_status "$state_file" containers installed
   success "Fedora containers profile installed"
 else
+  profile_state_set_status "$state_file" containers failed
   warn "Containers packages were installed, but validation reported problems"
   exit 1
 fi

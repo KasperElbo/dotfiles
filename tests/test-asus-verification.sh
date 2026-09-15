@@ -19,6 +19,11 @@ if [[ "$*" == "-q --whatprovides mesa-va-drivers" ]]; then
   exit 1
 fi
 
+if [[ "$*" == "-q supergfxctl" ]]; then
+  [[ "${MOCK_SUPERGFXCTL_INSTALLED:-false}" == true ]]
+  exit
+fi
+
 case "$*" in
   "-q asusctl" | \
     "-q asusctl-rog-gui" | \
@@ -72,7 +77,8 @@ run_verification() {
     PATH="$mock_bin:$PATH" \
     DMI_ROOT="$test_root/dmi" \
     MOCK_MESA_VA_PROVIDER="${1:-}" \
-    "$repo_root/scripts/verify-asus-hardware.sh" 2>&1
+    MOCK_SUPERGFXCTL_INSTALLED="${2:-false}" \
+    "$repo_root/platforms/fedora/scripts/verify-asus-hardware.sh" 2>&1
 }
 
 provider="mesa-dri-drivers-26.1.8-1.fc44.x86_64"
@@ -85,7 +91,9 @@ output="$(run_verification "$provider")" || {
 [[ "$output" == *"RPM capability provided: mesa-va-drivers ($provider)"* ]]
 [[ "$output" == *"Both AMD GPUs are detected"* ]]
 [[ "$output" == *"Both AMD GPUs use the amdgpu kernel driver"* ]]
+[[ "$output" == *"supergfxctl is not installed"* ]]
 printf 'PASS: Mesa VA-API capability accepts an installed virtual provider\n'
+printf 'PASS: supported ASUS profile verifies supergfxctl is absent\n'
 
 if output="$(run_verification)"; then
   printf 'Expected verification without a Mesa VA-API provider to fail\n' >&2
@@ -94,3 +102,11 @@ fi
 
 [[ "$output" == *"RPM capability missing: mesa-va-drivers"* ]]
 printf 'PASS: missing Mesa VA-API capability fails verification\n'
+
+if output="$(run_verification "$provider" true)"; then
+  printf 'Expected verification with supergfxctl installed to fail\n' >&2
+  exit 1
+fi
+
+[[ "$output" == *"supergfxctl must not be installed for the supported ASUS hardware profile"* ]]
+printf 'PASS: installed supergfxctl fails ASUS hardware verification\n'

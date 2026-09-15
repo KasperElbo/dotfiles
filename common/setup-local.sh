@@ -4,8 +4,10 @@ set -euo pipefail
 
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
-# shellcheck source=lib/theme-state.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/theme-state.sh"
+# shellcheck source=lib/theme-shared-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/theme-shared-state.sh"
+# shellcheck source=lib/git-identity.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-identity.sh"
 
 theme="${1:-macchiato}"
 shift || true
@@ -25,36 +27,6 @@ former_git_dir="$DOTFILES_ROOT/git/.config/git"
 
 ensure_dir "$state_dir"
 
-restore_former_git_config() {
-  local name="$1"
-  local destination="$2"
-  local repo_relative_path="git/.config/git/$name"
-  local former_stow_path="$DOTFILES_ROOT/$repo_relative_path"
-  local revision
-  local restored="false"
-
-  if [[ -f "$former_stow_path" ]]; then
-    cp -- "$former_stow_path" "$destination"
-    restored="true"
-  else
-    while IFS= read -r revision; do
-      if git -C "$DOTFILES_ROOT" cat-file -e \
-        "${revision}:${repo_relative_path}" 2>/dev/null; then
-        git -C "$DOTFILES_ROOT" show \
-          "${revision}:${repo_relative_path}" >"$destination"
-        restored="true"
-        break
-      fi
-    done < <(
-      git -C "$DOTFILES_ROOT" log --all --format='%H' -- \
-        "$repo_relative_path" 2>/dev/null
-    )
-  fi
-
-  chmod 600 "$destination"
-  [[ "$restored" == "true" ]]
-}
-
 migrate_folded_git_directory() {
   [[ -L "$git_dir" ]] || return 0
 
@@ -69,10 +41,10 @@ migrate_folded_git_directory() {
   # Older Stow defaults could make the whole Git directory one symlink. Keep
   # only machine-local identities; the shared files are restowed afterward.
   migration_dir="$(mktemp -d "$XDG_CONFIG_HOME/.git-migration.XXXXXX")"
+  chmod 700 "$migration_dir"
 
-  for identity in local drdk; do
-    : >"$migration_dir/$identity"
-    restore_former_git_config "$identity" "$migration_dir/$identity" || true
+  for identity in "${GIT_IDENTITY_NAMES[@]}"; do
+    git_identity_migrate "$identity" "$migration_dir/$identity"
   done
 
   rm -- "$git_dir"
@@ -88,7 +60,11 @@ migrate_stow_managed_git_config() {
   local config_path="$git_dir/$name"
   local former_stow_path="$former_git_dir/$name"
 
+  GIT_IDENTITY_OUTCOME="$GIT_IDENTITY_OUTCOME_NONE"
+
   if [[ ! -L "$config_path" ]]; then
+    # Not a legacy link: either already machine-local, or a fresh machine that
+    # gets an empty placeholder for the user to fill in.
     if [[ ! -e "$config_path" ]]; then
       : >"$config_path"
       chmod 600 "$config_path"
@@ -102,22 +78,7 @@ migrate_stow_managed_git_config() {
     return
   fi
 
-  local replacement
-  local restored="false"
-
-  replacement="$(mktemp "$git_dir/.${name}.XXXXXX")"
-
-  if restore_former_git_config "$name" "$replacement"; then
-    restored="true"
-  fi
-
-  mv -- "$replacement" "$config_path"
-
-  if [[ "$restored" == "true" ]]; then
-    info "Migrated Git config out of the Stow package: $config_path"
-  else
-    warn "Replaced obsolete Git config symlink with an empty local file: $config_path"
-  fi
+  git_identity_migrate "$name" "$config_path"
 }
 
 # Do not overwrite a user's existing theme choice.
@@ -134,8 +95,24 @@ write_theme_state "$current_theme"
 
 # Identity files are intentionally local. Migrate links created by older
 # versions of this repository before Stow runs, then keep the files outside
-# the Stow package.
-migrate_stow_managed_git_config "local"
-migrate_stow_managed_git_config "drdk"
+# the Stow package. The outcome of each slot is reported explicitly, by slot
+# name and outcome only: identity content is never printed.
+identity_migrated=0
+identity_manual=0
+for identity_name in "${GIT_IDENTITY_NAMES[@]}"; do
+  migrate_stow_managed_git_config "$identity_name"
+  case "$GIT_IDENTITY_OUTCOME" in
+  "$GIT_IDENTITY_OUTCOME_MIGRATED") identity_migrated=$((identity_migrated + 1)) ;;
+  "$GIT_IDENTITY_OUTCOME_MANUAL") identity_manual=$((identity_manual + 1)) ;;
+  esac
+done
+
+if ((identity_manual > 0)); then
+  warn "Git identity migration: $identity_manual slot(s) need manual action, $identity_migrated migrated."
+elif ((identity_migrated > 0)); then
+  info "Git identity migration: $identity_migrated slot(s) migrated."
+else
+  info "Git identity migration: nothing to migrate."
+fi
 
 success "Machine-local configuration initialized"

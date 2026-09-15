@@ -1,6 +1,12 @@
+[tool_alias]
+nvim = "github:neovim/neovim"
+
 [tools]
+nvim = { version = "0.12.5", matching = "nvim-linux", strip_components = 1, bin_path = "bin" }
 uv = "latest"
 
 # Parrot/APT owns the system Python used by the distribution and its security
-# tools. Add challenge-specific runtimes in the challenge repository instead
-# of turning this VM profile into the general workstation manifest.
+# tools. Neovim is the one profile exception because Parrot 7.3 only packages
+# 0.10.x while the tracked LazyVim configuration requires 0.12 or newer. Add
+# challenge-specific runtimes in the challenge repository instead of turning
+# this VM profile into the general workstation manifest.

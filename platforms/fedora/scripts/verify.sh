@@ -4,60 +4,16 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../lib/secure-boot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/secure-boot.sh"
 # shellcheck source=../lib/hardening.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/hardening.sh"
+# shellcheck source=../../../common/lib/install-lifecycle.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/install-lifecycle.sh"
 
-failures=0
-warnings=0
-
-pass() {
-  printf '\033[1;32m✓\033[0m %s\n' "$*"
-}
-
-fail() {
-  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
-  failures=$((failures + 1))
-}
-
-warning() {
-  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
-  warnings=$((warnings + 1))
-}
-
-check_command() {
-  local command_name="$1"
-
-  if command -v "$command_name" >/dev/null 2>&1; then
-    pass "$command_name: $(command -v "$command_name")"
-  else
-    fail "$command_name not found"
-  fi
-}
-
-check_symlink() {
-  local target="$1"
-  local expected_prefix="$2"
-
-  if [[ ! -L "$target" ]]; then
-    fail "$target is not a symlink"
-    return
-  fi
-
-  local resolved
-  resolved="$(readlink -f "$target")"
-
-  if [[ "$resolved" == "$expected_prefix"* ]]; then
-    pass "$target -> $resolved"
-  else
-    fail "$target resolves outside dotfiles repo: $resolved"
-  fi
-}
-
-section() {
-  printf '\n\033[1m%s\033[0m\n' "$1"
-}
+verify_reset
 
 # ---------------------------------------------------------------------------
 # Core commands
@@ -108,6 +64,32 @@ else
   fail "openssh-clients package is not installed"
 fi
 
+# "a command called sftp exists" is not the claim this repository makes: the
+# claim is that the SFTP client comes from Fedora's own openssh-clients
+# package, so there is never a second SSH implementation to manage. Ask RPM
+# which package owns the binary that actually resolves, rather than trusting
+# whatever happens to be first on PATH.
+for cmd in sftp scp ssh; do
+  resolved="$(command -v "$cmd" 2>/dev/null || true)"
+  if [[ -z "$resolved" ]]; then
+    fail "$cmd not found; openssh-clients should provide it"
+    continue
+  fi
+  # RPM records the real path, and Fedora's /usr/sbin is a symlink to
+  # /usr/bin, so PATH order alone decides whether "command -v" hands back a
+  # spelling the package database can match. Canonicalize first, or the query
+  # reports "no owning package" for a perfectly correct installation.
+  canonical="$(verify_canonical_existing_path "$resolved" 2>/dev/null || true)"
+  owner="$(rpm -qf --queryformat '%{NAME}' "${canonical:-$resolved}" \
+    2>/dev/null || true)"
+  if [[ "$owner" == openssh-clients ]]; then
+    pass "$cmd is provided by openssh-clients: ${canonical:-$resolved}"
+  else
+    fail "$cmd resolves to ${canonical:-$resolved}, owned by" \
+      "${owner:-no RPM package}; expected Fedora's openssh-clients"
+  fi
+done
+
 ssh_version="$(ssh -V 2>&1 || true)"
 if [[ "$ssh_version" == *OpenSSH* ]]; then
   pass "ssh -V: $ssh_version"
@@ -115,10 +97,16 @@ else
   fail "ssh -V did not report an OpenSSH client: ${ssh_version:-no output}"
 fi
 
-# Dolphin/KIO already provides a native sftp:// workflow on Fedora's KDE
-# Plasma spin, which this baseline reuses instead of installing a dedicated
-# GUI SFTP client. Only checked when KDE Plasma is actually installed.
-if command_exists plasmashell; then
+# The KDE capability owns kio-extras and the Catppuccin KDE themes. A machine
+# installed with --no-kde owns neither, so requiring them there would fail a
+# correct installation just because Plasma happens to be present (issue #148).
+kde_selection_status=0
+install_lifecycle_capability_selected kde || kde_selection_status=$?
+
+if ((kde_selection_status == 1)); then
+  section "KDE integration"
+  pass "KDE integration is not selected; its assets are not expected"
+elif command_exists plasmashell; then
   section "KDE Dolphin/KIO SFTP integration"
 
   check_command dolphin
@@ -151,11 +139,7 @@ unknown)
   ;;
 esac
 
-if systemctl is-active --quiet firewalld.service; then
-  pass "firewalld is active"
-else
-  fail "firewalld is not active"
-fi
+check_system_service_active firewalld.service
 
 case "$(secure_boot_state)" in
 enabled)
@@ -197,6 +181,8 @@ check_symlink "$HOME/.zshenv" \
 check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" \
   "$DOTFILES_ROOT/zsh/"
 
+# verifies: terminal -- Ghostty is the workstation terminal, installed with the
+# baseline and configured by the portable ghostty Stow package.
 check_symlink "$XDG_CONFIG_HOME/ghostty/config" \
   "$DOTFILES_ROOT/ghostty/"
 
@@ -292,6 +278,28 @@ if [[ -n "$current_theme" ]]; then
     pass "tmux local theme override matches"
   else
     fail "tmux local theme override does not match $current_theme"
+  fi
+
+  # Check exactly what the installed capability owns: the Fedora theme hook
+  # applies a KDE global theme by name, so that name must exist on a machine
+  # that selected KDE, and must not be expected on one that did not.
+  case "$current_theme" in
+  latte) kde_global_theme="Catppuccin-Latte-Mauve" ;;
+  frappe) kde_global_theme="Catppuccin-Frappe-Mauve" ;;
+  macchiato) kde_global_theme="Catppuccin-Macchiato-Mauve" ;;
+  mocha) kde_global_theme="Catppuccin-Mocha-Mauve" ;;
+  esac
+  kde_theme_path="$XDG_DATA_HOME/plasma/look-and-feel/$kde_global_theme"
+
+  if ((kde_selection_status == 0)); then
+    if [[ -d "$kde_theme_path" ]]; then
+      pass "Catppuccin KDE global theme installed: $kde_global_theme"
+    else
+      fail "KDE integration is selected but its global theme is missing: $kde_theme_path"
+    fi
+  elif ((kde_selection_status == 1)) && [[ -d "$kde_theme_path" ]]; then
+    warning "KDE integration is not selected, but $kde_theme_path exists;" \
+      "the theme command will not apply it"
   fi
 fi
 
@@ -428,8 +436,18 @@ fi
 
 section "mise"
 
-if command -v mise >/dev/null 2>&1; then
-  if mise ls >/dev/null 2>&1; then
+mise_command="$(resolve_mise_command 2>/dev/null || true)"
+if [[ -n "$mise_command" ]]; then
+  # Verify the PATH a fresh Zsh login will receive, rather than the
+  # possibly stale Bash PATH used to invoke this verifier.
+  VERIFY_CONFIGURED_LOGIN_PATH="$(
+    zsh -lic 'printf "%s\\n" "$PATH"' 2>/dev/null || true
+  )"
+  VERIFY_CALLER_PATH="$PATH"
+  VERIFY_MISE_COMMAND="$mise_command"
+  establish_user_tool_environment
+
+  if "$mise_command" ls >/dev/null 2>&1; then
     pass "mise configuration loads successfully"
   else
     fail "mise could not load configured tools"
@@ -448,22 +466,16 @@ if command -v mise >/dev/null 2>&1; then
   )
 
   for cmd in "${mise_tools[@]}"; do
-    cmd_path="$(
-      mise exec -- bash -c "command -v \"\$1\"" _ "$cmd" 2>/dev/null
-    )" || true
-
-    # Preserve compatibility with explicitly system-owned commands and the
-    # isolated command mocks while preferring mise's freshly installed PATH.
-    if [[ -z "$cmd_path" ]]; then
-      cmd_path="$(command -v "$cmd" 2>/dev/null || true)"
-    fi
-
-    if [[ -n "$cmd_path" ]]; then
-      pass "$cmd: $cmd_path"
-    else
-      fail "mise-managed command missing: $cmd"
-    fi
+    check_mise_owned "$cmd"
   done
+
+  case "$(uname -m)" in
+  aarch64 | arm64) check_easy_dotnet_debugger linux-arm64 ;;
+  x86_64 | amd64) check_easy_dotnet_debugger linux-x64 ;;
+  *) fail "Unsupported .NET debugger architecture: $(uname -m)" ;;
+  esac
+else
+  fail "mise not found"
 fi
 
 # ---------------------------------------------------------------------------
@@ -513,8 +525,11 @@ if [[ -d "$mason_root" ]]; then
   done
 fi
 
+# A Lua error raised from an Ex command does not become Neovim's exit status,
+# so the baseline check must turn a failed version test into `cquit` itself.
+# Otherwise the trailing +qa would report success on an unsupported Neovim.
 if nvim --headless \
-  '+lua assert(vim.fn.has("nvim-0.12") == 1)' \
+  '+lua if vim.fn.has("nvim-0.12") ~= 1 then vim.cmd("cquit 1") end' \
   +qa >/dev/null 2>&1; then
   pass "Neovim >= 0.12"
 else
@@ -525,15 +540,65 @@ fi
 # Optional OCaml profile
 # ---------------------------------------------------------------------------
 
-ocaml_state="$XDG_CONFIG_HOME/dotfiles/ocaml.conf"
+# The shared verifier decides for itself whether the profile was selected, so
+# running it unconditionally is what makes "selected but never installed" fail
+# instead of silently skipping.
 
-if [[ -f "$ocaml_state" ]]; then
-  section "OCaml profile"
+section "OCaml profile"
 
-  if "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
-    pass "Optional OCaml profile"
-  else
-    fail "Optional OCaml profile verification failed"
+if DOTFILES_NATIVE_PREFIX=/usr "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+  pass "Optional OCaml profile"
+else
+  fail "Optional OCaml profile verification failed"
+fi
+
+# ---------------------------------------------------------------------------
+# Optional LaTeX toolchain
+#
+# verifies: latex
+#
+# The latex capability keeps no profile state of its own (state=- in
+# config/capabilities.tsv is deliberate), so the recorded installation
+# selection is the only evidence that this machine asked for TeX. Reading it
+# here, rather than taking a --latex flag from the installer the way the WSL
+# verifier does, keeps the verdict the same whether platforms/fedora/install.sh
+# runs this script as its final step or somebody runs it by hand months later.
+#
+# Compiling a document is deliberately not attempted: the disposable
+# multi-file build belongs to scripts/test-dev-workflows.sh --latex.
+# ---------------------------------------------------------------------------
+
+section "LaTeX toolchain"
+
+latex_selection_status=0
+install_lifecycle_capability_selected latex || latex_selection_status=$?
+
+if ((latex_selection_status == 0)); then
+  # What platforms/fedora/scripts/install-latex.sh must put on PATH:
+  # texlive-scheme-medium provides latex and the three engines, and latexmk,
+  # biber and texlive-latexindent provide the rest. A missing command is a
+  # broken installation of a capability this machine selected, not a warning.
+  for latex_command in biber latex latexindent latexmk lualatex pdflatex xelatex; do
+    check_command "$latex_command"
+  done
+
+  if command_exists latexmk; then
+    latexmk_version="$(latexmk -v 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$latexmk_version" ]]; then
+      pass "latexmk version: $latexmk_version"
+    else
+      warning "latexmk is installed but did not report a version"
+    fi
+  fi
+else
+  # A machine with no readable installation record is treated like one that
+  # did not select the capability: scripts/doctor.sh already reports a missing
+  # lifecycle record, and this verifier must not invent a selection.
+  pass "LaTeX toolchain is not selected; its commands are not applicable"
+
+  if command_exists latexmk; then
+    warning "latexmk is on PATH at $(command -v latexmk) but the LaTeX" \
+      "capability is not selected; TeX here is not owned by these dotfiles"
   fi
 fi
 
@@ -658,10 +723,6 @@ containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
 if [[ -f "$containers_state" ]]; then
   section "Containers (Podman)"
 
-  # The full rootless pull/run/build/network/Compose smoke test is exercised
-  # right after install-containers.sh runs; skip it here so a routine full
-  # verify.sh run (and a routine ./install.sh run, which always ends with
-  # verify.sh) does not repeat a network-dependent smoke test every time.
   if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-containers.sh" \
     --skip-smoke-test; then
     pass "Containers profile verification completed"
@@ -760,21 +821,4 @@ else
   printf '%s\n' "$generated_files" >&2
 fi
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
-
-printf '\n'
-
-if ((failures > 0)); then
-  printf '\033[1;31mVerification failed:\033[0m %d failure(s), %d warning(s)\n' \
-    "$failures" "$warnings"
-  exit 1
-fi
-
-if ((warnings > 0)); then
-  printf '\033[1;33mVerification passed with warnings:\033[0m %d warning(s)\n' \
-    "$warnings"
-else
-  printf '\033[1;32mVerification passed.\033[0m\n'
-fi
+finish_verification "Fedora verification"

@@ -29,6 +29,34 @@ write_managed_root_file() {
   rm -f "$tmp"
 }
 
+# Read-only counterparts of write_managed_root_file, used by verification.
+# The drop-ins this profile owns are root:root and some are mode 0440/0640, so
+# an unprivileged read cannot see them at all. sudo is used here only to read
+# and stat; nothing below writes, reloads, or enables anything.
+managed_root_file_exists() {
+  local path="$1"
+  [[ -f "$path" ]] || sudo test -f "$path" 2>/dev/null
+}
+
+managed_root_file_read() {
+  local path="$1"
+  if [[ -r "$path" ]]; then
+    cat -- "$path" 2>/dev/null
+  else
+    sudo cat -- "$path" 2>/dev/null
+  fi
+}
+
+managed_root_file_mode() {
+  local path="$1"
+  local mode
+
+  mode="$(stat -c '%a' "$path" 2>/dev/null || true)"
+  [[ -n "$mode" ]] || mode="$(sudo stat -c '%a' "$path" 2>/dev/null || true)"
+  [[ -n "$mode" ]] || return 1
+  printf '%s\n' "$mode"
+}
+
 # remove_managed_root_file <path> <description>
 remove_managed_root_file() {
   local path="$1"

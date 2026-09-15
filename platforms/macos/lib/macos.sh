@@ -8,6 +8,11 @@ macos_architecture() {
   printf '%s\n' "${DOTFILES_TEST_UNAME_M:-$(uname -m)}"
 }
 
+macos_is_github_hosted_runner() {
+  [[ "${GITHUB_ACTIONS:-false}" == true ]] &&
+    [[ "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]
+}
+
 require_apple_silicon_macos() {
   [[ "$(macos_kernel_name)" == Darwin ]] ||
     die "The macOS profile must run on macOS."
@@ -18,6 +23,95 @@ require_apple_silicon_macos() {
     [[ "$(sysctl -n sysctl.proc_translated 2>/dev/null || printf '0')" == 1 ]]; then
     die "The installer is running under Rosetta; start a native arm64 terminal."
   fi
+}
+
+# macOS keeps the login shell in Directory Services rather than /etc/passwd, so
+# the shared getent-based helper does not apply here.
+macos_login_shell_for_user() {
+  local user="$1"
+  local entry
+
+  entry="$(dscl . -read "/Users/$user" UserShell 2>/dev/null)" || return 1
+  entry="${entry#UserShell:}"
+  entry="${entry# }"
+  [[ -n "$entry" ]] || return 1
+  printf '%s\n' "$entry"
+}
+
+# Any Zsh registered in /etc/shells is supported. Apple's /bin/zsh and a
+# deliberately selected Homebrew Zsh are both valid, so a compliant existing
+# choice is preserved instead of being rewritten to one specific path.
+macos_login_shell_is_compliant() {
+  local shell_path="$1"
+  local shells_file="${SHELLS_FILE:-/etc/shells}"
+
+  [[ -n "$shell_path" ]] || return 1
+  [[ "${shell_path##*/}" == zsh ]] || return 1
+  [[ -r "$shells_file" ]] || return 1
+  grep -Fxq "$shell_path" "$shells_file"
+}
+
+# Prefer the Zsh the workstation actually runs, falling back to Apple's. Both
+# must be registered, because chsh refuses a shell missing from /etc/shells.
+macos_resolve_registered_zsh() {
+  local candidate
+
+  for candidate in "$(command -v zsh 2>/dev/null || true)" /bin/zsh; do
+    [[ -n "$candidate" ]] || continue
+    if macos_login_shell_is_compliant "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# True when this account's login shell still has to be moved, which is the
+# only reason the macOS profile needs sudo once Homebrew is present. A
+# preflight has to be able to ask this *before* the run starts: "sudo chsh"
+# runs in the middle of the system step, so a --non-interactive run that never
+# established authorization would block there on a password prompt.
+#
+# An account whose shell cannot be read is treated as needing the change,
+# because that is what ensure_macos_zsh_login_shell will attempt.
+macos_login_shell_change_required() {
+  local current_user current_shell
+
+  current_user="$(id -un)" || return 0
+  current_shell="$(macos_login_shell_for_user "$current_user")" || return 0
+  ! macos_login_shell_is_compliant "$current_shell"
+}
+
+ensure_macos_zsh_login_shell() {
+  local current_user
+  local current_shell
+  local zsh_path
+  local shells_file="${SHELLS_FILE:-/etc/shells}"
+
+  export ZSH_LOGIN_SHELL_CHANGED="false"
+
+  [[ "$(id -u)" -ne 0 ]] ||
+    die "Refusing to change root's login shell; run the installer as a regular user."
+
+  current_user="$(id -un)" || die "Could not determine the invoking user."
+  current_shell="$(macos_login_shell_for_user "$current_user")" ||
+    die "Could not determine the login shell for $current_user."
+
+  if macos_login_shell_is_compliant "$current_shell"; then
+    info "Zsh is already the default login shell: $current_shell"
+    return 0
+  fi
+
+  zsh_path="$(macos_resolve_registered_zsh)" ||
+    die "No Zsh is registered in $shells_file; cannot set a supported login shell."
+
+  info "Setting Zsh as the default login shell: $zsh_path"
+  sudo chsh -s "$zsh_path" "$current_user"
+  current_shell="$(macos_login_shell_for_user "$current_user")" ||
+    die "Could not verify the updated login shell for $current_user."
+  macos_login_shell_is_compliant "$current_shell" ||
+    die "Account login shell did not change to a registered Zsh: ${current_shell:-unknown}"
+  export ZSH_LOGIN_SHELL_CHANGED="true"
 }
 
 homebrew_path() {

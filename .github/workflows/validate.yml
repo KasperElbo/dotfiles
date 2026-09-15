@@ -18,7 +18,11 @@ jobs:
     name: Repository validation
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    container: fedora:44
+    # Pinned by digest so a validation run is reproducible against one
+    # exact base image. This is docker.io/library/fedora:44 as of
+    # 2026-09-14; see config/network-sources.tsv (validation-image-fedora).
+    # network-source: validation-image-fedora
+    container: docker.io/library/fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
 
     env:
       GIT_CONFIG_COUNT: "1"
@@ -33,7 +37,7 @@ jobs:
       - name: Install validation dependencies
         run: >-
           dnf --assumeyes --setopt=install_weak_deps=False
-          install git jq neovim python3 ripgrep ShellCheck stow
+          install git jq neovim python3 ripgrep ShellCheck stow zsh
 
       - name: Check out repository
         uses: actions/checkout@v7
@@ -58,6 +62,44 @@ jobs:
             git diff --check "$BEFORE_SHA..HEAD"
           fi
 
+  cheatsheets:
+    name: Printable cheat sheets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The same pinned Fedora image the repository job uses, so the LaTeX
+    # toolchain that renders the sheets is the one the --latex profile installs.
+    # network-source: validation-image-fedora
+    container: docker.io/library/fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
+
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Install the LaTeX toolchain
+        run: >-
+          dnf --assumeyes --setopt=install_weak_deps=False
+          install texlive-scheme-medium latexmk poppler-utils
+
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Compile and verify every printable cheat sheet
+        run: ./docs/cheatsheets/verify.sh
+
+      - name: Prove the rendered PDFs stay untracked
+        run: |
+          if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+            printf 'Building the cheat sheets left files behind:\n' >&2
+            git status --porcelain --untracked-files=normal >&2
+            exit 1
+          fi
+
   windows:
     name: Windows PowerShell validation
     runs-on: windows-latest
@@ -71,10 +113,18 @@ jobs:
         shell: pwsh
         run: ./tests/test-windows-bootstrap.ps1
 
+      - name: Test Windows installed-state verifier fixtures
+        shell: pwsh
+        run: ./tests/test-windows-verifier.ps1
+
+      - name: Smoke-test top-level Windows verification
+        shell: pwsh
+        run: ./verify.ps1 -FixturePath ./tests/fixtures/windows-verifier/healthy.json
+
   macos:
     name: macOS 26 arm64 validation
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -83,11 +133,35 @@ jobs:
       - name: Install validation dependencies
         run: brew install bash ripgrep shellcheck stow
 
+      - name: Install native .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Exercise the Apple Silicon .NET debugger contract
+        run: ./tests/integration/macos-dotnet-debug.sh
+
       - name: Validate shell scripts
         run: /opt/homebrew/bin/bash ./scripts/lint.sh
 
+      - name: Test system-Bash bootstrap compatibility
+        run: |
+          /bin/bash ./tests/test-execution-plan.sh
+          /bin/bash ./tests/test-profile-state.sh
+          /bin/bash ./install.sh --platform macos \
+            --theme macchiato --no-ocaml --no-containers --no-tailscale \
+            --no-defaults --dry-run --non-interactive >/dev/null
+
+      - name: Test portable verifier and shell-test primitives
+        run: |
+          /opt/homebrew/bin/bash ./tests/test-verifier.sh
+          /opt/homebrew/bin/bash ./tests/test-test-support.sh
+
       - name: Test macOS profile configuration
-        run: /opt/homebrew/bin/bash ./tests/test-macos.sh
+        run: |
+          /opt/homebrew/bin/bash ./tests/test-macos.sh
+          /opt/homebrew/bin/bash ./tests/test-macos-ai.sh
+          /opt/homebrew/bin/bash ./tests/test-ocaml-verification.sh
 
       - name: Check whitespace
         run: git diff --check

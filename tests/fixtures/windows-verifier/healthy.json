@@ -1,0 +1,37 @@
+{
+  "State": {
+    "Exists": true,
+    "Error": null,
+    "SchemaVersion": 1,
+    "NocttySelected": false,
+    "NocttyConfigurationSelected": false,
+    "WslRequired": true,
+    "FedoraDistribution": "FedoraLinux-44"
+  },
+  "Scoop": {
+    "Available": false,
+    "Root": "C:\\Users\\fixture\\scoop",
+    "CommandPath": null,
+    "Bucket": {
+      "Name": "noctty",
+      "Exists": false,
+      "Path": "C:\\Users\\fixture\\scoop\\buckets\\noctty"
+    },
+    "Package": {
+      "Name": "noctty",
+      "Exists": false,
+      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\noctty\\current\\noctty.exe",
+      "CommandPath": null
+    }
+  },
+  "Configuration": {
+    "ManagedBlockValid": false,
+    "Files": []
+  },
+  "Wsl": {
+    "CommandAvailable": true,
+    "InstalledVersion": "2.7.13",
+    "DistributionPresent": true,
+    "DistributionVersion": 2
+  }
+}

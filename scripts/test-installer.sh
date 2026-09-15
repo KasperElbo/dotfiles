@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Deprecated compatibility entry point. It forwards unchanged; see
+# docs/architecture/repository-conventions.md for the removal policy.
+
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../common/lib/deprecation.sh
+source "$repo_root/common/lib/deprecation.sh"
 
-printf '%s\n' \
-  'scripts/test-installer.sh is retained as a compatibility entry point.' \
-  'Running the complete bootstrap test harness via scripts/test.sh.'
+deprecated_wrapper "scripts/test-installer.sh" "./scripts/test.sh"
 
-exec "$repo_root/scripts/test.sh"
+exec "$repo_root/scripts/test.sh" "$@"

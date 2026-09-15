@@ -3,11 +3,12 @@ set -u
 
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/macos.sh"
 
-failures=0
-warnings=0
+verify_reset
 verify_defaults="false"
 verify_containers="false"
 verify_tailscale="false"
@@ -21,22 +22,6 @@ while (($#)); do
   esac
   shift
 done
-
-pass() { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
-fail() { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; failures=$((failures + 1)); }
-warning() { printf '\033[1;33m!\033[0m %s\n' "$*" >&2; warnings=$((warnings + 1)); }
-section() { printf '\n\033[1m%s\033[0m\n' "$1"; }
-
-check_command() {
-  local name="$1"
-  local path
-  path="$(command -v "$name" 2>/dev/null || true)"
-  if [[ -n "$path" ]]; then
-    pass "$name: $path"
-  else
-    fail "$name not found"
-  fi
-}
 
 check_arm64_file() {
   local name="$1"
@@ -54,22 +39,6 @@ check_arm64_file() {
   fi
 }
 
-check_link() {
-  local path="$1"
-  local prefix="$2"
-  local resolved
-  if [[ ! -L "$path" ]]; then
-    fail "$path is not a Stow symlink"
-    return
-  fi
-  resolved="$(resolve_symlink_target "$path" 2>/dev/null || true)"
-  if [[ "$resolved" == "$prefix"* ]]; then
-    pass "$path -> $resolved"
-  else
-    fail "$path resolves outside its owning package: $resolved"
-  fi
-}
-
 if ! require_apple_silicon_macos; then
   exit 1
 fi
@@ -84,7 +53,13 @@ else
   pass "No Intel Homebrew executable found"
 fi
 
-if csrutil status 2>/dev/null | grep -Fqi enabled; then pass "System Integrity Protection is enabled"; else fail "System Integrity Protection is not enabled"; fi
+if csrutil status 2>/dev/null | grep -Fqi enabled; then
+  pass "System Integrity Protection is enabled"
+elif macos_is_github_hosted_runner; then
+  not_observed "System Integrity Protection is not observable as enabled on hosted macOS; verify it on a real machine"
+else
+  fail "System Integrity Protection is not enabled"
+fi
 if spctl --status 2>/dev/null | grep -Fqi enabled; then pass "Gatekeeper is enabled"; else fail "Gatekeeper is not enabled"; fi
 
 section "Commands"
@@ -92,8 +67,45 @@ mise_command="$(command -v mise 2>/dev/null || true)"
 if [[ -n "$mise_command" ]]; then
   eval "$("$mise_command" activate bash)"
 fi
-commands=(aerospace ast-grep bat delta dotnet eza fd fzf gh git lazygit mise node npm nvim python rg scp sftp shellcheck sqlite3 ssh starship stow tmux tree-sitter uv zoxide zsh)
+commands=(aerospace ast-grep bat delta dotnet dotnet-easydotnet eza fd fzf gh git jq lazygit mise node npm nvim python rg scp sftp shellcheck sqlite3 ssh starship stow tmux tree-sitter uv zoxide zsh)
 for name in "${commands[@]}"; do check_command "$name"; done
+
+# ---------------------------------------------------------------------------
+# SFTP client baseline
+#
+# macOS deliberately declares no SSH package: the Brewfile installs none, and
+# the client this repository promises is Apple's own system OpenSSH in
+# /usr/bin. Checking only that an "sftp" command exists would accept a
+# Homebrew or third-party client that silently replaced it, which is exactly
+# the second SSH implementation this platform is documented as not having.
+# ---------------------------------------------------------------------------
+
+section "SFTP client baseline"
+
+for name in sftp scp ssh; do
+  resolved="$(command -v "$name" 2>/dev/null || true)"
+  if [[ -z "$resolved" ]]; then
+    fail "$name not found; macOS ships it in /usr/bin"
+    continue
+  fi
+  # Compare the real path, so neither a symlinked PATH entry nor a Homebrew
+  # shim decides the answer by spelling.
+  canonical="$(verify_canonical_existing_path "$resolved" 2>/dev/null || true)"
+  if [[ "${canonical:-$resolved}" == /usr/bin/"$name" ]]; then
+    pass "$name is Apple's system OpenSSH: ${canonical:-$resolved}"
+  else
+    fail "$name resolves to ${canonical:-$resolved}, not Apple's system" \
+      "OpenSSH at /usr/bin/$name; this platform installs no second SSH" \
+      "implementation"
+  fi
+done
+
+ssh_version="$(ssh -V 2>&1 || true)"
+if [[ "$ssh_version" == *OpenSSH* ]]; then
+  pass "ssh -V: $ssh_version"
+else
+  fail "ssh -V did not report an OpenSSH client: ${ssh_version:-no output}"
+fi
 
 for name in brew nvim node python dotnet; do
   path="$(command -v "$name" 2>/dev/null || true)"
@@ -108,8 +120,8 @@ done
 
 check_arm64_file "Ghostty" /Applications/Ghostty.app/Contents/MacOS/ghostty
 check_arm64_file "AeroSpace" /Applications/AeroSpace.app/Contents/MacOS/AeroSpace
-netcoredbg="$XDG_DATA_HOME/nvim/mason/packages/netcoredbg/libexec/netcoredbg/netcoredbg"
-check_arm64_file "Mason netcoredbg" "$netcoredbg"
+check_easy_dotnet_debugger osx-arm64
+check_arm64_file "EasyDotnet bundled netcoredbg" "$EASY_DOTNET_DEBUGGER_PATH"
 
 python_arch="$(python -c 'import platform; print(platform.machine())' 2>/dev/null || true)"
 if [[ "$python_arch" == arm64 ]]; then
@@ -129,29 +141,56 @@ else
   fail ".NET host/SDK does not report arm64"
 fi
 
+# gnubin exists to supply GNU tools macOS does not ship — timeout, used by the
+# shared Neovim bootstrap — and deliberately does not shadow Apple's coreutils.
+# Assert that resolution rather than a PATH position: /etc/zprofile runs
+# path_helper after .zshenv, so no entry from .zshenv keeps a fixed index in a
+# login shell, and mise-managed tools legitimately take the front.
+# Assert the promise Homebrew coreutils is here to keep, not a PATH position:
+# a GNU timeout for the shared Neovim bootstrap, with Apple's own coreutils
+# left in front. Position cannot be asserted because /etc/zprofile runs
+# path_helper after .zshenv, and mise-managed tools legitimately take the
+# front; the provider is not asserted either, since any Homebrew path may
+# supply timeout as long as it is the GNU one.
 # shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
-login_check="$(zsh -lic 'printf "%s|%s" "${PATH%%:*}" "$(starship --version >/dev/null && mise --version >/dev/null && printf ready)"' 2>/dev/null || true)"
-if [[ "$login_check" == '/opt/homebrew/opt/coreutils/libexec/gnubin|ready' ]]; then
-  pass "Zsh login environment activates Homebrew, Starship, and mise"
+login_check="$(zsh -lic 'printf "%s|%s|%s" "$(timeout --version 2>/dev/null | head -n1)" "$(command -v ls)" "$(starship --version >/dev/null && mise --version >/dev/null && printf ready)"' 2>/dev/null || true)"
+login_timeout="${login_check%%|*}"
+login_rest="${login_check#*|}"
+login_ls="${login_rest%%|*}"
+login_tools="${login_check##*|}"
+if [[ "$login_tools" != ready ]]; then
+  fail "Zsh login environment does not activate Starship and mise: ${login_check:-no output}"
+elif [[ "$login_timeout" != *"GNU coreutils"* ]]; then
+  fail "Zsh login shell does not provide GNU timeout: ${login_timeout:-not found}"
+elif [[ "$login_ls" == *"/coreutils/libexec/gnubin/"* ]]; then
+  fail "Zsh login shell shadows Apple's coreutils with gnubin: $login_ls"
 else
-  fail "Zsh login environment is incomplete: ${login_check:-no output}"
+  pass "Zsh login environment activates Homebrew, Starship, and mise"
 fi
 
-login_shell="$(dscl . -read "/Users/$USER" UserShell 2>/dev/null | awk '{print $2}')"
-if [[ "$login_shell" == /bin/zsh ]]; then pass "Account login shell is /bin/zsh"; else fail "Account login shell is ${login_shell:-unknown}"; fi
+# Apple's /bin/zsh and a deliberately selected Homebrew Zsh are both supported,
+# so this asserts registration in /etc/shells rather than one exact path.
+login_shell="$(macos_login_shell_for_user "$USER" || true)"
+if macos_login_shell_is_compliant "$login_shell"; then
+  pass "Account login shell is a registered Zsh: $login_shell"
+else
+  fail "Account login shell is not a registered Zsh: ${login_shell:-unknown}"
+fi
 
 section "Configuration links"
-check_link "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/"
-check_link "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh/"
-check_link "$XDG_CONFIG_HOME/zsh/platform-env.zsh" "$DOTFILES_ROOT/platforms/macos/stow/zsh-platform/"
-check_link "$XDG_CONFIG_HOME/zsh/platform.zsh" "$DOTFILES_ROOT/platforms/macos/stow/zsh-platform/"
-check_link "$XDG_CONFIG_HOME/aerospace/aerospace.toml" "$DOTFILES_ROOT/platforms/macos/stow/aerospace/"
-check_link "$HOME/.local/bin/aerospace-workspace-grid" "$DOTFILES_ROOT/platforms/macos/stow/aerospace/"
-check_link "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git/"
-check_link "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise/"
-check_link "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim/"
-check_link "$XDG_CONFIG_HOME/nvim/lua/plugins/macos.lua" "$DOTFILES_ROOT/platforms/macos/stow/nvim-macos/"
+check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/"
+check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh/"
+check_symlink "$XDG_CONFIG_HOME/zsh/platform-env.zsh" "$DOTFILES_ROOT/platforms/macos/stow/zsh-platform/"
+check_symlink "$XDG_CONFIG_HOME/zsh/platform.zsh" "$DOTFILES_ROOT/platforms/macos/stow/zsh-platform/"
+check_symlink "$XDG_CONFIG_HOME/aerospace/aerospace.toml" "$DOTFILES_ROOT/platforms/macos/stow/aerospace/"
+check_symlink "$HOME/.local/bin/aerospace-workspace-grid" "$DOTFILES_ROOT/platforms/macos/stow/aerospace/"
+check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git/"
+check_symlink "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise/"
+check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim/"
+check_symlink "$XDG_CONFIG_HOME/nvim/lua/plugins/macos.lua" "$DOTFILES_ROOT/platforms/macos/stow/nvim-macos/"
 
+# verifies: terminal -- Ghostty is the macOS terminal, installed from the
+# Brewfile with the baseline.
 if [[ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]]; then pass "Ghostty application is installed"; else fail "Ghostty application is missing"; fi
 if [[ -d /Applications/AeroSpace.app ]]; then pass "AeroSpace application is installed"; else fail "AeroSpace application is missing"; fi
 
@@ -170,6 +209,159 @@ if aerospace list-workspaces --focused >/dev/null 2>&1; then
   fi
 else
   warning "AeroSpace CLI cannot reach the window manager; open it and grant Accessibility access"
+fi
+
+# ---------------------------------------------------------------------------
+# Optional AI-assisted development profile
+#
+# The shared installer and verifier own the profile itself; this section adds
+# only what is genuinely a macOS question. Two things must be true here that
+# are not true anywhere else: every advertised command has to be usable on
+# arm64, and none of them may have arrived through Homebrew or a global npm
+# install competing with the mise-managed copy.
+# ---------------------------------------------------------------------------
+
+section "AI-assisted development profile"
+
+ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
+agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+
+macos_ai_is_agents_symlink() {
+  [[ -L "$1" ]] &&
+    [[ "$(verify_canonical_existing_path "$1" 2>/dev/null || true)" == \
+      "$(verify_canonical_existing_path "$agents_source" 2>/dev/null || true)" ]]
+}
+
+# A Mach-O that is not arm64 would run under Rosetta, which this platform
+# refuses. Scripts and text are fine: they execute under the arm64 Node and
+# Python runtimes already verified above.
+macos_ai_check_native_architecture() {
+  local name="$1" resolved canonical architecture
+
+  resolved="$(command -v "$name" 2>/dev/null || true)"
+  [[ -n "$resolved" ]] || return 0
+  canonical="$(verify_canonical_existing_path "$resolved" 2>/dev/null || printf '%s' "$resolved")"
+  architecture="$(file -L "$canonical" 2>/dev/null || true)"
+  case "$architecture" in
+  *arm64* | *universal* | *script* | *text* | *link*)
+    pass "$name runs natively on arm64: $canonical"
+    ;;
+  *x86_64* | *i386*)
+    fail "$name is an Intel-only binary and would need Rosetta: $architecture"
+    ;;
+  *)
+    not_observed "$name architecture could not be read from ${canonical:-unknown}"
+    ;;
+  esac
+}
+
+# mise owns every AI command. Homebrew and a global npm prefix are the two ways
+# a second copy could appear on this platform, so both are ruled out explicitly
+# rather than inferred from whichever copy PATH happened to find first.
+macos_ai_check_no_duplicate_provider() {
+  local name="$1" resolved canonical
+
+  resolved="$(command -v "$name" 2>/dev/null || true)"
+  [[ -n "$resolved" ]] || return 0
+  canonical="$(verify_canonical_existing_path "$resolved" 2>/dev/null || printf '%s' "$resolved")"
+  if [[ "$canonical" == /opt/homebrew/* || "$canonical" == /usr/local/* ]]; then
+    fail "$name resolves to a Homebrew-owned copy at $canonical; the AI profile is mise-owned"
+  else
+    pass "$name is not a Homebrew duplicate: $canonical"
+  fi
+}
+
+if [[ -f "$ai_state" ]]; then
+  if "$DOTFILES_ROOT/common/verify-ai.sh"; then
+    pass "AI profile verification completed"
+  else
+    fail "AI profile verification failed"
+  fi
+
+  ai_commands=(claude herdr)
+  while IFS='=' read -r ai_component ai_ownership; do
+    case "$ai_component:$ai_ownership" in
+    codex:mise-npm) ai_commands+=(codex) ;;
+    gnhf:mise-npm) ai_commands+=(gnhf) ;;
+    gh_axi:mise-npm) ai_commands+=(gh-axi) ;;
+    chrome_devtools_axi:mise-npm) ai_commands+=(chrome-devtools-axi) ;;
+    lavish_axi:mise-npm) ai_commands+=(lavish-axi) ;;
+    tasks_axi:mise-npm) ai_commands+=(tasks-axi) ;;
+    quota_axi:mise-npm) ai_commands+=(quota-axi) ;;
+    backpass:mise-npm) ai_commands+=(backpass) ;;
+    acpx:mise-npm) ai_commands+=(acpx) ;;
+    treehouse:installed) ai_commands+=(treehouse) ;;
+    no_mistakes:installed) ai_commands+=(no-mistakes) ;;
+    esac
+  done <"$ai_state"
+
+  for name in "${ai_commands[@]}"; do
+    macos_ai_check_native_architecture "$name"
+    macos_ai_check_no_duplicate_provider "$name"
+  done
+
+  global_npm="$(npm ls --global --depth=0 --parseable 2>/dev/null || true)"
+  npm_duplicate="false"
+  for package in @anthropic-ai/claude-code @openai/codex gnhf backpass acpx \
+    gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi; do
+    if [[ "$global_npm" == *"/node_modules/$package" ]] ||
+      [[ "$global_npm" == *"/node_modules/$package"$'\n'* ]]; then
+      fail "$package is also installed globally with npm; the AI profile is mise-owned"
+      npm_duplicate="true"
+    fi
+  done
+  [[ "$npm_duplicate" == true ]] ||
+    pass "No AI package is duplicated in a global npm prefix"
+
+  # A command that only works because this verifier's process activated mise is
+  # not actually installed for the user. Prove it resolves in a fresh login.
+  for name in "${ai_commands[@]}"; do
+    if zsh -lic 'command -v "$1" >/dev/null' _ "$name" >/dev/null 2>&1; then
+      pass "Fresh Zsh login resolves $name"
+    else
+      fail "Fresh Zsh login does not resolve $name"
+    fi
+  done
+  if zsh -lic 'claude --version >/dev/null' >/dev/null 2>&1; then
+    pass "Claude Code starts in a fresh Zsh login"
+  else
+    fail "Claude Code does not start in a fresh Zsh login"
+  fi
+else
+  if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" ||
+    -e "$HOME/.local/bin/treehouse" ||
+    -d "$XDG_DATA_HOME/firstmate" ]] ||
+    macos_ai_is_agents_symlink "$HOME/.claude/CLAUDE.md" ||
+    macos_ai_is_agents_symlink "$codex_home/AGENTS.md" ||
+    macos_ai_is_agents_symlink "$XDG_CONFIG_HOME/opencode/AGENTS.md"; then
+    fail "AI profile is not selected, but AI-owned files remain (run" \
+      "common/install-ai.sh, or remove them by hand)"
+  else
+    pass "AI profile is not installed (not selected)"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Optional OCaml profile
+#
+# Selection is read from the authoritative install/profile state rather than
+# forwarded as a flag, so a standalone verifier run reaches the same verdict as
+# one inside the installer, and an unselected profile is never failed for a
+# missing opam. The shared verifier is the only OCaml implementation; macOS
+# adds no second one.
+# ---------------------------------------------------------------------------
+
+section "Optional OCaml profile"
+
+# The platform, not the shared verifier, knows which prefix its native provider
+# owns. Passing it in keeps opam ownership provable without teaching portable
+# code about Homebrew.
+if DOTFILES_NATIVE_PREFIX="$("$(homebrew_path)" --prefix)" \
+  "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+  pass "OCaml profile verification completed"
+else
+  fail "OCaml profile verification failed"
 fi
 
 if [[ "$verify_defaults" == true ]]; then
@@ -201,6 +393,7 @@ if [[ "$verify_containers" == true ]]; then
   else
     fail "Podman reports rootless=${rootless:-unknown}"
   fi
+  # network-source: smoke-image-alpine
   machine_arch="$(podman run --rm docker.io/library/alpine:latest uname -m 2>/dev/null || true)"
   if [[ "$machine_arch" == aarch64 ]]; then
     pass "Containers run as ARM64"
@@ -248,8 +441,4 @@ if [[ "$verify_tailscale" == true ]]; then
   fi
 fi
 
-if ((failures > 0)); then
-  printf '\n%d macOS verification failure(s); %d warning(s).\n' "$failures" "$warnings" >&2
-  exit 1
-fi
-printf '\nmacOS verification passed with %d warning(s).\n' "$warnings"
+finish_verification "macOS verification"

@@ -3,410 +3,251 @@ set -euo pipefail
 
 # shellcheck source=../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/common.sh"
+# shellcheck source=../../common/lib/execution-plan.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/execution-plan.sh"
+# shellcheck source=../../common/lib/preflight.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/preflight.sh"
+# shellcheck source=../../common/lib/capabilities.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/capabilities.sh"
+# shellcheck source=../../common/lib/install-lifecycle.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
+# shellcheck source=../../common/lib/theme-selection.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
+# shellcheck source=lib/fedora.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/fedora.sh"
 
-theme="macchiato"
-install_kde="auto"
-install_latex="false"
-install_ocaml="false"
-install_sway="false"
-install_vm_host="false"
-install_vm_guest="false"
-install_hardening="false"
-install_desktop_tools="false"
-desktop_tools_force_defaults="false"
-install_containers="false"
-containers_api_socket="false"
-install_tailscale="false"
-install_ai="false"
-ai_codex="false"
-ai_firstmate="false"
-ai_gnhf="false"
-ai_backpass="false"
-hardware_model=""
-hardware_secure_boot="false"
-hardware_charge_limit=""
-interactive="true"
-dry_run="false"
+theme="$THEME_DEFAULT_FLAVOUR"; theme_explicit=false; install_kde=auto; install_latex=auto; install_ocaml=false
+run_dev_workflows=false
+install_sway=false; install_vm_host=false; install_vm_guest=false
+install_hardening=false; install_desktop_tools=false
+desktop_tools_force_defaults=false; install_containers=false
+containers_api_socket=false; install_tailscale=false; install_ai=false
+# Empty means the sub-flag was omitted. install-ai.sh treats that as
+# additive -- keep whatever is already installed -- so it must stay
+# distinguishable from an explicit --no-<component> removal request.
+ai_codex=''; ai_firstmate=''; ai_gnhf=''; ai_backpass=''
+hardware_model=''; hardware_secure_boot=false; hardware_charge_limit=''
+interactive=true; dry_run=false
 
 usage() {
   cat <<'EOF'
-Usage: ./install.sh [options]
+Usage: ./install.sh --platform fedora [options]
+
+Direct entry point: ./platforms/fedora/install.sh [options]
 
 Options:
-  --theme FLAVOUR    Catppuccin flavour:
-                     latte, frappe, macchiato, mocha
-                     Default: macchiato
-
-  --kde              Install Catppuccin KDE integration
-  --no-kde           Do not install KDE integration
-
-  --latex            Install the LaTeX toolchain
-  --no-latex         Do not install the LaTeX toolchain
-
-  --ocaml            Install the optional OCaml development profile
-  --no-ocaml         Do not install the OCaml profile (default)
-
-  --sway             Install the optional keyboard-driven Sway session
-  --no-sway          Do not install the Sway session (default)
-
-  --vm-host          Install the optional KVM/QEMU + libvirt VM-host profile
-  --vm-guest         Install KVM/QEMU agents inside an explicit Fedora guest
-
-  --hardening        Install the optional conservative security-hardening
-                     profile (see README.md, "Fedora security hardening")
-  --no-hardening     Do not install the hardening profile (default)
-  --desktop-tools    Install the optional day-to-day desktop application
-                     profile (image editor, PDF tool, media player, scanning)
-  --no-desktop-tools Do not install the desktop-tools profile (default)
+  --theme FLAVOUR    latte, frappe, macchiato, mocha (default: macchiato)
+  --kde/--no-kde     KDE integration (default: auto-detect)
+  --latex/--no-latex LaTeX toolchain (default: ask interactively, otherwise off)
+  --ocaml/--no-ocaml
+  --sway/--no-sway
+  --vm-host          KVM/QEMU + libvirt host profile
+  --vm-guest         Explicit Fedora KVM/QEMU guest profile
+  --hardening/--no-hardening
+  --desktop-tools/--no-desktop-tools
   --desktop-tools-force-defaults
-                     With --desktop-tools, override existing default
-                     applications for the mimetypes it manages instead of
-                     leaving an existing choice alone (default: leave alone)
-
-  --containers       Install the optional rootless Podman container
-                     development profile (see README.md, "Optional Podman
-                     container development profile")
-  --no-containers    Do not install the containers profile (default)
+  --containers/--no-containers
   --containers-api-socket
-                     With --containers, enable the rootless, socket-activated
-                     Podman API socket for Docker-compatible client tooling
-                     (default: disabled)
-
-  --tailscale        Install the optional Tailscale networking profile: the
-                     tailscale CLI and tailscaled service, from Tailscale's
-                     own Fedora/DNF repository (see README.md, "Optional
-                     Tailscale networking profile"). Never runs 'tailscale
-                     up' and never embeds credentials or tailnet policy.
-  --no-tailscale     Do not install the Tailscale profile (default)
-
-  --ai               Install the optional AI-assisted development profile:
-                     Claude Code and Herdr (see README.md, "AI-assisted
-                     development toolchain")
-  --no-ai            Do not install the AI profile (default)
-  --codex            With --ai, also install the OpenAI Codex CLI
-  --no-codex         Do not install Codex (default)
-  --firstmate        With --ai, also install FirstMate and every tool its
-                     own docs list as required (Treehouse, No Mistakes,
-                     gh-axi, chrome-devtools-axi, lavish-axi, tasks-axi,
-                     quota-axi)
-  --no-firstmate     Do not install FirstMate (default)
-  --gnhf             With --ai, also install GNHF, an unattended overnight
-                     agent orchestrator (read README.md, "Optional: GNHF"
-                     before use; it runs an agent unsupervised)
-  --no-gnhf          Do not install GNHF (default)
-  --backpass         With --ai, also install backpass, which proposes
-                     evidence-backed AGENTS.md/CLAUDE.md edits from agent
-                     session transcripts, gated behind mandatory human
-                     review (independent of --firstmate; read README.md,
-                     "Optional: backpass")
-  --no-backpass      Do not install backpass (default)
-
-  --hardware MODEL   Install ASUS hardware support:
-                     ga402xz or ga402rk
-                     Default: disabled
-  --secure-boot      Require Secure Boot for the selected hardware
-  --charge-limit N   Set ASUS battery charge limit (40-100 percent)
-
-  --dry-run          Show the installation plan without changing anything
-  --non-interactive  Use defaults without prompting
-
+  --tailscale/--no-tailscale
+  --ai/--no-ai       Claude Code and Herdr profile
+  --codex/--no-codex, --firstmate/--no-firstmate
+  --gnhf/--no-gnhf, --backpass/--no-backpass
+                     AI subcomponents are additive: omitting one leaves it
+                     installed. --no-<component> is the only thing that
+                     removes one, and it confirms first.
+  --hardware MODEL   ga402xz or ga402rk
+  --secure-boot      Require Secure Boot for selected hardware
+  --charge-limit N   ASUS battery limit (40-100)
+  --dev-workflows    Run the disposable development workflow smoke tests
+  --dry-run          Show the resolved plan without changing anything
+  --non-interactive  Never prompt; resolve every choice from the given
+                     options and their defaults. Requires cached sudo
+                     (run 'sudo -v' first) where the run needs it.
   -h, --help         Show this help
 EOF
 }
 
 while (($#)); do
   case "$1" in
-  --theme)
-    [[ $# -ge 2 ]] || die "--theme requires a value"
-    theme="$2"
-    shift 2
-    ;;
-
-  --kde)
-    install_kde="true"
-    shift
-    ;;
-
-  --no-kde)
-    install_kde="false"
-    shift
-    ;;
-
-  --latex)
-    install_latex="true"
-    shift
-    ;;
-
-  --no-latex)
-    install_latex="false"
-    shift
-    ;;
-
-  --ocaml)
-    install_ocaml="true"
-    shift
-    ;;
-
-  --no-ocaml)
-    install_ocaml="false"
-    shift
-    ;;
-
-  --sway)
-    install_sway="true"
-    shift
-    ;;
-
-  --no-sway)
-    install_sway="false"
-    shift
-    ;;
-
-  --vm-host)
-    install_vm_host="true"
-    shift
-    ;;
-
-  --vm-guest)
-    install_vm_guest="true"
-    shift
-    ;;
-
-  --hardening)
-    install_hardening="true"
-    shift
-    ;;
-
-  --no-hardening)
-    install_hardening="false"
-    shift
-    ;;
-
-  --desktop-tools)
-    install_desktop_tools="true"
-    shift
-    ;;
-
-  --no-desktop-tools)
-    install_desktop_tools="false"
-    shift
-    ;;
-
-  --desktop-tools-force-defaults)
-    desktop_tools_force_defaults="true"
-    shift
-    ;;
-
-  --containers)
-    install_containers="true"
-    shift
-    ;;
-
-  --no-containers)
-    install_containers="false"
-    shift
-    ;;
-
-  --containers-api-socket)
-    containers_api_socket="true"
-    shift
-    ;;
-
-  --tailscale)
-    install_tailscale="true"
-    shift
-    ;;
-
-  --no-tailscale)
-    install_tailscale="false"
-    shift
-    ;;
-
-  --ai)
-    install_ai="true"
-    shift
-    ;;
-
-  --no-ai)
-    install_ai="false"
-    shift
-    ;;
-
-  --codex)
-    ai_codex="true"
-    shift
-    ;;
-
-  --no-codex)
-    ai_codex="false"
-    shift
-    ;;
-
-  --firstmate)
-    ai_firstmate="true"
-    shift
-    ;;
-
-  --no-firstmate)
-    ai_firstmate="false"
-    shift
-    ;;
-
-  --gnhf)
-    ai_gnhf="true"
-    shift
-    ;;
-
-  --no-gnhf)
-    ai_gnhf="false"
-    shift
-    ;;
-
-  --backpass)
-    ai_backpass="true"
-    shift
-    ;;
-
-  --no-backpass)
-    ai_backpass="false"
-    shift
-    ;;
-
-  --hardware)
-    [[ $# -ge 2 ]] || die "--hardware requires a value"
-    hardware_model="$2"
-    shift 2
-    ;;
-
-  --secure-boot)
-    hardware_secure_boot="true"
-    shift
-    ;;
-
-  --charge-limit)
-    [[ $# -ge 2 ]] || die "--charge-limit requires a value"
-    hardware_charge_limit="$2"
-    shift 2
-    ;;
-
-  --dry-run)
-    dry_run="true"
-    interactive="false"
-    shift
-    ;;
-
-  --non-interactive)
-    interactive="false"
-    shift
-    ;;
-
-  -h | --help)
-    usage
-    exit 0
-    ;;
-
-  *)
-    die "Unknown option: $1"
-    ;;
+  --theme) [[ $# -ge 2 ]] || die '--theme requires a value'; theme="$2"; theme_explicit=true; shift 2 ;;
+  --kde) install_kde=enabled; shift ;; --no-kde) install_kde=disabled; shift ;;
+  --latex) install_latex=enabled; shift ;; --no-latex) install_latex=disabled; shift ;;
+  --ocaml) install_ocaml=true; shift ;; --no-ocaml) install_ocaml=false; shift ;;
+  --sway) install_sway=true; shift ;; --no-sway) install_sway=false; shift ;;
+  --vm-host) install_vm_host=true; shift ;; --vm-guest) install_vm_guest=true; shift ;;
+  --hardening) install_hardening=true; shift ;; --no-hardening) install_hardening=false; shift ;;
+  --desktop-tools) install_desktop_tools=true; shift ;; --no-desktop-tools) install_desktop_tools=false; shift ;;
+  --desktop-tools-force-defaults) desktop_tools_force_defaults=true; shift ;;
+  --containers) install_containers=true; shift ;; --no-containers) install_containers=false; shift ;;
+  --containers-api-socket) containers_api_socket=true; shift ;;
+  --tailscale) install_tailscale=true; shift ;; --no-tailscale) install_tailscale=false; shift ;;
+  --ai) install_ai=true; shift ;; --no-ai) install_ai=false; shift ;;
+  --codex) ai_codex=true; shift ;; --no-codex) ai_codex=false; shift ;;
+  --firstmate) ai_firstmate=true; shift ;; --no-firstmate) ai_firstmate=false; shift ;;
+  --gnhf) ai_gnhf=true; shift ;; --no-gnhf) ai_gnhf=false; shift ;;
+  --backpass) ai_backpass=true; shift ;; --no-backpass) ai_backpass=false; shift ;;
+  --hardware) [[ $# -ge 2 ]] || die '--hardware requires a value'; hardware_model="$2"; shift 2 ;;
+  --secure-boot) hardware_secure_boot=true; shift ;;
+  --charge-limit) [[ $# -ge 2 ]] || die '--charge-limit requires a value'; hardware_charge_limit="$2"; shift 2 ;;
+  --dev-workflows) run_dev_workflows=true; shift ;; --no-dev-workflows) run_dev_workflows=false; shift ;;
+  --dry-run) dry_run=true; interactive=false; shift ;;
+  --non-interactive) interactive=false; shift ;;
+  --rerun) die '--rerun is owned by the root installer: run ./install.sh --rerun instead.' ;;
+  -h | --help) usage; exit 0 ;;
+  *) die "Unknown option: $1" ;;
   esac
 done
 
-case "$theme" in
-latte | frappe | macchiato | mocha)
-  ;;
-*)
-  die "Invalid Catppuccin flavour: $theme"
-  ;;
-esac
-
-case "$hardware_model" in
-"" | ga402xz | ga402rk)
-  ;;
-*)
-  die "Invalid hardware profile: $hardware_model"
-  ;;
-esac
-
-if [[ "$hardware_secure_boot" == "true" && -z "$hardware_model" ]]; then
-  die "--secure-boot requires --hardware"
-fi
-
-if [[ "$desktop_tools_force_defaults" == "true" && "$install_desktop_tools" == "false" ]]; then
-  die "--desktop-tools-force-defaults requires --desktop-tools"
-fi
-
-if [[ "$containers_api_socket" == "true" && "$install_containers" == "false" ]]; then
-  die "--containers-api-socket requires --containers"
-fi
-
-if [[ "$ai_codex" == "true" && "$install_ai" == "false" ]]; then
-  die "--codex requires --ai"
-fi
-
-if [[ "$ai_firstmate" == "true" && "$install_ai" == "false" ]]; then
-  die "--firstmate requires --ai"
-fi
-
-if [[ "$ai_gnhf" == "true" && "$install_ai" == "false" ]]; then
-  die "--gnhf requires --ai"
-fi
-
-if [[ "$ai_backpass" == "true" && "$install_ai" == "false" ]]; then
-  die "--backpass requires --ai"
-fi
-
-if [[ "$install_vm_host" == "true" && "$install_vm_guest" == "true" ]]; then
-  die "--vm-host and --vm-guest cannot be combined"
-fi
-
-if [[ "$install_vm_guest" == "true" && -n "$hardware_model" ]]; then
-  die "--vm-guest and --hardware cannot be combined"
-fi
-
+# An explicit --theme wins; otherwise keep the flavour this machine already
+# has, then the one its last successful install recorded, and only then the
+# first-install default. A plain rerun must never reset a machine to the
+# default (issue #148).
+theme_resolve fedora "$theme_explicit" "$theme"
+theme="$THEME_RESOLVED"
+theme_source="$THEME_RESOLVED_SOURCE"
+case "$hardware_model" in '' | ga402xz | ga402rk) ;; *) die "Invalid hardware profile: $hardware_model" ;; esac
+[[ "$hardware_secure_boot" != true || -n "$hardware_model" ]] || die '--secure-boot requires --hardware'
+[[ "$desktop_tools_force_defaults" != true || "$install_desktop_tools" == true ]] || die '--desktop-tools-force-defaults requires --desktop-tools'
+[[ "$containers_api_socket" != true || "$install_containers" == true ]] || die '--containers-api-socket requires --containers'
+[[ -z "$ai_codex" || "$install_ai" == true ]] || die '--codex/--no-codex requires --ai'
+[[ -z "$ai_firstmate" || "$install_ai" == true ]] || die '--firstmate/--no-firstmate requires --ai'
+[[ -z "$ai_gnhf" || "$install_ai" == true ]] || die '--gnhf/--no-gnhf requires --ai'
+[[ -z "$ai_backpass" || "$install_ai" == true ]] || die '--backpass/--no-backpass requires --ai'
+[[ "$install_vm_host" != true || "$install_vm_guest" != true ]] || die '--vm-host and --vm-guest cannot be combined'
+[[ "$install_vm_guest" != true || -z "$hardware_model" ]] || die '--vm-guest and --hardware cannot be combined'
 if [[ -n "$hardware_charge_limit" ]]; then
-  [[ -n "$hardware_model" ]] || die "--charge-limit requires --hardware"
-
+  [[ -n "$hardware_model" ]] || die '--charge-limit requires --hardware'
   if [[ ! "$hardware_charge_limit" =~ ^[0-9]+$ ]] ||
     ((hardware_charge_limit < 40 || hardware_charge_limit > 100)); then
-    die "--charge-limit must be an integer from 40 to 100"
+    die '--charge-limit must be an integer from 40 to 100'
   fi
 fi
 
-# ---------------------------------------------------------------------------
-# Resolve automatic options
-# ---------------------------------------------------------------------------
-
-if [[ "$install_kde" == "auto" ]]; then
-  if command_exists plasmashell; then
-    install_kde="true"
-  else
-    install_kde="false"
+if [[ "$install_kde" == auto ]]; then command_exists plasmashell && install_kde=enabled || install_kde=disabled; fi
+if [[ "$install_latex" == auto && "$interactive" == true ]]; then
+  if confirm 'Install LaTeX toolchain?' n; then install_latex=enabled; else
+    result=$?; ((result == 1)) || die 'Invalid confirmation response'; install_latex=disabled
   fi
+elif [[ "$install_latex" == auto ]]; then install_latex=disabled
 fi
 
-# ---------------------------------------------------------------------------
-# Dry-run / installation plan
-# ---------------------------------------------------------------------------
+bool_kde=false; [[ "$install_kde" != enabled ]] || bool_kde=true
+bool_latex=false; [[ "$install_latex" != enabled ]] || bool_latex=true
 
-if [[ "$dry_run" == "true" ]]; then
-  sway_suffix=""
-  setup_local_suffix=""
-  if [[ "$install_sway" == "true" ]]; then
-    sway_suffix=" --sway"
-    setup_local_suffix=" --sway"
-    if [[ -n "$hardware_model" ]]; then
-      setup_local_suffix+=" --hardware $hardware_model"
-    fi
-  fi
+# The resolved persistent configuration of this run. Auto-detected and
+# interactively answered options are recorded as what they resolved to, because
+# that is the machine configuration ./install.sh --rerun must reproduce.
+# Transient controls (--dry-run, --non-interactive, --dev-workflows) are
+# deliberately absent: they belong to one invocation, not to the machine.
+install_selection_reset fedora
+install_selection_set theme "$theme"
+install_selection_set kde "$bool_kde"
+install_selection_set latex "$bool_latex"
+install_selection_set ocaml "$install_ocaml"
+install_selection_set sway "$install_sway"
+install_selection_set vm-host "$install_vm_host"
+install_selection_set vm-guest "$install_vm_guest"
+install_selection_set hardening "$install_hardening"
+install_selection_set desktop-tools "$install_desktop_tools"
+install_selection_set desktop-tools-force-defaults "$desktop_tools_force_defaults"
+install_selection_set containers "$install_containers"
+install_selection_set containers-api-socket "$containers_api_socket"
+install_selection_set tailscale "$install_tailscale"
+install_selection_set ai "$install_ai"
+install_selection_set codex "${ai_codex:-inherit}"
+install_selection_set firstmate "${ai_firstmate:-inherit}"
+install_selection_set gnhf "${ai_gnhf:-inherit}"
+install_selection_set backpass "${ai_backpass:-inherit}"
+install_selection_set hardware "${hardware_model:--}"
+install_selection_set secure-boot "$hardware_secure_boot"
+install_selection_set charge-limit "${hardware_charge_limit:--}"
+install_selection="$(install_selection_serialize)"
 
+hardware_args=()
+[[ -z "$hardware_model" ]] || hardware_args=(--model "$hardware_model")
+[[ "$hardware_secure_boot" != true ]] || hardware_args+=(--secure-boot)
+[[ -z "$hardware_charge_limit" ]] || hardware_args+=(--charge-limit "$hardware_charge_limit")
+hardware_selected=false
+[[ -z "$hardware_model" ]] || hardware_selected=true
+
+preflight_fedora() {
+  require_regular_user; require_fedora
+  preflight_platform_command_providers fedora; preflight_sudo "$interactive"
+  [[ "$install_vm_guest" != true ]] || "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-guest.sh" --preflight
+  [[ -z "$hardware_model" ]] || "$DOTFILES_ROOT/platforms/fedora/scripts/install-asus-hardware.sh" "${hardware_args[@]}" --preflight
+  preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
+  preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
+  local specs=() capability
+  local selected=(base dotnet-debug)
+  for selection in "$bool_kde:kde" "$bool_latex:latex" "$install_ocaml:ocaml" "$install_sway:sway" "$install_vm_host:vm-host" "$install_vm_guest:vm-guest" "$hardware_selected:hardware" "$install_hardening:hardening" "$install_desktop_tools:desktop-tools" "$install_containers:containers" "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
+    [[ "${selection%%:*}" != true ]] || selected+=("${selection#*:}")
+  done
+  capability_validate_selection fedora "${selected[@]}"
+  while IFS= read -r capability; do specs+=("$capability"); done < <(capability_stow_specs fedora "${selected[@]}")
+  preflight_stow_packages "${specs[@]}"
+}
+
+apply_system() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-system.sh"; }
+apply_terra() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-terra.sh"; }
+apply_ocaml_native() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-ocaml.sh"; }
+apply_hardware() { local args=("${hardware_args[@]}"); [[ "$interactive" == true ]] || args+=(--non-interactive); "$DOTFILES_ROOT/platforms/fedora/scripts/install-asus-hardware.sh" "${args[@]}"; }
+apply_sway() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-sway.sh"; }
+apply_vm_host() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-host.sh"; }
+apply_vm_guest() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-guest.sh"; }
+apply_hardening() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interactive); "$DOTFILES_ROOT/platforms/fedora/scripts/install-hardening.sh" "${args[@]}"; }
+apply_desktop() { local args=(); [[ "$desktop_tools_force_defaults" != true ]] || args+=(--force-defaults); "$DOTFILES_ROOT/platforms/fedora/scripts/install-desktop-tools.sh" "${args[@]}"; }
+apply_containers() { local args=(); [[ "$containers_api_socket" != true ]] || args+=(--api-socket); "$DOTFILES_ROOT/platforms/fedora/scripts/install-containers.sh" "${args[@]}"; }
+apply_tailscale() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-tailscale.sh"; }
+apply_local() { local args=("$theme"); [[ "$install_sway" != true ]] || { args+=(--sway); [[ -z "$hardware_model" ]] || args+=(--hardware "$hardware_model"); }; "$DOTFILES_ROOT/platforms/fedora/scripts/setup-local.sh" "${args[@]}"; }
+apply_stow() { local args=(); [[ "$install_sway" != true ]] || args+=(--sway); "$DOTFILES_ROOT/platforms/fedora/scripts/stow.sh" "${args[@]}"; }
+apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
+apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh"; }
+apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
+apply_ocaml() { "$DOTFILES_ROOT/common/install-ocaml.sh"; }
+apply_ai() { local args=(); case "$ai_codex" in true) args+=(--codex) ;; false) args+=(--no-codex) ;; esac; case "$ai_firstmate" in true) args+=(--firstmate) ;; false) args+=(--no-firstmate) ;; esac; case "$ai_gnhf" in true) args+=(--gnhf) ;; false) args+=(--no-gnhf) ;; esac; case "$ai_backpass" in true) args+=(--backpass) ;; false) args+=(--no-backpass) ;; esac; [[ "$interactive" == true ]] || args+=(--non-interactive); "$DOTFILES_ROOT/common/install-ai.sh" "${args[@]}"; }
+apply_kde() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-kde-theme.sh"; }
+apply_latex() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-latex.sh"; }
+apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
+verify_fedora() { "$DOTFILES_ROOT/platforms/fedora/scripts/verify.sh"; }
+apply_dev_workflows() { local args=(--all); [[ "$install_ocaml" != true ]] || args+=(--ocaml); [[ "$install_latex" != enabled ]] || args+=(--latex); "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" "${args[@]}"; }
+
+plan_add system 'Install Fedora system packages' apply preflight_fedora apply_system : "Set Zsh as the user's default login shell. platforms/fedora/scripts/install-system.sh"
+plan_add terra 'Enable Terra and install Terra-managed packages' apply : apply_terra : 'platforms/fedora/scripts/install-terra.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora-owned OCaml prerequisites' apply : apply_ocaml_native : 'platforms/fedora/scripts/install-ocaml.sh'
+[[ -z "$hardware_model" ]] || plan_add hardware "Install ASUS hardware support for $hardware_model" apply : apply_hardware : "platforms/fedora/scripts/install-asus-hardware.sh --model $hardware_model"
+[[ "$install_sway" != true ]] || plan_add sway 'Install the optional Sway daily-driver session' apply : apply_sway : 'platforms/fedora/scripts/install-sway.sh'
+[[ "$install_vm_host" != true ]] || plan_add vm-host 'Install the optional Fedora KVM/QEMU + libvirt VM-host profile' apply : apply_vm_host : 'platforms/fedora/scripts/install-vm-host.sh'
+[[ "$install_vm_guest" != true ]] || plan_add vm-guest 'Install the explicit Fedora KVM/QEMU VM-guest profile' apply : apply_vm_guest : 'platforms/fedora/scripts/install-vm-guest.sh'
+[[ "$install_hardening" != true ]] || plan_add hardening 'Install the optional conservative security-hardening profile' apply : apply_hardening : 'platforms/fedora/scripts/install-hardening.sh'
+if [[ "$install_desktop_tools" == true ]]; then desktop_note='platforms/fedora/scripts/install-desktop-tools.sh'; [[ "$desktop_tools_force_defaults" != true ]] || desktop_note+=' --force-defaults'; desktop_note+='; GIMP, pdfarranger, mpv, Skanpage; reuses Gwenview, Okular, Ark'; plan_add desktop-tools 'Install the optional day-to-day desktop application profile' apply : apply_desktop : "$desktop_note"; fi
+if [[ "$install_containers" == true ]]; then containers_note='platforms/fedora/scripts/install-containers.sh'; [[ "$containers_api_socket" != true ]] || containers_note+=' --api-socket'; plan_add containers 'Install the optional rootless Podman profile' apply : apply_containers : "$containers_note"; fi
+[[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale networking profile' apply : apply_tailscale : 'platforms/fedora/scripts/install-tailscale.sh'
+local_note="platforms/fedora/scripts/setup-local.sh $theme"; [[ "$install_sway" != true ]] || { local_note+=' --sway'; [[ -z "$hardware_model" ]] || local_note+=" --hardware $hardware_model"; }
+plan_add local 'Initialize machine-local configuration' apply : apply_local : "$local_note"
+stow_note='platforms/fedora/scripts/stow.sh'; [[ "$install_sway" != true ]] || stow_note+=' --sway'
+plan_add stow 'Deploy tracked configuration with GNU Stow' apply : apply_stow : "$stow_note"
+plan_add mise 'Install mise-managed runtimes and developer tools' apply : apply_mise : 'common/install-mise.sh'
+plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim : 'common/install-neovim-tools.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and Platform tools' apply : apply_ocaml : "OCaml ${OCAML_COMPILER_VERSION:-5.5.0}; common/install-ocaml.sh"
+if [[ "$install_ai" == true ]]; then ai_note='common/install-ai.sh'; case "$ai_codex" in true) ai_note+=' --codex' ;; false) ai_note+=' --no-codex' ;; esac; case "$ai_firstmate" in true) ai_note+=' --firstmate' ;; false) ai_note+=' --no-firstmate' ;; esac; case "$ai_gnhf" in true) ai_note+=' --gnhf' ;; false) ai_note+=' --no-gnhf' ;; esac; case "$ai_backpass" in true) ai_note+=' --backpass' ;; false) ai_note+=' --no-backpass' ;; esac; plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$ai_note"; fi
+[[ "$install_kde" != enabled ]] || plan_add kde 'Install all four Catppuccin KDE themes' apply : apply_kde : 'platforms/fedora/scripts/install-kde-theme.sh'
+[[ "$install_latex" != enabled ]] || plan_add latex 'Install LaTeX toolchain' apply : apply_latex : 'platforms/fedora/scripts/install-latex.sh'
+plan_add theme "Apply Catppuccin $theme" apply : apply_theme : "theme $theme"
+if [[ "$run_dev_workflows" == true ]]; then
+  dev_workflows_note='scripts/test-dev-workflows.sh --all'; [[ "$install_ocaml" != true ]] || dev_workflows_note+=' --ocaml'; [[ "$install_latex" != enabled ]] || dev_workflows_note+=' --latex'
+  plan_add dev-workflows 'Run the disposable development workflow smoke tests' verify : apply_dev_workflows : "$dev_workflows_note"
+fi
+plan_add verify 'Verify installation' verify : verify_fedora : 'platforms/fedora/scripts/verify.sh'
+
+if [[ "$dry_run" == true ]]; then
   cat <<EOF
 
 Dotfiles installation plan
 --------------------------
-
-Catppuccin flavour:  $theme
-KDE integration:     $install_kde
-LaTeX toolchain:     $install_latex
+Catppuccin flavour:  $theme  (source: $theme_source — $(theme_source_description "$theme_source"))
+KDE integration:     $bool_kde
+LaTeX toolchain:     $bool_latex
 OCaml profile:       $install_ocaml
 Sway session:        $install_sway
 VM-host profile:     $install_vm_host
@@ -418,488 +259,45 @@ Containers profile:  $install_containers
 Containers API socket: $containers_api_socket
 Tailscale profile:   $install_tailscale
 AI profile:          $install_ai
-AI Codex subcomponent: $ai_codex
-AI FirstMate subcomponent: $ai_firstmate
-AI GNHF subcomponent: $ai_gnhf
-AI backpass subcomponent: $ai_backpass
+AI Codex subcomponent: ${ai_codex:-inherit}
+AI FirstMate subcomponent: ${ai_firstmate:-inherit}
+AI GNHF subcomponent: ${ai_gnhf:-inherit}
+AI backpass subcomponent: ${ai_backpass:-inherit}
 ASUS hardware:       ${hardware_model:-disabled}
 Require Secure Boot: $hardware_secure_boot
 Battery limit:       ${hardware_charge_limit:-unchanged}
+Development workflow smoke tests: $run_dev_workflows  (this run only)
+Recorded rerun selection: $install_selection
 
-Steps:
-
-  1. Install Fedora system packages
-     Set Zsh as the user's default login shell.
-     platforms/fedora/scripts/install-system.sh
-
-  2. Enable Terra and install Terra-managed packages
-     platforms/fedora/scripts/install-terra.sh
 EOF
-
-  step=3
-
-  if [[ "$install_ocaml" == "true" ]]; then
-    cat <<EOF
-
-  $step. Install Fedora-owned OCaml prerequisites
-     platforms/fedora/scripts/install-ocaml.sh
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ -n "$hardware_model" ]]; then
-    cat <<EOF
-
-  $step. Install ASUS hardware support for $hardware_model
-     platforms/fedora/scripts/install-asus-hardware.sh --model $hardware_model
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ "$install_sway" == "true" ]]; then
-    cat <<EOF
-
-  $step. Install the optional Sway daily-driver session
-     platforms/fedora/scripts/install-sway.sh
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ "$install_vm_host" == "true" ]]; then
-    cat <<EOF
-
-  $step. Install the optional Fedora KVM/QEMU + libvirt VM-host profile
-     platforms/fedora/scripts/install-vm-host.sh
-     qemu:///system, default NAT network, qcow2, UEFI/OVMF, VirtIO, SPICE
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ "$install_vm_guest" == "true" ]]; then
-    cat <<EOF
-
-  $step. Install the explicit Fedora KVM/QEMU VM-guest profile
-     platforms/fedora/scripts/install-vm-guest.sh
-     qemu-guest-agent, SPICE desktop integration, existing guest networking
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ "$install_hardening" == "true" ]]; then
-    cat <<EOF
-
-  $step. Install the optional conservative security-hardening profile
-     platforms/fedora/scripts/install-hardening.sh
-     SELinux/faillock/sudo-audit/auditd/sysctl/conditional-sshd/dnf-automatic
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ "$install_desktop_tools" == "true" ]]; then
-    desktop_tools_suffix=""
-    if [[ "$desktop_tools_force_defaults" == "true" ]]; then
-      desktop_tools_suffix=" --force-defaults"
-    fi
-    cat <<EOF
-
-  $step. Install the optional day-to-day desktop application profile
-     platforms/fedora/scripts/install-desktop-tools.sh$desktop_tools_suffix
-     GIMP, pdfarranger, mpv, Skanpage; reuses Gwenview, Okular, Ark
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ "$install_containers" == "true" ]]; then
-    containers_suffix=""
-    if [[ "$containers_api_socket" == "true" ]]; then
-      containers_suffix=" --api-socket"
-    fi
-    cat <<EOF
-
-  $step. Install the optional rootless Podman container development profile
-     platforms/fedora/scripts/install-containers.sh$containers_suffix
-     podman, podman-compose; rootless by default, no Docker Engine/alias
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ "$install_tailscale" == "true" ]]; then
-    cat <<EOF
-
-  $step. Install the optional Tailscale networking profile
-     platforms/fedora/scripts/install-tailscale.sh
-     tailscale CLI + tailscaled from pkgs.tailscale.com; no 'tailscale up',
-     no embedded credentials or tailnet policy
-EOF
-    step=$((step + 1))
-  fi
-
-  cat <<EOF
-
-  $step. Initialize machine-local configuration
-     platforms/fedora/scripts/setup-local.sh $theme$setup_local_suffix
-
-  $((step + 1)). Deploy tracked configuration with GNU Stow
-     platforms/fedora/scripts/stow.sh$sway_suffix
-
-  $((step + 2)). Install mise-managed runtimes and developer tools
-     common/install-mise.sh
-
-  $((step + 3)). Restore LazyVim and install the intended Mason inventory
-     common/install-neovim-tools.sh
-
-  $((step + 4)). Install pinned Catppuccin tmux theme
-     common/install-tmux-theme.sh
-EOF
-
-  step=$((step + 5))
-
-  if [[ "$install_ocaml" == "true" ]]; then
-    cat <<EOF
-
-  $step. Create the opam-owned OCaml switch and install Platform tools
-     OCaml ${OCAML_COMPILER_VERSION:-5.5.0}
-     dune, ocaml-lsp-server, ocamlformat and utop
-     common/install-ocaml.sh
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ "$install_ai" == "true" ]]; then
-    ai_suffix=""
-    if [[ "$ai_codex" == "true" ]]; then
-      ai_suffix+=" --codex"
-    fi
-    if [[ "$ai_firstmate" == "true" ]]; then
-      ai_suffix+=" --firstmate"
-    fi
-    if [[ "$ai_gnhf" == "true" ]]; then
-      ai_suffix+=" --gnhf"
-    fi
-    if [[ "$ai_backpass" == "true" ]]; then
-      ai_suffix+=" --backpass"
-    fi
-    cat <<EOF
-
-  $step. Install the optional AI-assisted development profile
-     common/install-ai.sh$ai_suffix
-     Claude Code and Herdr via mise; Codex: $ai_codex; FirstMate: $ai_firstmate;
-     GNHF: $ai_gnhf; backpass: $ai_backpass
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ "$install_kde" == "true" ]]; then
-    cat <<EOF
-
-  $step. Install all four Catppuccin KDE themes
-     Mauve accent
-     Classic window decoration
-     Catppuccin cursors
-     Ensure kio-extras (Dolphin sftp:// support) is installed
-     platforms/fedora/scripts/install-kde-theme.sh
-EOF
-    step=$((step + 1))
-  fi
-
-  if [[ "$install_latex" == "true" ]]; then
-    cat <<EOF
-
-  $step. Install LaTeX toolchain
-     platforms/fedora/scripts/install-latex.sh
-EOF
-    step=$((step + 1))
-  fi
-
-  cat <<EOF
-
-  $step. Apply Catppuccin $theme
-     ~/.local/bin/theme $theme
-
-  $((step + 1)). Verify installation
-     platforms/fedora/scripts/verify.sh
+  plan_render
+  cat <<'EOF'
 
 Manual configuration still required afterward:
-
   • If the login shell changed, reboot so Plasma and user services refresh SHELL.
-  • Configure ~/.config/git/local with the default Git identity.
-  • Configure ~/.config/git/drdk if a separate DR/work identity is required.
-  • Configure SSH authentication.
-  • Authenticate GitHub CLI with gh auth login.
+  • Configure Git identity, SSH authentication, and `gh auth login`.
 
 No changes were made.
-
 EOF
-
   exit 0
 fi
 
-# ---------------------------------------------------------------------------
-# Interactive choices
-# ---------------------------------------------------------------------------
-
-if [[ "$interactive" == "true" ]]; then
-  printf '\n'
-  printf 'Dotfiles installation\n'
-  printf '%s\n' '---------------------'
-  printf 'Catppuccin flavour: %s\n' "$theme"
-  printf 'KDE integration:    %s\n' "$install_kde"
-  printf 'OCaml profile:      %s\n' "$install_ocaml"
-  printf 'Sway session:       %s\n' "$install_sway"
-  printf 'VM-host profile:    %s\n' "$install_vm_host"
-  printf 'VM-guest profile:   %s\n' "$install_vm_guest"
-  printf 'Hardening profile:  %s\n' "$install_hardening"
-  printf 'Desktop tools:      %s\n' "$install_desktop_tools"
-  printf 'Containers profile: %s\n' "$install_containers"
-  printf 'Tailscale profile:  %s\n' "$install_tailscale"
-  printf 'AI profile:         %s\n' "$install_ai"
-  printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
-  printf '\n'
-
-  if [[ "$install_latex" == "false" ]]; then
-    if confirm "Install LaTeX toolchain?" "n"; then
-      install_latex="true"
-    fi
+if [[ "$interactive" == true ]]; then
+  printf '\nInstallation choices resolved.\n'
+  printf 'Catppuccin flavour: %s (source: %s — %s)\n' \
+    "$theme" "$theme_source" "$(theme_source_description "$theme_source")"
+  if confirm 'Continue with installation?' y; then :; else
+    result=$?; ((result == 1)) || die 'Invalid confirmation response'; printf 'Cancelled; no changes made.\n'; exit 0
   fi
-
-  printf '\n'
-  printf 'Installation choices\n'
-  printf '%s\n' '--------------------'
-  printf 'Catppuccin flavour: %s\n' "$theme"
-  printf 'KDE integration:    %s\n' "$install_kde"
-  printf 'LaTeX toolchain:    %s\n' "$install_latex"
-  printf 'OCaml profile:      %s\n' "$install_ocaml"
-  printf 'Sway session:       %s\n' "$install_sway"
-  printf 'VM-host profile:    %s\n' "$install_vm_host"
-  printf 'VM-guest profile:   %s\n' "$install_vm_guest"
-  printf 'Hardening profile:  %s\n' "$install_hardening"
-  printf 'Desktop tools:      %s\n' "$install_desktop_tools"
-  if [[ "$install_desktop_tools" == "true" ]]; then
-    printf 'Force app defaults: %s\n' "$desktop_tools_force_defaults"
-  fi
-  printf 'Containers profile: %s\n' "$install_containers"
-  if [[ "$install_containers" == "true" ]]; then
-    printf 'Containers API socket: %s\n' "$containers_api_socket"
-  fi
-  printf 'Tailscale profile:  %s\n' "$install_tailscale"
-  printf 'AI profile:         %s\n' "$install_ai"
-  if [[ "$install_ai" == "true" ]]; then
-    printf 'AI Codex subcomponent:     %s\n' "$ai_codex"
-    printf 'AI FirstMate subcomponent: %s\n' "$ai_firstmate"
-    printf 'AI GNHF subcomponent:      %s\n' "$ai_gnhf"
-    printf 'AI backpass subcomponent:  %s\n' "$ai_backpass"
-  fi
-  printf 'ASUS hardware:      %s\n' "${hardware_model:-disabled}"
-
-  if [[ -n "$hardware_model" ]]; then
-    printf 'Require Secure Boot: %s\n' "$hardware_secure_boot"
-    printf 'Battery limit:       %s\n' "${hardware_charge_limit:-unchanged}"
-  fi
-
-  printf '\n'
-
-  confirm "Continue with installation?" "y" || exit 0
 fi
-
-# ---------------------------------------------------------------------------
-# Installation
-# ---------------------------------------------------------------------------
-
-hardware_args=()
-
-if [[ "$install_vm_guest" == "true" ]]; then
-  info "Validating VM-guest requirements"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-guest.sh" --preflight
+plan_preflight
+capabilities=base,dotnet-debug
+for selection in "$bool_kde:kde" "$bool_latex:latex" "$install_ocaml:ocaml" "$install_sway:sway" "$install_vm_host:vm-host" "$install_vm_guest:vm-guest" "$hardware_selected:hardware" "$install_hardening:hardening" "$install_desktop_tools:desktop-tools" "$install_containers:containers" "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do [[ "${selection%%:*}" != true ]] || capabilities+=,"${selection#*:}"; done
+DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command fedora "$install_selection")"
+install_lifecycle_begin fedora "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
+if plan_execute; then :; else
+  result=$?; install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"; exit "$result"
 fi
-
-if [[ -n "$hardware_model" ]]; then
-  hardware_args=(--model "$hardware_model")
-
-  if [[ "$hardware_secure_boot" == "true" ]]; then
-    hardware_args+=(--secure-boot)
-  fi
-
-  if [[ -n "$hardware_charge_limit" ]]; then
-    hardware_args+=(--charge-limit "$hardware_charge_limit")
-  fi
-
-  info "Validating ASUS hardware requirements"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-asus-hardware.sh" \
-    "${hardware_args[@]}" --preflight
-fi
-
-info "Installing base Fedora packages"
-"$DOTFILES_ROOT/platforms/fedora/scripts/install-system.sh"
-
-info "Installing Terra packages"
-"$DOTFILES_ROOT/platforms/fedora/scripts/install-terra.sh"
-
-if [[ "$install_ocaml" == "true" ]]; then
-  info "Installing Fedora-owned OCaml prerequisites"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-ocaml.sh"
-fi
-
-if [[ -n "$hardware_model" ]]; then
-  if [[ "$interactive" == "false" ]]; then
-    hardware_args+=(--non-interactive)
-  fi
-
-  info "Installing ASUS hardware support"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-asus-hardware.sh" \
-    "${hardware_args[@]}"
-fi
-
-if [[ "$install_sway" == "true" ]]; then
-  info "Installing optional Sway session"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-sway.sh"
-fi
-
-if [[ "$install_vm_host" == "true" ]]; then
-  info "Installing optional Fedora VM-host profile"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-host.sh"
-fi
-
-if [[ "$install_vm_guest" == "true" ]]; then
-  info "Installing optional Fedora VM-guest profile"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-vm-guest.sh"
-fi
-
-if [[ "$install_hardening" == "true" ]]; then
-  info "Installing optional Fedora security-hardening profile"
-  hardening_args=()
-  if [[ "$interactive" == "false" ]]; then
-    hardening_args+=(--non-interactive)
-  fi
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-hardening.sh" \
-    "${hardening_args[@]}"
-fi
-
-if [[ "$install_desktop_tools" == "true" ]]; then
-  desktop_tools_args=()
-  if [[ "$desktop_tools_force_defaults" == "true" ]]; then
-    desktop_tools_args+=(--force-defaults)
-  fi
-
-  info "Installing optional desktop-tools profile"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-desktop-tools.sh" \
-    "${desktop_tools_args[@]}"
-fi
-
-if [[ "$install_containers" == "true" ]]; then
-  containers_args=()
-  if [[ "$containers_api_socket" == "true" ]]; then
-    containers_args+=(--api-socket)
-  fi
-
-  info "Installing optional Podman containers profile"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-containers.sh" \
-    "${containers_args[@]}"
-fi
-
-if [[ "$install_tailscale" == "true" ]]; then
-  info "Installing optional Tailscale networking profile"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-tailscale.sh"
-fi
-
-info "Initializing machine-local configuration"
-setup_local_args=("$theme")
-stow_args=()
-
-if [[ "$install_sway" == "true" ]]; then
-  setup_local_args+=(--sway)
-  if [[ -n "$hardware_model" ]]; then
-    setup_local_args+=(--hardware "$hardware_model")
-  fi
-  stow_args+=(--sway)
-fi
-
-"$DOTFILES_ROOT/platforms/fedora/scripts/setup-local.sh" \
-  "${setup_local_args[@]}"
-
-info "Deploying dotfiles with GNU Stow"
-"$DOTFILES_ROOT/platforms/fedora/scripts/stow.sh" "${stow_args[@]}"
-
-info "Installing mise-managed runtimes and tools"
-"$DOTFILES_ROOT/common/install-mise.sh"
-
-info "Installing LazyVim plugins and Mason editor tools"
-"$DOTFILES_ROOT/common/install-neovim-tools.sh"
-
-if [[ "$install_ocaml" == "true" ]]; then
-  info "Installing opam-managed OCaml compiler and tools"
-  "$DOTFILES_ROOT/common/install-ocaml.sh"
-fi
-
-info "Installing Catppuccin tmux"
-"$DOTFILES_ROOT/common/install-tmux-theme.sh"
-
-if [[ "$install_ai" == "true" ]]; then
-  ai_args=()
-  if [[ "$ai_codex" == "true" ]]; then
-    ai_args+=(--codex)
-  fi
-  if [[ "$ai_firstmate" == "true" ]]; then
-    ai_args+=(--firstmate)
-  fi
-  if [[ "$ai_gnhf" == "true" ]]; then
-    ai_args+=(--gnhf)
-  fi
-  if [[ "$ai_backpass" == "true" ]]; then
-    ai_args+=(--backpass)
-  fi
-
-  info "Installing optional AI-assisted development profile"
-  "$DOTFILES_ROOT/common/install-ai.sh" "${ai_args[@]}"
-fi
-
-if [[ "$install_kde" == "true" ]]; then
-  info "Installing Catppuccin KDE themes"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-kde-theme.sh"
-fi
-
-if [[ "$install_latex" == "true" ]]; then
-  info "Installing LaTeX toolchain"
-  "$DOTFILES_ROOT/platforms/fedora/scripts/install-latex.sh"
-fi
-
-# ---------------------------------------------------------------------------
-# Apply selected flavour
-# ---------------------------------------------------------------------------
-
-theme_command="$HOME/.local/bin/theme"
-
-if [[ -x "$theme_command" ]]; then
-  "$theme_command" "$theme"
-else
-  warn "Theme command not available: $theme_command"
-fi
-
-# ---------------------------------------------------------------------------
-# Verification
-# ---------------------------------------------------------------------------
-
-printf '\n'
-info "Verifying installation"
-
-if "$DOTFILES_ROOT/platforms/fedora/scripts/verify.sh"; then
-  printf '\n'
-  success "Installation completed successfully"
-else
-  printf '\n'
-  warn "Installation completed, but verification reported problems"
-  exit 1
-fi
-
-cat <<'EOF'
-
-Manual configuration may still be required:
-
-  • If this run changed the login shell, reboot before expecting Ghostty to use
-    Zsh. Plasma and user services can retain the previous SHELL value until then.
-  • Configure ~/.config/git/local with your default Git identity.
-  • Configure ~/.config/git/drdk if you use a separate DR/work identity.
-  • Configure SSH authentication (for example 1Password or OpenSSH).
-  • Authenticate GitHub CLI with:
-      gh auth login
-
-EOF
+install_lifecycle_commit
+printf '\nInstallation completed successfully.\n'
+install_lifecycle_rerun_hint

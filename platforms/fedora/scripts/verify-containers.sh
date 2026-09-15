@@ -4,14 +4,20 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
+# shellcheck source=../../../common/lib/install-lifecycle.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/install-lifecycle.sh"
 # shellcheck source=../lib/containers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/containers.sh"
 
+verify_reset
+
 skip_smoke_test="false"
-failures=0
 
 # Overridable so tests can point these at a mocked podman without touching a
 # real registry, port range, or filesystem.
+# network-source: smoke-image-busybox
 smoke_image="${PODMAN_SMOKE_IMAGE:-docker.io/library/busybox:stable}"
 port_base="${PODMAN_SMOKE_PORT_BASE:-18000}"
 subuid_file="${SUBUID_FILE:-/etc/subuid}"
@@ -30,39 +36,13 @@ while (($#)); do
   esac
 done
 
-pass() {
-  printf '\033[1;32m✓\033[0m %s\n' "$*"
-}
-
-fail() {
-  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
-  failures=$((failures + 1))
-}
-
-warning() {
-  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
-}
-
-section() {
-  printf '\n\033[1m%s\033[0m\n' "$1"
-}
-
-check_command() {
-  local command_name="$1"
-
-  if command -v "$command_name" >/dev/null 2>&1; then
-    pass "$command_name: $(command -v "$command_name")"
-  else
-    fail "$command_name not found"
-  fi
-}
-
 section "Containers commands"
 for command_name in podman podman-compose; do
   check_command "$command_name"
 done
 
-if ((failures > 0)); then
+if ((VERIFY_FAILURES > 0)); then
+  finish_verification "Containers verification"
   exit 1
 fi
 
@@ -105,26 +85,118 @@ else
   fail "$current_user has no subgid range in $subgid_file"
 fi
 
+# ---------------------------------------------------------------------------
+# Rootless API socket
+#
+# The installer records the requested socket selection as api_socket= in the
+# containers profile state, so verification compares observed state against
+# that recorded intent instead of accepting either outcome. Only the
+# user-scoped unit counts: a system-scoped podman.socket is a root-owned,
+# Docker-compatible endpoint that this rootless profile never requests and
+# that a rootless client does not use, so it can never satisfy the
+# requirement. Every query here is read-only; nothing is enabled or started.
+# ---------------------------------------------------------------------------
+
 section "Rootless API socket"
 
-if systemctl --user is-enabled --quiet podman.socket 2>/dev/null; then
-  pass "podman.socket is enabled (socket-activated, user-scoped)"
-  if systemctl --user is-active --quiet podman.socket 2>/dev/null; then
-    pass "podman.socket is active"
+containers_state="${CONTAINERS_STATE_FILE:-$XDG_CONFIG_HOME/dotfiles/containers.conf}"
+api_socket_intent=""
+
+user_socket_enabled() {
+  systemctl --user is-enabled --quiet podman.socket 2>/dev/null
+}
+
+user_socket_active() {
+  systemctl --user is-active --quiet podman.socket 2>/dev/null
+}
+
+# Reported only to explain a user-socket failure: an operator who enabled the
+# system unit needs to be told why it does not count, rather than seeing a
+# bare "not enabled" next to a socket they know exists.
+system_socket_present() {
+  systemctl is-enabled --quiet podman.socket 2>/dev/null ||
+    systemctl is-active --quiet podman.socket 2>/dev/null
+}
+
+if [[ -e "$containers_state" ]]; then
+  if api_socket_intent="$(profile_state_read "$containers_state" api_socket \
+    containers 2>/dev/null)"; then
+    case "$api_socket_intent" in
+    enabled | required | true) api_socket_intent="enabled" ;;
+    disabled | not-required | false) api_socket_intent="disabled" ;;
+    *) api_socket_intent="unknown" ;;
+    esac
+  else
+    api_socket_intent="unknown"
   fi
+
+  if [[ "$api_socket_intent" == "unknown" ]]; then
+    fail "recorded containers state is missing or invalid api_socket in" \
+      "$containers_state; re-run ./scripts/install-containers.sh" \
+      "[--api-socket] to re-record the profile"
+  fi
+elif [[ -f "$(install_state_path)" ]] &&
+  install_capabilities="$(profile_state_read "$(install_state_path)" \
+    requested_capabilities install 2>/dev/null)" &&
+  [[ ",$install_capabilities," == *,containers,* ]]; then
+  api_socket_intent="unknown"
+  fail "the containers profile is selected in $(install_state_path) but" \
+    "$containers_state is missing; re-run ./scripts/install-containers.sh" \
+    "[--api-socket] to re-record the profile"
 else
-  pass "podman.socket is not enabled (default; enable with --api-socket if needed)"
+  api_socket_intent="unrecorded"
+  not_observed "no containers profile selection is recorded in" \
+    "$containers_state; the rootless API socket cannot be checked against a" \
+    "recorded intent (run ./scripts/install-containers.sh to record one)"
 fi
 
-if ((failures > 0)); then
-  printf '\n\033[1;31mContainers verification failed:\033[0m %d failure(s)\n' \
-    "$failures"
+case "$api_socket_intent" in
+enabled)
+  if ! user_socket_enabled; then
+    if system_socket_present; then
+      fail "api_socket=enabled was recorded, but the user-scoped" \
+        "podman.socket is not enabled; a system-scoped podman.socket is" \
+        "present and does not satisfy this rootless profile -- run:" \
+        "systemctl --user enable --now podman.socket"
+    else
+      fail "api_socket=enabled was recorded, but 'systemctl --user" \
+        "is-enabled podman.socket' does not report it enabled -- run:" \
+        "systemctl --user enable --now podman.socket"
+    fi
+  elif ! user_socket_active; then
+    fail "podman.socket is enabled but not active for the user, so the" \
+      "recorded API socket is not usable -- run: systemctl --user start" \
+      "podman.socket"
+  else
+    pass "podman.socket is enabled and active for the user" \
+      "(socket-activated, user-scoped), as recorded"
+  fi
+  ;;
+disabled)
+  if user_socket_enabled; then
+    # Reconciliation is not part of this profile's contract: the socket may
+    # have been enabled deliberately after installation. Report the drift
+    # without failing a machine that is otherwise exactly as recorded.
+    warning "api_socket=disabled was recorded, but the user-scoped" \
+      "podman.socket is enabled; re-run ./scripts/install-containers.sh" \
+      "--api-socket to record it, or: systemctl --user disable --now" \
+      "podman.socket"
+  else
+    pass "podman.socket is not enabled, as recorded (api_socket=disabled)"
+  fi
+  ;;
+esac
+
+if ((VERIFY_FAILURES > 0)); then
+  finish_verification "Containers verification"
   exit 1
 fi
 
 if [[ "$skip_smoke_test" == "true" ]]; then
-  printf '\n\033[1;32mContainers verification passed (smoke test skipped).\033[0m\n'
-  exit 0
+  printf '\n'
+  pass "container smoke test skipped (--skip-smoke-test); inspection only"
+  finish_verification "Containers verification"
+  exit $?
 fi
 
 # ---------------------------------------------------------------------------
@@ -239,7 +311,7 @@ if podman run -d --rm --name "$smoke_container" \
   -p "127.0.0.1:$smoke_port:8080" "$smoke_image" \
   sh -c "$serve_smoke_content" >/dev/null 2>&1; then
   if wait_for_content 10 "dotfiles-podman-smoke" \
-    curl -fsS "http://127.0.0.1:$smoke_port/"; then
+    curl -fsS "http://127.0.0.1:$smoke_port/"; then # network-source: local-only
     pass "localhost port publishing: 127.0.0.1:$smoke_port reachable"
   else
     fail "published port 127.0.0.1:$smoke_port never became reachable"
@@ -254,7 +326,7 @@ if podman network create "$smoke_network" >/dev/null 2>&1 &&
     "$smoke_image" sh -c "$serve_smoke_content" >/dev/null 2>&1; then
   if wait_for_content 10 "dotfiles-podman-smoke" \
     podman run --rm --network "$smoke_network" "$smoke_image" \
-    wget -qO- "http://$smoke_server:8080/"; then
+    wget -qO- "http://$smoke_server:8080/"; then # network-source: local-only
     pass "container networking: name resolution and connectivity via $smoke_network"
   else
     fail "container-to-container networking test failed"
@@ -292,7 +364,7 @@ EOF
 
 if podman compose -f "$smoke_compose_dir/compose.yaml" up -d >/dev/null 2>&1; then
   if wait_for_content 10 "dotfiles-podman-smoke" \
-    curl -fsS "http://127.0.0.1:$smoke_compose_port/"; then
+    curl -fsS "http://127.0.0.1:$smoke_compose_port/"; then # network-source: local-only
     pass "compose: multi-service project reachable on 127.0.0.1:$smoke_compose_port"
   else
     fail "compose project never became reachable"
@@ -302,11 +374,4 @@ else
   fail "podman compose up failed"
 fi
 
-printf '\n'
-if ((failures > 0)); then
-  printf '\033[1;31mContainers verification failed:\033[0m %d failure(s)\n' \
-    "$failures"
-  exit 1
-fi
-
-printf '\033[1;32mContainers verification passed.\033[0m\n'
+finish_verification "Containers verification"

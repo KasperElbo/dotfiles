@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 # shellcheck source=../lib/tailscale.sh
@@ -31,7 +33,7 @@ standalone downloaded binary. Enables and starts tailscaled. Never runs
 'tailscale up', never embeds an auth key or OAuth client secret, and never
 sets tailnet-specific policy (ACLs, exit nodes, subnet routes, Tailscale
 SSH) -- authenticating this machine remains a manual, interactive step. See
-README.md, "Optional Tailscale networking profile" for follow-up commands.
+docs/profiles/tailscale.md for follow-up commands.
 EOF
 }
 
@@ -112,14 +114,17 @@ state_file="$XDG_CONFIG_HOME/dotfiles/tailscale.conf"
 ensure_dir "$(dirname "$state_file")"
 {
   printf 'profile=tailscale\n'
+  printf 'variant=fedora-service\n'
   printf 'repo=pkgs.tailscale.com\n'
   printf 'service=tailscaled\n'
-} | atomic_write_file "$state_file"
+} | profile_state_write_content "$state_file" tailscale applying
 
 info "Validating the Fedora Tailscale profile"
 if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-tailscale.sh"; then
+  profile_state_set_status "$state_file" tailscale installed
   success "Fedora Tailscale profile installed"
 else
+  profile_state_set_status "$state_file" tailscale failed
   warn "Tailscale was installed, but validation reported problems"
   exit 1
 fi
@@ -132,9 +137,9 @@ this machine, run:
     sudo tailscale up
 
 This opens an interactive login link; it does not carry any account/tailnet
-policy of its own. See README.md, "Optional Tailscale networking profile"
-for common follow-up commands (status, IPs, logout) and what this profile
-intentionally leaves to you (ACLs, exit nodes, subnet routes, Tailscale SSH,
+policy of its own. See docs/profiles/tailscale.md for common follow-up
+commands (status, IPs, logout) and what this profile intentionally leaves
+to you (ACLs, exit nodes, subnet routes, Tailscale SSH,
 --accept-routes/--accept-dns).
 
 EOF

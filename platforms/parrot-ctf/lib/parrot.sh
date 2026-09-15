@@ -48,3 +48,13 @@ require_guest_channels() {
   [[ -e "$spice_channel" ]] ||
     die "SPICE agent channel missing: $spice_channel"
 }
+
+establish_parrot_command_environment() {
+  local path_entry
+
+  for path_entry in /usr/local/sbin /usr/sbin /sbin; do
+    append_path "$path_entry"
+  done
+  [[ ! -d /snap/bin ]] || append_path /snap/bin
+  hash -r 2>/dev/null || true
+}

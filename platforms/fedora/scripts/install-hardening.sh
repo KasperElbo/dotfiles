@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 # shellcheck source=../lib/hardening.sh
@@ -31,9 +33,8 @@ mixed into a vendor config file, so it is always safe to delete a
 drop-in to roll a single change back. Does not disable SELinux or
 firewalld, does not install/enable sshd, and does not reboot.
 
-See README.md's "Fedora security hardening" section for the full
-rationale, verification command, and rollback instructions for each
-change.
+See docs/profiles/hardening.md for the full rationale, verification
+command, and rollback instructions for each change.
 EOF
 }
 
@@ -112,8 +113,8 @@ Apply (each as its own removable drop-in file):
 Never done by this profile: disabling SELinux or firewalld, changing
 firewalld zone services, noexec on /tmp, USBGuard, Wi-Fi MAC
 randomization, unprivileged_bpf_disabled, or rp_filter changes (kept
-compatible with split-tunnel VPNs such as Tailscale). See README.md for
-the full rationale and rejected-ideas list.
+compatible with split-tunnel VPNs such as Tailscale). See
+docs/profiles/hardening.md for the full rationale and rejected-ideas list.
 
 No changes were made.
 
@@ -180,12 +181,14 @@ ensure_dir "$(dirname "$state_file")"
   printf 'sysctl_dmesg_restrict=1\n'
   printf 'ssh=%s\n' "$state_ssh"
   printf 'dnf_automatic=%s\n' "$state_dnf_automatic"
-} | atomic_write_file "$state_file"
+} | profile_state_write_content "$state_file" hardening applying
 
 info "Validating the Fedora hardening profile"
 if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-hardening.sh"; then
+  profile_state_set_status "$state_file" hardening installed
   success "Fedora hardening profile installed"
 else
+  profile_state_set_status "$state_file" hardening failed
   warn "Hardening changes were applied, but validation reported problems"
   exit 1
 fi

@@ -1,54 +1,77 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
 
-repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Compatibility entry point. Keep this file within Apple's Bash 3.2 syntax:
+# the real installer starts only after the macOS bootstrap has found or
+# established the repository's supported Bash.
+set -e
 
+repo_root="$(cd "$(dirname "$0")" && pwd)"
 platform="fedora"
-forwarded_args=()
+platform_explicit="false"
+rerun="false"
+expect_platform="false"
 
-while (($#)); do
-  case "$1" in
-  --platform)
-    [[ $# -ge 2 ]] || {
+# Inspect only the platform selector and --rerun. Do not shift or rebuild "$@":
+# the exact original argument vector is forwarded across the interpreter
+# boundary.
+for argument in "$@"; do
+  if [ "$expect_platform" = "true" ]; then
+    if [ -z "$argument" ]; then
       printf 'ERROR: --platform requires a value\n' >&2
       exit 1
-    }
-    platform="$2"
-    shift 2
-    ;;
-  *)
-    forwarded_args+=("$1")
-    shift
-    ;;
+    fi
+    platform="$argument"
+    platform_explicit="true"
+    expect_platform="false"
+    continue
+  fi
+
+  case "$argument" in
+    --platform)
+      expect_platform="true"
+      ;;
+    --platform=*)
+      platform="${argument#*=}"
+      platform_explicit="true"
+      if [ -z "$platform" ]; then
+        printf 'ERROR: --platform requires a value\n' >&2
+        exit 1
+      fi
+      ;;
+    --rerun)
+      rerun="true"
+      ;;
   esac
 done
 
-case "$platform" in
-fedora | fedora-wsl | macos | parrot-ctf)
-  ;;
-*)
-  printf 'ERROR: Unsupported platform: %s (expected fedora, fedora-wsl, macos, or parrot-ctf)\n' \
-    "$platform" >&2
+if [ "$expect_platform" = "true" ]; then
+  printf 'ERROR: --platform requires a value\n' >&2
   exit 1
-  ;;
-esac
+fi
 
-for forwarded_arg in "${forwarded_args[@]}"; do
-  if [[ "$forwarded_arg" == "-h" || "$forwarded_arg" == "--help" ]]; then
-    cat <<EOF
-Usage: ./install.sh [--platform fedora|fedora-wsl|macos|parrot-ctf] [options]
-
-  --platform NAME    Target platform: fedora (default), fedora-wsl, macos,
-                     or parrot-ctf. Selects which platforms/NAME/install.sh
-                     runs; all other options below are that platform's own
-                     and are simply forwarded to it.
-
-Options for platform '$platform' (pass --platform to see another
-platform's options):
-
-EOF
-    break
+# A --rerun that names no platform must still reach the interpreter its
+# remembered platform needs, so read just the recorded platform name here. The
+# authoritative reading, validation and reconstruction of the remembered
+# configuration belong to scripts/install-main.sh; this only chooses a boot
+# path, and only for a name the repository actually provides.
+if [ "$rerun" = "true" ] && [ "$platform_explicit" = "false" ]; then
+  install_state="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/install.conf"
+  if [ -r "$install_state" ]; then
+    remembered_platform="$(awk -F= \
+      '$1 == "last_successful_platform" { print $2; exit }' "$install_state")"
+    # The supported names live in config/capabilities.tsv, as its implemented
+    # base rows. Asking the manifest here keeps this guard from drifting away
+    # from the list scripts/install-main.sh validates against.
+    if [ -n "$remembered_platform" ] && awk -F '\t' -v p="$remembered_platform" \
+      'NR > 1 && $1 == "base" && $2 == p && $15 == "implemented" { found = 1 }
+       END { exit !found }' "$repo_root/config/capabilities.tsv" 2>/dev/null; then
+      platform="$remembered_platform"
+    fi
   fi
-done
+fi
 
-exec "$repo_root/platforms/$platform/install.sh" "${forwarded_args[@]}"
+if [ "$platform" = "macos" ]; then
+  exec /bin/bash "$repo_root/scripts/bootstrap-macos.sh" "$@"
+fi
+
+exec "${BASH:-/bin/bash}" "$repo_root/scripts/install-main.sh" "$@"

@@ -8,6 +8,13 @@ Usage: theme {latte|frappe|macchiato|mocha} [--preserve-wallpaper]
 Options:
   --preserve-wallpaper  change the theme without replacing the desktop wallpaper
   -h, --help            show this help
+
+Exit status:
+  0  every applicable action succeeded
+  1  the shared theme state could not be written; nothing was applied
+  2  usage error
+  3  the shared theme state is current, but one or more independent
+     platform actions failed; the summary names them
 EOF
 }
 
@@ -17,6 +24,8 @@ preserve_wallpaper="false"
 while (($#)); do
   case "$1" in
   --preserve-wallpaper)
+    # Read by platform hooks, which are sourced rather than called.
+    # shellcheck disable=SC2034
     preserve_wallpaper="true"
     ;;
   -h | --help)
@@ -70,27 +79,64 @@ script_path="$(cd -P "$(dirname "$script_path")" && pwd)/$(basename "$script_pat
 repo_root="$(cd "$(dirname "$script_path")/../../.." && pwd)"
 # shellcheck source=../../../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
-# shellcheck source=../../../common/lib/theme-state.sh
-source "$repo_root/common/lib/theme-state.sh"
+# shellcheck source=../../../common/lib/theme-shared-state.sh
+source "$repo_root/common/lib/theme-shared-state.sh"
+# shellcheck source=../../../common/lib/install-lifecycle.sh
+source "$repo_root/common/lib/install-lifecycle.sh"
+# shellcheck source=../../../common/lib/theme-hooks.sh
+source "$repo_root/common/lib/theme-hooks.sh"
+
+theme_actions_begin ||
+  die "Could not prepare the theme action log under ${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles"
 
 echo "Switching to Catppuccin $flavour..."
 
-write_theme_state "$flavour"
+# The shared state files are what every other consumer reads. If they cannot
+# be written there is nothing meaningful left to do, so this one is required.
+theme_action_required shared-state write_theme_state "$flavour" || exit 1
 
 # Reload an existing tmux server.
-if command -v tmux >/dev/null 2>&1 && tmux list-sessions >/dev/null 2>&1; then
+# shellcheck disable=SC2329 # Invoked indirectly through theme_action.
+reload_tmux() {
+  command -v tmux >/dev/null 2>&1 || return 0
+  tmux list-sessions >/dev/null 2>&1 || return 0
   tmux source-file "$HOME/.tmux.conf"
-fi
+}
+theme_action tmux reload_tmux
 
 # Platform hooks may add desktop integration without putting platform checks
-# in the portable command itself.
+# in the portable command itself. Each hook runs inside its own boundary: a
+# desktop that fails to restyle must not stop the next hook, and must not let
+# the command claim a complete application afterwards.
+# shellcheck disable=SC2329 # Invoked indirectly through theme_hook.
+run_hook() {
+  # shellcheck source=/dev/null
+  source "$1"
+}
+
 hook_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/theme-hooks.d"
 for hook in "$hook_dir"/*.sh; do
   [[ -r "$hook" ]] || continue
-  # shellcheck source=/dev/null
-  source "$hook"
+  theme_hook "hook:$(basename "$hook" .sh)" run_hook "$hook"
 done
 
-echo
-echo "Catppuccin $flavour selected."
+# Ghostty applies a changed `theme` only on a full restart; a configuration
+# reload is not enough. Say so accurately wherever no platform hook already
+# owns the Ghostty message, which is how macOS and any future Ghostty platform
+# get truthful guidance without a platform file of their own.
+ghostty_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty"
+if ! theme_ghostty_handled && [[ -d "$ghostty_config_dir" ]]; then
+  echo
+  echo "Ghostty: quit and reopen Ghostty to apply catppuccin-$flavour."
+  echo "         A configuration reload does not change an already-set theme."
+fi
+
 echo "New Neovim instances will use catppuccin-$flavour."
+
+# A hook that failed leaves the machine partially themed. Report that honestly
+# and keep a nonzero result, while distinguishing it from a run that could not
+# write the shared state at all.
+if theme_actions_report "$flavour"; then
+  exit 0
+fi
+exit 3

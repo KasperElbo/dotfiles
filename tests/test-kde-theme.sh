@@ -2,8 +2,12 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 mock_bin="$test_root/bin"
 install_log="$test_root/install.log"
@@ -26,12 +30,23 @@ fi
 exit 0
 EOF
 
-cat >"$mock_bin/sudo" <<'EOF'
+test_stub_init "$test_root"
+test_stub_install "$test_root" dnf
+test_stub_install "$test_root" git
+test_stub_install "$test_root" sudo
+test_stub_allow "$test_root" dnf install -y kio-extras
+test_stub_allow "$test_root" sudo dnf install -y kio-extras
+test_stub_allow "$test_root" git clone --branch v0.2.7 --depth 1 \
+  https://github.com/catppuccin/kde.git \
+  "$test_root/cache/dotfiles/catppuccin-kde"
+
+cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
+exec "$@"
 EOF
 
-cat >"$mock_bin/git" <<'EOF'
+cat >"$test_root/handlers/git" <<'EOF'
 #!/usr/bin/env bash
 destination="${*: -1}"
 mkdir -p "$destination"
@@ -79,7 +94,7 @@ cat >"$mock_bin/qdbus6" <<'EOF'
 printf 'qdbus6 %s\n' "$*" >>"$SIDE_EFFECT_LOG"
 EOF
 
-chmod +x "$mock_bin"/*
+chmod +x "$mock_bin"/* "$test_root/handlers"/*
 
 install_environment=(
   env

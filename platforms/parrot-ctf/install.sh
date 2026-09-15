@@ -3,28 +3,42 @@ set -euo pipefail
 
 # shellcheck source=../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/common.sh"
+# shellcheck source=../../common/lib/execution-plan.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/execution-plan.sh"
+# shellcheck source=../../common/lib/preflight.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/preflight.sh"
+# shellcheck source=../../common/lib/capabilities.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/capabilities.sh"
+# shellcheck source=../../common/lib/install-lifecycle.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
+# shellcheck source=../../common/lib/theme-selection.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
 # shellcheck source=lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/parrot.sh"
 
-theme="macchiato"
-interactive="true"
-dry_run="false"
+theme="$THEME_DEFAULT_FLAVOUR"
+theme_explicit=false
+interactive=true
+dry_run=false
 
 usage() {
   cat <<'EOF'
 Usage: ./install.sh --platform parrot-ctf [options]
 
+Direct entry point: ./platforms/parrot-ctf/install.sh [options]
+
 Options:
   --theme FLAVOUR    latte, frappe, macchiato, or mocha (default: macchiato)
-  --dry-run          Show the installation plan without changing anything
-  --non-interactive  Use defaults without prompting
+  --dry-run          Show the resolved plan without changing anything
+  --non-interactive  Never prompt; resolve every choice from the given
+                     options and their defaults. Requires cached sudo
+                     (run 'sudo -v' first) where the run needs it.
   -h, --help         Show this help
 
-This is a KVM/QEMU lab-guest profile. It does not install workstation desktop,
-Fedora, KDE, ASUS, NVIDIA, VM-host, LaTeX, OCaml, containers, or AI
-provisioning. Parrot supplies its own offensive-security tooling; the
-Podman containers profile is Fedora-only for now and must not be layered
-onto this guest.
+This is a KVM/QEMU lab-guest profile. Parrot owns its security catalogue;
+Fedora, desktop, VM-host, LaTeX, OCaml, containers, and AI are unsupported.
+Development workflow smoke tests (--dev-workflows) are unsupported too: the
+reduced profile has no workstation language runtimes to exercise.
 EOF
 }
 
@@ -33,53 +47,90 @@ while (($#)); do
   --theme)
     [[ $# -ge 2 ]] || die "--theme requires a value"
     theme="$2"
+    theme_explicit=true
     shift 2
     ;;
-  --dry-run)
-    dry_run="true"
-    interactive="false"
-    shift
-    ;;
-  --non-interactive)
-    interactive="false"
-    shift
-    ;;
-  -h | --help)
-    usage
-    exit 0
-    ;;
+  --dry-run) dry_run=true; interactive=false; shift ;;
+  --non-interactive) interactive=false; shift ;;
+  --rerun) die '--rerun is owned by the root installer: run ./install.sh --rerun instead.' ;;
+  --dev-workflows | --no-dev-workflows | --smoke-test | --workflows | --no-workflows)
+    die 'Development workflow smoke tests are not supported on parrot-ctf: the reduced profile deliberately has no .NET, Node or Angular runtime. Run them on a workstation profile instead.' ;;
+  -h | --help) usage; exit 0 ;;
   *) die "Unknown option for parrot-ctf: $1" ;;
   esac
 done
+# An explicit --theme wins; otherwise keep the flavour this machine already
+# has, then the one its last successful install recorded, and only then the
+# first-install default. A plain rerun must never reset a machine to the
+# default (issue #148).
+theme_resolve parrot-ctf "$theme_explicit" "$theme"
+theme="$THEME_RESOLVED"
+theme_source="$THEME_RESOLVED_SOURCE"
 
-case "$theme" in
-latte | frappe | macchiato | mocha) ;;
-*) die "Invalid Catppuccin flavour: $theme" ;;
-esac
+# The resolved persistent configuration of this run; transient controls
+# (--dry-run, --non-interactive) are deliberately excluded.
+install_selection_reset parrot-ctf
+install_selection_set theme "$theme"
+install_selection="$(install_selection_serialize)"
 
-if [[ "$dry_run" == "true" ]]; then
+preflight_parrot() {
+  require_regular_user
+  require_parrot
+  require_qemu_vm >/dev/null
+  require_guest_channels
+  preflight_commands apt-get awk date find git readlink sudo systemctl
+  preflight_sudo "$interactive"
+  preflight_writable_path "$HOME"
+  preflight_writable_path "$XDG_CONFIG_HOME"
+  preflight_writable_path "$XDG_DATA_HOME"
+  preflight_writable_path "$(profile_state_dir)"
+  local specs=() spec
+  capability_validate_selection parrot-ctf base vm-guest
+  while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs parrot-ctf base vm-guest)
+  preflight_stow_packages "${specs[@]}"
+}
+
+apply_system() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-system.sh"; }
+apply_guest() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-guest-integration.sh"; }
+apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" "$theme"; }
+apply_stow() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/stow.sh"; }
+apply_terminal() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-terminal.sh"; }
+apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
+apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh" --profile parrot-ctf; }
+apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
+apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
+verify_parrot() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/verify.sh"; }
+
+plan_add system 'Install Parrot-owned working-environment prerequisites' apply preflight_parrot apply_system : 'platforms/parrot-ctf/scripts/install-system.sh; security catalogue unchanged'
+plan_add guest 'Install and activate KVM/QEMU guest integration' apply : apply_guest : 'qemu-guest-agent and SPICE; host secrets and shared folders remain disabled'
+plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh $theme"
+plan_add stow 'Deploy the reduced portable and narrow Parrot configuration' apply : apply_stow : 'platforms/parrot-ctf/scripts/stow.sh'
+plan_add terminal 'Install the pinned Nerd Font, bat themes, and Konsole profile' apply : apply_terminal : 'platforms/parrot-ctf/scripts/install-terminal.sh'
+plan_add mise 'Install the narrow mise-managed uv and Neovim runtimes' apply : apply_mise : 'common/install-mise.sh'
+plan_add nvim 'Restore the reduced LazyVim/Mason inventory for Parrot' apply : apply_nvim : 'common/install-neovim-tools.sh --profile parrot-ctf'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
+plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme"
+plan_add verify 'Verify the complete Parrot guest' verify : verify_parrot : 'platforms/parrot-ctf/scripts/verify.sh'
+
+if [[ "$dry_run" == true ]]; then
   cat <<EOF
 
 Parrot Security Edition CTF VM plan
 -----------------------------------
-
-Theme:                  $theme
+Theme:                  $theme ($theme_source — $(theme_source_description "$theme_source"))
 Hypervisor:             KVM/QEMU through qemu:///system
 Normal network:         libvirt default NAT
 Security tools:         Existing Parrot/APT catalogue (unchanged)
-Python:                 Parrot Python + venv/pipx; mise owns uv only
+Python:                 Parrot Python + venv/pipx; never mise-managed
+Portable tools:         mise owns uv and pinned Neovim 0.12.5 only
 Host secrets:           Not forwarded or mounted
 Shared folders:         Disabled unless configured manually
 AI tooling:             Not installed
+Recorded rerun selection: $install_selection
 
-Steps:
-  1. Require Parrot Security Edition running as a KVM/QEMU guest with the
-     QEMU guest-agent and SPICE channels from the #13 host profile.
-  2. Install the portable working-environment prerequisites with APT.
-  3. Install qemu-guest-agent and spice-vdagent with APT and activate them.
-  4. Initialize local Git/theme state and stow the headless portable profile.
-  5. Apply only the narrow Parrot shims, Zsh paths, and uv mise manifest.
-  6. Install uv and the pinned tmux theme, then verify the complete guest.
+EOF
+  plan_render
+  cat <<'EOF'
 
 Excluded: Fedora/DNF/Terra, KDE/Sway, ASUS/ROG, NVIDIA, VM-host, host secret
 forwarding, automatic shared folders, offensive-tool package lists, and AI.
@@ -89,30 +140,31 @@ EOF
   exit 0
 fi
 
-require_parrot
-vm_type="$(require_qemu_vm)"
-require_guest_channels
-
-if [[ "$interactive" == "true" ]]; then
-  printf '\nParrot Security Edition CTF guest installation (%s)\n\n' "$vm_type"
-  confirm "Continue with the isolated lab profile?" "y" || exit 0
+if [[ "$interactive" == true ]]; then
+  printf '\nParrot Security Edition CTF guest installation\n\n'
+  printf 'Catppuccin flavour: %s (source: %s — %s)\n' \
+    "$theme" "$theme_source" "$(theme_source_description "$theme_source")"
+  if confirm "Continue with the isolated lab profile?" y; then :; else
+    result=$?; ((result == 1)) || die "Invalid confirmation response"
+    printf 'Cancelled; no changes made.\n'; exit 0
+  fi
 fi
 
-"$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-system.sh"
-"$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-guest-integration.sh"
-"$DOTFILES_ROOT/common/setup-local.sh" "$theme"
-"$DOTFILES_ROOT/platforms/parrot-ctf/scripts/stow.sh"
-"$DOTFILES_ROOT/common/install-mise.sh"
-"$DOTFILES_ROOT/common/install-tmux-theme.sh"
-
-theme_command="$HOME/.local/bin/theme"
-[[ ! -x "$theme_command" ]] || "$theme_command" "$theme"
-
-"$DOTFILES_ROOT/platforms/parrot-ctf/scripts/verify.sh"
+plan_preflight
+DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command parrot-ctf "$install_selection")"
+install_lifecycle_begin parrot-ctf base,vm-guest "$DOTFILES_RERUN_COMMAND" "$install_selection"
+if plan_execute; then :; else
+  result=$?
+  install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"
+  exit "$result"
+fi
+install_lifecycle_commit
 
 cat <<'EOF'
 
-Parrot CTF guest setup completed. Run `exec zsh -l` for the new shell.
-Keep challenge state outside the dotfiles checkout and take a VM snapshot
-before importing untrusted material or changing lab networking.
+Parrot CTF guest setup completed. Start a new graphical login session so
+Konsole inherits the account's Zsh login shell. Keep challenge state outside
+the dotfiles checkout and take a VM snapshot before importing untrusted
+material or changing lab networking.
 EOF
+install_lifecycle_rerun_hint

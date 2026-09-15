@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/fetch.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/fetch.sh"
 # shellcheck source=../lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
@@ -19,13 +21,14 @@ packages=(
   curl
   eza
   fd-find
+  fontconfig
   fzf
   gh
   git
   git-delta
   jq
+  konsole
   lazygit
-  neovim
   pipx
   python-is-python3
   python3
@@ -39,7 +42,10 @@ packages=(
   stow
   tmux
   unzip
+  xclip
   xdg-utils
+  xxd
+  xz-utils
   zoxide
   zsh
   zsh-autosuggestions
@@ -52,15 +58,7 @@ sudo apt-get update
 info "Installing the Parrot CTF working environment"
 sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
-current_user="$(id -un)"
-login_shell="$(getent passwd "$current_user")"
-login_shell="${login_shell##*:}"
-if [[ "$login_shell" == */zsh ]]; then
-  info "Zsh is already the default login shell"
-else
-  info "Setting Zsh as the default login shell"
-  sudo usermod --shell /bin/zsh "$current_user"
-fi
+REQUIRE_REGISTERED_LOGIN_SHELL=true ensure_zsh_login_shell
 
 mkdir -p "$HOME/.local/bin"
 if command_exists mise || [[ -x "$HOME/.local/bin/mise" ]]; then
@@ -69,8 +67,9 @@ else
   installer="$(mktemp)"
   trap 'rm -f -- "$installer"' EXIT
   info "Downloading the official mise installer"
-  curl --fail --show-error --silent --location \
-    --proto '=https' --tlsv1.2 https://mise.run --output "$installer"
+  # network-source: mise-installer
+  fetch_to_file https://mise.run "$installer" 'the mise installer'
+  fetch_assert_shell_script "$installer" 'the mise installer'
   MISE_INSTALL_PATH="$HOME/.local/bin/mise" sh "$installer"
 fi
 

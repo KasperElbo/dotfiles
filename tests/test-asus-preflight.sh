@@ -2,16 +2,22 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 mock_bin="$test_root/bin"
-mkdir -p "$mock_bin" "$test_root/home" "$test_root/xdg"
+mkdir -p "$test_root/xdg"
 
-cat >"$mock_bin/dnf" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
+test_stub_init "$test_root"
+test_stub_install "$test_root" dnf
+test_stub_install "$test_root" sudo
+test_stub_install "$test_root" systemctl
+test_stub_allow "$test_root" sudo -n -v
+
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
 exit 0
@@ -20,10 +26,9 @@ cat >"$mock_bin/mokutil" <<'EOF'
 #!/usr/bin/env bash
 printf 'SecureBoot %s\n' "${MOCK_SECURE_BOOT:-enabled}"
 EOF
-cat >"$mock_bin/sudo" <<'EOF'
+cat >"$mock_bin/id" <<'EOF'
 #!/usr/bin/env bash
-printf 'unexpected mutation: sudo %s\n' "$*" >>"$MUTATION_LOG"
-exit 97
+case "${1:-}" in -u) printf '1000\n' ;; -un) printf 'fedora-test\n' ;; *) /usr/bin/id "$@" ;; esac
 EOF
 chmod +x "$mock_bin"/*
 
@@ -48,8 +53,7 @@ run_preflight() {
     DMI_ROOT="$dmi_root" \
     KERNEL_RELEASE=7.1.0-test \
     MOCK_SECURE_BOOT="$secure_boot" \
-    MUTATION_LOG="$test_root/mutations" \
-    "$repo_root/scripts/install-asus-hardware.sh" \
+    "$repo_root/platforms/fedora/scripts/install-asus-hardware.sh" \
     --model "$model" --preflight "$@" 2>&1
 }
 
@@ -88,7 +92,7 @@ assert_failure "Secure Boot fail-fast" "Secure Boot is required but disabled" \
 assert_failure "DMI mismatch fail-fast" "Selected ga402rk, but DMI reports" \
   ga402rk enabled GA402XZ
 
-[[ ! -s "$test_root/mutations" ]]
+assert_file_empty "$test_root/logs/dnf.log"
 [[ ! -e "$test_root/xdg/dotfiles/hardware.conf" ]]
 
 # Exercise the same failures through the top-level installer. If preflight
@@ -100,7 +104,7 @@ run_installer_failure() {
   local dmi_model="$4"
 
   printf '%s\n' "$dmi_model" >"$test_root/top-level-dmi/board_name"
-  : >"$test_root/mutations"
+  : >"$test_root/logs/dnf.log"
 
   local output
   if output="$(
@@ -112,7 +116,6 @@ run_installer_failure() {
       DMI_ROOT="$test_root/top-level-dmi" \
       KERNEL_RELEASE=7.1.0-test \
       MOCK_SECURE_BOOT="$secure_boot" \
-      MUTATION_LOG="$test_root/mutations" \
       "$repo_root/install.sh" --non-interactive --hardware "$model" \
       --secure-boot 2>&1
   )"; then
@@ -121,7 +124,7 @@ run_installer_failure() {
   fi
 
   [[ "$output" == *"$expected"* ]]
-  [[ ! -s "$test_root/mutations" ]]
+  assert_file_empty "$test_root/logs/dnf.log"
 }
 
 mkdir -p "$test_root/top-level-dmi"

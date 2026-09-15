@@ -42,7 +42,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$NocttyBucketUrl = 'https://github.com/amanthanvi/scoop-noctty'
+$WindowsManifest = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'manifest.psd1')
+$MinimumProvenWslVersion = [version]$WindowsManifest.MinimumProvenWslVersion
+$NocttyBucketUrl = $WindowsManifest.Scoop.NocttyBucket.Url
 $WslDistributionCatalogUrl = 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json'
 $ManagedBlockStart = '# BEGIN dotfiles Fedora WSL'
 $ManagedBlockEnd = '# END dotfiles Fedora WSL'
@@ -50,6 +52,8 @@ $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $GhosttyConfig = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\shared.conf'
 $GhosttyThemes = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\themes'
 $NocttyThemeHelper = Join-Path $PSScriptRoot 'set-noctty-theme.ps1'
+$SelectionStatePath = Join-Path $env:LOCALAPPDATA $WindowsManifest.SelectionStateRelativePath
+. (Join-Path $PSScriptRoot 'lib\wsl-version.ps1')
 
 function Write-Step {
     param([string]$Message)
@@ -91,6 +95,46 @@ function ConvertFrom-WslOutput {
     )
 }
 
+function Get-WslPackageVersion {
+    $output = & wsl.exe --version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return $null
+    }
+
+    return ConvertFrom-WslVersionOutput -Lines $output
+}
+
+function Write-WslSupportStatus {
+    $installedVersion = Get-WslPackageVersion
+    $status = Get-WslSupportStatus `
+        -InstalledVersion $installedVersion `
+        -MinimumProvenVersion $MinimumProvenWslVersion
+
+    if ($status -eq 'Proven') {
+        Write-Step "WSL $installedVersion detected (proven-supported baseline)"
+        return
+    }
+
+    if ($status -eq 'Older') {
+        Write-Warning @"
+WSL $installedVersion detected.
+This repository is currently validated on WSL $MinimumProvenWslVersion and newer.
+Older versions may work but are unvalidated.
+
+Update WSL from PowerShell:
+  wsl --update
+"@
+        return
+    }
+
+    Write-Warning @"
+Unable to determine the installed WSL version.
+Fedora WSL is currently validated on WSL $MinimumProvenWslVersion and newer.
+Check manually with:
+  wsl --version
+"@
+}
+
 function Get-WslList {
     param([switch]$Online)
 
@@ -109,7 +153,8 @@ function Get-WslList {
 
 function Get-WebFedoraDistributions {
     try {
-        $catalog = Invoke-RestMethod -UseBasicParsing -Uri $WslDistributionCatalogUrl
+        # network-source: wsl-distribution-catalog
+        $catalog = Invoke-RestMethod -UseBasicParsing -Uri $WslDistributionCatalogUrl -TimeoutSec 60
         return @(
             $catalog.ModernDistributions.Fedora |
                 ForEach-Object { $_.Name } |
@@ -383,7 +428,8 @@ function Install-Scoop {
 
     try {
         Write-Step 'Downloading the official Scoop installer'
-        Invoke-WebRequest -UseBasicParsing -Uri 'https://get.scoop.sh' -OutFile $installerPath
+        # network-source: scoop-installer
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://get.scoop.sh' -OutFile $installerPath -TimeoutSec 120
         Invoke-NativeCommand -FilePath 'powershell.exe' -Arguments @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $installerPath
         )
@@ -402,7 +448,11 @@ function Install-Scoop {
 }
 
 function Install-Noctty {
-    $nocttyCurrent = Join-Path $env:USERPROFILE 'scoop\apps\noctty\current\noctty.exe'
+    $nocttyPackage = $WindowsManifest.Scoop.NocttyPackage
+    $nocttyBucket = $WindowsManifest.Scoop.NocttyBucket
+    $nocttyCurrent = Join-Path $env:USERPROFILE (
+        'scoop\apps\{0}\current\{1}' -f $nocttyPackage.Name, $nocttyPackage.Executable
+    )
     if ((Get-Command noctty -ErrorAction SilentlyContinue) -or
         (Test-Path -LiteralPath $nocttyCurrent)) {
         Write-Step 'Noctty is already installed'
@@ -416,7 +466,7 @@ function Install-Noctty {
 
     if ($DryRun -and -not $scoop) {
         Write-Step "Would add the Noctty Scoop bucket: $NocttyBucketUrl"
-        Write-Step 'Would install noctty/noctty for the current Windows user'
+        Write-Step "Would install $($nocttyPackage.QualifiedName) for the current Windows user"
         return
     }
 
@@ -425,24 +475,26 @@ function Install-Noctty {
         throw "Unable to list Scoop buckets: $($bucketList -join ' ')"
     }
 
-    if (-not ($bucketList -match '(?m)^noctty\s')) {
+    if (-not ($bucketList -match "(?m)^$([regex]::Escape($nocttyBucket.Name))\s")) {
         if ($DryRun) {
             Write-Step "Would add the Noctty Scoop bucket: $NocttyBucketUrl"
         }
         else {
             Write-Step 'Adding the official Noctty Scoop bucket'
             Invoke-NativeCommand -FilePath $scoop -Arguments @(
-                'bucket', 'add', 'noctty', $NocttyBucketUrl
+                'bucket', 'add', $nocttyBucket.Name, $NocttyBucketUrl
             )
         }
     }
 
     if ($DryRun) {
-        Write-Step 'Would install noctty/noctty for the current Windows user'
+        Write-Step "Would install $($nocttyPackage.QualifiedName) for the current Windows user"
     }
     else {
         Write-Step 'Installing Noctty'
-        Invoke-NativeCommand -FilePath $scoop -Arguments @('install', 'noctty/noctty')
+        Invoke-NativeCommand -FilePath $scoop -Arguments @(
+            'install', $nocttyPackage.QualifiedName
+        )
     }
 }
 
@@ -566,6 +618,40 @@ $ManagedBlockEnd
     Write-Step "Configured Noctty from the tracked Ghostty config for $Distribution"
 }
 
+function Write-WindowsSelectionState {
+    param([string]$Distribution)
+
+    $stateDirectory = Split-Path -Parent $SelectionStatePath
+    [IO.Directory]::CreateDirectory($stateDirectory) | Out-Null
+    $state = [ordered]@{
+        SchemaVersion = $WindowsManifest.SchemaVersion
+        FedoraDistribution = $Distribution
+        WslRequired = $true
+        NocttySelected = -not $SkipNoctty.IsPresent
+        NocttyConfigurationSelected = (
+            -not $SkipNoctty.IsPresent -and
+            -not $SkipNocttyConfiguration.IsPresent
+        )
+    }
+    $temporaryPath = Join-Path $stateDirectory (
+        'windows-selection-{0}.tmp' -f [guid]::NewGuid().ToString('N')
+    )
+    try {
+        $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
+        [IO.File]::WriteAllText(
+            $temporaryPath,
+            (($state | ConvertTo-Json) + "`r`n"),
+            $utf8WithoutBom
+        )
+        Move-Item -LiteralPath $temporaryPath -Destination $SelectionStatePath -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath) {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+    }
+}
+
 function Invoke-ElevatedEntryPoint {
     param([scriptblock]$Action)
 
@@ -620,6 +706,8 @@ if (Test-Administrator) {
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw 'wsl.exe was not found. Install current Windows updates and enable Windows Subsystem for Linux, then rerun this script.'
 }
+
+Write-WslSupportStatus
 
 $selectedFedora = Resolve-FedoraDistribution `
     -RequestedDistribution $FedoraDistribution `
@@ -676,6 +764,8 @@ if (-not $fedoraReady) {
     Write-Warning "$selectedFedora is pending Windows restart or WSL 2 setup. Restart Windows, rerun this script, and then launch it with: wsl.exe --distribution $selectedFedora"
     exit 2
 }
+
+Write-WindowsSelectionState -Distribution $selectedFedora
 
 Write-Host ''
 Write-Host 'Windows-side installation is complete.'

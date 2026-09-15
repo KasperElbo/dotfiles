@@ -3,6 +3,8 @@ set -euo pipefail
 
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/fetch.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/fetch.sh"
 # shellcheck source=../lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/macos.sh"
 
@@ -31,9 +33,10 @@ if [[ ! -x "$brew_bin" ]]; then
   info "Installing native Apple Silicon Homebrew"
   installer="$(mktemp -t dotfiles-homebrew.XXXXXX)"
   trap 'rm -f -- "$installer"' EXIT
-  curl --fail --location --proto '=https' --tlsv1.2 \
-    https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
-    --output "$installer"
+  # network-source: homebrew-installer
+  fetch_to_file https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
+    "$installer" 'the Homebrew installer'
+  fetch_assert_shell_script "$installer" 'the Homebrew installer'
   if [[ "$non_interactive" == true ]]; then
     NONINTERACTIVE=1 /bin/bash "$installer"
   else
@@ -46,5 +49,10 @@ activate_homebrew_path
 
 info "Installing Homebrew-owned workstation packages"
 "$brew_bin" bundle --file="$DOTFILES_ROOT/platforms/macos/Brewfile"
+
+ensure_macos_zsh_login_shell
+if [[ "${ZSH_LOGIN_SHELL_CHANGED:-false}" == "true" ]]; then
+  warn "Login shell changed; open a new terminal session before expecting Zsh."
+fi
 
 success "macOS system packages installed"

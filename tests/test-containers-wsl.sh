@@ -2,13 +2,17 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+
+test_install_cleanup_trap
 
 new_test_root() {
-  local test_root
-  test_root="$(mktemp -d)"
+  test_new_root
+  test_root="$TEST_ROOT"
 
   local mock_bin="$test_root/bin"
-  mkdir -p "$mock_bin" "$test_root/home" "$test_root/xdg" "$test_root/cgroup"
+  mkdir -p "$test_root/cgroup"
   : >"$test_root/subuid"
   : >"$test_root/subgid"
   : >"$test_root/user-enabled-units"
@@ -18,10 +22,17 @@ new_test_root() {
   printf '65536\n' >"$test_root/max-user-namespaces"
   : >"$test_root/systemd-user-bus"
 
-  cat >"$mock_bin/dnf" <<'EOF'
-#!/usr/bin/env bash
-printf 'dnf %s\n' "$*" >>"$COMMAND_LOG"
-EOF
+  test_stub_init "$test_root"
+  test_stub_install "$test_root" dnf
+  test_stub_install "$test_root" sudo
+  test_stub_install "$test_root" systemctl
+  test_stub_allow "$test_root" dnf install -y podman podman-compose
+  test_stub_allow "$test_root" sudo dnf install -y podman podman-compose
+  test_stub_allow "$test_root" sudo usermod --add-subuids 100000-165535 tester
+  test_stub_allow "$test_root" sudo usermod --add-subgids 100000-165535 tester
+  test_stub_allow "$test_root" systemctl --user enable --now podman.socket
+  test_stub_allow "$test_root" systemctl --user is-enabled --quiet podman.socket
+  test_stub_allow "$test_root" systemctl --user is-active --quiet podman.socket
 
   cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
@@ -84,53 +95,48 @@ if [[ -n "$subgid_range" ]]; then
 fi
 EOF
 
-  cat >"$mock_bin/sudo" <<'EOF'
+  cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
-if [[ "$1" == dnf ]]; then
-  exit 0
-fi
-"$@"
+exec "$@"
 EOF
 
-  cat >"$mock_bin/systemctl" <<'EOF'
+  cat >"$test_root/handlers/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"$COMMAND_LOG"
 
-if [[ "${1:-}" != --user ]]; then
+if [[ $# -eq 4 && "$1" == --user && "$2" == enable &&
+  "$3" == --now && "$4" == podman.socket ]]; then
+  grep -qx podman.socket "$USER_ENABLED_UNITS" 2>/dev/null ||
+    printf 'podman.socket\n' >>"$USER_ENABLED_UNITS"
+  grep -qx podman.socket "$USER_ACTIVE_UNITS" 2>/dev/null ||
+    printf 'podman.socket\n' >>"$USER_ACTIVE_UNITS"
   exit 0
 fi
-shift
-cmd="${1:-}"
-shift || true
 
-case "$cmd" in
-enable)
-  for arg in "$@"; do
-    case "$arg" in --*) continue ;; esac
-    grep -qx "$arg" "$USER_ENABLED_UNITS" 2>/dev/null ||
-      printf '%s\n' "$arg" >>"$USER_ENABLED_UNITS"
-    grep -qx "$arg" "$USER_ACTIVE_UNITS" 2>/dev/null ||
-      printf '%s\n' "$arg" >>"$USER_ACTIVE_UNITS"
-  done
-  ;;
-is-enabled)
-  args=("$@")
-  grep -qx "${args[-1]}" "$USER_ENABLED_UNITS" 2>/dev/null
+if [[ $# -eq 4 && "$1" == --user && "$2" == is-enabled &&
+  "$3" == --quiet && "$4" == podman.socket ]]; then
+  grep -qx podman.socket "$USER_ENABLED_UNITS" 2>/dev/null
   exit $?
-  ;;
-is-active)
-  args=("$@")
-  grep -qx "${args[-1]}" "$USER_ACTIVE_UNITS" 2>/dev/null
+fi
+
+if [[ $# -eq 4 && "$1" == --user && "$2" == is-active &&
+  "$3" == --quiet && "$4" == podman.socket ]]; then
+  grep -qx podman.socket "$USER_ACTIVE_UNITS" 2>/dev/null
   exit $?
-  ;;
-esac
-exit 0
+fi
+
+printf 'strict systemctl fixture rejected unsupported argv: %s\n' "$*" >&2
+exit 96
 EOF
 
   cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 printf 'curl %s\n' "$*" >>"$COMMAND_LOG"
+if [[ $# -ne 2 || "$1" != -fsS || "$2" != http://127.0.0.1:*/* ]]; then
+  printf 'strict curl fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+fi
 if [[ "${MOCK_CURL_EXIT:-0}" == 0 ]]; then
   printf '%s' "${MOCK_CURL_OUTPUT-dotfiles-podman-smoke}"
 fi
@@ -211,29 +217,24 @@ fi
 exit 0
 EOF
 
-  chmod +x "$mock_bin"/*
+  chmod +x "$mock_bin"/* "$test_root/handlers"/*
   printf 'ID=fedora\n' >"$test_root/os-release"
-
-  printf '%s\n' "$test_root"
 }
 
 base_environment() {
-  local test_root="$1"
-
+  local root="$1"
+  test_env_args "$root"
   printf '%s\n' \
-    "HOME=$test_root/home" \
-    "XDG_CONFIG_HOME=$test_root/xdg" \
-    "XDG_DATA_HOME=$test_root/home/.local/share" \
-    "PATH=$test_root/bin:$PATH" \
-    "COMMAND_LOG=$test_root/commands.log" \
-    "OS_RELEASE_FILE=$test_root/os-release" \
-    "SUBUID_FILE=$test_root/subuid" \
-    "SUBGID_FILE=$test_root/subgid" \
-    "USER_ENABLED_UNITS=$test_root/user-enabled-units" \
-    "USER_ACTIVE_UNITS=$test_root/user-active-units" \
-    "CGROUP_ROOT=$test_root/cgroup" \
-    "MAX_USER_NAMESPACES_FILE=$test_root/max-user-namespaces" \
-    "SYSTEMD_USER_BUS_SOCKET=$test_root/systemd-user-bus" \
+    "PATH=$root/bin:$PATH" \
+    "COMMAND_LOG=$root/commands.log" \
+    "OS_RELEASE_FILE=$root/os-release" \
+    "SUBUID_FILE=$root/subuid" \
+    "SUBGID_FILE=$root/subgid" \
+    "USER_ENABLED_UNITS=$root/user-enabled-units" \
+    "USER_ACTIVE_UNITS=$root/user-active-units" \
+    "CGROUP_ROOT=$root/cgroup" \
+    "MAX_USER_NAMESPACES_FILE=$root/max-user-namespaces" \
+    "SYSTEMD_USER_BUS_SOCKET=$root/systemd-user-bus" \
     "WSL_DISTRO_NAME=FedoraLinux" \
     "USER=tester"
 }
@@ -251,7 +252,7 @@ fail_with_context() {
 
 # --- lib/containers.sh capability checks are independently testable --------
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 
 if ! env "${test_environment[@]}" bash -c '
@@ -311,11 +312,32 @@ if env "${test_environment[@]}" SYSTEMD_USER_BUS_SOCKET="$test_root/no-such-bus"
 fi
 
 printf 'PASS: cgroup v2, user-namespace, and systemd --user session capability checks reflect the filesystem\n'
-rm -rf -- "$test_root"
+
+# --- fixture contract keeps user and system service scope distinct ----------
+
+new_test_root
+mapfile -t test_environment < <(base_environment "$test_root")
+
+run_capture env "${test_environment[@]}" \
+  systemctl --user enable --now podman.socket
+assert_success
+run_capture env "${test_environment[@]}" \
+  systemctl --user is-enabled --quiet podman.socket
+assert_success
+run_capture env "${test_environment[@]}" \
+  systemctl --user is-active --quiet podman.socket
+assert_success
+run_capture env "${test_environment[@]}" systemctl enable --now podman.socket
+assert_status 96
+assert_contains "$TEST_OUTPUT" 'strict stub rejected unsupported argv: systemctl'
+run_capture env "${test_environment[@]}" curl --head http://127.0.0.1:1/
+assert_status 96
+assert_contains "$TEST_OUTPUT" 'strict curl fixture rejected unsupported argv'
+printf 'PASS: container fixture rejects system-scope service calls and unsupported curl argv\n'
 
 # --- require_wsl_containers_prereqs fails closed, before any mutation ------
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 
 if env "${test_environment[@]}" MOCK_PID1_COMM=bash \
@@ -325,19 +347,14 @@ if env "${test_environment[@]}" MOCK_PID1_COMM=bash \
     'install-containers.sh must fail closed without systemd as PID 1' \
     "$test_root/no-systemd.log"
 fi
-grep -Fq 'requires systemd as PID 1' "$test_root/no-systemd.log"
-if [[ -s "$test_root/commands.log" ]]; then
-  fail_with_context \
-    'A missing-systemd failure must not run any mutating command' \
-    "$test_root/commands.log"
-fi
+assert_file_contains "$test_root/no-systemd.log" 'requires systemd as PID 1'
+assert_file_empty "$test_root/commands.log"
 printf 'PASS: install-containers.sh refuses to install without systemd\n'
-rm -rf -- "$test_root"
 
 # --- systemd as PID 1 alone is not enough: a reachable --user session is ---
 # --- also required (confirmed against a real Fedora WSL run) ---------------
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 rm -f "$test_root/systemd-user-bus"
 
@@ -348,17 +365,12 @@ if env "${test_environment[@]}" \
     'install-containers.sh must fail closed without a systemd --user session, even with systemd as PID 1' \
     "$test_root/no-user-session.log"
 fi
-grep -Fq 'no systemd --user session' "$test_root/no-user-session.log"
-grep -Fq 'loginctl enable-linger' "$test_root/no-user-session.log"
-if [[ -s "$test_root/commands.log" ]]; then
-  fail_with_context \
-    'A missing-user-session failure must not run any mutating command' \
-    "$test_root/commands.log"
-fi
+assert_file_contains "$test_root/no-user-session.log" 'no systemd --user session'
+assert_file_contains "$test_root/no-user-session.log" 'loginctl enable-linger'
+assert_file_empty "$test_root/commands.log"
 printf 'PASS: install-containers.sh refuses to install without a reachable systemd --user session\n'
-rm -rf -- "$test_root"
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 rm -f "$test_root/cgroup/cgroup.controllers"
 
@@ -369,11 +381,10 @@ if env "${test_environment[@]}" \
     'install-containers.sh must fail closed without cgroup v2' \
     "$test_root/no-cgroup.log"
 fi
-grep -Fq 'cgroup v2 unified hierarchy not found' "$test_root/no-cgroup.log"
+assert_file_contains "$test_root/no-cgroup.log" 'cgroup v2 unified hierarchy not found'
 printf 'PASS: install-containers.sh refuses to install without cgroup v2\n'
-rm -rf -- "$test_root"
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 printf '0\n' >"$test_root/max-user-namespaces"
 
@@ -384,31 +395,25 @@ if env "${test_environment[@]}" \
     'install-containers.sh must fail closed without user namespaces' \
     "$test_root/no-userns.log"
 fi
-grep -Fq 'user namespaces are disabled' "$test_root/no-userns.log"
+assert_file_contains "$test_root/no-userns.log" 'user namespaces are disabled'
 printf 'PASS: install-containers.sh refuses to install without user namespaces\n'
-rm -rf -- "$test_root"
 
 # --- --dry-run stays mutation-free and informative regardless of prereqs ---
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 
 dry_run_output="$(env "${test_environment[@]}" MOCK_PID1_COMM=bash \
   "$repo_root/platforms/fedora-wsl/scripts/install-containers.sh" --dry-run)"
-grep -Fq 'Fedora WSL containers preflight' <<<"$dry_run_output"
-grep -Fq 'Fedora containers (Podman) installation plan' <<<"$dry_run_output"
-grep -Fq 'No changes were made.' <<<"$dry_run_output"
-
-if [[ -s "$test_root/commands.log" ]]; then
-  fail_with_context 'Dry-run executed a mutating command even without systemd' \
-    "$test_root/commands.log"
-fi
+assert_contains "$dry_run_output" 'Fedora WSL containers preflight'
+assert_contains "$dry_run_output" 'Fedora containers (Podman) installation plan'
+assert_contains "$dry_run_output" 'No changes were made.'
+assert_file_empty "$test_root/commands.log"
 printf 'PASS: --dry-run reports the WSL plan without mutating anything, even without systemd\n'
-rm -rf -- "$test_root"
 
 # --- a satisfied WSL host installs cleanly through the shared Fedora logic -
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 
 if ! env "${test_environment[@]}" \
@@ -418,18 +423,18 @@ if ! env "${test_environment[@]}" \
   fail_with_context 'install-containers.sh failed on a satisfied WSL host'
 fi
 
-grep -Fq 'sudo dnf install -y podman podman-compose' "$test_root/commands.log"
-grep -Fqx 'tester:100000:65536' "$test_root/subuid"
+assert_file_contains "$test_root/commands.log" 'sudo dnf install -y podman podman-compose'
+test_stub_assert_called "$test_root" dnf install -y podman podman-compose
+assert_file_line "$test_root/subuid" 'tester:100000:65536'
 
-state_file="$test_root/xdg/dotfiles/containers.conf"
-[[ -f "$state_file" ]] || fail_with_context "state file missing: $state_file"
-grep -Fqx 'runtime=podman' "$state_file"
+state_file="$test_root/config/dotfiles/containers.conf"
+assert_path_exists "$state_file"
+assert_file_line "$state_file" 'runtime=podman'
 printf 'PASS: a satisfied WSL host reuses the shared Fedora install logic unchanged\n'
-rm -rf -- "$test_root"
 
 # --- --validate delegates to the WSL verify wrapper ------------------------
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 printf 'tester:100000:65536\n' >"$test_root/subuid"
 printf 'tester:100000:65536\n' >"$test_root/subgid"
@@ -437,14 +442,13 @@ printf 'tester:100000:65536\n' >"$test_root/subgid"
 validate_output="$(env "${test_environment[@]}" \
   "$repo_root/platforms/fedora-wsl/scripts/install-containers.sh" --validate 2>&1)" ||
   true
-grep -Fq 'WSL container prerequisites' <<<"$validate_output"
-grep -Fq 'podman version' <<<"$validate_output"
+assert_contains "$validate_output" 'WSL container prerequisites'
+assert_contains "$validate_output" 'podman version'
 printf 'PASS: --validate runs the WSL preflight and the shared verifier\n'
-rm -rf -- "$test_root"
 
 # --- verify-containers.sh fails closed before touching podman --------------
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 
 if env "${test_environment[@]}" MOCK_PID1_COMM=bash \
@@ -454,18 +458,13 @@ if env "${test_environment[@]}" MOCK_PID1_COMM=bash \
     'verify-containers.sh must fail without systemd' \
     "$test_root/verify-no-systemd.log"
 fi
-grep -Fq 'systemd is not PID 1' "$test_root/verify-no-systemd.log"
-if grep -Fq 'podman ' "$test_root/commands.log"; then
-  fail_with_context \
-    'A failed WSL preflight must not shell out to podman at all' \
-    "$test_root/commands.log"
-fi
+assert_file_contains "$test_root/verify-no-systemd.log" 'systemd is not PID 1'
+assert_file_not_contains "$test_root/commands.log" 'podman '
 printf 'PASS: verify-containers.sh fails closed before touching podman\n'
-rm -rf -- "$test_root"
 
 # --- verify-containers.sh also reports a missing systemd --user session ----
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 rm -f "$test_root/systemd-user-bus"
 
@@ -476,14 +475,13 @@ if env "${test_environment[@]}" \
     'verify-containers.sh must fail without a systemd --user session, even with systemd as PID 1' \
     "$test_root/verify-no-user-session.log"
 fi
-grep -Fq 'no systemd --user session' "$test_root/verify-no-user-session.log"
-grep -Fq 'loginctl enable-linger' "$test_root/verify-no-user-session.log"
+assert_file_contains "$test_root/verify-no-user-session.log" 'no systemd --user session'
+assert_file_contains "$test_root/verify-no-user-session.log" 'loginctl enable-linger'
 printf 'PASS: verify-containers.sh reports a missing systemd --user session\n'
-rm -rf -- "$test_root"
 
 # --- verify-containers.sh reports a networking-mode hint and passes through
 
-test_root="$(new_test_root)"
+new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 printf 'tester:100000:65536\n' >"$test_root/subuid"
 printf 'tester:100000:65536\n' >"$test_root/subgid"
@@ -492,10 +490,9 @@ verify_output="$(env "${test_environment[@]}" \
   "$repo_root/platforms/fedora-wsl/scripts/verify-containers.sh" --skip-smoke-test 2>&1)" ||
   fail_with_context "verify-containers.sh --skip-smoke-test failed:\n$verify_output"
 
-grep -Fq 'networking:' <<<"$verify_output"
-grep -Fq 'single non-loopback IPv4 interface' <<<"$verify_output"
-grep -Fq 'podman info reports rootless execution' <<<"$verify_output"
+assert_contains "$verify_output" 'networking:'
+assert_contains "$verify_output" 'single non-loopback IPv4 interface'
+assert_contains "$verify_output" 'podman info reports rootless execution'
 printf 'PASS: verify-containers.sh reports a networking-mode hint and reuses the shared verifier\n'
-rm -rf -- "$test_root"
 
 printf '\nFedora WSL containers preflight, install, and verification tests passed.\n'

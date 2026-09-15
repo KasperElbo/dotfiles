@@ -1,17 +1,4 @@
-local calls = {}
-
-_G.LazyVim = {
-  get_pkg_path = function(package, path, opts)
-    table.insert(calls, { package = package, path = path, opts = opts })
-    return "/not-installed-yet" .. path
-  end,
-}
-
 local plugins = dofile("nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua")
-assert(#calls == 1, "expected exactly one Mason package path lookup")
-assert(calls[1].package == "netcoredbg", "expected netcoredbg package lookup")
-assert(calls[1].path == "/libexec/netcoredbg/netcoredbg", "unexpected netcoredbg path")
-assert(calls[1].opts.warn == false, "first-launch missing package warning must be disabled")
 
 local easy_dotnet
 for _, plugin in ipairs(plugins) do
@@ -22,16 +9,35 @@ for _, plugin in ipairs(plugins) do
 end
 
 assert(easy_dotnet, "easy-dotnet plugin spec not found")
-assert(easy_dotnet.opts.debugger.bin_path == "/not-installed-yet/libexec/netcoredbg/netcoredbg")
+assert(easy_dotnet.opts.debugger.engine == "netcoredbg")
+assert(easy_dotnet.opts.debugger.auto_register_dap == true)
+assert(easy_dotnet.opts.debugger.bin_path == nil)
 
 local inventory_path = "nvim-lazyvim/.config/nvim/mason-packages.txt"
 local mason_config = dofile("nvim-lazyvim/.config/nvim/lua/config/mason.lua")
 local packages = mason_config.packages(inventory_path)
-assert(#packages == 16, "expected the complete Mason package inventory")
+assert(#packages == 17, "expected the complete Mason package inventory")
 assert(vim.tbl_contains(packages, "debugpy"), "debugpy is missing from the Mason inventory")
 assert(vim.tbl_contains(packages, "marksman"), "marksman is missing from the Mason inventory")
+assert(vim.tbl_contains(packages, "prettier"), "prettier is missing from the Mason inventory")
 assert(vim.tbl_contains(packages, "roslyn"), "roslyn is missing from the Mason inventory")
+assert(vim.tbl_contains(packages, "tree-sitter-cli"), "tree-sitter-cli is missing from the Mason inventory")
 assert(not vim.tbl_contains(packages, "ocaml-lsp"), "OCaml LSP must remain opam-owned")
+
+local previous_profile = vim.env.DOTFILES_NVIM_PROFILE
+vim.env.DOTFILES_NVIM_PROFILE = "parrot-ctf"
+package.loaded["config.profile"] = nil
+package.path = "nvim-lazyvim/.config/nvim/lua/?.lua;nvim-lazyvim/.config/nvim/lua/?/init.lua;" .. package.path
+local profile = require("config.profile")
+assert(profile.name() == "parrot-ctf", "explicit Parrot Neovim profile was not selected")
+assert(profile.current().checker_enabled == false, "Parrot profile must not check for updates at startup")
+assert(profile.current().plugins == "ctf_plugins", "Parrot profile loaded workstation plugin overrides")
+assert(#profile.current().extras == 3, "Parrot profile should contain only the reduced extra set")
+for _, extra in ipairs(profile.current().extras) do
+  assert(not extra:match("angular|markdown|tex|yaml|eslint"), "workstation extra leaked into Parrot profile: " .. extra)
+end
+vim.env.DOTFILES_NVIM_PROFILE = previous_profile
+package.loaded["config.profile"] = nil
 
 local markdown_plugins = dofile("nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua")
 local markdown_mason

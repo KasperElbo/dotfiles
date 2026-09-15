@@ -4,18 +4,25 @@ set -u
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../lib/wsl.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/wsl.sh"
 
-failures=0
-warnings=0
-run_smoke_tests="false"
+verify_reset
+run_dev_workflows="false"
 verify_latex="false"
 
 while (($#)); do
   case "$1" in
+  --dev-workflows)
+    run_dev_workflows="true"
+    ;;
   --smoke-test)
-    run_smoke_tests="true"
+    # Deprecated spelling of --dev-workflows, kept because it is documented in
+    # released instructions. It resolves to identical behavior.
+    printf 'WARNING: --smoke-test is deprecated; use --dev-workflows instead.\n' >&2
+    run_dev_workflows="true"
     ;;
   --latex)
     verify_latex="true"
@@ -26,24 +33,6 @@ while (($#)); do
   esac
   shift
 done
-
-pass() {
-  printf '\033[1;32m✓\033[0m %s\n' "$*"
-}
-
-fail() {
-  printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
-  failures=$((failures + 1))
-}
-
-warning() {
-  printf '\033[1;33m!\033[0m %s\n' "$*" >&2
-  warnings=$((warnings + 1))
-}
-
-section() {
-  printf '\n\033[1m%s\033[0m\n' "$1"
-}
 
 check_linux_command() {
   local command_name="$1"
@@ -59,21 +48,15 @@ check_linux_command() {
   fi
 }
 
-check_symlink() {
-  local target="$1"
-  local expected_prefix="$2"
-  local resolved
+check_windows_path_command_absent() {
+  local command_name="$1"
+  local command_path
 
-  if [[ ! -L "$target" ]]; then
-    fail "$target is not a symlink"
-    return
-  fi
-
-  resolved="$(readlink -f "$target")"
-  if [[ "$resolved" == "$expected_prefix"* ]]; then
-    pass "$target -> $resolved"
+  command_path="$(PATH="$login_path" command -v "$command_name" 2>/dev/null || true)"
+  if [[ -z "$command_path" ]]; then
+    pass "$command_name is not inherited through PATH"
   else
-    fail "$target resolves outside dotfiles repo: $resolved"
+    fail "$command_name resolves through inherited Windows PATH: $command_path"
   fi
 }
 
@@ -129,6 +112,19 @@ else
   fi
 fi
 
+section "Inherited Windows PATH isolation"
+
+# Without a login PATH these lookups would run against an empty PATH and report
+# vacuous passes. The probe failure is already recorded above.
+if [[ -n "$login_path" ]]; then
+  for command_name in node.exe dotnet.exe python.exe claude.exe codex.exe; do
+    check_windows_path_command_absent "$command_name"
+  done
+  pass "Explicit .exe lookup was checked in the fresh Zsh login PATH"
+else
+  warn "Skipping explicit .exe lookup: the Zsh login PATH could not be inspected"
+fi
+
 selected_theme="macchiato"
 theme_state="$XDG_CONFIG_HOME/dotfiles/theme"
 if [[ -r "$theme_state" ]]; then
@@ -156,8 +152,7 @@ if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
 fi
 
 if [[ -n "$mise_command" ]]; then
-  # Make the managed tools visible in this non-interactive verification shell.
-  eval "$("$mise_command" activate bash)"
+  establish_user_tool_environment
 else
   fail "mise not found"
 fi
@@ -218,9 +213,38 @@ if [[ -f "$ai_state" ]]; then
     fail "AI profile verification failed"
   fi
 
-  # WSL-specific concern beyond common/verify-ai.sh: a Windows-installed
-  # claude.exe/codex.exe/herdr.exe/treehouse.exe earlier on PATH would
-  # silently shadow the Linux-native copy this profile installed.
+  ai_login_commands=(claude herdr)
+  while IFS='=' read -r component ownership; do
+    case "$component:$ownership" in
+    codex:mise-npm) ai_login_commands+=(codex) ;;
+    gnhf:mise-npm) ai_login_commands+=(gnhf) ;;
+    gh_axi:mise-npm) ai_login_commands+=(gh-axi) ;;
+    chrome_devtools_axi:mise-npm) ai_login_commands+=(chrome-devtools-axi) ;;
+    lavish_axi:mise-npm) ai_login_commands+=(lavish-axi) ;;
+    tasks_axi:mise-npm) ai_login_commands+=(tasks-axi) ;;
+    quota_axi:mise-npm) ai_login_commands+=(quota-axi) ;;
+    backpass:mise-npm) ai_login_commands+=(backpass) ;;
+    acpx:mise-npm) ai_login_commands+=(acpx) ;;
+    treehouse:installed) ai_login_commands+=(treehouse) ;;
+    no_mistakes:installed) ai_login_commands+=(no-mistakes) ;;
+    esac
+  done <"$ai_state"
+
+  for command_name in "${ai_login_commands[@]}"; do
+    if zsh -lic 'command -v "$1" >/dev/null' _ "$command_name" \
+      >/dev/null 2>&1; then
+      pass "Fresh Zsh login resolves $command_name"
+    else
+      fail "Fresh Zsh login does not resolve $command_name"
+    fi
+  done
+
+  if zsh -lic 'claude --version >/dev/null' >/dev/null 2>&1; then
+    pass "Claude Code starts in a fresh Zsh login"
+  else
+    fail "Claude Code does not start in a fresh Zsh login"
+  fi
+
   for command_name in claude codex herdr treehouse; do
     command_path="$(command -v "$command_name" 2>/dev/null || true)"
     if [[ -z "$command_path" ]]; then
@@ -254,19 +278,6 @@ else
   fi
 fi
 
-# ---------------------------------------------------------------------------
-# Windows executable interop
-#
-# The check above (and the Zsh PATH check earlier) covers one property:
-# Windows directories are absent from the Linux PATH. This section covers
-# the independent, complementary property this profile also relies on:
-# explicit Windows executables (full-path, never added to PATH) still run --
-# wsl-open, the clipboard helpers, and Windows OpenSSH/1Password SSH agent
-# use all depend on it. The two properties are controlled by separate
-# /etc/wsl.conf [interop] keys (appendWindowsPath and enabled respectively)
-# and can fail independently, so this repository verifies them separately.
-# ---------------------------------------------------------------------------
-
 section "Windows executable interop"
 
 interop_probe="$(windows_interop_probe_path)"
@@ -299,6 +310,12 @@ if dotnet --version >/dev/null 2>&1; then
 else
   fail ".NET SDK failed"
 fi
+
+case "$(uname -m)" in
+aarch64 | arm64) check_easy_dotnet_debugger linux-arm64 ;;
+x86_64 | amd64) check_easy_dotnet_debugger linux-x64 ;;
+*) fail "Unsupported .NET debugger architecture: $(uname -m)" ;;
+esac
 
 if node --version >/dev/null 2>&1; then
   pass "Node starts"
@@ -391,23 +408,19 @@ else
 fi
 
 ocaml_state="$XDG_CONFIG_HOME/dotfiles/ocaml.conf"
-if [[ -f "$ocaml_state" ]]; then
-  section "OCaml profile"
-  if "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
-    pass "OCaml compiler and Platform tools start inside WSL"
-  else
-    fail "OCaml profile verification failed"
-  fi
+# Unconditional: the shared verifier reports an unselected profile as not
+# applicable, and only it can tell that apart from a selected but broken one.
+section "OCaml profile"
+if DOTFILES_NATIVE_PREFIX=/usr "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+  pass "OCaml compiler and Platform tools start inside WSL"
+else
+  fail "OCaml profile verification failed"
 fi
 
 containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
 if [[ -f "$containers_state" ]]; then
   section "Containers (Podman)"
 
-  # As on native Fedora, the full smoke test runs once right after
-  # install-containers.sh; a routine verify.sh (and the install.sh run that
-  # always ends with it) skips it so it does not repeat a network-dependent
-  # test every time.
   if "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify-containers.sh" \
     --skip-smoke-test; then
     pass "Containers profile verification completed"
@@ -416,10 +429,10 @@ if [[ -f "$containers_state" ]]; then
   fi
 fi
 
-if [[ "$run_smoke_tests" == "true" ]]; then
+if [[ "$run_dev_workflows" == "true" ]]; then
   section "Development workflow smoke tests"
   if "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" --all; then
-    pass ".NET, Angular/TypeScript and Python workflows"
+    pass ".NET, Angular/TypeScript, Python and JSON workflows"
   else
     fail "One or more development workflow smoke tests failed"
   fi
@@ -441,10 +454,4 @@ if [[ "$run_smoke_tests" == "true" ]]; then
   fi
 fi
 
-printf '\n'
-if ((failures > 0)); then
-  printf '%d failure(s), %d warning(s).\n' "$failures" "$warnings" >&2
-  exit 1
-fi
-
-printf 'Fedora WSL verification passed with %d warning(s).\n' "$warnings"
+finish_verification "Fedora WSL verification"

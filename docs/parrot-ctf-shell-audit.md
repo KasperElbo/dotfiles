@@ -1,0 +1,66 @@
+# Parrot 7.3 shell compatibility audit
+
+The Parrot CTF profile deliberately uses the repository's shared Zsh setup;
+it does not source Parrot's Bash startup files. This audit records what was
+reviewed and which small pieces are retained.
+
+## Sources reviewed
+
+- Parrot's current `parrot-core` skeleton
+  [`.bashrc`](https://github.com/ParrotSec/parrot-core/blob/525964d68c4d3eab46a62353ce37c92b3cdb95f4/skel/.bashrc)
+- The matching `base-files`
+  [`share/dot.bashrc`](https://github.com/ParrotSec/base-files/blob/902e264e33602deec754869b8cd2f0a552ae9e65/share/dot.bashrc),
+  which is installed as the default root/system Bash configuration
+- Parrot's package install behavior, which deploys the skeleton/default Bash
+  files to the generated user, root, and system locations used by a clean
+  installation
+
+The upstream files were identical for the behavior classified below.
+
+## Classification
+
+| Stock behavior | Classification | Parrot Zsh decision |
+|---|---|---|
+| Parrot prompt, terminal title and color setup | Generic/cosmetic | Excluded; Starship and Catppuccin own the prompt |
+| `ls`, `ll`, `la`, `l`, colored `grep` variants | Redundant or conflicting | Excluded; shared `eza`, `bat`, and shell conventions remain authoritative |
+| `em`, `_`, `_i`, `fucking`, `please`, `wget -c` | Surprising generic overrides | Excluded |
+| `tarnow`, directory traversal aliases | Generic conveniences | Excluded from the Parrot layer; do not import Bash aliases wholesale |
+| `untar` (and a `tar` create shorthand) | Generic convenience | Not imported from Parrot Bash. The shared Zsh profile provides reviewed `tar`/`untar` helpers for every platform (issue #168); Parrot inherits them like any other profile rather than carrying its own |
+| `psmem`, `psmem10`, colored `man` wrapper | Generic conveniences | Excluded |
+| `hex-encode`, `hex-decode`, `rot13` | Useful CTF helpers | Preserved as explicit Zsh functions, backed by APT-owned `xxd`/`tr` |
+| Bash completion and `/etc/profile.d/*.sh` loading | Bash-only initialization | Excluded; Zsh completion and explicit platform hooks own this behavior |
+| `/usr/local/sbin`, `/usr/sbin`, `/sbin` | Distro command paths, including APT-owned `john` | Preserved by the early Parrot environment hook; Zsh keeps entries unique |
+| `/snap/bin` | Optional Snap command path | Preserved only when the directory exists; Snap is not installed by this profile |
+
+## Globbing decision
+
+The profile uses `unsetopt NOMATCH`.
+
+- Targeted `noglob` wrappers were rejected because Parrot's security catalogue
+  changes and a maintained command list would inevitably be incomplete. They
+  would also disable useful filename expansion for every invocation of each
+  wrapped tool.
+- `unsetopt NOMATCH` passes an unmatched `*`, `?`, or bracket expression to the
+  invoked tool, matching Bash's practical behavior for common URL, payload,
+  and fuzzer arguments. Patterns that match local files still expand normally.
+- Global `NO_GLOB` was rejected because it would also break ordinary filename
+  expansion such as `ls *.txt` and `rm build/*`.
+
+This is not a substitute for quoting. Existing local matches still expand,
+and shell syntax such as brace expansion has its own rules. Quote arguments
+when the target tool must always receive the exact bytes.
+
+The behavior is isolated to the Parrot profile in
+`platforms/parrot-ctf/stow/zsh-platform`; Fedora, WSL, and macOS retain normal
+Zsh `NOMATCH` behavior.
+
+The shared interactive ergonomics added by issue #168 — the completion menu,
+the prefix-history and editing keys, `INTERACTIVE_COMMENTS`, and the
+`tar`/`untar` helpers — do not touch globbing at all, and `platform.zsh` is
+still sourced last, so this decision remains the Parrot profile's own.
+`tests/test-shell-startup.sh` asserts that the shared helpers and bindings
+still behave once the Parrot platform file has unset `NOMATCH`.
+
+PATH policy runs earlier from `platform-env.zsh`, before shared startup
+activates mise. This keeps the distro security catalogue reachable without
+copying Parrot Bash's duplicate PATH entries or adding wrappers.

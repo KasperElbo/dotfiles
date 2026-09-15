@@ -1,23 +1,32 @@
 #!/usr/bin/env bash
-# Guards docs/keybindings.md and docs/cheatsheets/*.tex against silently
+# Guards docs/reference/keybindings.md and docs/cheatsheets/*.tex against silently
 # drifting from the tracked Sway, Waybar, and AeroSpace configuration they
-# describe (issue #72). This intentionally checks only the load-bearing
-# bindings called out in docs/cheatsheets/README.md, not every binding in
-# either config -- it is not a LaTeX compile check, so it does not require a
-# LaTeX toolchain to run as part of ./scripts/test.sh.
+# describe (issue #72).
+#
+# The binding list is not re-typed here. `config/actions.tsv` already records,
+# for every action, the pattern that proves it exists in the config and the
+# key text the sheet prints; this test reads both out of the registry and
+# checks them, so a renamed binding fails in exactly one place instead of
+# passing a stale copy in a second one. What stays hand-written below is what
+# no registry row can express: that a sheet does *not* claim something, and
+# that the reference keeps pointing at each tool's own discovery mechanism.
+#
+# It is deliberately not a LaTeX compile check, so it does not require a LaTeX
+# toolchain to run as part of ./scripts/test.sh.
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-sway_config="$repo_root/platforms/fedora/stow/sway/.config/sway/config"
+sway_config="platforms/fedora/stow/sway/.config/sway/config"
 waybar_config="$repo_root/platforms/fedora/stow/waybar/.config/waybar/config.jsonc"
-aerospace_config="$repo_root/platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml"
-kde_readme_section="$repo_root/README.md"
-keybindings_doc="$repo_root/docs/keybindings.md"
+aerospace_config="platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml"
+kde_layout_doc="$repo_root/docs/platforms/fedora.md"
+keybindings_doc="$repo_root/docs/reference/keybindings.md"
 cheatsheets_dir="$repo_root/docs/cheatsheets"
 sway_tex="$cheatsheets_dir/fedora-sway.tex"
 kde_tex="$cheatsheets_dir/fedora-kde.tex"
 wsl_tex="$cheatsheets_dir/fedora-wsl.tex"
 macos_tex="$cheatsheets_dir/macos.tex"
+parrot_tex="$cheatsheets_dir/parrot-ctf.tex"
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -29,79 +38,69 @@ require_in() {
   grep -Fq "$needle" "$file" || fail "$label: expected to find '$needle' in $file"
 }
 
-# --- Sway config still has the bindings the Sway cheat sheet documents ---
-# shellcheck disable=SC2016
-for binding in \
-  'bindsym $mod+Return exec ghostty' \
-  'bindsym $mod+p exec fuzzel' \
-  'bindsym $mod+$left focus left' \
-  'bindsym $mod+Shift+$left move left' \
-  'bindsym $mod+1 workspace number $ws1' \
-  'bindsym $mod+Shift+1 move container to workspace number $ws1' \
-  'bindsym $mod+Ctrl+$left exec sway-workspace-grid left' \
-  'bindsym $mod+$alt+k input type:keyboard xkb_switch_layout next' \
-  'bindsym $mod+Shift+x exec swaylock' \
-  'bindsym $mod+Shift+r reload' \
-  'bindsym $mod+r mode "resize"' \
-  'bindsym Shift+Print exec sway-screenshot output' \
-  'bindsym $mod+Shift+v exec cliphist list'; do
-  require_in "$sway_config" "$binding" "Sway config"
-done
+# --- The registry's own claims about the two window managers ----------------
+#
+# For every action whose source is the Sway or AeroSpace config: the recorded
+# source_pattern must still match that config, and every action the registry
+# prints on a sheet must still appear on it. These are the load-bearing
+# bindings the cheat sheets are built around, and the registry is where they
+# are written down once.
+# The patterns are Python regular expressions, so they are matched with the
+# same engine scripts/validate-actions.py uses rather than a near-equivalent.
+checked="$(
+  python3 - "$repo_root" "$sway_config" "$aerospace_config" <<'PYTHON'
+import csv, pathlib, re, sys
 
-# --- The Sway cheat sheet actually documents those same bindings ---
-for phrase in \
-  'Super+Enter' 'Open Ghostty' \
-  'Super+P' 'Fuzzel' \
-  'Super+H/J/K/L' \
-  'Super+Shift+H/J/K/L' \
-  'Super+1..9' \
-  'Super+Shift+1..9' \
-  'Super+Ctrl+H/J/K/L' \
-  'Super+Alt+K' \
-  'Switch US/Danish keyboard layout' \
-  'Lock session' \
-  'Reload Sway config' \
-  'Enter resize mode' \
-  'Save full output' \
-  'Clipboard history'; do
-  require_in "$sway_tex" "$phrase" "Sway cheat sheet"
-done
+root = pathlib.Path(sys.argv[1])
+wanted = set(sys.argv[2:])
+sheets = root / "docs" / "cheatsheets"
+problems, checked = [], 0
+
+with (root / "config" / "actions.tsv").open(newline="", encoding="utf-8") as stream:
+    for row in csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE):
+        if row["source"] not in wanted or row["print"] != "true":
+            continue
+        checked += 1
+        text = (root / row["source"]).read_text(encoding="utf-8")
+        if not re.search(row["source_pattern"], text, re.MULTILINE):
+            problems.append(
+                f"{row['id']}: config/actions.tsv records "
+                f"{row['source_pattern']!r}, which no longer matches {row['source']}"
+            )
+        for claim in row["sheets"].split(","):
+            # A `sheet:prose` claim is checked by scripts/validate-actions.py
+            # against the sheet's own `% csprose:` marker: no key text to find.
+            if claim.endswith(":prose"):
+                continue
+            sheet = sheets / f"{claim}.tex"
+            if not sheet.is_file():
+                problems.append(f"{row['id']}: names a sheet that does not exist: {claim}")
+                continue
+            if f"\\csrow{{{row['binding']}}}" not in sheet.read_text(encoding="utf-8"):
+                problems.append(f"{row['id']}: {claim}.tex no longer prints {row['binding']!r}")
+
+for problem in problems:
+    print(problem, file=sys.stderr)
+print(0 if problems else checked)
+PYTHON
+)" || fail "the registry no longer agrees with the Sway/AeroSpace config or the sheets"
+
+((checked >= 20)) ||
+  fail "only $checked window-manager bindings were checked; either a drift was found above or the registry columns moved"
+printf 'PASS: %d registered Sway/AeroSpace bindings match both the config and the sheet\n' \
+  "$checked"
 
 # --- Waybar's keyboard-layout indicator matches what the Sway sheet claims ---
 require_in "$waybar_config" '"sway/language"' "Waybar config"
 require_in "$waybar_config" '"format": "{short}"' "Waybar config"
-require_in "$waybar_config" \
-  '"on-click": "swaymsg input type:keyboard xkb_switch_layout next"' \
-  "Waybar config"
 require_in "$sway_tex" 'sway/language' "Sway cheat sheet"
 require_in "$sway_tex" 'clicked' "Sway cheat sheet"
 
-# --- AeroSpace config still has the bindings the macOS cheat sheet documents ---
-for binding in \
-  "ctrl-alt-enter = 'exec-and-forget open -na Ghostty'" \
-  "ctrl-alt-h = 'focus --boundaries all-monitors-outer-frame left'" \
-  "ctrl-alt-shift-h = 'move --boundaries all-monitors-outer-frame left'" \
-  "ctrl-alt-1 = 'workspace 1'" \
-  "ctrl-alt-shift-1 = 'move-node-to-workspace 1'" \
-  "ctrl-alt-cmd-h = 'exec-and-forget ~/.local/bin/aerospace-workspace-grid left'" \
-  "ctrl-alt-shift-r = 'reload-config'" \
-  "ctrl-alt-r = 'mode resize'" \
-  "ctrl-alt-shift-c = 'close'"; do
-  require_in "$aerospace_config" "$binding" "AeroSpace config"
-done
-
-for phrase in \
-  'Control+Option+Enter' \
-  'Control+Option+H/J/K/L' \
-  'Ctrl+Opt+Shift+H/J/K/L' \
-  'Control+Option+1..9' \
-  'Ctrl+Opt+Shift+1..9' \
-  'Ctrl+Opt+Cmd+H/J/K/L' \
-  'Reload AeroSpace config' \
-  'Enter resize mode' \
-  'Close focused window'; do
-  require_in "$macos_tex" "$phrase" "macOS cheat sheet"
-done
+# --- The Sway sheet's grid note describes the keys the config actually binds --
+require_in "$sway_tex" 'Super+Ctrl+H' "Sway cheat sheet"
+if grep -Fq 'Ctrl+Left from' "$sway_tex"; then
+  fail "Sway cheat sheet: there is no Ctrl+Left binding; the grid keys are Super+Ctrl+H/J/K/L"
+fi
 
 # --- The KDE cheat sheet does not claim Plasma's own default as a dotfiles binding ---
 require_in "$kde_tex" 'Meta+Alt+K' "Fedora KDE cheat sheet"
@@ -119,8 +118,33 @@ require_in "$wsl_tex" 'wsl-paste' "Fedora WSL cheat sheet"
 require_in "$wsl_tex" 'enabled=true' "Fedora WSL cheat sheet"
 require_in "$wsl_tex" 'appendWindowsPath=false' "Fedora WSL cheat sheet"
 
-# --- README's own layout-switch documentation (source for the KDE sheet) ---
-require_in "$kde_readme_section" 'Meta+Alt+K' "README.md"
+# --- The shared terminal block leaves its platform-dependent line to the sheet --
+require_in "$cheatsheets_dir/common-workflow.tex" '\cstermlegend' "shared workflow block"
+if grep -Fq 'ghostty +list-keybinds' "$cheatsheets_dir/common-workflow.tex"; then
+  fail "common-workflow.tex: the Ghostty discovery command belongs to the sheets that have it"
+fi
+for tex in "$kde_tex" "$sway_tex" "$macos_tex" "$wsl_tex"; do
+  require_in "$tex" '\renewcommand{\cstermlegend}' "$(basename "$tex")"
+done
+require_in "$macos_tex" 'Cmd+C/V' "macOS cheat sheet"
+
+# --- The Fedora guide documents the layout switch the KDE sheet prints ---
+require_in "$kde_layout_doc" 'Meta+Alt+K' "docs/platforms/fedora.md"
+
+# --- The reduced Parrot sheet documents only guest/profile behavior ---
+for phrase in 'hex-encode' 'hex-decode' 'rot13' 'x-copy' 'NOMATCH' \
+  'system Python' 'pinned Neovim'; do
+  require_in "$parrot_tex" "$phrase" "Parrot CTF cheat sheet"
+done
+if grep -Eq 'Angular|TeX|\.NET' "$parrot_tex" &&
+  ! grep -Fq 'excludes .NET, Angular, TeX' "$parrot_tex"; then
+  fail "Parrot CTF cheat sheet advertises workstation editor integrations"
+fi
+
+# --- ...and the shared shell the guest genuinely stows -----------------------
+for phrase in 'theme <f>' 'untar A.tar.gz' 'shell-integrations' 'Ctrl+T' 'Prefix ?'; do
+  require_in "$parrot_tex" "$phrase" "Parrot CTF cheat sheet"
+done
 
 # --- Discovery mechanisms stay prominent rather than static tables drifting ---
 for phrase in \
@@ -130,11 +154,11 @@ for phrase in \
   '<prefix> ?' \
   'System Settings'; do
   grep -Fq "$phrase" "$keybindings_doc" ||
-    fail "docs/keybindings.md: expected discovery reference '$phrase'"
+    fail "docs/reference/keybindings.md: expected discovery reference '$phrase'"
 done
 
 # --- Every cheat sheet input file referenced actually exists ---
-for f in "$sway_tex" "$kde_tex" "$wsl_tex" "$macos_tex" \
+for f in "$sway_tex" "$kde_tex" "$wsl_tex" "$macos_tex" "$parrot_tex" \
   "$cheatsheets_dir/common-workflow.tex" "$cheatsheets_dir/cheatsheet.sty" \
   "$cheatsheets_dir/generate.sh"; do
   [[ -f "$f" ]] || fail "missing tracked file: $f"

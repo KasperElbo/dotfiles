@@ -1,0 +1,94 @@
+% Parrot Security Edition CTF VM printable cheat sheet.
+\documentclass[10pt]{extarticle}
+\usepackage{cheatsheet}
+
+\begin{document}
+\cssheettitle{Parrot CTF VM}{Reduced, disposable KVM/QEMU security-lab profile}
+
+\begin{multicols}{2}
+
+\cssection{Shell and navigation}
+\begin{cskeys}{0.30\linewidth}
+\csrow{ls / ll / la}{eza short / long+git / all}
+\csrow{tree}{eza --tree}
+\csrow{cat}{bat (syntax highlight)}
+\csrow{z name / zi}{zoxide jump / interactive picker}
+\csrow{Ctrl+R}{fzf history search}
+\end{cskeys}
+
+\cssection{CTF helpers}
+\begin{cskeys}{0.30\linewidth}
+\csrow{hex-encode TEXT}{encode text with xxd}
+\csrow{hex-decode HEX}{decode hexadecimal text}
+\csrow{rot13 TEXT}{apply ROT13}
+\csrow{x-copy}{copy stdin to X11 clipboard}
+\end{cskeys}
+\csnote{Example: \texttt{printf 'hello' | x-copy}. Parrot Bash aliases are not imported wholesale.}
+
+\cssection{Globbing policy}
+Unmatched glob-looking arguments pass through to CTF tools instead of raising
+Zsh \texttt{NOMATCH}; patterns matching local files still expand. Quote an
+argument whenever a tool must receive its exact bytes.\par
+
+\cssection{Shared shell helpers}
+\begin{cskeys}{0.34\linewidth}
+\csrow{theme <f>}{switch Catppuccin flavour}
+\csrow{tar A.tar.gz P...}{create an archive from P...}
+\csrow{untar A.tar.gz}{extract an archive}
+\csrow{shell-integrations}{report optional tools this shell lacks}
+\end{cskeys}
+\csnote{The guest stows the same \texttt{bin} and \texttt{zsh} packages as every workstation, so these behave identically here. <f> is latte, frappe, macchiato or mocha.}
+
+\columnbreak
+
+\cssection{Zsh line editing}
+\begin{cskeys}{0.28\linewidth}
+\csrow{Up / Down}{history entries matching the typed prefix}
+\csrow{Tab}{open/select from the completion menu}
+\csrow{Home / End}{beginning / end of line}
+\csrow{Delete}{delete the character under the cursor}
+\csrow{Ctrl+Left / Right}{move one word backward / forward}
+\csrow{\#}{starts an interactive comment}
+\end{cskeys}
+
+\cssection{fzf}
+\begin{cskeys}{0.20\linewidth}
+\csrow{Ctrl+T}{fuzzy file selection}
+\csrow{Alt+C}{fuzzy cd into a directory}
+\end{cskeys}
+
+\cssection{tmux (prefix Ctrl+B, unmodified)}
+\begin{cskeys}{0.30\linewidth}
+\csrow{tmux new -As X}{create/attach session X}
+\csrow{Prefix d}{detach}
+\csrow{Prefix s}{choose session}
+\csrow{Prefix [}{scroll/copy mode}
+\csrow{Prefix ?}{list all key bindings}
+\csrow{Mouse scroll / click}{scroll a pane's history, select panes and windows}
+\end{cskeys}
+
+\cssection{Editor}
+% csprose: lazyvim.whichkey
+The reduced LazyVim profile includes core editing plus Python test/debug
+support. It intentionally excludes .NET, Angular, TeX, and general workstation
+integrations. Press \texttt{Space} for WhichKey: the guest shares LazyVim's own
+keymap, so this sheet does not reprint it.\par
+
+\cssection{Ownership boundary}
+% csprose: parrot.bat-shim
+% csprose: parrot.fd-shim
+Parrot/APT owns system Python and the security catalogue. mise owns only
+\texttt{uv} and the pinned Neovim exception. \texttt{bat} and \texttt{fd} are
+deliberate local compatibility shims for Debian command names
+(\texttt{batcat} and \texttt{fdfind}).\par
+
+\cssection{Validation}
+\begin{cskeys}{0.30\linewidth}
+\csrow{verify.sh}{validate profile and ownership}
+\csrow{exec zsh -l}{start the installed login shell}
+\end{cskeys}
+\csnote{Full command: \texttt{platforms/parrot-ctf/scripts/verify.sh}.}
+
+\end{multicols}
+\csfoot{Profile guide: docs/platforms/parrot-ctf.md. Shell audit: docs/parrot-ctf-shell-audit.md.}
+\end{document}

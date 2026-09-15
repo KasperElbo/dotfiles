@@ -16,7 +16,7 @@ assert_contains() {
   grep -Fq -- "$value" "$file" || fail "$file does not contain: $value"
 }
 
-assert_contains "$lazyvim_config/lazyvim.json" \
+assert_contains "$lazyvim_config/lua/config/profile.lua" \
   'lazyvim.plugins.extras.lang.markdown'
 
 markdown_config="$lazyvim_config/lua/plugins/markdown.lua"

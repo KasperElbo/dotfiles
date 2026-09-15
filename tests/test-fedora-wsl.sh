@@ -2,17 +2,12 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
 
-assert_contains() {
-  local output="$1"
-  local expected="$2"
-  [[ "$output" == *"$expected"* ]] || {
-    printf 'Expected output to contain %q:\n%s\n' "$expected" "$output" >&2
-    exit 1
-  }
-}
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ocaml)"
 assert_contains "$dry_run" 'Fedora WSL installation plan'
@@ -86,8 +81,20 @@ assert_contains "$ai_full_dry_run" 'common/install-ai.sh --codex --firstmate --g
 
 ai_backpass_only_dry_run="$("$repo_root/install.sh" --platform fedora-wsl \
   --dry-run --ai --backpass)"
-assert_contains "$ai_backpass_only_dry_run" 'AI FirstMate subcomponent: false'
+# Additive semantics: an omitted --firstmate is "leave it alone", not "remove".
+assert_contains "$ai_backpass_only_dry_run" 'AI FirstMate subcomponent: inherit'
 assert_contains "$ai_backpass_only_dry_run" 'AI backpass subcomponent:  true'
+
+# All four sub-flags say "inherit" when omitted (#225, DOC-040): GNHF and
+# backpass used to print an empty value while the recorded selection one line
+# below said inherit.
+ai_inherit_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ai)"
+assert_contains "$ai_inherit_dry_run" 'AI Codex subcomponent:     inherit'
+assert_contains "$ai_inherit_dry_run" 'AI FirstMate subcomponent: inherit'
+assert_contains "$ai_inherit_dry_run" 'AI GNHF subcomponent:      inherit'
+assert_contains "$ai_inherit_dry_run" 'AI backpass subcomponent:  inherit'
+assert_contains "$ai_inherit_dry_run" \
+  'codex:inherit,firstmate:inherit,gnhf:inherit,backpass:inherit'
 assert_contains "$ai_backpass_only_dry_run" 'common/install-ai.sh --backpass'
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
@@ -95,28 +102,28 @@ if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   printf 'fedora-wsl accepted --codex without --ai.\n' >&2
   exit 1
 fi
-grep -Fq -- '--codex requires --ai' "$test_root/codex-without-ai.log"
+grep -Fq -- '--codex/--no-codex requires --ai' "$test_root/codex-without-ai.log"
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   --firstmate >"$test_root/firstmate-without-ai.log" 2>&1; then
   printf 'fedora-wsl accepted --firstmate without --ai.\n' >&2
   exit 1
 fi
-grep -Fq -- '--firstmate requires --ai' "$test_root/firstmate-without-ai.log"
+grep -Fq -- '--firstmate/--no-firstmate requires --ai' "$test_root/firstmate-without-ai.log"
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   --gnhf >"$test_root/gnhf-without-ai.log" 2>&1; then
   printf 'fedora-wsl accepted --gnhf without --ai.\n' >&2
   exit 1
 fi
-grep -Fq -- '--gnhf requires --ai' "$test_root/gnhf-without-ai.log"
+grep -Fq -- '--gnhf/--no-gnhf requires --ai' "$test_root/gnhf-without-ai.log"
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
   --backpass >"$test_root/backpass-without-ai.log" 2>&1; then
   printf 'fedora-wsl accepted --backpass without --ai.\n' >&2
   exit 1
 fi
-grep -Fq -- '--backpass requires --ai' "$test_root/backpass-without-ai.log"
+grep -Fq -- '--backpass/--no-backpass requires --ai' "$test_root/backpass-without-ai.log"
 
 if "$repo_root/install.sh" --platform unknown --dry-run \
   >"$test_root/invalid.log" 2>&1; then
@@ -143,15 +150,24 @@ mkdir -p "$mock_bin" "$config"
 printf 'ID=fedora\n' >"$test_root/os-release"
 printf '/bin/bash\n' >"$shell_state"
 
-cat >"$mock_bin/dnf" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
+test_stub_init "$test_root"
+test_stub_install "$test_root" dnf
+test_stub_install "$test_root" sudo
+fedora_wsl_packages=(
+  bat bzip2 curl eza fd-find fzf gawk gcc gcc-c++ gh git git-delta jq libicu
+  make neovim openssh-clients procps-ng ripgrep ShellCheck shadow-utils sqlite
+  sqlite-devel stow tmux unzip zoxide zsh zsh-autosuggestions
+  zsh-syntax-highlighting
+)
+test_stub_allow "$test_root" dnf install -y "${fedora_wsl_packages[@]}"
+test_stub_allow "$test_root" sudo dnf install -y "${fedora_wsl_packages[@]}"
+test_stub_allow "$test_root" sudo usermod --shell "$mock_bin/zsh" fedora-test
+
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-cat >"$mock_bin/sudo" <<'EOF'
+cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 if [[ "$1" == usermod && "$2" == --shell ]]; then
@@ -177,6 +193,10 @@ else
 fi
 EOF
 cat >"$mock_bin/zsh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat >"$mock_bin/wslpath" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
@@ -214,7 +234,7 @@ cat >"$mock_bin/stow" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "${*: -1}" >>"$STOW_LOG"
 EOF
-chmod +x "$mock_bin"/*
+chmod +x "$mock_bin"/* "$test_root/handlers/sudo"
 
 test_environment=(
   env
@@ -227,12 +247,16 @@ test_environment=(
   "SHELL_STATE=$shell_state"
 )
 
-"${test_environment[@]}" \
-  "$repo_root/platforms/fedora-wsl/scripts/install-system.sh" >/dev/null
+install_system_output="$("${test_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/install-system.sh")"
+assert_contains "$install_system_output" 'Zsh is now configured as your login shell.'
+assert_contains "$install_system_output" \
+  'This Noctty session was started before that change; open a new Noctty/WSL'
 [[ -x "$home/.local/bin/mise" ]]
 [[ -x "$home/.local/bin/starship" ]]
 expected_zsh_path="$(PATH="$mock_bin:/usr/bin:/bin" command -v zsh)"
 grep -Fq 'sudo dnf install -y bat bzip2 curl eza fd-find fzf gawk' "$command_log"
+grep -Fq 'gh git git-delta jq libicu' "$command_log"
 grep -Fq "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log"
 grep -Fqx "$expected_zsh_path" "$shell_state"
 if grep -Fq ' starship' "$command_log"; then
@@ -351,26 +375,50 @@ grep -Fq -- '-Flavor "mocha"' "$test_root/powershell.log"
 bootstrap_home="$test_root/bootstrap-home"
 bootstrap_config="$bootstrap_home/.config"
 bootstrap_data="$bootstrap_home/.local/share"
-bootstrap_bin="$test_root/bootstrap-bin"
+bootstrap_stub_root="$test_root/bootstrap-stubs"
+bootstrap_bin="$bootstrap_stub_root/bin"
+debugger_path="$test_root/easydotnet/tools/netcoredbg/linux-x64/netcoredbg"
 bootstrap_shell_state="$test_root/bootstrap-login-shell"
 bootstrap_command_log="$test_root/bootstrap-commands.log"
 mkdir -p \
   "$bootstrap_config/git" \
   "$bootstrap_data/tmux/plugins" \
-  "$bootstrap_bin"
+  "$bootstrap_bin" \
+  "$(dirname "$debugger_path")"
 printf '/bin/bash\n' >"$bootstrap_shell_state"
+touch "$debugger_path"
+chmod +x "$debugger_path"
+
+test_stub_init "$bootstrap_stub_root"
+test_stub_install "$bootstrap_stub_root" dnf
+test_stub_install "$bootstrap_stub_root" sudo
+test_stub_allow "$bootstrap_stub_root" dnf install -y \
+  "${fedora_wsl_packages[@]}"
+test_stub_allow "$bootstrap_stub_root" dnf install -y \
+  texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent
+test_stub_allow "$bootstrap_stub_root" sudo -n -v
+test_stub_allow "$bootstrap_stub_root" sudo dnf install -y \
+  "${fedora_wsl_packages[@]}"
+test_stub_allow "$bootstrap_stub_root" sudo dnf install -y \
+  texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent
+test_stub_allow "$bootstrap_stub_root" sudo usermod --shell \
+  "$bootstrap_bin/zsh" fedora-test
 
 cat >"$bootstrap_bin/mock-command" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-cat >"$bootstrap_bin/sudo" <<'EOF'
+cat >"$bootstrap_stub_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$BOOTSTRAP_COMMAND_LOG"
 if [[ "$1" == usermod && "$2" == --shell ]]; then
   printf '%s\n' "$3" >"$SHELL_STATE"
+  exit 0
 fi
-exit 0
+case "$1" in
+dnf | install) exec "$@" ;;
+*) exit 0 ;;
+esac
 EOF
 cat >"$bootstrap_bin/id" <<'EOF'
 #!/usr/bin/env bash
@@ -389,23 +437,67 @@ else
   /usr/bin/getent "$@"
 fi
 EOF
-chmod +x "$bootstrap_bin/mock-command" "$bootstrap_bin/sudo" \
+cat >"$bootstrap_bin/mktemp" <<'EOF'
+#!/usr/bin/env bash
+path="$(/usr/bin/mktemp "$@")" || exit
+if (($# == 0)); then
+  printf 'install -m 0644 %q %q\n' "$path" "$WSL_CONF_FILE" \
+    >>"$TEST_STUB_ROOT/contracts/sudo.allow"
+fi
+printf '%s\n' "$path"
+EOF
+chmod +x "$bootstrap_bin/mock-command" \
   "$bootstrap_bin/id" "$bootstrap_bin/getent"
+chmod +x "$bootstrap_stub_root/handlers/sudo" "$bootstrap_bin/mktemp"
 
 bootstrap_commands=(
-  ast-grep bat biber curl delta dnf dotnet dotnet-easydotnet eza fd fzf gh
+  ast-grep bat biber curl delta dotnet dotnet-easydotnet eza fd fzf gh
   latex latexindent latexmk lazygit lualatex neovim-node-host node npm npx
   pdflatex python rg rpm shellcheck sqlite3 starship tmux tree-sitter uv
-  xelatex zoxide zsh
+  wslpath xelatex zoxide zsh
 )
 for command_name in "${bootstrap_commands[@]}"; do
   ln -s mock-command "$bootstrap_bin/$command_name"
 done
 
+rm -- "$bootstrap_bin/dotnet-easydotnet"
+cat >"$bootstrap_bin/dotnet-easydotnet" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == healthcheck ]]; then
+  printf '[{"type":"ok","name":"debugger.engine","value":"netcoredbg"},{"type":"ok","name":"debugger.source","value":"bundled"},{"type":"ok","name":"debugger.platform","value":"linux-x64"},{"type":"ok","name":"debugger.path","value":"%s"},{"type":"ok","name":"debugger.version","value":"NET Core debugger test version"}]\n' \
+    "$MOCK_EASY_DOTNET_DEBUGGER"
+fi
+EOF
+chmod +x "$bootstrap_bin/dotnet-easydotnet"
+
 cat >"$bootstrap_bin/mise" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == exec && "${2:-}" == -- ]]; then
+make_ai_tool() {
+  name="$1"
+  install_bin="$XDG_DATA_HOME/mise/installs/$name/latest/bin/$name"
+  shim="$XDG_DATA_HOME/mise/shims/$name"
+  mkdir -p "$(dirname "$install_bin")" "$(dirname "$shim")"
+  if [[ "$name" == claude ]]; then
+    printf '#!/usr/bin/env bash\nprintf "1.0.0 (Claude Code)\\n"\n' >"$install_bin"
+  else
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$install_bin"
+  fi
+  chmod +x "$install_bin"
+  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$install_bin" >"$shim"
+  chmod +x "$shim"
+}
+
+if [[ "${1:-}" == --yes && "${2:-}" == install ]]; then
+  conf="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
+  [[ -f "$conf" ]] && make_ai_tool claude
+  [[ -f "$conf" ]] && make_ai_tool herdr
+elif [[ "${1:-}" == which ]]; then
+  candidate="$XDG_DATA_HOME/mise/installs/${2:-}/latest/bin/${2:-}"
+  [[ -x "$candidate" ]] || exit 1
+  printf '%s\n' "$candidate"
+elif [[ "${1:-}" == exec && "${2:-}" == -- ]]; then
   shift 2
+  PATH="$XDG_DATA_HOME/mise/shims:$PATH"
   exec "$@"
 fi
 exit 0
@@ -413,9 +505,24 @@ EOF
 cat >"$bootstrap_bin/nvim" <<'EOF'
 #!/usr/bin/env bash
 for argument in "$@"; do
+  if [[ "$argument" == '+Lazy! restore mason.nvim' ]]; then
+    mkdir -p "$XDG_DATA_HOME/nvim/lazy/mason.nvim"
+  fi
+
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
-    for package in $DOTFILES_MASON_PACKAGES; do
+    mkdir -p "$XDG_DATA_HOME/nvim/mason/bin"
+    for target in $DOTFILES_MASON_PACKAGES; do
+      # Mason stores a package under its name whether or not the request
+      # carried an "@version" pin.
+      package="${target%%@*}"
       mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
+      if [[ "$package" == tree-sitter-cli ]]; then
+        cat >"$XDG_DATA_HOME/nvim/mason/bin/tree-sitter" <<'TREEEOF'
+#!/usr/bin/env bash
+exit 0
+TREEEOF
+        chmod +x "$XDG_DATA_HOME/nvim/mason/bin/tree-sitter"
+      fi
     done
   fi
 done
@@ -426,11 +533,18 @@ rm -- "$bootstrap_bin/zsh"
 cat >"$bootstrap_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
 printf '\033[H\033[2J\033[3J'
-if [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then
+PATH="$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
+if [[ "$*" == *'printf "%s\\n" "$PATH"'* ]]; then
+  printf '%s\n' "$PATH"
+elif [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then
   printf '\n__DOTFILES_VERIFY_PATH__%s\n' "$PATH"
 elif [[ "$*" == *'__DOTFILES_VERIFY_STARSHIP__'* ]]; then
   printf '\n__DOTFILES_VERIFY_STARSHIP__%s\n' \
     "$XDG_CONFIG_HOME/starship/catppuccin-macchiato.toml"
+elif [[ "$*" == *'command -v "$1"'* ]]; then
+  command -v "${*: -1}" >/dev/null || exit 1
+elif [[ "$*" == *'claude --version'* ]]; then
+  claude --version >/dev/null || exit 1
 fi
 printf '\033[H\033[2J\033[3J\n'
 EOF
@@ -453,14 +567,23 @@ printf 'unrelated state\n' >"$bootstrap_home/notes"
 bootstrap_environment=(
   env
   "HOME=$bootstrap_home"
+  "CODEX_HOME=$bootstrap_home/.codex"
   "XDG_CONFIG_HOME=$bootstrap_config"
   "XDG_DATA_HOME=$bootstrap_data"
+  # Simulate the original Noctty/Bash process: the eventual mise shim
+  # directory (and therefore every AI binary) is absent.
   "PATH=$bootstrap_home/.local/bin:$bootstrap_bin:$PATH"
   "WSL_DISTRO_NAME=FedoraLinux"
   "OS_RELEASE_FILE=$test_root/os-release"
   "SHELL_STATE=$bootstrap_shell_state"
+  "MOCK_EASY_DOTNET_DEBUGGER=$debugger_path"
   "BOOTSTRAP_COMMAND_LOG=$bootstrap_command_log"
+  "TEST_STUB_ROOT=$bootstrap_stub_root"
   "WINDOWS_SYSTEM_ROOT=$windows_root"
+  # The Noctty theme bridge is a named action with its own error boundary now
+  # (issue #148): a PowerShell that cannot run is a reported failure, not a
+  # silent no-op, so the mock needs its log destination here too.
+  "POWERSHELL_LOG=$test_root/bootstrap-powershell.log"
   "WSL_CONF_FILE=$test_root/bootstrap-wsl.conf"
 )
 
@@ -494,6 +617,14 @@ grep -Fq \
   'sudo dnf install -y texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent' \
   "$bootstrap_command_log"
 grep -Fq 'LaTeX toolchain' "$test_root/bootstrap.log"
+
+run_bootstrap --ai
+grep -Fq 'AI profile verification passed' "$test_root/bootstrap.log"
+grep -Fq 'Fresh Zsh login resolves claude' "$test_root/bootstrap.log"
+grep -Fq 'Fresh Zsh login resolves herdr' "$test_root/bootstrap.log"
+grep -Fq 'Claude Code starts in a fresh Zsh login' "$test_root/bootstrap.log"
+[[ -x "$bootstrap_data/mise/shims/claude" ]]
+[[ -x "$bootstrap_data/mise/shims/herdr" ]]
 
 [[ "$(sha256sum "$bootstrap_config/git/local")" == "$bootstrap_identity" ]]
 [[ "$(sha256sum "$bootstrap_home/notes")" == "$bootstrap_notes" ]]

@@ -5,12 +5,13 @@ js-debug-adapter
 json-lsp
 lua-language-server
 marksman
-netcoredbg
+prettier
 pyright
 roslyn
 ruff
 shfmt
 stylua
 texlab
+tree-sitter-cli
 vtsls
 yaml-language-server
