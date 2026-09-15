@@ -245,6 +245,17 @@ After a fresh install, on every platform:
    cat ~/.config/dotfiles/theme
    ```
 
+10. Check what was recorded, and run the verifiers it names:
+
+    ```bash
+    ./doctor
+    ```
+
+    `./doctor` is a read-only summary of the recorded install; it names the
+    verifier for every capability that was selected, and the verifiers do the
+    real checking. See [verification](verification.md) for the full inventory
+    and for what a failure versus a warning means.
+
 ### Fedora-specific checklist steps
 
 These apply only to a Fedora or Fedora WSL desktop install; macOS has no

@@ -19,6 +19,19 @@ SSH terminfo handling
 Catppuccin theme
 ```
 
+### Fonts
+
+The Starship prompt uses the Catppuccin Powerline preset, whose separators and
+icons are Nerd Font glyphs. Only the Parrot CTF guest installs a font (Hack
+Nerd Font Mono, pinned and checksummed). On Fedora, Fedora WSL and macOS the
+font is deliberately user-owned: this repository installs none, sets no
+`font-family` in the tracked Ghostty configuration, and no verifier checks
+glyph coverage.
+
+Install any Nerd Font and select it in the terminal — Hack Nerd Font Mono is
+what the Parrot guest uses and a safe default. Without one, the prompt renders
+boxes or blanks where the glyphs should be.
+
 Ghostty is the primary **local layout manager**:
 
 - tabs

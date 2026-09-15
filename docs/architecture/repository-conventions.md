@@ -41,6 +41,7 @@ this table.
 |---|---|---|
 | [`docs/reference/capability-matrix.md`](../reference/capability-matrix.md) | `config/capabilities.tsv` | `scripts/render-capability-matrix.py` |
 | [`docs/reference/installer-options.md`](../reference/installer-options.md) | `config/install-options.tsv` | `scripts/render-installer-options.py` |
+| [`docs/reference/verifiers.md`](../reference/verifiers.md) | `config/capabilities.tsv` | `scripts/render-verifier-reference.py` |
 | [`docs/supply-chain-sources.md`](../supply-chain-sources.md) | `config/network-sources.tsv` | `scripts/render-supply-chain.py` |
 | The action reference block in [`docs/reference/keybindings.md`](../reference/keybindings.md) | `config/actions.tsv` | `scripts/render-action-reference.py` |
 | The inventory blocks in [`docs/architecture/package-ownership.md`](package-ownership.md) | `config/capabilities.tsv`, the tracked mise config, the Mason inventories | `scripts/render-package-ownership.py` |

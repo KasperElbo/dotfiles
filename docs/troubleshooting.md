@@ -1,5 +1,117 @@
 # Troubleshooting
 
+## Start with `./doctor`
+
+```bash
+./doctor
+```
+
+`./doctor` is read-only, takes no options, and is the first thing to run when
+something looks wrong. It reports what this checkout believes was installed,
+whether the checkout still matches the installed revision, whether each
+selected capability's machine-local state is intact and still owned by the
+current selection, whether a configuration is available for `./install.sh
+--rerun`, and which verifier proves each installed capability.
+
+Its exit status is the contract: **failures exit `1`, warnings exit `0`**. A
+warning is information (a revision that has moved on, residual state from a
+capability no longer selected, legacy unversioned state); a failure means the
+recorded state disagrees with what an installed machine should look like.
+
+`./doctor` names the verifier to run next — see
+[verification](workflows/verification.md) for what those verifiers prove, and
+the entry below that matches the message you got.
+
+## The installer refuses to start
+
+Preflight runs before anything is changed, and refuses rather than half-installing:
+
+```text
+Missing preflight command: xcode-select
+Missing bootstrap-prerequisite command: sudo (provider: sudo)
+Missing supported-base command: awk (provider: gawk)
+Path is not writable: /home/you/.config
+```
+
+Install the named command — the message names the package that provides it —
+or fix the ownership of the named path, then rerun. `bootstrap-prerequisite`
+is something the installer needs before it can install anything at all;
+`supported-base` is a command the finished environment is defined to have.
+Both come from `config/fedora-command-providers.tsv`. The installer making no
+changes at all is the intended outcome here, not a failure to recover from.
+
+## Stow conflicts
+
+```text
+Stow conflict [zsh]: existing file or directory: /home/you/.zshrc
+1 Stow conflict(s) found. Move or back up these paths; --adopt is never automatic.
+```
+
+Preflight found something already at a path this repository would link. The
+variants name the cause: an existing real file or directory, a `dangling
+link`, a `link to another package in this checkout`, a `link owned by another
+checkout or source`, or a parent path that `is not a real directory`.
+
+The remedy is always the same — move the named path aside (or delete it if you
+are sure), then rerun:
+
+```bash
+mv ~/.zshrc ~/.zshrc.before-dotfiles
+```
+
+This repository never runs `stow --adopt` for you, automatically or behind a
+flag: adopting would pull your existing file *into* the checkout and silently
+overwrite the tracked one. Deciding what happens to a pre-existing file is
+yours. See [file ownership](architecture/file-ownership.md) for what gets
+linked where.
+
+## The last installation is recorded as failed or interrupted
+
+`./doctor` reports `Last installation is <status>` for anything other than a
+completed run, and names the step it stopped at along with the completed and
+pending ones. A failed run is never remembered, so `--rerun` cannot reapply
+*it*; completed component changes are also not rolled back. Two ways forward:
+reapply this machine's last successful configuration (preview it with
+`./install.sh --rerun --dry-run`), or start a fresh `./install.sh` with the
+options you want. See [rerun and the last-known-good model](workflows/rerun.md),
+which also covers corrupt state, schema migration and the "predates `--rerun`
+support" message.
+
+## The first Neovim bootstrap is slow or times out
+
+The installer drives Neovim headlessly to install LazyVim plugins and Mason
+tooling. The first run on a new machine downloads everything and is expected to
+take minutes. It fails with `... timed out after 20m` when it does not finish;
+raise the budget for a slow link and rerun:
+
+```bash
+NEOVIM_BOOTSTRAP_TIMEOUT=40m ./scripts/install-neovim-tools.sh
+```
+
+The value is a plain `timeout` duration (`30m`, `3600s`). `Mason provisioning
+incomplete; missing: ...` means the named Mason packages were still absent
+after that phase — usually a network failure earlier in the same run, so rerun
+the script. `LazyVim restore attempted a competing tree-sitter-cli
+installation` is different: it means editor configuration changed who owns
+`tree-sitter-cli`, and it is a repository bug rather than a machine problem.
+
+## The prompt shows boxes, blanks or question marks
+
+The Starship prompt is the Catppuccin Powerline preset and needs a Nerd Font.
+This repository installs one only on the Parrot CTF guest; on Fedora, Fedora
+WSL and macOS the font is yours to install and select in the terminal —
+see [the terminal guide](workflows/terminal.md).
+
+## mise installs an unrelated project's tools
+
+Every `mise` call this repository makes runs from a neutral, repository-owned
+directory with `MISE_CEILING_PATHS` set to it, precisely so a `mise.toml` in
+whatever directory you launched the installer from cannot reach a global
+bootstrap. If you see a project's tools appear anyway, the call was not one of
+this repository's: running `mise install` by hand from inside a project applies
+that project's configuration. Run it from your home directory, or let
+`./install.sh --rerun` do it.
+
 ## `sudo`, `git`, or other `/usr/bin` commands suddenly disappear
 
 In Zsh, `path` is a special array tied directly to `PATH`.
@@ -95,8 +207,12 @@ cat ~/.config/mise/conf.d/ai.toml
 mise install
 ```
 
-If the file is missing, rerun `./scripts/install-ai.sh` (add `--codex`
-and/or `--firstmate` as needed) — it is safe to rerun.
+If the file is missing, rerun `./scripts/install-ai.sh` with **the same
+sub-flags the original install used** — any of `--codex`, `--firstmate`,
+`--gnhf` and `--backpass`. Reinstalling with fewer than were recorded leaves
+the state naming a component the untracked `ai.toml` no longer declares, which
+`verify-ai.sh` reports as a failure. `./doctor` shows the recorded selection,
+and rerunning is otherwise safe.
 
 ## `claude native binary not installed`
 

@@ -11,7 +11,7 @@ higher in this list wins, and the lower one is a bug.
 | Role | Where | What it is |
 |---|---|---|
 | 1. Structured contract | `config/*.tsv` | The normative, machine-readable source for capabilities, providers, installer options, network sources, the Fedora command closure, and every repository-defined user action. Code reads it; documentation is generated from it or checked against it. |
-| 2. Generated reference | [reference/capability-matrix.md](reference/capability-matrix.md), [reference/installer-options.md](reference/installer-options.md), [supply-chain-sources.md](supply-chain-sources.md), and the generated blocks inside several other pages | Rendered from role 1 and from the installers themselves. Never edited by hand; `./scripts/lint.sh` fails when one is stale. [The full list is in repository conventions](architecture/repository-conventions.md#generated-artifacts). |
+| 2. Generated reference | [reference/capability-matrix.md](reference/capability-matrix.md), [reference/installer-options.md](reference/installer-options.md), [reference/verifiers.md](reference/verifiers.md), [supply-chain-sources.md](supply-chain-sources.md), and the generated blocks inside several other pages | Rendered from role 1 and from the installers themselves. Never edited by hand; `./scripts/lint.sh` fails when one is stale. [The full list is in repository conventions](architecture/repository-conventions.md#generated-artifacts). |
 | 3. Platform and profile guides | [platforms/](platforms/), [profiles/](profiles/) | How to install and operate one target or one optional profile, including what it deliberately does not do. |
 | 4. Workflow guides | [workflows/](workflows/) | How the day-to-day environment is used: installing, theming, shell, editor, languages. |
 | 5. Full action reference | [reference/keybindings.md](reference/keybindings.md) | Every registered action, generated from `config/actions.tsv` — including the ones no printable sheet carries. Optimized for completeness and searching. |
@@ -51,7 +51,7 @@ current support contract. A guide never says a capability is "waiting for" or
 - [workflows/install.md](workflows/install.md) — quick start, installer behavior, post-install checklist
 - [workflows/first-run.md](workflows/first-run.md) — the choices the installer will not make for you
 - [workflows/rerun.md](workflows/rerun.md) — `--rerun` and the last-known-good model
-- [workflows/verification.md](workflows/verification.md) — what `verify.sh` proves
+- [workflows/verification.md](workflows/verification.md) — `./doctor`, the platform verifiers, and what they prove
 - [workflows/theming.md](workflows/theming.md) — Catppuccin, the `theme` command, generated Starship configs
 - [workflows/shell.md](workflows/shell.md) — Zsh startup, PATH policy, ergonomics
 - [workflows/terminal.md](workflows/terminal.md) — Ghostty and tmux
@@ -64,6 +64,7 @@ current support contract. A guide never says a capability is "waiting for" or
 
 - [reference/installer-options.md](reference/installer-options.md) — generated option tables
 - [reference/capability-matrix.md](reference/capability-matrix.md) — generated support/provider matrix
+- [reference/verifiers.md](reference/verifiers.md) — generated per-platform verifier inventory
 - [reference/keybindings.md](reference/keybindings.md) — the full keyboard and workflow reference
 - [reference/defaults.md](reference/defaults.md) — what a default Fedora workstation install ends up with
 - [reference/git-identity.md](reference/git-identity.md) — machine-local Git identity and its migration
@@ -85,4 +86,5 @@ current support contract. A guide never says a capability is "waiting for" or
 
 ### Troubleshooting
 
-- [troubleshooting.md](troubleshooting.md)
+- [troubleshooting.md](troubleshooting.md) — start with `./doctor` (read-only;
+  warnings exit `0`, failures exit `1`), then the entry matching the message

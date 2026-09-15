@@ -31,7 +31,13 @@ with `--sway`.
 
 <!-- END GENERATED STOW PACKAGES -->
 
-Stow is run with `--no-folding`.
+Stow is run with `--no-folding`, and never with `--adopt`.
+
+Because linking is the only thing Stow is allowed to do here, a path that
+already exists where a tracked file would be linked is a conflict, not
+something to absorb: preflight reports `Stow conflict [<package>]: ...` and the
+install stops before any change is made. Move that path aside and rerun — see
+[troubleshooting](../troubleshooting.md#stow-conflicts).
 
 This is intentional. Individual tracked files are linked into normal directories so tracked and machine-local files can coexist.
 
