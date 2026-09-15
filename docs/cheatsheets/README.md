@@ -6,27 +6,59 @@ config-file order, so it works as an actual desk reference:
 
 | Source | Profile | Page budget |
 |---|---|---|
-| `fedora-kde.tex` | Fedora KDE (normal Plasma/Wayland workstation) | 1 |
-| `fedora-sway.tex` | Fedora Sway (keyboard-first XMonad-like session) | 2 |
-| `fedora-wsl.tex` | Fedora WSL (Windows desktop + Linux dev runtime) | 1 |
+| `fedora-kde.tex` | Fedora KDE (normal Plasma/Wayland workstation) | 2 |
+| `fedora-sway.tex` | Fedora Sway (keyboard-first XMonad-like session) | 3 |
+| `fedora-wsl.tex` | Fedora WSL (Windows desktop + Linux dev runtime) | 2 |
 | `macos.tex` | Apple Silicon macOS (AeroSpace) | 2 |
 | `parrot-ctf.tex` | Parrot Security Edition CTF guest | 1 |
 
-The two-page budgets belong to the sheets whose window-manager tables fill a
-page on their own; the shared block then flows into the second page rather
-than being forced there, so neither page is half empty. The budgets are
-enforced, not aspirational: `verify.sh` fails a sheet that grows past its page
-count, and also fails a last page carrying nothing but the footer.
+Every budget above is one page larger than it was before these sheets printed
+the terminal and editor keymaps: that block costs a page wherever it appears.
+Sway is three because its window-manager tables already filled a page on their
+own; the macOS sheet holds at two only because its footer flows into the last
+column (`\csfootflow`) instead of being pushed onto a page of its own. The
+Parrot sheet is the exception at one page: it prints no keymap it does not
+own, and points at WhichKey instead. The budgets are enforced, not
+aspirational: `verify.sh` fails a sheet that grows past its page count, and
+also fails a last page carrying nothing but the footer.
 
-`common-workflow.tex` is `\input` by every sheet so the shared terminal/editor
-workflow (Ghostty, Zsh, fzf, zoxide, tmux, LazyVim, Lazygit, theme) is written
-once instead of copied per sheet; each PDF still includes it in full, since a
-sheet has to be self-contained at the machine. Its closing terminal line is
-the one platform-dependent part: each sheet defines `\cstermlegend` before the
-`\input`, so the WSL sheet does not print a `ghostty` command its runtime does
-not have, and no sheet prints another platform's copy/paste keys.
-`cheatsheet.sty` holds the shared page layout (A4 margins, a two-column task
-table, section headings) used by every sheet.
+`common-workflow.tex` is `\input` by every sheet except the Parrot one, so the
+shared terminal/editor workflow (Ghostty, Zsh, fzf, zoxide, tmux, Neovim,
+LazyVim, Lazygit, Herdr, theme) is written once instead of copied per sheet;
+each PDF still includes it in full, since a sheet has to be self-contained at
+the machine. `cheatsheet.sty` holds the shared page layout (A4 margins, a
+two-column task table, section headings) used by every sheet.
+
+The terminal is the platform-dependent part, and the shared block names no
+terminal key of its own. Each sheet fills in two hooks before the `\input`:
+`\cstermlegend`, the closing sentence naming the discovery command, and
+`\cstermdefaults`, the table of the terminal's own default keys. A sheet that
+defines neither prints nothing rather than another platform's claim. The two
+Fedora sheets share one table, `ghostty-linux-keys.tex`, because they run the
+same Ghostty on the same platform; the macOS sheet carries Ghostty's Cmd
+chords inline, and the WSL sheet carries Noctty's own keys in its Noctty
+section, since neither table has a second consumer to share it with.
+
+## Upstream defaults are printed too
+
+A binding being an upstream default is not a reason to leave it off a desk
+reference --- at the machine, what matters is which key does the thing, not
+who bound it. So the sheets print the defaults worth knowing by heart for the
+terminal (Ghostty, or Noctty on Windows), Neovim itself, LazyVim, and Herdr,
+alongside the bindings this repository actually defines. The registry keeps
+the two apart where it counts: every one of those rows is `origin=upstream`,
+with no `source`, and the generated table in
+[`../reference/keybindings.md`](../reference/keybindings.md) prints that
+column, so nothing on a sheet can quietly become a claim that this repository
+binds it.
+
+Two consequences are deliberate. Herdr rows carry `profile=ai`: it is the one
+tool on the sheets that a default `./install.sh` does not install, and the
+sheet says so where it prints them. And an upstream default can change under
+an upgrade in a way a tracked config cannot, which is why every such block
+still ends by naming the tool's own discovery command (`ghostty
++list-keybinds --default`, `noctty +list-keybinds`, `Space` for WhichKey,
+`Ctrl+B ?` in Herdr) as the authority over the printed page.
 
 The Parrot sheet is a reduced *profile*, not a reduced *shell*: the guest
 stows the same `bin` and `zsh` packages and installs tmux, fzf, zoxide and

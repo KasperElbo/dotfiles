@@ -36,6 +36,8 @@ own built-in discovery mechanism over a static list:
 | Lazygit | Press `?` inside any panel |
 | tmux | `<prefix> ?` (prefix is `Ctrl+B`, unmodified) |
 | Ghostty | `ghostty +list-keybinds --default` |
+| Noctty (Windows) | `noctty +list-keybinds` |
+| Herdr (`--ai` profile) | `Ctrl+B ?` |
 | KDE Plasma | System Settings → Shortcuts |
 | Sway / Waybar / AeroSpace | The tracked config itself --- see the profile cheat sheet |
 
@@ -44,10 +46,24 @@ own built-in discovery mechanism over a static list:
 `ghostty/.config/ghostty/shared.conf` (also loaded by Noctty on Windows) sets
 no `keybind =` at all, so **every** Ghostty shortcut --- new tab/window,
 splits, tab navigation, zoom/font sizing, config reload --- is an unmodified
-upstream default. It varies by platform (Linux GTK vs. macOS) and Ghostty
-version, so run the discovery command above rather than trusting a hardcoded
-list. Ghostty is the local tab/split/zoom manager; tmux is deliberately not
-used to duplicate that on the same machine.
+upstream default. Ghostty is the local tab/split/zoom manager; tmux is
+deliberately not used to duplicate that on the same machine.
+
+Being an upstream default is not a reason to leave it off a desk reference, so
+the ones worth knowing by heart are printed on the profile cheat sheets and
+registered in `config/actions.tsv` with `origin=upstream` --- the column that
+says this repository did not bind them. What *is* true is that the set differs
+per platform, which is why no sheet prints another platform's: the two Fedora
+sheets share Ghostty's Linux/GTK defaults through
+`docs/cheatsheets/ghostty-linux-keys.tex`, the macOS sheet carries the Cmd
+chords Ghostty uses there, and the WSL sheet carries Noctty's own --- mostly
+Ghostty's non-macOS set, except that it splits with `Ctrl+Shift+\` and moves
+between panes with `Alt+Arrow`.
+
+The defaults also move between Ghostty versions, and both terminals are
+installed rolling (Terra, Homebrew, a Windows download), so the discovery
+command above --- not this page and not a sheet --- is the authority on what
+the copy you are sitting in front of actually has.
 
 Clipboard copy/paste use the platform's normal shortcut: `Ctrl+Shift+C/V` on
 Linux/Wayland, `Cmd+C/V` on macOS.
@@ -162,6 +178,21 @@ that here. `Prefix ?` lists every binding the running tmux actually has,
 which is the list to trust; the table below carries the handful worth knowing
 by heart.
 
+## Herdr (optional `--ai` profile)
+
+Herdr is installed only by `./install.sh --ai` (see
+[the AI profile](../profiles/ai.md)), so it is the one tool on the sheets that
+a default install does not have; its rows carry `profile=ai` in the registry.
+Nothing here configures it, so every binding below is Herdr's own default, and
+`Ctrl+B ?` inside a running Herdr prints the live set.
+
+Its prefix is `Ctrl+B` — the same key tmux uses, and neither tool is
+reconfigured to avoid the other. Run one inside the other and the inner
+multiplexer never sees a prefix at all; the split this repository intends is
+Herdr for agent panes and tmux for ordinary shell persistence, not one nested
+in the other. Herdr is also mouse-native, so clicking and dragging panes, tabs
+and split borders needs no keybinding.
+
 ## LazyVim / Neovim
 
 `nvim-lazyvim/.config/nvim/lua/config/keymaps.lua` adds no repository keymaps
@@ -174,6 +205,18 @@ keymap the running editor has, and this page cannot.
 in `lua/plugins/formatting.lua` (CSharpier for C#, Prettier for Angular
 templates, Ruff for Python), so the key is LazyVim's and the result is partly
 ours.
+
+Under LazyVim's own defaults is Vim's, and the sheets print a block of those
+too --- `i`/`a`/`o`, `w`/`b`/`e`, `ciw`, `u`, `.`, `:%s/a/b/g` and the rest.
+Nothing here binds them, which is exactly why they are worth printing: they
+are the keys that still work in an `nvim --clean`, on a server this repository
+has never touched. `:help index` is their complete list.
+
+The LazyVim rows were taken from the commit pinned in `lazy-lock.json` rather
+than from LazyVim's website, which documents whatever is current: `<leader>e`
+is the Snacks explorer and `<leader>ff`/`<leader>/` are the Snacks picker
+because `install_version` in `lazyvim.json` is 8, the version at which LazyVim
+makes Snacks — not neo-tree and Telescope — the default for a fresh install.
 
 The enabled LazyVim extras are listed in
 `nvim-lazyvim/.config/nvim/lua/config/profile.lua`, per profile — not in
@@ -257,7 +300,7 @@ The shell re-exec belongs to the Zsh wrapper, not to the command; see
 
 ## Complete action reference
 
-Every action this repository defines or deliberately puts in front of you: 154 entries, grouped by the platform they exist on.
+Every action this repository defines or deliberately puts in front of you: 232 entries, grouped by the platform they exist on.
 
 **Origin** is the distinction that matters when something behaves unexpectedly.
 `repository` means this repository binds it, and the `Source` column says where.
@@ -291,6 +334,7 @@ choice with a recorded reason, never an omission.
 
 | Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
 |---|---|---|---|---|---|---|---|
+| `<lead>bd` | Close the buffer, keep the window | key | upstream | `base` | WhichKey | yes | — |
 | `S-h/S-l` | Previous / next buffer | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>,` | Switch buffers | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>ca` | Code action | key | upstream | `base` | WhichKey | yes | — |
@@ -299,15 +343,42 @@ choice with a recorded reason, never an omission.
 | `<lead>du` | Toggle the debug UI | key | upstream | `base` | WhichKey | yes | — |
 | `]d / [d` | Next / previous diagnostic | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>xx` | Diagnostics list (Trouble) | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>e` | File explorer (Snacks), rooted at the project | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>ff` | Find files | key | upstream | `base` | WhichKey | yes | — |
+| `s` | Flash: jump to any visible position | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>cf` | Format buffer | key | upstream-configured | `base` | WhichKey | yes | `nvim-lazyvim/.config/nvim/lua/plugins/formatting.lua` |
 | `gd / gr` | Go to definition / references | key | upstream | `base` | WhichKey | yes | — |
 | `K` | Hover documentation | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>sk` | Search every keymap | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>l` | Lazy: plugin manager | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>gg` | Open Lazygit | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>/` | Live grep | key | upstream | `base` | WhichKey | yes | — |
+| `Alt+J / Alt+K` | Move the line (or selection) down / up | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>qq` | Quit all | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>fr` | Recent files | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>cr` | Rename symbol | key | upstream | `base` | WhichKey | yes | — |
+| `Ctrl+S` | Save the file, from any mode | key | upstream | `base` | WhichKey | yes | — |
 | `<lead>ft` | Floating terminal | key | upstream | `base` | WhichKey | yes | — |
 | `Space` | WhichKey menu | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>wd` | Close the window | key | upstream | `base` | WhichKey | yes | — |
+| `Ctrl+H/J/K/L` | Focus the window left/down/up/right | key | upstream | `base` | WhichKey | yes | — |
+| `<lead>- / <lead>\|` | Split the window below / right | key | upstream | `base` | WhichKey | yes | — |
+| `gg / G` | Top / bottom of the buffer | key | upstream | `base` | the tool's own help | yes | — |
+| `ciw / diw` | Change / delete the word under the cursor | key | upstream | `base` | the tool's own help | yes | — |
+| `gcc / gc + motion` | Toggle a comment on the line / over a motion | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+U / Ctrl+D` | Half a screen up / down | key | upstream | `base` | the tool's own help | yes | — |
+| `i / a / o` | Insert before / after the cursor, open a line below | key | upstream | `base` | the tool's own help | yes | — |
+| `0 / $` | Start / end of the line | key | upstream | `base` | the tool's own help | yes | — |
+| `h j k l` | Move left / down / up / right | key | upstream | `base` | the tool's own help | yes | — |
+| `Esc` | Leave insert mode, back to normal mode | key | upstream | `base` | the tool's own help | yes | — |
+| `.` | Repeat the last change | key | upstream | `base` | the tool's own help | yes | — |
+| `/pat, then n / N` | Search, then next / previous match | key | upstream | `base` | the tool's own help | yes | — |
+| `:%s/a/b/g` | Replace a with b in the whole buffer | key | upstream | `base` | the tool's own help | yes | — |
+| `u / Ctrl+R` | Undo / redo | key | upstream | `base` | the tool's own help | yes | — |
+| `v / V / Ctrl+V` | Character / line / block visual mode | key | upstream | `base` | the tool's own help | yes | — |
+| `w / b / e` | Next word / previous word / end of word | key | upstream | `base` | the tool's own help | yes | — |
+| `:w / :q / :wq / :q!` | Write / quit / write and quit / quit discarding | key | upstream | `base` | the tool's own help | yes | — |
+| `yy / dd / p` | Yank / cut / put a line | key | upstream | `base` | the tool's own help | yes | — |
 
 #### theme
 
@@ -354,6 +425,24 @@ choice with a recorded reason, never an omission.
 
 ### Every workstation platform
 
+#### herdr
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `Ctrl+B [` | Copy mode | key | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B q` | Detach; the agents keep running | key | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B ?` | List every binding | key | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B h/j/k/l` | Focus the pane left/down/up/right | key | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B z / Ctrl+B x` | Zoom / close the focused pane | key | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B w / Ctrl+B g` | Workspace picker / goto picker | key | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B b` | Toggle the agent sidebar (blocked/working/done/idle) | key | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B v / Ctrl+B -` | Split the pane right / down | key | upstream | `ai` | the tool's own help | yes | — |
+| `herdr` | Start or reattach the workspace; agents survive a detach | command | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B n / Ctrl+B p` | Next / previous tab | key | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B 1..9` | Jump to tab 1-9 | key | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B c` | New tab | key | upstream | `ai` | the tool's own help | yes | — |
+| `Ctrl+B Shift+N` | New workspace | key | upstream | `ai` | the tool's own help | yes | — |
+
 #### neovim
 
 | Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
@@ -382,6 +471,25 @@ choice with a recorded reason, never an omission.
 | `<M-h>` | table-nvim: previous table cell | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
 
 ### Fedora workstation
+
+#### ghostty
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `Ctrl+Shift+P` | Command palette | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+, / Ctrl+Shift+,` | Open / reload the configuration | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+C / V` | Copy / paste | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Plus / Minus / 0` | Grow / shrink / reset the font | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Enter` | Toggle fullscreen | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+Up / Down` | Jump to the previous / next shell prompt | key | upstream | `base` | the tool's own help | yes | — |
+| `Shift+PgUp / PgDn` | Scroll the viewport a page | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+F` | Search the scrollback (Esc leaves) | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Alt+arrows` | Focus the split in that direction | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+O / E` | Split right / down | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+Enter` | Zoom the focused split | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Tab / Ctrl+Shift+Tab` | Next / previous tab | key | upstream | `base` | the tool's own help | yes | — |
+| `Alt+1..8, Alt+9` | Go to tab 1-8, last tab | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+T / W` | New / close tab | key | upstream | `base` | the tool's own help | yes | — |
 
 #### installer
 
@@ -479,7 +587,16 @@ choice with a recorded reason, never an omission.
 
 | Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
 |---|---|---|---|---|---|---|---|
+| `Ctrl+Shift+P` | Command palette | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+X` | Copy mode | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+C / V` | Copy / paste | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+= / Ctrl+-` | Increase / decrease the font size | key | upstream | `base` | the tool's own help | yes | — |
+| `Alt+arrows` | Move between panes | key | upstream | `base` | the tool's own help | yes | — |
 | `Ctrl+Shift+,` | Reload the Noctty configuration | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+F` | Start a search | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+\ / E` | Split pane right / down | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Tab / Ctrl+Shift+Tab` | Next / previous tab | key | upstream | `base` | the tool's own help | yes | — |
+| `Ctrl+Shift+T / W` | New / close tab | key | upstream | `base` | the tool's own help | yes | — |
 
 #### wsl-interop
 
@@ -514,6 +631,25 @@ choice with a recorded reason, never an omission.
 | `Ctrl+Opt+Cmd+H/J/K/L` | Move through the wrapping 3x3 workspace grid (aerospace-workspace-grid) | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
 | `Ctrl+Opt+Shift+1..9` | Move the focused window to workspace 1-9 | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
 | `Control+Option+1..9` | Switch to workspace 1-9 | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+
+#### ghostty
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `Cmd+K / Cmd+A` | Clear the screen / select all | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+Shift+P` | Command palette | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+, / Cmd+Shift+,` | Open / reload the configuration | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+C / Cmd+V` | Copy / paste | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+Plus / Minus / 0` | Grow / shrink / reset the font | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+Enter` | Toggle fullscreen | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+Shift+Up / Down` | Jump to the previous / next shell prompt | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+[ / Cmd+]` | Previous / next split | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+Opt+arrows` | Focus the split in that direction | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+D / Cmd+Shift+D` | Split right / down | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+Shift+Enter` | Zoom the focused split | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+Shift+[ / ]` | Previous / next tab | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+1..8, Cmd+9` | Go to tab 1-8, last tab | key | upstream | `base` | the tool's own help | yes | — |
+| `Cmd+T / Cmd+W` | New tab / close the focused surface | key | upstream | `base` | the tool's own help | yes | — |
 
 #### installer
 
@@ -563,7 +699,7 @@ choice with a recorded reason, never an omission.
 
 ### Why an action is not on a printable sheet
 
-44 of the 154 registered actions are deliberately kept off every sheet:
+44 of the 232 registered actions are deliberately kept off every sheet:
 
 | Action | Reason |
 |---|---|
@@ -614,12 +750,13 @@ choice with a recorded reason, never an omission.
 
 ### Why a printed action is missing from a sheet it could appear on
 
-These 18 actions are printed somewhere, but not on every sheet whose platform has them. The registry records why, and `scripts/validate-actions.py` refuses a silent omission:
+These 46 actions are printed somewhere, but not on every sheet whose platform has them. The registry records why, and `scripts/validate-actions.py` refuses a silent omission:
 
 | Action | Printed on | Reason |
 |---|---|---|
 | `lazygit.help` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: Lazygit is installed on the guest, but its Git workflow is the shared one and the sheet is a CTF operations reference |
 | `lazygit.open` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: Lazygit is installed on the guest, but its Git workflow is the shared one and the sheet is a CTF operations reference |
+| `lazyvim.buffer-close` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
 | `lazyvim.buffer-cycle` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
 | `lazyvim.buffers` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
 | `lazyvim.code-action` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
@@ -628,14 +765,41 @@ These 18 actions are printed somewhere, but not on every sheet whose platform ha
 | `lazyvim.dap-ui` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
 | `lazyvim.diagnostic-cycle` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
 | `lazyvim.diagnostics` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.explorer` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
 | `lazyvim.find-files` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.flash` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
 | `lazyvim.format` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
 | `lazyvim.goto` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
 | `lazyvim.hover` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.keymaps` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
+| `lazyvim.lazy` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
 | `lazyvim.lazygit` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
 | `lazyvim.live-grep` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.move-line` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
+| `lazyvim.quit` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
+| `lazyvim.recent-files` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
 | `lazyvim.rename` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.save` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
 | `lazyvim.terminal` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it |
+| `lazyvim.window-close` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
+| `lazyvim.window-focus` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
+| `lazyvim.window-split` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it. |
+| `nvim.default.buffer-ends` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.change-word` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.comment` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.half-page` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.insert` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.line-ends` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.motion` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.normal-mode` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.repeat` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.search` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.substitute` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.undo-redo` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.visual` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.word-motion` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.write-quit` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `nvim.default.yank-put` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
 
 <!-- END GENERATED ACTION REFERENCE -->
 

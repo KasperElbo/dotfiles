@@ -22,7 +22,8 @@
 % csprose: theme.preserve-wallpaper
 \csnote{The shared \texttt{theme <f>} command below also changes the Plasma global theme, colour scheme and cursor. \texttt{theme <f> --preserve-wallpaper} keeps the current desktop background; the lock screen always follows the flavour.}
 
-\renewcommand{\cstermlegend}{\cslegend{\texttt{ghostty +list-keybinds --default} $\to$ exact tab/split/zoom/reload keys. Copy/paste: \texttt{Ctrl+Shift+C/V}.}}
+\renewcommand{\cstermlegend}{\cslegend{The keys below are Ghostty's own Linux defaults; \texttt{ghostty +list-keybinds --default} prints the set the installed version really has.}}
+\renewcommand{\cstermdefaults}{\input{ghostty-linux-keys}}
 \input{common-workflow}
 
 \end{multicols}

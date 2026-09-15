@@ -153,3 +153,81 @@ nvim.macos.latex-view	macos	latex	neovim	repository	key	<localleader>lv	VimTeX o
 fedora.verify	fedora	base	installer	repository	command	verify.sh	Validate the installed Fedora workstation profile and its capabilities	platforms/fedora/scripts/verify.sh	^verify_reset$	documented	false	-	The workstation sheets are a desktop and shell reference; the platform guide is where an installer-time command belongs
 fedora-wsl.verify	fedora-wsl	base	installer	repository	command	verify.sh	Validate the installed Fedora WSL profile and its Windows interoperability	platforms/fedora-wsl/scripts/verify.sh	^verify_reset$	documented	false	-	The workstation sheets are a desktop and shell reference; the platform guide is where an installer-time command belongs
 macos.verify	macos	base	installer	repository	command	verify.sh	Validate the installed macOS profile and its managed defaults	platforms/macos/scripts/verify.sh	^verify_reset$	documented	false	-	The workstation sheets are a desktop and shell reference; the platform guide is where an installer-time command belongs
+ghostty.linux.copy-paste	fedora	base	ghostty	upstream	key	Ctrl+Shift+C / V	Copy / paste	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.tab-open-close	fedora	base	ghostty	upstream	key	Ctrl+Shift+T / W	New / close tab	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.tab-cycle	fedora	base	ghostty	upstream	key	Ctrl+Tab / Ctrl+Shift+Tab	Next / previous tab	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.tab-goto	fedora	base	ghostty	upstream	key	Alt+1..8, Alt+9	Go to tab 1-8, last tab	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.split-new	fedora	base	ghostty	upstream	key	Ctrl+Shift+O / E	Split right / down	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.split-focus	fedora	base	ghostty	upstream	key	Ctrl+Alt+arrows	Focus the split in that direction	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.split-zoom	fedora	base	ghostty	upstream	key	Ctrl+Shift+Enter	Zoom the focused split	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.fullscreen	fedora	base	ghostty	upstream	key	Ctrl+Enter	Toggle fullscreen	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.command-palette	fedora	base	ghostty	upstream	key	Ctrl+Shift+P	Command palette	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.search	fedora	base	ghostty	upstream	key	Ctrl+Shift+F	Search the scrollback (Esc leaves)	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.prompt-jump	fedora	base	ghostty	upstream	key	Ctrl+Shift+Up / Down	Jump to the previous / next shell prompt	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.scroll-page	fedora	base	ghostty	upstream	key	Shift+PgUp / PgDn	Scroll the viewport a page	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.font-size	fedora	base	ghostty	upstream	key	Ctrl+Plus / Minus / 0	Grow / shrink / reset the font	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.linux.config	fedora	base	ghostty	upstream	key	Ctrl+, / Ctrl+Shift+,	Open / reload the configuration	-	-	tool-help	true	fedora-kde,fedora-sway	-
+ghostty.macos.copy-paste	macos	base	ghostty	upstream	key	Cmd+C / Cmd+V	Copy / paste	-	-	tool-help	true	macos	-
+ghostty.macos.tab-open-close	macos	base	ghostty	upstream	key	Cmd+T / Cmd+W	New tab / close the focused surface	-	-	tool-help	true	macos	-
+ghostty.macos.tab-cycle	macos	base	ghostty	upstream	key	Cmd+Shift+[ / ]	Previous / next tab	-	-	tool-help	true	macos	-
+ghostty.macos.tab-goto	macos	base	ghostty	upstream	key	Cmd+1..8, Cmd+9	Go to tab 1-8, last tab	-	-	tool-help	true	macos	-
+ghostty.macos.split-new	macos	base	ghostty	upstream	key	Cmd+D / Cmd+Shift+D	Split right / down	-	-	tool-help	true	macos	-
+ghostty.macos.split-cycle	macos	base	ghostty	upstream	key	Cmd+[ / Cmd+]	Previous / next split	-	-	tool-help	true	macos	-
+ghostty.macos.split-focus	macos	base	ghostty	upstream	key	Cmd+Opt+arrows	Focus the split in that direction	-	-	tool-help	true	macos	-
+ghostty.macos.split-zoom	macos	base	ghostty	upstream	key	Cmd+Shift+Enter	Zoom the focused split	-	-	tool-help	true	macos	-
+ghostty.macos.fullscreen	macos	base	ghostty	upstream	key	Cmd+Enter	Toggle fullscreen	-	-	tool-help	true	macos	-
+ghostty.macos.command-palette	macos	base	ghostty	upstream	key	Cmd+Shift+P	Command palette	-	-	tool-help	true	macos	-
+ghostty.macos.clear-select	macos	base	ghostty	upstream	key	Cmd+K / Cmd+A	Clear the screen / select all	-	-	tool-help	true	macos	-
+ghostty.macos.prompt-jump	macos	base	ghostty	upstream	key	Cmd+Shift+Up / Down	Jump to the previous / next shell prompt	-	-	tool-help	true	macos	-
+ghostty.macos.font-size	macos	base	ghostty	upstream	key	Cmd+Plus / Minus / 0	Grow / shrink / reset the font	-	-	tool-help	true	macos	-
+ghostty.macos.config	macos	base	ghostty	upstream	key	Cmd+, / Cmd+Shift+,	Open / reload the configuration	-	-	tool-help	true	macos	-
+noctty.copy-paste	fedora-wsl	base	noctty	upstream	key	Ctrl+Shift+C / V	Copy / paste	-	-	tool-help	true	fedora-wsl	-
+noctty.tab-open-close	fedora-wsl	base	noctty	upstream	key	Ctrl+Shift+T / W	New / close tab	-	-	tool-help	true	fedora-wsl	-
+noctty.tab-cycle	fedora-wsl	base	noctty	upstream	key	Ctrl+Tab / Ctrl+Shift+Tab	Next / previous tab	-	-	tool-help	true	fedora-wsl	-
+noctty.split-new	fedora-wsl	base	noctty	upstream	key	Ctrl+Shift+\ / E	Split pane right / down	-	-	tool-help	true	fedora-wsl	-
+noctty.pane-focus	fedora-wsl	base	noctty	upstream	key	Alt+arrows	Move between panes	-	-	tool-help	true	fedora-wsl	-
+noctty.command-palette	fedora-wsl	base	noctty	upstream	key	Ctrl+Shift+P	Command palette	-	-	tool-help	true	fedora-wsl	-
+noctty.search	fedora-wsl	base	noctty	upstream	key	Ctrl+Shift+F	Start a search	-	-	tool-help	true	fedora-wsl	-
+noctty.copy-mode	fedora-wsl	base	noctty	upstream	key	Ctrl+Shift+X	Copy mode	-	-	tool-help	true	fedora-wsl	-
+noctty.font-size	fedora-wsl	base	noctty	upstream	key	Ctrl+= / Ctrl+-	Increase / decrease the font size	-	-	tool-help	true	fedora-wsl	-
+nvim.default.insert	all	base	neovim	upstream	key	i / a / o	Insert before / after the cursor, open a line below	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.normal-mode	all	base	neovim	upstream	key	Esc	Leave insert mode, back to normal mode	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.write-quit	all	base	neovim	upstream	key	:w / :q / :wq / :q!	Write / quit / write and quit / quit discarding	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.motion	all	base	neovim	upstream	key	h j k l	Move left / down / up / right	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.word-motion	all	base	neovim	upstream	key	w / b / e	Next word / previous word / end of word	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.line-ends	all	base	neovim	upstream	key	0 / $	Start / end of the line	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.buffer-ends	all	base	neovim	upstream	key	gg / G	Top / bottom of the buffer	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.half-page	all	base	neovim	upstream	key	Ctrl+U / Ctrl+D	Half a screen up / down	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.yank-put	all	base	neovim	upstream	key	yy / dd / p	Yank / cut / put a line	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.change-word	all	base	neovim	upstream	key	ciw / diw	Change / delete the word under the cursor	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.visual	all	base	neovim	upstream	key	v / V / Ctrl+V	Character / line / block visual mode	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.search	all	base	neovim	upstream	key	/pat, then n / N	Search, then next / previous match	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.substitute	all	base	neovim	upstream	key	:%s/a/b/g	Replace a with b in the whole buffer	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.undo-redo	all	base	neovim	upstream	key	u / Ctrl+R	Undo / redo	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.repeat	all	base	neovim	upstream	key	.	Repeat the last change	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+nvim.default.comment	all	base	neovim	upstream	key	gcc / gc + motion	Toggle a comment on the line / over a motion	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap.
+lazyvim.explorer	all	base	neovim	upstream	key	<lead>e	File explorer (Snacks), rooted at the project	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.window-focus	all	base	neovim	upstream	key	Ctrl+H/J/K/L	Focus the window left/down/up/right	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.window-split	all	base	neovim	upstream	key	<lead>- / <lead>|	Split the window below / right	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.window-close	all	base	neovim	upstream	key	<lead>wd	Close the window	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.buffer-close	all	base	neovim	upstream	key	<lead>bd	Close the buffer, keep the window	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.save	all	base	neovim	upstream	key	Ctrl+S	Save the file, from any mode	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.move-line	all	base	neovim	upstream	key	Alt+J / Alt+K	Move the line (or selection) down / up	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.flash	all	base	neovim	upstream	key	s	Flash: jump to any visible position	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.recent-files	all	base	neovim	upstream	key	<lead>fr	Recent files	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.keymaps	all	base	neovim	upstream	key	<lead>sk	Search every keymap	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.lazy	all	base	neovim	upstream	key	<lead>l	Lazy: plugin manager	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+lazyvim.quit	all	base	neovim	upstream	key	<lead>qq	Quit all	-	-	whichkey	true	fedora-kde,fedora-sway,fedora-wsl,macos	Withheld from the Parrot sheet: the guest shares LazyVim's keymap, and that sheet points at WhichKey instead of reprinting it.
+herdr.start	workstation	ai	herdr	upstream	command	herdr	Start or reattach the workspace; agents survive a detach	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.help	workstation	ai	herdr	upstream	key	Ctrl+B ?	List every binding	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.tab-new	workstation	ai	herdr	upstream	key	Ctrl+B c	New tab	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.split	workstation	ai	herdr	upstream	key	Ctrl+B v / Ctrl+B -	Split the pane right / down	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.pane-focus	workstation	ai	herdr	upstream	key	Ctrl+B h/j/k/l	Focus the pane left/down/up/right	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.pane-zoom	workstation	ai	herdr	upstream	key	Ctrl+B z / Ctrl+B x	Zoom / close the focused pane	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.tab-cycle	workstation	ai	herdr	upstream	key	Ctrl+B n / Ctrl+B p	Next / previous tab	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.tab-goto	workstation	ai	herdr	upstream	key	Ctrl+B 1..9	Jump to tab 1-9	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.workspace-new	workstation	ai	herdr	upstream	key	Ctrl+B Shift+N	New workspace	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.pickers	workstation	ai	herdr	upstream	key	Ctrl+B w / Ctrl+B g	Workspace picker / goto picker	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.sidebar	workstation	ai	herdr	upstream	key	Ctrl+B b	Toggle the agent sidebar (blocked/working/done/idle)	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.copy-mode	workstation	ai	herdr	upstream	key	Ctrl+B [	Copy mode	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+herdr.detach	workstation	ai	herdr	upstream	key	Ctrl+B q	Detach; the agents keep running	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-

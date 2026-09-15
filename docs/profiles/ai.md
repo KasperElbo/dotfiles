@@ -201,6 +201,14 @@ add glue code to bridge the two; use tmux (already installed, intentionally
 thin) for ordinary shell multiplexing outside of agent work, and Herdr for
 agent panes.
 
+Both use `Ctrl+B` as their prefix, and neither is reconfigured here to avoid
+the other. Side by side — one in each Ghostty tab — that costs nothing, since
+a prefix is grabbed per process tree, and the split above is the reason not to
+nest them in the first place. Nested anyway, the outer one takes the prefix
+and the inner never sees it; tmux's own stock `bind-key -T prefix C-b
+send-prefix` is the way through, so `Ctrl+B Ctrl+B` reaches a Herdr running
+inside tmux, the same double-prefix dance nested tmux has always used.
+
 ## Optional: FirstMate and its required toolchain
 
 `--firstmate` installs [kunchenguid/firstmate](https://github.com/kunchenguid/firstmate)
