@@ -18,8 +18,8 @@ Platform guide: [../platforms/fedora.md](../platforms/fedora.md)
 | Option | Enable | Disable | Default | Values | Summary | Capability | Documented in |
 |---|---|---|---|---|---|---|---|
 | `theme` | `--theme` | — | `macchiato` | `latte\|frappe\|macchiato\|mocha` | Catppuccin flavour | — | — |
-| `kde` | `--kde` | `--no-kde` | `false` | — | KDE integration | `kde` | [docs/workflows/theming.md](../workflows/theming.md#kde) |
-| `latex` | `--latex` | `--no-latex` | `false` | — | LaTeX toolchain | `latex` | [docs/workflows/latex.md](../workflows/latex.md#latex-editing-workflow) |
+| `kde` | `--kde` | `--no-kde` | `auto` | — | KDE integration | `kde` | [docs/platforms/fedora.md](../platforms/fedora.md#defaults-that-resolve-themselves) |
+| `latex` | `--latex` | `--no-latex` | `auto` | — | LaTeX toolchain | `latex` | [docs/platforms/fedora.md](../platforms/fedora.md#defaults-that-resolve-themselves) |
 | `ocaml` | `--ocaml` | `--no-ocaml` | `false` | — | OCaml profile | `ocaml` | [docs/workflows/development.md](../workflows/development.md#ocaml-development) |
 | `sway` | `--sway` | `--no-sway` | `false` | — | Sway session | `sway` | [docs/platforms/fedora.md](../platforms/fedora.md#optional-sway-session) |
 | `vm-host` | `--vm-host` | — | `false` | — | KVM/QEMU + libvirt host profile | `vm-host` | [docs/profiles/vm-host.md](../profiles/vm-host.md) |

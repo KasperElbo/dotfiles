@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Validate the authoritative capability/provider contract."""
+"""Validate the authoritative capability/provider contract.
+
+`config/capabilities.tsv` and `config/install-options.tsv` describe the same
+CLI contract from two directions: the first says what a capability is and how
+it defaults, the second says what the parser accepts and what a machine may
+remember. They are checked against each other here, so a default can never be
+changed in one manifest alone.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +25,32 @@ FIELDS = [
 ]
 PLATFORMS = {"fedora", "fedora-wsl", "macos", "parrot-ctf"}
 
+OPTION_MANIFEST = pathlib.Path(
+    os.environ.get("INSTALL_OPTION_MANIFEST", ROOT / "config" / "install-options.tsv")
+)
+OPTION_FIELDS = [
+    "platform", "option", "kind", "on_flag", "off_flag", "default",
+    "values", "capability", "summary",
+]
+
+# Capabilities that own a CLI flag but deliberately have no persistent option
+# row. `--dev-workflows` runs disposable smoke tests for one invocation; it is
+# a transient execution control, so it belongs to no machine's remembered
+# configuration and must not gain an install-options.tsv row.
+TRANSIENT_CAPABILITIES = {"dev-workflows"}
+
+# How a capability default maps onto the persistent option's default, per
+# option kind. A `value` option is "off" by declaring no default at all.
+OPTION_DEFAULTS = {
+    ("enabled", "boolean"): {"true"},
+    ("enabled", "tristate"): {"true"},
+    ("disabled", "boolean"): {"false"},
+    ("disabled", "tristate"): {"inherit"},
+    ("disabled", "value"): {"-"},
+    ("auto", "boolean"): {"auto"},
+    ("auto", "tristate"): {"auto"},
+}
+
 
 def split(value: str) -> list[str]:
     return [] if value == "-" else value.split(",")
@@ -25,6 +58,10 @@ def split(value: str) -> list[str]:
 
 def fail(message: str) -> None:
     print(f"capability manifest: {message}", file=sys.stderr)
+
+
+def fail_options(message: str) -> None:
+    print(f"installer option manifest: {message}", file=sys.stderr)
 
 
 def markdown_anchors(path: pathlib.Path) -> set[str]:
@@ -37,6 +74,55 @@ def markdown_anchors(path: pathlib.Path) -> set[str]:
         anchor = re.sub(r"[^\w\- ]", "", anchor)
         anchors.add(anchor.replace(" ", "-"))
     return anchors
+
+
+def check_option_manifest(rows: list[dict[str, str]]) -> int:
+    """Every flagged capability must have an option row that agrees with it."""
+    errors = 0
+    with OPTION_MANIFEST.open(newline="", encoding="utf-8") as stream:
+        reader = csv.DictReader(stream, delimiter="\t")
+        if reader.fieldnames != OPTION_FIELDS:
+            fail_options(f"unexpected columns: {reader.fieldnames}")
+            return 1
+        options = list(reader)
+
+    by_flag = {(row["platform"], row["on_flag"]): row for row in options}
+    for row in rows:
+        if row["status"] != "implemented" or row["cli_flag"] in {"", "-"}:
+            continue
+        where = f"{row['platform']}/{row['capability']}"
+        if row["capability"] in TRANSIENT_CAPABILITIES:
+            if (row["platform"], row["cli_flag"]) in by_flag:
+                fail_options(
+                    f"{where}: {row['cli_flag']} is a transient control and must not "
+                    "be a persistent option"
+                )
+                errors += 1
+            continue
+        option = by_flag.get((row["platform"], row["cli_flag"]))
+        if option is None:
+            fail_options(
+                f"{where}: no persistent option declares {row['cli_flag']} on "
+                f"{row['platform']}"
+            )
+            errors += 1
+            continue
+        expected = OPTION_DEFAULTS.get((row["default"], option["kind"]))
+        if expected is None:
+            fail_options(
+                f"{row['platform']}/{option['option']}: capability default "
+                f"{row['default']!r} has no meaning for a {option['kind']} option"
+            )
+            errors += 1
+        elif option["default"] not in expected:
+            fail_options(
+                f"{row['platform']}/{option['option']}: option default "
+                f"{option['default']!r} disagrees with capability "
+                f"{row['capability']} default {row['default']!r} "
+                f"(expected {' or '.join(sorted(expected))})"
+            )
+            errors += 1
+    return errors
 
 
 def main() -> int:
@@ -112,6 +198,8 @@ def main() -> int:
     if PLATFORMS - set(rows_by_platform):
         fail(f"platforms missing from manifest: {', '.join(sorted(PLATFORMS - set(rows_by_platform)))}")
         errors += 1
+
+    errors += check_option_manifest(rows)
     return 1 if errors else 0
 
 

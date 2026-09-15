@@ -37,6 +37,10 @@ record_remembered() {
       value="$(awk -F '\t' -v p="$platform" -v o="$option" \
         'NR > 1 && $1 == p && $2 == o { print $6; exit }' \
         "$repo_root/config/install-options.tsv")"
+      # A manifest default of "auto" is the installer's own detection or
+      # prompt, never a recorded value. A real install records what it
+      # resolved to, and on an unattended machine that is false.
+      [[ "$value" != auto ]] || value=false
     fi
     selection+="${selection:+,}$option:$value"
   done < <(awk -F '\t' -v p="$platform" 'NR > 1 && $1 == p { print $2 }' \

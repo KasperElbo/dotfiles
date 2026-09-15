@@ -16,8 +16,18 @@ To add or change a capability:
    `implemented`.
 4. Add focused positive and negative tests, then run
    `./scripts/validate-capabilities.py`, regenerate the support table with
-   `./scripts/render-capability-matrix.py`, then run `./scripts/lint.sh`, and
-   `./scripts/test.sh`.
+   `./scripts/render-capability-matrix.py` and the option reference with
+   `./scripts/render-installer-options.py`, then run `./scripts/lint.sh`, and
+   `./scripts/test.sh`. `./scripts/validate-capabilities.py` also checks this
+   manifest against `config/install-options.tsv`: a capability that owns a
+   `cli_flag` needs a persistent option on the same platform whose `on_flag`
+   is that flag, and the two defaults must agree — `enabled` is `true`,
+   `disabled` is `false` (`inherit` for a tristate, `-` for a value option),
+   and `auto` is `auto`. It names the platform and the option when they
+   disagree, so changing a default in one manifest alone fails lint. A flag
+   that controls one invocation rather than the machine has no option row at
+   all; `--dev-workflows` is the only such flag today and the validator lists
+   it as an explicit exception.
 
 `config/capabilities.tsv` records which capability owns a provider and
 packages. Its companion, `config/network-sources.tsv`, records where each

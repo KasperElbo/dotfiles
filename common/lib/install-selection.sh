@@ -54,6 +54,12 @@ install_option_exists() {
   install_option_field "$1" "$2" kind >/dev/null 2>&1
 }
 
+# Whether a *recorded* value is one this checkout can still interpret.
+#
+# Recorded values are always resolved ones, so a boolean record is true or
+# false and never auto. A manifest *default* of auto is a different thing --
+# it names an option the installer resolves for itself, by detecting or by
+# asking -- and is handled where defaults are read, not here.
 install_selection_value_is_valid() {
   local platform="$1" option="$2" value="$3" kind pattern
   kind="$(install_option_field "$platform" "$option" kind)" || return 1
@@ -162,14 +168,25 @@ install_selection_validate_record() {
 # Reconstruct the current parser's input from a validated record, one argument
 # per line. An option added after the record was written is reported and falls
 # back to its manifest default rather than disappearing without a word.
+#
+# A boolean whose manifest default is auto is the one case where that fallback
+# emits nothing: auto is not a value the installer can be told, it is the
+# installer's own detection or prompt. Passing the off flag instead would turn
+# "this record predates the option" into "this machine said no", which is a
+# different configuration than the one that was recorded.
 install_selection_render_args() {
   local platform="$1" record="$2" option kind value on_flag off_flag
   install_selection_validate_record "$platform" "$record" || return 1
   while IFS= read -r option; do
     if ! value="$(install_selection_record_value "$record" "$option")"; then
       value="$(install_option_field "$platform" "$option" default)"
-      printf 'NOTE: option --%s was added after this configuration was recorded; using its default (%s).\n' \
-        "$option" "$value" >&2
+      if [[ "$value" == auto ]]; then
+        printf 'NOTE: option --%s was added after this configuration was recorded; leaving it to the installer (default: auto).\n' \
+          "$option" >&2
+      else
+        printf 'NOTE: option --%s was added after this configuration was recorded; using its default (%s).\n' \
+          "$option" "$value" >&2
+      fi
     fi
     kind="$(install_option_field "$platform" "$option" kind)"
     on_flag="$(install_option_field "$platform" "$option" on_flag)"
@@ -182,6 +199,7 @@ install_selection_render_args() {
       case "$value" in
       true) [[ "$on_flag" == - ]] || printf '%s\n' "$on_flag" ;;
       false) [[ "$off_flag" == - ]] || printf '%s\n' "$off_flag" ;;
+      auto) ;; # Manifest default only: the installer resolves it, so say nothing.
       esac
       ;;
     esac

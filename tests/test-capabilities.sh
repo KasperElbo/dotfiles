@@ -6,7 +6,7 @@ python3 "$repo_root/scripts/validate-capabilities.py"
 python3 "$repo_root/scripts/render-capability-matrix.py" --check
 
 fixture="$(mktemp)"
-trap 'rm -f -- "$fixture" "$fixture.log" "$fixture.provider" "$fixture.provider.log"' EXIT
+trap 'rm -f -- "$fixture" "$fixture.log" "$fixture.provider" "$fixture.provider.log" "$fixture.options" "$fixture.options.log" "$fixture.capability" "$fixture.capability.log"' EXIT
 cp "$repo_root/config/capabilities.tsv" "$fixture"
 duplicate_row="$(sed -n '2p' "$fixture")"
 printf '%s\n' "$duplicate_row" >>"$fixture"
@@ -25,6 +25,40 @@ if CAPABILITY_MANIFEST="$fixture.provider" python3 "$repo_root/scripts/validate-
   exit 1
 fi
 grep -Fq 'lacks provider' "$fixture.provider.log"
+
+# config/capabilities.tsv and config/install-options.tsv describe the same CLI
+# contract from two directions, so a default may never be changed in one of
+# them alone. Each fixture below edits exactly one manifest.
+
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "fedora" && $2 == "latex" {$6 = "false"} {print}' \
+  "$repo_root/config/install-options.tsv" >"$fixture.options"
+if INSTALL_OPTION_MANIFEST="$fixture.options" \
+  python3 "$repo_root/scripts/validate-capabilities.py" 2>"$fixture.options.log"; then
+  printf 'Divergent installer-option default fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq 'fedora/latex' "$fixture.options.log"
+grep -Fq 'disagrees with capability latex default' "$fixture.options.log"
+
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "kde" && $2 == "fedora" {$5 = "disabled"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.capability"
+if CAPABILITY_MANIFEST="$fixture.capability" \
+  python3 "$repo_root/scripts/validate-capabilities.py" 2>"$fixture.capability.log"; then
+  printf 'Divergent capability default fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq 'fedora/kde' "$fixture.capability.log"
+grep -Fq "disagrees with capability kde default 'disabled'" "$fixture.capability.log"
+
+# --dev-workflows is a transient execution control: it has a CLI flag on
+# purpose and no persistent option row. The clean run above passes only because
+# the validator carries it as an explicit exception; this keeps the exception
+# honest by proving the row really is absent.
+if awk -F '\t' '$1 == "fedora" && $2 == "dev-workflows" { found = 1 } END { exit !found }' \
+  "$repo_root/config/install-options.tsv"; then
+  printf 'dev-workflows must not be a persistent installer option.\n' >&2
+  exit 1
+fi
 
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"

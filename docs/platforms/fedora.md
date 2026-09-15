@@ -7,6 +7,31 @@ Sway session. The install path itself is in
 [install.md](../workflows/install.md), and the optional profiles that are not
 Fedora-specific have their own guides under [profiles/](../profiles/).
 
+## Defaults that resolve themselves
+
+Two Fedora options have no fixed default. The
+[installer option reference](../reference/installer-options.md) shows them as
+`auto`, which means this installer decides when the flag is absent:
+
+| Option | How it resolves when neither flag is given |
+|---|---|
+| `--kde` / `--no-kde` | Enabled when `plasmashell` is present on the machine, disabled otherwise. See [KDE theming](../workflows/theming.md#kde). |
+| `--latex` / `--no-latex` | Asked once, interactively, defaulting to no. Under `--non-interactive` or `--dry-run` nothing is asked and it is disabled. See [the LaTeX workflow](../workflows/latex.md#latex-editing-workflow). |
+
+Passing `--kde`, `--no-kde`, `--latex` or `--no-latex` skips the detection and
+the question entirely.
+
+Either way, what the run *records* is what the option resolved to — `true` or
+`false`, never `auto`. That is the machine's configuration, so
+`./install.sh --rerun` reproduces the recorded value rather than detecting or
+asking again: a machine that answered yes to LaTeX keeps LaTeX even where the
+rerun is non-interactive, and one that had no Plasma when it was installed does
+not silently gain KDE integration later.
+
+A configuration recorded before one of these options existed simply has no
+value for it. Such a rerun says so and leaves the option to the installer, so
+the detection or the question runs — it is not read as a recorded "no".
+
 ## ASUS laptop hardware
 
 Hardware setup is deliberately separate from the default workstation install.
