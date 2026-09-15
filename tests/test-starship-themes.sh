@@ -16,6 +16,24 @@ test_new_root
 root="$TEST_ROOT"
 
 generator="$repo_root/scripts/update-starship-themes.sh"
+
+# The Fedora validation container ships no diffutils, so this suite compares
+# bytes the same dependency-free way the generator does.
+files_identical() {
+  local first="$1" second="$2" first_content second_content
+
+  [[ -f "$first" && -f "$second" ]] || return 1
+  first_content="$(
+    cat -- "$first"
+    printf end
+  )" || return 1
+  second_content="$(
+    cat -- "$second"
+    printf end
+  )" || return 1
+
+  [[ "$first_content" == "$second_content" ]]
+}
 common_source="$repo_root/config/starship/prompt.toml"
 palette_dir="$repo_root/config/starship/palettes"
 tracked_dir="$repo_root/starship/.config/starship"
@@ -189,7 +207,7 @@ generated_dir="$root/generated"
 run_capture "$generator" --output-dir "$generated_dir"
 assert_success
 for flavour in "${flavours[@]}"; do
-  cmp -s "$generated_dir/catppuccin-${flavour}.toml" \
+  files_identical "$generated_dir/catppuccin-${flavour}.toml" \
     "$tracked_dir/catppuccin-${flavour}.toml" ||
     _test_die "tracked catppuccin-${flavour}.toml is stale; run ./scripts/update-starship-themes.sh"
 done
@@ -199,7 +217,7 @@ second_dir="$root/generated-again"
 run_capture "$generator" --output-dir "$second_dir"
 assert_success
 for flavour in "${flavours[@]}"; do
-  cmp -s "$generated_dir/catppuccin-${flavour}.toml" \
+  files_identical "$generated_dir/catppuccin-${flavour}.toml" \
     "$second_dir/catppuccin-${flavour}.toml" ||
     _test_die "generation is not idempotent for $flavour"
 done

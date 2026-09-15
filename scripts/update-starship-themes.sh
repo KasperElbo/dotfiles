@@ -110,6 +110,27 @@ if grep -Eq "^\[palettes\." "$common"; then
   exit 1
 fi
 
+# Byte-comparison without diffutils. The Fedora validation container ships no
+# cmp or diff, and a missing tool must never be reported as a difference: this
+# reads both files in full and compares them, with a sentinel so a trailing
+# newline cannot be lost to command substitution. The inputs are generated
+# text, so Bash's inability to hold NUL bytes does not apply.
+files_identical() {
+  local first="$1" second="$2" first_content second_content
+
+  [[ -f "$first" && -f "$second" ]] || return 1
+  first_content="$(
+    cat -- "$first"
+    printf end
+  )" || return 1
+  second_content="$(
+    cat -- "$second"
+    printf end
+  )" || return 1
+
+  [[ "$first_content" == "$second_content" ]]
+}
+
 generate_flavour() {
   local flavour="$1" destination="$2"
 
@@ -140,12 +161,12 @@ if [[ "$check" == true ]]; then
     generate_flavour "$flavour" "$scratch/catppuccin-${flavour}.toml"
     # Regenerating must be a no-op, so generation itself is compared twice.
     generate_flavour "$flavour" "$scratch/repeat-catppuccin-${flavour}.toml"
-    if ! cmp -s "$scratch/catppuccin-${flavour}.toml" \
+    if ! files_identical "$scratch/catppuccin-${flavour}.toml" \
       "$scratch/repeat-catppuccin-${flavour}.toml"; then
       printf 'Generation is not deterministic for flavour: %s\n' "$flavour" >&2
       exit 1
     fi
-    if ! cmp -s "$scratch/catppuccin-${flavour}.toml" \
+    if ! files_identical "$scratch/catppuccin-${flavour}.toml" \
       "$tracked_dir/catppuccin-${flavour}.toml"; then
       stale+=("starship/.config/starship/catppuccin-${flavour}.toml")
     fi

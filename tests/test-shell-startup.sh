@@ -356,10 +356,38 @@ archive_check() {
   assert_file_contains "$extract_dir/payload/b.txt" beta
 }
 
+# #168 asks for .tar, .tar.gz and .tar.xz "where supported by the platform tar
+# implementation". tar and gzip are assumed; a suffix whose compressor is not
+# installed is reported as skipped rather than failing or passing silently.
+command -v tar >/dev/null 2>&1 ||
+  _test_die 'tar is required for the archive helper tests'
+
+covered=()
+skipped_suffixes=()
 for suffix in tar tar.gz tar.xz tgz txz; do
+  case "$suffix" in
+  tar.gz | tgz) compressor=gzip ;;
+  tar.xz | txz) compressor=xz ;;
+  *) compressor="" ;;
+  esac
+
+  if [[ -n "$compressor" ]] && ! command -v "$compressor" >/dev/null 2>&1; then
+    skipped_suffixes+=(".$suffix (no $compressor)")
+    continue
+  fi
+
   archive_check "$suffix"
+  covered+=(".$suffix")
 done
-printf 'PASS: tar/untar create and extract .tar, .tar.gz and .tar.xz\n'
+
+for required in .tar .tar.gz; do
+  printf '%s\n' "${covered[@]}" | grep -Fxq -- "$required" ||
+    _test_die "the archive helpers must be exercised for $required"
+done
+
+printf 'PASS: tar/untar round-trip %s\n' "${covered[*]}"
+((${#skipped_suffixes[@]} == 0)) ||
+  printf 'SKIP: no compressor installed for %s\n' "${skipped_suffixes[*]}"
 
 # The helper must never shadow the native CLI.
 listing="$(run_zsh bare xterm-256color "
