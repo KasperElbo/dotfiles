@@ -3,10 +3,10 @@ set -euo pipefail
 
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
-# shellcheck source=../../../common/lib/theme-state.sh
-source "$DOTFILES_ROOT/common/lib/theme-state.sh"
-# shellcheck source=../lib/theme-state.sh
-source "$DOTFILES_ROOT/platforms/fedora/lib/theme-state.sh"
+# shellcheck source=../../../common/lib/theme-shared-state.sh
+source "$DOTFILES_ROOT/common/lib/theme-shared-state.sh"
+# shellcheck source=../lib/theme-desktop.sh
+source "$DOTFILES_ROOT/platforms/fedora/lib/theme-desktop.sh"
 
 theme="${1:-macchiato}"
 install_sway="false"

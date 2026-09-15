@@ -231,16 +231,16 @@ test_environment=(
 mkdir -p "$test_root/yum.repos.d"
 printf '[fedora]\nenabled=1\n' >"$test_root/yum.repos.d/fedora.repo"
 
-"${test_environment[@]}" "$repo_root/scripts/install-system.sh" >/dev/null
-"${test_environment[@]}" "$repo_root/scripts/install-system.sh" >/dev/null
-"${test_environment[@]}" "$repo_root/scripts/install-terra.sh" >/dev/null
+"${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-system.sh" >/dev/null
+"${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-system.sh" >/dev/null
+"${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-terra.sh" >/dev/null
 "${test_environment[@]}" \
   "$repo_root/platforms/fedora/scripts/install-ocaml.sh" >/dev/null
 "${test_environment[@]}" \
   "$repo_root/platforms/fedora/scripts/install-latex.sh" >/dev/null
-"${test_environment[@]}" "$repo_root/scripts/install-sway.sh" >/dev/null
+"${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-sway.sh" >/dev/null
 "${test_environment[@]}" \
-  "$repo_root/scripts/install-asus-hardware.sh" \
+  "$repo_root/platforms/fedora/scripts/install-asus-hardware.sh" \
   --model ga402rk --charge-limit 80 --non-interactive >/dev/null
 
 assert_file_contains "$command_log" 'sudo dnf install -y bat curl eza'
@@ -259,7 +259,7 @@ assert_file_not_contains "$command_log" '--disablerepo'
 # where Terra's mise would otherwise lose to the COPR's conflicting build.
 printf '[copr:copr.fedorainfracloud.org:jdxcode:mise]\nenabled=1\n' \
   >"$test_root/yum.repos.d/_copr:copr.fedorainfracloud.org:jdxcode:mise.repo"
-"${test_environment[@]}" "$repo_root/scripts/install-terra.sh" >/dev/null
+"${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-terra.sh" >/dev/null
 assert_file_contains "$command_log" \
   'sudo dnf install -y --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise ghostty mise starship'
 rm -f -- "$test_root/yum.repos.d/_copr:copr.fedorainfracloud.org:jdxcode:mise.repo"
@@ -283,7 +283,7 @@ assert_file_line "$test_root/config/dotfiles/hardware.conf" 'charge_limit=80'
 
 first_state="$(sha256sum "$test_root/config/dotfiles/hardware.conf")"
 "${test_environment[@]}" \
-  "$repo_root/scripts/install-asus-hardware.sh" \
+  "$repo_root/platforms/fedora/scripts/install-asus-hardware.sh" \
   --model ga402rk --charge-limit 80 --non-interactive >/dev/null
 second_state="$(sha256sum "$test_root/config/dotfiles/hardware.conf")"
 assert_eq "$first_state" "$second_state" 'hardware profile state changed on rerun'

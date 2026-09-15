@@ -71,7 +71,7 @@ installers_expose_the_canonical_flag() {
   done
   assert_file_contains "$repo_root/platforms/macos/bootstrap-help.txt" \
     '--dev-workflows/--no-dev-workflows' || return 1
-  assert_file_contains "$repo_root/README.md" \
+  assert_file_contains "$repo_root/docs/workflows/development.md" \
     './install.sh --platform fedora --dev-workflows'
 }
 check "every supporting installer exposes the canonical flag" \

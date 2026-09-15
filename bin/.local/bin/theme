@@ -79,8 +79,8 @@ script_path="$(cd -P "$(dirname "$script_path")" && pwd)/$(basename "$script_pat
 repo_root="$(cd "$(dirname "$script_path")/../../.." && pwd)"
 # shellcheck source=../../../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
-# shellcheck source=../../../common/lib/theme-state.sh
-source "$repo_root/common/lib/theme-state.sh"
+# shellcheck source=../../../common/lib/theme-shared-state.sh
+source "$repo_root/common/lib/theme-shared-state.sh"
 # shellcheck source=../../../common/lib/install-lifecycle.sh
 source "$repo_root/common/lib/install-lifecycle.sh"
 # shellcheck source=../../../common/lib/theme-hooks.sh

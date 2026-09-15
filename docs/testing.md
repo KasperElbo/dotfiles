@@ -155,6 +155,84 @@ Three suites carry the invariants from the AI/mise/supply-chain workstream:
   interrupted transition and its recovery, and a lost state file. Each step
   asserts both the profile state and the filesystem.
 
+### Repository hygiene
+
+`tests/test-repository-hygiene.sh` owns the rules in
+`scripts/validate-repository-hygiene.py` (issue #162). Each negative case
+builds a minimal tree that is valid except for one defect, so a rule that stops
+working fails visibly rather than passing vacuously: a lone root npm lockfile,
+a retained upstream licence text nothing references, a third-party notice
+pointing at a path that no longer exists, and a licensing page whose stated
+decision disagrees with the tree. The positive cases prove the rules do not
+over-reach — a lockfile beside its own manifest, and a fixture project below
+the root, are both accepted.
+
+### Documentation architecture
+
+`tests/test-documentation.sh` owns the documentation gates in
+`scripts/validate-docs.py` and the two normative renderers (issue #159). Each
+negative case builds a small tree that is valid except for one defect — a
+broken internal link, a link to a heading that does not exist, a document
+nothing links to, a capability described as waiting for or blocked on an
+issue, and an `./install.sh --platform X` command line passing an option that
+platform does not have. The drift cases are the real ones: a manifest row is
+changed and nothing is regenerated, and the generated document is hand-edited;
+both fail, and the checker never silently repairs the tracked file. The suite
+also asserts that the README stays an entry point rather than growing back
+into the operating manual.
+
+### Compatibility wrappers, file modes and names
+
+`tests/test-compat-wrappers.sh` owns the deprecation policy (issue #161). A
+deprecation window only means something if the wrapper still works, so the
+suite proves both halves: every deprecated wrapper forwards to a real target
+and passes its arguments through, and the notice names the wrapper's own path,
+the supported replacement, the platform script and the removal date. It also
+checks the properties that keep the notice from being harmful — it goes to
+stderr so stdout stays parseable, and `DOTFILES_SUPPRESS_DEPRECATION=1`
+silences it — and that the removal milestone lives in one constant rather than
+being copied into every wrapper. A window that has already expired fails the
+suite, which is how the follow-up removal gets noticed.
+
+The mode policy is tested against a throwaway copy of the tree, one defect at a
+time: an executable sourced library fails, a non-executable entry point fails,
+and a shell file no role in `config/shell-file-roles.tsv` claims fails, so
+classifying a new script is unavoidable rather than optional.
+
+The renamed theme libraries are checked for stale references across every
+tracked file, and the deprecated shim is sourced to prove it still provides
+what it used to while warning that it is deprecated.
+
+### Custom actions and printable sheets
+
+`tests/test-action-registry.sh` owns `config/actions.tsv` and everything
+derived from it (issue #160). The registry is checked in both directions, and
+the suite proves each direction separately: renaming a tracked binding without
+updating the registry fails, and adding a binding without registering it fails
+— the latter through the real parsers (`tomllib` for AeroSpace, `json` for
+Waybar, Sway's own grammar, the shell's alias and function syntax), not a
+single regex over everything.
+
+It also pins the distinction the registry exists to make: every registered
+action appears in the generated full reference, every `print=false` action
+stays in that reference and off every sheet, and no sheet advertises a command
+or flag its platform does not have. `docs/cheatsheets/verify.sh`, run as its
+own CI job, compiles each sheet and checks the page budget, A4 size, overfull
+boxes, undefined references, and byte-identical output across two builds.
+
+### Machine-local Git identity
+
+`tests/test-git-identity.sh` owns machine-local Git identity migration (issue
+#163). Every scenario builds the exact history or backup state it needs in a
+temporary directory, so nothing depends on this repository's own object graph
+or on `fetch-depth: 0`; the suite behaves identically in a full clone, a
+shallow clone, and an export with no `.git` at all. It covers each migration
+source, validation of recovered content, byte-exact restoration at mode `0600`,
+a no-op rerun, and the three failure modes that must never fabricate an
+identity: a missing source, invalid content, and a shallow clone whose
+historical objects are absent. It also asserts that no message contains the
+fixture's name or email, because identity values must never reach a log.
+
 ### Installer lifecycle repeatability
 
 `tests/test-install-rerun.sh` owns the `./install.sh --rerun` contract. It

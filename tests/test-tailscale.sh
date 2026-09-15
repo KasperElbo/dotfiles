@@ -163,7 +163,7 @@ test_root="$(new_test_root)"
 mapfile -t test_environment < <(base_environment "$test_root")
 
 dry_run_output="$(env "${test_environment[@]}" \
-  "$repo_root/scripts/install-tailscale.sh" --dry-run)"
+  "$repo_root/platforms/fedora/scripts/install-tailscale.sh" --dry-run)"
 
 grep -Fq 'add from https://pkgs.tailscale.com/stable/fedora/tailscale.repo' \
   <<<"$dry_run_output"
@@ -190,7 +190,7 @@ mapfile -t test_environment < <(base_environment "$test_root")
 
 run_install() {
   env "${test_environment[@]}" \
-    "$repo_root/scripts/install-tailscale.sh" \
+    "$repo_root/platforms/fedora/scripts/install-tailscale.sh" \
     >"$test_root/install-output.log" 2>&1
 }
 
@@ -235,7 +235,7 @@ first_repo="$(sha256sum "$test_root/etc/yum.repos.d/tailscale.repo")"
 : >"$test_root/commands.log"
 
 env "${test_environment[@]}" MOCK_DNF5_PLUGINS_INSTALLED=true \
-  "$repo_root/scripts/install-tailscale.sh" \
+  "$repo_root/platforms/fedora/scripts/install-tailscale.sh" \
   >"$test_root/install-output.log" 2>&1 ||
   fail_with_context 'rerun of install-tailscale.sh failed' \
     "$test_root/install-output.log"
@@ -269,7 +269,7 @@ mapfile -t test_environment < <(base_environment "$test_root")
 
 rm -f "$test_root/bin/tailscale"
 if env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-tailscale.sh" \
+  "$repo_root/platforms/fedora/scripts/verify-tailscale.sh" \
   >"$test_root/verify-output.log" 2>&1; then
   fail_with_context 'verify-tailscale.sh must fail when tailscale is not installed' \
     "$test_root/verify-output.log"
@@ -282,7 +282,7 @@ test_root="$(new_test_root)"
 mapfile -t test_environment < <(base_environment "$test_root")
 
 if env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-tailscale.sh" \
+  "$repo_root/platforms/fedora/scripts/verify-tailscale.sh" \
   >"$test_root/verify-output.log" 2>&1; then
   fail_with_context 'verify-tailscale.sh must fail when tailscaled is not enabled/active' \
     "$test_root/verify-output.log"
@@ -299,7 +299,7 @@ printf 'tailscaled\n' >"$test_root/enabled-units"
 printf 'tailscaled\n' >"$test_root/active-units"
 
 verify_output="$(env "${test_environment[@]}" MOCK_TAILSCALE_BACKEND_STATE=NeedsLogin \
-  "$repo_root/scripts/verify-tailscale.sh" 2>&1)" ||
+  "$repo_root/platforms/fedora/scripts/verify-tailscale.sh" 2>&1)" ||
   fail_with_context "verify-tailscale.sh must pass for an unauthenticated install:\n$verify_output"
 grep -Fq 'installed but not logged in' <<<"$verify_output"
 printf 'PASS: verification treats "installed but not logged in" as a valid state\n'
@@ -311,7 +311,7 @@ printf 'tailscaled\n' >"$test_root/enabled-units"
 printf 'tailscaled\n' >"$test_root/active-units"
 
 verify_output="$(env "${test_environment[@]}" MOCK_TAILSCALE_BACKEND_STATE=Running \
-  "$repo_root/scripts/verify-tailscale.sh" 2>&1)" ||
+  "$repo_root/platforms/fedora/scripts/verify-tailscale.sh" 2>&1)" ||
   fail_with_context "verify-tailscale.sh must pass when connected:\n$verify_output"
 grep -Fq 'authenticated and connected to a tailnet' <<<"$verify_output"
 printf 'PASS: verification reports the authenticated/connected state\n'
@@ -333,7 +333,7 @@ verify_with_active_daemon() {
   printf 'tailscaled\n' >"$test_root/active-units"
 
   run_capture env "${test_environment[@]}" "$@" \
-    "$repo_root/scripts/verify-tailscale.sh"
+    "$repo_root/platforms/fedora/scripts/verify-tailscale.sh"
 }
 
 verify_with_active_daemon MOCK_TAILSCALE_BACKEND_STATE=SomeFutureState
@@ -372,7 +372,7 @@ printf 'tailscaled\n' >"$test_root/enabled-units"
 printf 'tailscaled\n' >"$test_root/active-units"
 
 run_capture env "${test_environment[@]}" "PATH=$(make_parserless_path "$test_root")" \
-  "$repo_root/scripts/verify-tailscale.sh"
+  "$repo_root/platforms/fedora/scripts/verify-tailscale.sh"
 assert_failure
 assert_contains "$TEST_OUTPUT" 'jq not found'
 assert_not_contains "$TEST_OUTPUT" 'Tailscale verification passed'
@@ -389,7 +389,7 @@ exit 127
 EOF
 chmod +x "$test_root/bin/jq"
 
-run_capture env "${test_environment[@]}" "$repo_root/scripts/verify-tailscale.sh"
+run_capture env "${test_environment[@]}" "$repo_root/platforms/fedora/scripts/verify-tailscale.sh"
 assert_failure
 assert_contains "$TEST_OUTPUT" 'not executable/usable'
 rm -rf -- "$test_root"
@@ -403,7 +403,7 @@ printf 'tailscaled\n' >"$test_root/enabled-units"
 printf 'tailscaled\n' >"$test_root/active-units"
 
 run_capture env "${test_environment[@]}" MOCK_TAILSCALE_BACKEND_STATE=NeedsLogin \
-  "$repo_root/scripts/verify-tailscale.sh"
+  "$repo_root/platforms/fedora/scripts/verify-tailscale.sh"
 assert_success
 assert_file_not_contains "$test_root/commands.log" 'tailscale up'
 assert_file_not_contains "$test_root/commands.log" 'tailscale set'
@@ -428,8 +428,8 @@ tailscale_scripts=(
   "$repo_root/platforms/fedora/scripts/verify-tailscale.sh"
   "$repo_root/platforms/fedora/lib/tailscale.sh"
   "$repo_root/platforms/macos/scripts/install-tailscale.sh"
-  "$repo_root/scripts/install-tailscale.sh"
-  "$repo_root/scripts/verify-tailscale.sh"
+  "$repo_root/platforms/fedora/scripts/install-tailscale.sh"
+  "$repo_root/platforms/fedora/scripts/verify-tailscale.sh"
 )
 
 if grep -E -n "$forbidden_pattern" "${tailscale_scripts[@]}"; then

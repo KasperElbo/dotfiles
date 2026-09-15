@@ -56,7 +56,7 @@ while (($#)); do
   --latex | --no-latex)
     die "$1 is not a macOS option: this installer owns no TeX distribution.
 TeX is externally managed on macOS -- install MacTeX or BasicTeX yourself.
-See docs/macos.md, 'LaTeX is externally managed on macOS'."
+See docs/platforms/macos.md, 'LaTeX is externally managed on macOS'."
     ;;
   --dry-run) dry_run=true; interactive=false; shift ;;
   --non-interactive) interactive=false; shift ;;
@@ -91,7 +91,7 @@ macos_require_implemented_capability() {
 config/capabilities.tsv declares the '$capability' capability '$status' for
 macos, and this installer will not pretend to install it. The rest of the AI
 profile is unaffected: rerun without $flag.
-See docs/macos.md, 'AI-assisted development toolchain'."
+See docs/platforms/macos.md, 'AI-assisted development toolchain'."
 }
 if [[ "$install_ai" == true ]]; then
   macos_require_implemented_capability --ai ai
@@ -258,7 +258,7 @@ install_lifecycle_commit
 
 cat <<'EOF'
 
-Finish the manual security and display steps in docs/macos.md. Grant AeroSpace
+Finish the manual security and display steps in docs/platforms/macos.md. Grant AeroSpace
 Accessibility access, keep SIP and Gatekeeper enabled, and configure Git/SSH.
 EOF
 install_lifecycle_rerun_hint

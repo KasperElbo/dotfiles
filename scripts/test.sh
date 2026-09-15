@@ -63,6 +63,9 @@ default_tests=(
   tests/test-test-support.sh
   tests/test-test-runner.sh
   tests/test-capabilities.sh
+  tests/test-repository-hygiene.sh
+  tests/test-documentation.sh
+  tests/test-compat-wrappers.sh
   tests/test-fedora-dependency-closure.sh
   tests/test-supply-chain.sh
   tests/test-profile-state.sh
@@ -77,6 +80,7 @@ default_tests=(
   tests/test-installer-options.sh
   tests/test-platform-boundary.sh
   tests/test-local-state.sh
+  tests/test-git-identity.sh
   tests/test-theme.sh
   tests/test-theme-hooks.sh
   tests/test-theme-precedence.sh
@@ -84,6 +88,7 @@ default_tests=(
   tests/test-kde-theme.sh
   tests/test-sway-config.sh
   tests/test-cheatsheet-bindings.sh
+  tests/test-action-registry.sh
   tests/test-shell-startup.sh
   tests/test-neovim-tool-ownership.sh
   tests/test-csharpier-ownership.sh

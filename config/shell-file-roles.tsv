@@ -1,0 +1,35 @@
+role	mode	pattern	description
+public-entrypoint	755	install.sh	Portable installer, the documented way in
+public-entrypoint	755	doctor	Portable read-only health report
+public-entrypoint	755	scripts/lint.sh	Repository lint entry point
+public-entrypoint	755	scripts/test.sh	Repository test entry point
+public-entrypoint	755	scripts/doctor.sh	Doctor implementation behind ./doctor
+public-entrypoint	755	scripts/benchmark-shell-startup.sh	Manual shell-startup measurement
+public-entrypoint	755	scripts/test-dev-workflows.sh	Disposable development-workflow smoke tests
+public-entrypoint	755	scripts/update-starship-themes.sh	Generate the tracked Starship configurations
+public-entrypoint	755	docs/cheatsheets/generate.sh	Render the printable cheat sheets
+public-entrypoint	755	docs/cheatsheets/verify.sh	Verify the printable cheat sheets
+platform-entrypoint	755	platforms/*/install.sh	Platform installer, selected by --platform
+internal-executable	755	common/*.sh	Portable component installers and verifiers
+internal-executable	755	platforms/*/scripts/*.sh	Platform component installers and verifiers
+internal-executable	755	scripts/install-main.sh	Root installer body, run through an explicit interpreter
+internal-executable	755	scripts/bootstrap-macos.sh	macOS Bash bootstrap, run through an explicit interpreter
+portable-wrapper	755	scripts/install-ai.sh	Portable alias for common/install-ai.sh
+portable-wrapper	755	scripts/install-mise.sh	Portable alias for common/install-mise.sh
+portable-wrapper	755	scripts/install-neovim-tools.sh	Portable alias for common/install-neovim-tools.sh
+portable-wrapper	755	scripts/install-tmux-theme.sh	Portable alias for common/install-tmux-theme.sh
+portable-wrapper	755	scripts/verify-ai.sh	Portable alias for common/verify-ai.sh
+deprecated-wrapper	755	scripts/*.sh	Deprecated compatibility wrapper, kept forwarding during its removal window
+sourced-library	644	common/lib/*.sh	Sourced by installers and the theme command
+sourced-library	644	platforms/*/lib/*.sh	Sourced by one platform's scripts
+sourced-library	644	scripts/lib/*.sh	Deprecated sourced compatibility shim
+sourced-library	644	tests/lib/*.sh	Sourced by the test suites
+stowed-command	755	bin/.local/bin/*	Stowed onto PATH
+stowed-command	755	platforms/*/stow/*/.local/bin/*	Stowed onto PATH by a platform package
+stowed-config	644	zsh/.zshenv	Sourced by every Zsh
+stowed-config	644	zsh/.config/zsh/*	Sourced by every interactive Zsh
+stowed-config	644	platforms/*/stow/zsh-platform/.config/zsh/*.zsh	Sourced by one platform's Zsh
+stowed-config	644	platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.sh	Sourced by the theme command
+stowed-data	644	fzf/.config/fzf/themes/*.sh	Sourced fzf colour snippet
+test-entrypoint	755	tests/test-*.sh	Test suite, run by ./scripts/test.sh
+test-entrypoint	755	tests/integration/*.sh	Integration suite, run explicitly

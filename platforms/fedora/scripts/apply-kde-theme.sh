@@ -3,8 +3,8 @@ set -euo pipefail
 
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
-# shellcheck source=../lib/theme-state.sh
-source "$DOTFILES_ROOT/platforms/fedora/lib/theme-state.sh"
+# shellcheck source=../lib/theme-desktop.sh
+source "$DOTFILES_ROOT/platforms/fedora/lib/theme-desktop.sh"
 
 flavour="${1:-}"
 preserve_wallpaper="false"

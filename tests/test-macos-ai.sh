@@ -230,7 +230,7 @@ assert_contains "$TEST_OUTPUT" 'common/install-ai.sh --codex --no-gnhf'
 printf 'PASS: a remembered macOS selection replays into the same AI request\n'
 
 # Stale history must not outlive the implementation it was waiting for.
-if grep -rn 'issue #16' "$macos_root" "$repo_root/docs/macos.md" >/dev/null 2>&1; then
+if grep -rn 'issue #16' "$macos_root" "$repo_root/docs/platforms/macos.md" >/dev/null 2>&1; then
   _test_die 'macOS still claims the AI profile is waiting for issue #16'
 fi
 printf 'PASS: the stale "waiting for issue #16" claim is gone\n'

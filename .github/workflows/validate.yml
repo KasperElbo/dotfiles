@@ -62,6 +62,44 @@ jobs:
             git diff --check "$BEFORE_SHA..HEAD"
           fi
 
+  cheatsheets:
+    name: Printable cheat sheets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The same pinned Fedora image the repository job uses, so the LaTeX
+    # toolchain that renders the sheets is the one the --latex profile installs.
+    # network-source: validation-image-fedora
+    container: docker.io/library/fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
+
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Install the LaTeX toolchain
+        run: >-
+          dnf --assumeyes --setopt=install_weak_deps=False
+          install texlive-scheme-medium latexmk poppler-utils
+
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Compile and verify every printable cheat sheet
+        run: ./docs/cheatsheets/verify.sh
+
+      - name: Prove the rendered PDFs stay untracked
+        run: |
+          if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+            printf 'Building the cheat sheets left files behind:\n' >&2
+            git status --porcelain --untracked-files=normal >&2
+            exit 1
+          fi
+
   windows:
     name: Windows PowerShell validation
     runs-on: windows-latest

@@ -458,7 +458,7 @@ prerequisites_latex() {
   platform="$(install_lifecycle_platform 2>/dev/null || true)"
   case "$platform" in
   macos)
-    owner="TeX is externally managed on macOS; install MacTeX or BasicTeX yourself, see docs/macos.md"
+    owner="TeX is externally managed on macOS; install MacTeX or BasicTeX yourself, see docs/platforms/macos.md"
     ;;
   fedora | fedora-wsl)
     owner="rerun the installer with --latex to have the distribution own them"

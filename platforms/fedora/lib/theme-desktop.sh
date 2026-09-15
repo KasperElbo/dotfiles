@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-# Fedora desktop theme state. Source common/lib/theme-state.sh first.
+# The Fedora desktop half of applying a theme: Sway, Waybar, Fuzzel, Mako,
+# swaylock, the wallpaper and the cursor theme. Source
+# common/lib/theme-shared-state.sh first for the portable half.
 
 fedora_theme_wallpaper() {
   local flavour="$1"

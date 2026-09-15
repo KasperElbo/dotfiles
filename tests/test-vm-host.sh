@@ -117,7 +117,7 @@ test_environment=(
 )
 
 run_install() {
-  "${test_environment[@]}" "$repo_root/scripts/install-vm-host.sh" >/dev/null
+  "${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-vm-host.sh" >/dev/null
 }
 
 run_install
@@ -148,7 +148,7 @@ if grep -Eiq 'bridge|brctl|nmcli.*bridge' "$command_log"; then
 fi
 
 verification_output="$("${test_environment[@]}" \
-  "$repo_root/scripts/verify-vm-host.sh" --smoke-test 2>&1)"
+  "$repo_root/platforms/fedora/scripts/verify-vm-host.sh" --smoke-test 2>&1)"
 grep -Fq 'devices-cgroup warning is advisory' <<<"$verification_output"
 grep -Fq 'secure-guest warning is advisory' <<<"$verification_output"
 grep -Fq -- '--dry-run --print-xml' "$command_log"

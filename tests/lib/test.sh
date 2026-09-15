@@ -121,6 +121,33 @@ assert_file_not_contains() {
   fi
 }
 
+# files_identical <first> <second>: byte comparison without diffutils.
+#
+# The Fedora validation container ships no cmp or diff, and a missing tool must
+# never be reported as a difference. This reads both files in full and compares
+# them, with a sentinel so a trailing newline cannot be lost to command
+# substitution. Text only: Bash cannot hold NUL bytes.
+files_identical() {
+  local first="$1" second="$2" first_content second_content
+
+  [[ -f "$first" && -f "$second" ]] || return 1
+  first_content="$(
+    cat -- "$first"
+    printf end
+  )" || return 1
+  second_content="$(
+    cat -- "$second"
+    printf end
+  )" || return 1
+  [[ "$first_content" == "$second_content" ]]
+}
+
+assert_files_identical() {
+  local first="$1" second="$2"
+  files_identical "$first" "$second" ||
+    _test_die "expected identical file contents: $first and $second"
+}
+
 assert_file_empty() {
   local path="$1"
   [[ -e "$path" ]] || return 0

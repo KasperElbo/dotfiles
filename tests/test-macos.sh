@@ -175,10 +175,10 @@ assert_contains "$apply_plan" 'defaults write com.apple.dock mru-spaces -bool fa
 assert_contains "$restore_plan" 'defaults delete com.apple.dock autohide'
 assert_contains "$restore_plan" 'defaults delete NSGlobalDomain KeyRepeat'
 
-grep -Fq 'SIP and Gatekeeper remain enabled' "$repo_root/docs/macos.md"
-grep -Fq 'Command+Space' "$repo_root/docs/macos.md"
-grep -Fq 'Displays have separate Spaces' "$repo_root/docs/macos.md"
-grep -Fq 'platforms/macos/scripts/apply-defaults.sh --restore' "$repo_root/docs/macos.md"
+grep -Fq 'SIP and Gatekeeper remain enabled' "$repo_root/docs/platforms/macos.md"
+grep -Fq 'Command+Space' "$repo_root/docs/platforms/macos.md"
+grep -Fq 'Displays have separate Spaces' "$repo_root/docs/platforms/macos.md"
+grep -Fq 'platforms/macos/scripts/apply-defaults.sh --restore' "$repo_root/docs/platforms/macos.md"
 
 # The shared VimTeX fallback only reaches Okular or xdg-open, neither of
 # which exists on macOS; a platform override is mandatory, matching the
@@ -195,8 +195,8 @@ if rg -l 'xdg-open' "$macos_root" | grep -q .; then
 fi
 grep -Fq 'nvim-macos' "$macos_root/scripts/stow.sh"
 grep -Fq 'nvim-macos' "$macos_root/scripts/verify.sh"
-grep -Fq './scripts/test-dev-workflows.sh --latex' "$repo_root/docs/macos.md"
-grep -Fq './install.sh --platform macos --dev-workflows' "$repo_root/docs/macos.md"
+grep -Fq './scripts/test-dev-workflows.sh --latex' "$repo_root/docs/platforms/macos.md"
+grep -Fq './install.sh --platform macos --dev-workflows' "$repo_root/docs/platforms/macos.md"
 
 # gnubin supplies GNU tools macOS does not ship without shadowing Apple's
 # coreutils. /etc/zprofile runs path_helper after .zshenv, so nothing set there

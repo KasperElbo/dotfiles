@@ -74,11 +74,11 @@ IFS=$'\t' read -r _ _ _ macos_flag _ _ _ macos_provider _ _ _ _ macos_docs _ mac
   fail "latex/macos must name its absence owner, found provider $macos_provider"
 [[ "$macos_flag" == - ]] ||
   fail "latex/macos must declare no CLI flag, found $macos_flag"
-[[ "$macos_docs" == docs/macos.md* ]] ||
+[[ "$macos_docs" == docs/platforms/macos.md* ]] ||
   fail "latex/macos must point at the macOS ownership documentation"
 
 # The generated support table is what a reader consults; it must show the owner.
-matrix_latex_row="$(grep -E '^\| .latex. \|' "$repo_root/docs/capability-matrix.md")"
+matrix_latex_row="$(grep -E '^\| .latex. \|' "$repo_root/docs/reference/capability-matrix.md")"
 [[ "$matrix_latex_row" == *'— user-managed'* ]] ||
   fail "the generated matrix does not show the user-managed LaTeX absence"
 
@@ -98,7 +98,7 @@ case "$macos_help" in
 esac
 
 # The documented ownership answers must actually be in the documentation.
-macos_docs_file="$repo_root/docs/macos.md"
+macos_docs_file="$repo_root/docs/platforms/macos.md"
 assert_contains "$macos_docs_file" 'LaTeX is externally managed on macOS'
 assert_contains "$macos_docs_file" 'latexmk'
 assert_contains "$macos_docs_file" 'Mason, from the shared'

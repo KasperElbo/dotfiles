@@ -119,7 +119,7 @@ jobs:
           ./common/verify-ocaml.sh
           ./common/verify-ai.sh
 
-      # Support claims in config/capabilities.tsv and docs/macos.md rest on this
+      # Support claims in config/capabilities.tsv and docs/platforms/macos.md rest on this
       # step, not on mocked tests: every advertised AI command must resolve
       # through mise on a real arm64 Mac and run a harmless self-description. A
       # component that cannot do that here must be demoted to unsupported.
@@ -253,7 +253,7 @@ jobs:
           AeroSpace Accessibility or Tailscale approvals.
 
           The AI component probe is the evidence behind every macOS AI support
-          claim in config/capabilities.tsv and docs/macos.md. It is not a mock:
+          claim in config/capabilities.tsv and docs/platforms/macos.md. It is not a mock:
           each advertised command must resolve through mise on this arm64 host,
           must not be an Intel-only binary or a Homebrew duplicate, and must run
           a harmless self-description. Authentication is never exercised, so

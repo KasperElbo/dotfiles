@@ -170,19 +170,19 @@ markdown_section() {
   ' "$file"
 }
 
-# check_sftp_documentation <readme> <macos-doc>
+# check_sftp_documentation <fedora-doc> <macos-doc>
 #
 # Asserts meaningful content *inside* the SFTP sections. The previous version
 # of this suite grepped the whole README for "SFTP", "Fedora" and "macOS",
 # words that occur throughout unrelated prose, so deleting the instructions
 # left it green.
 check_sftp_documentation() {
-  local readme="$1" macos_doc="$2"
+  local fedora_doc="$1" macos_doc="$2"
   local status=0 section needle
 
-  section="$(markdown_section "$readme" 'SFTP client')"
+  section="$(markdown_section "$fedora_doc" 'SFTP client')"
   if [[ -z "${section//[[:space:]]/}" ]]; then
-    drift documentation "the README has no 'SFTP client' section body" ||
+    drift documentation "the first-run guide has no 'SFTP client' section body" ||
       return 1
   fi
 
@@ -191,7 +191,7 @@ check_sftp_documentation() {
   for needle in 'sftp user@host' 'scp file.txt user@host:/remote/path/' \
     'sftp://user@host/path'; do
     [[ "$section" == *"$needle"* ]] ||
-      drift documentation "the README SFTP section no longer documents '$needle'" ||
+      drift documentation "the first-run SFTP section no longer documents '$needle'" ||
       status=1
   done
 
@@ -200,18 +200,18 @@ check_sftp_documentation() {
   for needle in ls cd lcd pwd lpwd get put mget mput mkdir rm exit; do
     grep -Fxq -- "$needle" <<<"$section" ||
       drift documentation \
-        "the README SFTP command reference no longer lists '$needle'" ||
+        "the SFTP command reference no longer lists '$needle'" ||
       status=1
   done
 
   [[ "$section" == *openssh-clients* ]] ||
     drift documentation \
-      'the README SFTP section no longer names the openssh-clients provider' ||
+      'the SFTP section no longer names the openssh-clients provider' ||
     status=1
 
   section="$(markdown_section "$macos_doc" 'SFTP client')"
   if [[ -z "${section//[[:space:]]/}" ]]; then
-    drift documentation "docs/macos.md has no 'SFTP client' section body" ||
+    drift documentation "docs/platforms/macos.md has no 'SFTP client' section body" ||
       return 1
   fi
   for needle in 'sftp user@host' '/usr/bin' 'command -v sftp'; do
@@ -226,17 +226,17 @@ check_sftp_documentation() {
 
 printf '\nB. Documentation: section-scoped content\n'
 
-readme="$repo_root/README.md"
-macos_docs="$repo_root/docs/macos.md"
+fedora_doc="$repo_root/docs/workflows/first-run.md"
+macos_docs="$repo_root/docs/platforms/macos.md"
 
-check_sftp_documentation "$readme" "$macos_docs" ||
+check_sftp_documentation "$fedora_doc" "$macos_docs" ||
   _test_die 'the current documentation must describe the SFTP workflow'
 printf 'PASS: both SFTP documentation sections contain the documented workflow\n'
 
 # Negative: deleting the section must fail even though "SFTP", "Fedora" and
-# "macOS" still occur elsewhere in the file.
+# "macOS" still occur elsewhere in the document.
 test_new_root
-stripped_readme="$TEST_ROOT/README-no-sftp.md"
+stripped_doc="$TEST_ROOT/first-run-no-sftp.md"
 awk '
   /^```/ { fence = !fence }
   !fence && /^#+[[:space:]]/ {
@@ -246,11 +246,11 @@ awk '
     skip = (heading == "SFTP client")
   }
   !skip { print }
-' "$readme" >"$stripped_readme"
+' "$fedora_doc" >"$stripped_doc"
 
 # The keywords the old test relied on are re-introduced in unrelated prose,
 # which is precisely the case that used to keep it green.
-cat >>"$stripped_readme" <<'EOF_PROSE'
+cat >>"$stripped_doc" <<'EOF_PROSE'
 
 ## Unrelated section
 
@@ -258,27 +258,27 @@ This Fedora and macOS workstation once documented an SFTP workflow somewhere.
 EOF_PROSE
 
 for word in SFTP Fedora macOS; do
-  grep -Fq -- "$word" "$stripped_readme" ||
+  grep -Fq -- "$word" "$stripped_doc" ||
     _test_die "the mutation fixture must keep the word '$word' elsewhere"
 done
 
-run_capture check_sftp_documentation "$stripped_readme" "$macos_docs"
+run_capture check_sftp_documentation "$stripped_doc" "$macos_docs"
 assert_failure
 assert_contains "$TEST_OUTPUT" "no 'SFTP client' section body"
 printf 'PASS: deleting the SFTP section fails despite the words surviving elsewhere\n'
 
 # Negative: an invalid connection command inside an intact section must fail.
-broken_readme="$TEST_ROOT/README-broken-command.md"
-sed 's/^sftp user@host$/sftp --transfer-mode=fast/' "$readme" >"$broken_readme"
-run_capture check_sftp_documentation "$broken_readme" "$macos_docs"
+broken_doc="$TEST_ROOT/first-run-broken-command.md"
+sed 's/^sftp user@host$/sftp --transfer-mode=fast/' "$fedora_doc" >"$broken_doc"
+run_capture check_sftp_documentation "$broken_doc" "$macos_docs"
 assert_failure
 assert_contains "$TEST_OUTPUT" "no longer documents 'sftp user@host'"
 printf 'PASS: an invalid documented connection command fails\n'
 
 # Negative: gutting the interactive command reference must fail.
-gutted_readme="$TEST_ROOT/README-no-commands.md"
-grep -vxF 'lcd' "$readme" | grep -vxF 'mput' >"$gutted_readme"
-run_capture check_sftp_documentation "$gutted_readme" "$macos_docs"
+gutted_doc="$TEST_ROOT/first-run-no-commands.md"
+grep -vxF 'lcd' "$fedora_doc" | grep -vxF 'mput' >"$gutted_doc"
+run_capture check_sftp_documentation "$gutted_doc" "$macos_docs"
 assert_failure
 assert_contains "$TEST_OUTPUT" "no longer lists 'lcd'"
 printf 'PASS: removing commands from the interactive reference fails\n'
@@ -286,9 +286,9 @@ printf 'PASS: removing commands from the interactive reference fails\n'
 # Negative: the macOS section losing its provider/verification content fails.
 broken_macos="$TEST_ROOT/macos-no-verify.md"
 sed 's/^command -v sftp$/true/' "$macos_docs" >"$broken_macos"
-run_capture check_sftp_documentation "$readme" "$broken_macos"
+run_capture check_sftp_documentation "$fedora_doc" "$broken_macos"
 assert_failure
 assert_contains "$TEST_OUTPUT" "macOS SFTP section no longer documents 'command -v sftp'"
-printf 'PASS: the macOS SFTP section is verified separately from the README\n'
+printf 'PASS: the macOS SFTP section is verified separately from the first-run guide\n'
 
 printf '\nSFTP implementation-ownership and documentation-section tests passed.\n'

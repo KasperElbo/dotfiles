@@ -1,8 +1,8 @@
 % Apple Silicon macOS (AeroSpace) printable cheat sheet.
 % Source of truth: platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml
-% and docs/macos.md section 6 ("the canonical macOS input for the
-% cross-platform keybinding documentation tracked in issue #72"). Regenerate
-% with docs/cheatsheets/generate.sh after editing either.
+% and docs/platforms/macos.md section 6. Every printed row is registered in
+% config/actions.tsv; regenerate with docs/cheatsheets/generate.sh and verify
+% with docs/cheatsheets/verify.sh after editing either.
 \documentclass[9pt]{extarticle}
 \usepackage{cheatsheet}
 
@@ -64,7 +64,7 @@
 \csrow{Ctrl+Opt+Shift+C}{Close focused window}
 \csrow{Ctrl+Opt+Shift+R}{Reload AeroSpace config}
 \end{cskeys}
-\csnote{AeroSpace needs only Accessibility permission (System Settings $\to$ Privacy \& Security) and starts at login. SIP and Gatekeeper stay enabled --- see docs/macos.md for the AeroSpace-vs-yabai decision record.}
+\csnote{AeroSpace needs only Accessibility permission (System Settings $\to$ Privacy \& Security) and starts at login. SIP and Gatekeeper stay enabled --- see docs/platforms/macos.md for the AeroSpace-vs-yabai decision record.}
 
 \cssection{Clipboard \& screenshots}
 \begin{cskeys}{0.34\linewidth}
@@ -80,5 +80,5 @@
 \begin{multicols}{2}
 \input{common-workflow}
 \end{multicols}
-\csfoot{Full keybindings reference: docs/keybindings.md. AeroSpace config: platforms/macos/stow/aerospace, docs/macos.md \#6. Regenerate: docs/cheatsheets/generate.sh.}
+\csfoot{Full keybindings reference: docs/reference/keybindings.md. AeroSpace config: platforms/macos/stow/aerospace, docs/platforms/macos.md \#6. Regenerate: docs/cheatsheets/generate.sh.}
 \end{document}
