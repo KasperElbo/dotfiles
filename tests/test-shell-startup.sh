@@ -422,6 +422,53 @@ for platform_file in "$repo_root"/platforms/*/stow/zsh-platform/.config/zsh/plat
 done
 printf 'PASS: syntax highlighting stays last in the initialization order\n'
 
+# --- The theme wrapper's exit-status handling (#148) ------------------------
+#
+# `theme` exits 3 when the shared theme state is current but an independent
+# platform action failed. This shell's own theming is correct in that case, so
+# the wrapper must still refresh; any other failure must not restart the shell
+# and hide it.
+theme_wrapper="$(run_zsh bare xterm-256color 'whence -v theme; functions theme')"
+assert_contains "$theme_wrapper" 'theme_status == 3'
+
+fake_theme_bin="$root/fake-theme-bin"
+mkdir -p "$fake_theme_bin"
+cat >"$fake_theme_bin/theme" <<'EOF'
+#!/usr/bin/env bash
+exit "${FAKE_THEME_EXIT:-0}"
+EOF
+chmod +x "$fake_theme_bin/theme"
+
+# exec zsh would replace the test shell, so the wrapper is exercised with a
+# stub exec that reports instead of replacing.
+theme_wrapper_result() {
+  env -i \
+    HOME="$root/home" \
+    XDG_CONFIG_HOME="$root/config" \
+    XDG_DATA_HOME="$root/data" \
+    XDG_STATE_HOME="$root/state" \
+    XDG_CACHE_HOME="$root/cache" \
+    TERM=xterm-256color \
+    PATH="$fake_theme_bin:$sandbox_bin" \
+    FAKE_THEME_EXIT="$1" \
+    DOTFILES_TEST_ZSHENV="$zshenv" \
+    DOTFILES_TEST_ZSHRC="$zshrc" \
+    "$zsh_path" -f -c "
+      source \"\$DOTFILES_TEST_ZSHENV\"
+      source \"\$DOTFILES_TEST_ZSHRC\"
+      exec() { print -r -- refreshed }
+      theme mocha
+      print -r -- \"status=\$?\"
+    "
+}
+
+assert_contains "$(theme_wrapper_result 0)" refreshed
+assert_contains "$(theme_wrapper_result 3)" refreshed
+partial="$(theme_wrapper_result 1)"
+assert_not_contains "$partial" refreshed
+assert_contains "$partial" 'status=1'
+printf 'PASS: the theme wrapper refreshes on a partial apply but not on a failure\n'
+
 # --- Coexistence with the Parrot globbing policy (#167/#168) ----------------
 #
 # Parrot's platform.zsh unsets NOMATCH so unmatched CTF payload patterns reach

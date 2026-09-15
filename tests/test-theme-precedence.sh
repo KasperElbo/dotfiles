@@ -217,6 +217,41 @@ assert_file_not_contains "$repo_root/config/install-options.tsv" 'dry-run'
 assert_file_not_contains "$repo_root/config/install-options.tsv" 'non-interactive'
 printf 'PASS: transient controls are not part of the remembered selection\n'
 
+# --- A failed run never becomes the remembered flavour ----------------------
+#
+# The last-known-good invariant itself is owned by tests/test-install-rerun.sh;
+# this asserts the consequence that matters here, namely that a run which
+# failed at the theme step does not make its flavour the one a later rerun
+# resolves.
+new_machine
+record_remembered fedora latte
+failing_selection="$(
+  sed -n 's/^last_successful_selection=//p' "$machine/state/dotfiles/install.conf" |
+    sed 's/^theme:latte/theme:mocha/'
+)"
+env   HOME="$machine/home"   XDG_CONFIG_HOME="$machine/config"   XDG_DATA_HOME="$machine/data"   XDG_STATE_HOME="$machine/state"   bash -c "
+    set -euo pipefail
+    source '$repo_root/common/lib/common.sh'
+    source '$repo_root/common/lib/install-lifecycle.sh'
+    install_lifecycle_begin fedora base './install.sh --platform fedora' \
+      '$failing_selection'
+    install_lifecycle_failed theme 'system,stow' 'theme,verify'
+  "
+
+assert_eq failed   "$(sed -n 's/^status=//p' "$machine/state/dotfiles/install.conf")"   'the failed run should be recorded as failed'
+assert_file_contains "$machine/state/dotfiles/install.conf"   'last_successful_selection=theme:latte'
+dry_run fedora
+assert_resolved latte remembered
+printf 'PASS: a run that failed at the theme step is not remembered\n'
+
+# And a successful explicit change does become the new remembered flavour.
+new_machine
+record_remembered fedora latte
+record_remembered fedora mocha
+dry_run fedora
+assert_resolved mocha remembered
+printf 'PASS: a successful explicit change becomes the remembered flavour\n'
+
 # --- Provenance is reported -------------------------------------------------
 
 new_machine

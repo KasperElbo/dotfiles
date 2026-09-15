@@ -102,12 +102,23 @@ case "$DOTFILES_THEME" in
 esac
 
 # zsh theme
-# Switch Catppuccin flavour and refresh shell-managed theme variables. A
-# partially applied theme returns nonzero and must not restart the shell as if
-# everything had succeeded.
+# Switch Catppuccin flavour and refresh the shell-managed theme variables.
+#
+# Status 3 means the shared theme state is current but an independent platform
+# action failed: this shell's prompt, bat, fzf and lazygit theming are all
+# correct, so refresh anyway. The command has already printed which action
+# failed. Any other nonzero status left the shared state unchanged, so
+# restarting would only hide the failure.
 theme() {
-  command theme "$@" || return
-  exec zsh
+  # Not named `status`: that is one of Zsh's read-only aliases for `?`.
+  local theme_status=0
+  command theme "$@" || theme_status=$?
+
+  if (( theme_status == 0 || theme_status == 3 )); then
+    exec zsh
+  fi
+
+  return "$theme_status"
 }
 
 # Navigation
