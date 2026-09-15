@@ -51,10 +51,10 @@ override them, so this repository documents the choice but does not rewrite
 `resolv.conf`, routes, Windows firewall rules, proxy policy or VPN settings.
 
 The same reasoning applies to Tailscale: `--tailscale` is intentionally not
-offered under `--platform fedora-wsl` at all. See "Optional Tailscale
-networking profile" > "Fedora WSL policy" for the host-vs-WSL-node
-comparison and why Windows-host-only Tailscale is the recommended
-architecture here.
+offered under `--platform fedora-wsl` at all. See
+[Fedora WSL policy](../profiles/tailscale.md#fedora-wsl-policy) for the
+host-vs-WSL-node comparison and why Windows-host-only Tailscale is the
+recommended architecture here.
 
 ### Windows bootstrap
 
@@ -73,7 +73,10 @@ remove or replace any terminal already installed on Windows.
 
 The script discovers the newest official `FedoraLinux` name advertised by WSL,
 prompts for elevation only for WSL installation or conversion, and installs
-Noctty for the current user through its official Scoop bucket. It is safe to
+Noctty for the current user through its official Scoop bucket. If Scoop
+itself is not already installed, the script first downloads and runs the
+official installer from `https://get.scoop.sh` to bootstrap it, before adding
+the Noctty bucket. It is safe to
 run again: an installed Fedora WSL 2 distribution and Noctty are retained, and
 only the script's marked Noctty configuration block is updated. That block
 loads the synchronized `ghostty/.config/ghostty/shared.conf`, which is also
@@ -563,8 +566,8 @@ JSON and the installed OCaml profile, run:
 `--smoke-test` is the deprecated spelling of `--dev-workflows`; it still
 resolves to identical behaviour and warns.
 
-The optional AI profile (`--ai`, `--codex`, `--firstmate`; see "AI-assisted
-development toolchain" below) is portable CLI tooling with no GUI or hardware
-dependency, so it is fully supported here. The early PATH policy ensures the
-Linux-native, mise-managed installation always takes precedence over any
-Windows executable of the same name.
+The optional AI profile (`--ai`, `--codex`, `--firstmate`, `--gnhf` and
+`--backpass`; see [the AI profile guide](../profiles/ai.md)) is portable CLI
+tooling with no GUI or hardware dependency, so it is fully supported here. The
+early PATH policy ensures the Linux-native, mise-managed installation always
+takes precedence over any Windows executable of the same name.

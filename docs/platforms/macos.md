@@ -41,7 +41,9 @@ Status labels in this guide mean:
 ### System-Bash compatibility boundary
 
 `install.sh` is deliberately a small Bash 3.2-compatible entry point. It reads
-only `--platform` while retaining the original `"$@"` vector. For the macOS
+only `--platform` and `--rerun` (and, for a `--rerun` that names no platform,
+the recorded platform from `install.conf`) while retaining the original
+`"$@"` vector. For the macOS
 profile it explicitly asks native Homebrew for the installed `bash` formula
 prefix, then re-executes `scripts/install-main.sh` with Bash 4.4 or newer and
 the original arguments. The real dispatcher keeps that interpreter when it
