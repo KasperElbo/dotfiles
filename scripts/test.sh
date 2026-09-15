@@ -60,6 +60,7 @@ done
 
 default_tests=(
   tests/test-verifier.sh
+  tests/test-path-resolution.sh
   tests/test-test-support.sh
   tests/test-test-runner.sh
   tests/test-capabilities.sh
