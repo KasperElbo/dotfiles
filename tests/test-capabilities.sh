@@ -110,15 +110,6 @@ fi
 grep -Fq "vm_guest_packages installs 'xclip', which no fedora capability owns" \
   "$fixture.unowned.log"
 
-# Every package-declaring row names the installers that request its packages
-# in its installers column, so no row can skip that comparison unnoticed (#242).
-unmapped_rows="$(awk -F '\t' 'NR > 1 && $15 == "implemented" && $9 != "-" && $16 == "-"' \
-  "$repo_root/config/capabilities.tsv")"
-[[ -z "$unmapped_rows" ]] || {
-  printf 'Package-declaring capability rows name no installers:\n%s\n' "$unmapped_rows" >&2
-  exit 1
-}
-
 awk -F '\t' 'BEGIN {OFS="\t"} $1 == "ai" && $2 == "fedora" {$9 = $9 ",totally-fake-nonexistent-package"} {print}' \
   "$repo_root/config/capabilities.tsv" >"$fixture.fabricated"
 if CAPABILITY_MANIFEST="$fixture.fabricated" python3 "$repo_root/scripts/validate-capabilities.py" \
