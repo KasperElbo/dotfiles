@@ -3,7 +3,7 @@ public-entrypoint	755	install.sh	Portable installer, the documented way in
 public-entrypoint	755	doctor	Portable read-only health report
 public-entrypoint	755	scripts/lint.sh	Repository lint entry point
 public-entrypoint	755	scripts/test.sh	Repository test entry point
-public-entrypoint	755	scripts/doctor.sh	Doctor implementation behind ./doctor
+internal-executable	755	scripts/doctor.sh	Doctor implementation behind ./doctor
 public-entrypoint	755	scripts/benchmark-shell-startup.sh	Manual shell-startup measurement
 public-entrypoint	755	scripts/test-dev-workflows.sh	Disposable development-workflow smoke tests
 public-entrypoint	755	scripts/update-starship-themes.sh	Generate the tracked Starship configurations
@@ -11,7 +11,7 @@ public-entrypoint	755	docs/cheatsheets/generate.sh	Render the printable cheat sh
 public-entrypoint	755	docs/cheatsheets/verify.sh	Verify the printable cheat sheets
 platform-entrypoint	755	platforms/*/install.sh	Platform installer, selected by --platform
 internal-executable	755	common/*.sh	Portable component installers and verifiers
-internal-executable	755	platforms/*/scripts/*.sh	Platform component installers and verifiers
+platform-command	755	platforms/*/scripts/*.sh	Belongs to one platform; safe to run directly for one component
 internal-executable	755	scripts/install-main.sh	Root installer body, run through an explicit interpreter
 internal-executable	755	scripts/bootstrap-macos.sh	macOS Bash bootstrap, run through an explicit interpreter
 portable-wrapper	755	scripts/install-ai.sh	Portable alias for common/install-ai.sh
@@ -33,3 +33,20 @@ stowed-config	644	platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.
 stowed-data	644	fzf/.config/fzf/themes/*.sh	Sourced fzf colour snippet
 test-entrypoint	755	tests/test-*.sh	Test suite, run by ./scripts/test.sh
 test-entrypoint	755	tests/integration/*.sh	Integration suite, run explicitly
+public-entrypoint	644	verify.ps1	Portable Windows verifier, the documented way in
+public-entrypoint	755	scripts/render-action-reference.py	Regenerates the action reference from config/actions.tsv
+public-entrypoint	755	scripts/render-capability-matrix.py	Regenerates the capability matrix from config/capabilities.tsv
+public-entrypoint	755	scripts/render-installer-options.py	Regenerates installer option documentation
+public-entrypoint	755	scripts/render-supply-chain.py	Regenerates the supply-chain source documentation
+public-entrypoint	755	scripts/validate-actions.py	Validates config/actions.tsv against its consumers
+public-entrypoint	755	scripts/validate-capabilities.py	Validates network-source provenance against config/capabilities.tsv
+public-entrypoint	755	scripts/validate-docs.py	Validates documentation architecture and cross-references
+public-entrypoint	755	scripts/validate-fedora-dependency-closure.py	Validates the Fedora package dependency closure
+public-entrypoint	755	scripts/validate-network-sources.py	Validates the network-source registry
+public-entrypoint	755	scripts/validate-repository-hygiene.py	Validates repository hygiene rules
+public-entrypoint	755	scripts/validate-shell-file-roles.py	Validates shell/PowerShell/Python file roles and modes
+platform-entrypoint	644	platforms/windows/install.ps1	Platform installer, the Windows host pieces for Fedora WSL
+internal-executable	644	platforms/windows/verify.ps1	Verifier implementation behind ./verify.ps1
+platform-command	644	platforms/windows/set-noctty-theme.ps1	Windows Noctty theme command; safe to run directly
+sourced-library	644	platforms/windows/lib/*.ps1	Dot-sourced by the Windows installer and verifier
+test-entrypoint	644	tests/test-windows-*.ps1	Test suite, run by the windows validation workflow job
