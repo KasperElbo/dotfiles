@@ -1,56 +1,100 @@
 # Verification
 
-Run:
+Every install can be checked afterwards, and nothing in this path changes the
+machine: the verifiers and `./doctor` are read-only.
+
+## Start with `./doctor`
+
+```bash
+./doctor
+```
+
+`./doctor` is the cheap first step. It takes no options, reads the recorded
+lifecycle state rather than the machine's packages, and reports what this
+checkout believes was installed, whether the checkout still matches the
+installed revision, whether each selected capability's state is intact, and
+which verifier proves each of them. Warnings exit `0`; failures exit `1`.
+
+It tells you *which* verifier to run next. This page is what those verifiers
+prove.
+
+## Running a verifier
+
+Each platform has its own entry verifier, and the optional profiles that keep
+their own state have their own:
 
 ```bash
 ./platforms/fedora/scripts/verify.sh
+./platforms/fedora-wsl/scripts/verify.sh --latex
+./platforms/macos/scripts/verify.sh --defaults --containers --tailscale
+./platforms/parrot-ctf/scripts/verify.sh
 ```
 
-The verifier checks:
+[The generated verifier reference](../reference/verifiers.md) is the full
+inventory: for every platform, which script proves which capabilities, and the
+installer flags that select them. It is rendered from
+`config/capabilities.tsv`, the same column `./doctor` reads, so it cannot drift
+from what the installer actually ships.
 
-- Fedora security baseline: SELinux enforcing, firewalld active, Secure Boot
-  state (always, independent of `--hardening`)
-- required core commands
-- Stow-managed links
-- machine-local theme state
-- required theme assets
-- derived Ghostty/Delta/tmux theme overrides
+Most verifiers take no arguments; they read the recorded lifecycle state and
+check exactly the capabilities that were installed. Three take options, because
+the state they would otherwise read is not theirs:
+
+- `platforms/fedora-wsl/scripts/verify.sh --latex` also verifies the LaTeX
+  toolchain, and `--dev-workflows` runs the language smoke tests.
+- `platforms/macos/scripts/verify.sh` verifies the optional
+  `--defaults`, `--containers` and `--tailscale` areas only when asked.
+- `scripts/test-dev-workflows.sh` is the `dev-workflows` verifier and selects
+  languages with its own flags (see
+  [the development workflow](development.md)).
+
+On Fedora and Fedora WSL the platform verifier runs an optional profile's own
+verifier whenever that profile's machine-local state exists, so one command
+covers the whole machine; each profile verifier can also be run on its own. On
+macOS the equivalent checks live in the same script, behind the flags above.
+
+`scripts/verify.sh` is a deprecated compatibility wrapper for
+`platforms/fedora/scripts/verify.sh`. It still forwards unchanged; use the
+platform path.
+
+## What a verifier proves
+
+A verifier runs one section per capability that was installed, and stays silent
+about capabilities that were not — it also confirms that an unselected optional
+profile left nothing behind. The Fedora verifier is the broadest one, and its
+sections are representative of all of them:
+
+- the Fedora security baseline: SELinux enforcing, firewalld active, Secure
+  Boot state (always, independent of `--hardening`)
+- required core commands, and the SFTP client baseline
+- Stow-managed links, and nested Git repositories or generated junk files
+- machine-local theme state, required theme assets, and the derived
+  Ghostty/Delta/tmux theme overrides
+- the login shell, the terminal, and Catppuccin tmux installation/version
 - Git local configuration
 - mise configuration and commands
-- expected Mason editor tooling and warnings for untracked Mason packages
-- Neovim startup/version
-- optional opam switch, compiler, and OCaml Platform tools
-- optional LaTeX toolchain when the `latex` capability was selected (`biber`,
-  `latex`, `latexindent`, `latexmk`, `lualatex`, `pdflatex`, `xelatex`), and a
-  warning when TeX is present without it
-- Catppuccin tmux installation/version
-- optional ASUS hardware profile, drivers, services, and Secure Boot state
-- optional Fedora VM-host backend, KVM, libvirt, network, and storage validation
-- optional Fedora VM-guest detection, agents, channels, and network route
-- optional Fedora security-hardening profile settings (see
-  [the hardening profile guide](../profiles/hardening.md))
-- optional AI-assisted development profile: Claude Code/Codex/Herdr/GNHF/
-  backpass PATH ownership, FirstMate's clone, and Treehouse/No Mistakes
-  (see [the AI profile guide](../profiles/ai.md)) — and confirms none of
-  it is present when the profile
-  was not selected
-- nested Git repositories
-- obvious generated junk files
+- expected Mason editor tooling, warnings for untracked Mason packages, and
+  Neovim startup/version
+- each selected optional capability: KDE or Sway integration, the LaTeX
+  toolchain, the OCaml switch and Platform tools, ASUS hardware, the VM host or
+  guest, the hardening profile, desktop tools, containers, Tailscale, and the
+  AI profile's tool ownership (see
+  [the hardening profile guide](../profiles/hardening.md) and
+  [the AI profile guide](../profiles/ai.md))
 
-Missing essential components are failures. Optional/editor-specific omissions may be warnings.
+Missing essential components are failures; optional or editor-specific
+omissions may be warnings, and a check the environment did not let the verifier
+observe is reported as unobserved rather than as a pass. A verifier exits
+non-zero only when it recorded a failure — warnings and unobserved checks exit
+`0`, exactly like `./doctor`.
 
-Validate every tracked shell script and sourced shell fragment with Bash and
-ShellCheck:
+When a verifier fails, [troubleshooting](../troubleshooting.md) is the next
+stop.
 
-```bash
-./scripts/lint.sh
-```
+## Before opening a pull request
 
-The lint command supplies the Bash dialect for source-only fragments and
-resolves sourced libraries relative to each script. It requires `shellcheck`
-to be available in `PATH`.
-
-Before opening a pull request, run the same read-only validation used by CI:
+Verification is about one machine. Proving the repository itself is a different
+job with different entry points:
 
 ```bash
 ./scripts/lint.sh
@@ -58,33 +102,10 @@ Before opening a pull request, run the same read-only validation used by CI:
 git diff --check
 ```
 
-The bootstrap harness covers Secure Boot helpers, power-profile service
-handling, installer option validation and dry-runs, fresh and repeated local
-setup, legacy Git identity migration, developer-tool ownership invariants, and
-preservation of unrelated user files and symlinks. It validates the optional
-OCaml profile's idempotency, switch state, and manager boundaries without
-downloading a compiler. It also exercises GA402XZ and GA402RK hardware
-preflights, fail-before-mutation behavior, and
-representative package and service flows through command mocks.
-The guest harness additionally proves that bare metal and unsupported
-hypervisors fail before package mutation, no ASUS/NVIDIA, power, bridge, or
-NetworkManager command is issued, and repeated guest setup preserves stable
-local state.
-The macOS harness validates the Bash 3.2-compatible root bootstrap and its
-modern-Homebrew-Bash re-exec boundary, exact argument forwarding, empty
-system/verifier argument cases, dry-run options, Homebrew versus mise ownership,
-AeroSpace/Sway-equivalent bindings, the wrapped 3×3 workspace helper,
-reversible defaults, the macOS-native VimTeX PDF-viewer override, and the
-absence of yabai/skhd.
+`./scripts/lint.sh` validates every tracked shell script and sourced fragment
+with Bash and ShellCheck, and also checks the generated documentation, the
+capability and action manifests, repository hygiene and the generated Starship
+configurations. It requires both `shellcheck` and `python3`.
 
-Every integration-style test uses temporary home, XDG, OS-release, and DMI
-state. Package managers, firmware tooling, and service commands are either
-blocked or mocked, so the harness never installs packages, enrolls keys,
-changes real services, or writes to the user's configuration.
-
-GitHub Actions runs the full repository suite in a Fedora 44 container and the
-focused macOS profile/lint checks on a macOS 26 arm64 runner for every pull
-request and every push to `main`; Windows helpers run on a Windows runner. The
-workflows install validation dependencies in their ephemeral environments, but
-never perform a workstation install or change firmware, Secure Boot, MOK
-enrollment, GPU/MUX settings, macOS preferences, services, or battery limits.
+[The testing architecture](../testing.md) owns the rest: what each suite
+covers, what the mocks guarantee, and which jobs CI runs.

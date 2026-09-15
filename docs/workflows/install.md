@@ -196,12 +196,16 @@ After a fresh install:
 8. Run:
 
    ```bash
+   ./doctor
    ./platforms/fedora/scripts/verify.sh
    ```
 
-   When a hardware profile is configured, this automatically includes its
-   driver, service, DMI, and Secure Boot checks. For a focused rerun, use
-   `./platforms/fedora/scripts/verify-asus-hardware.sh`.
+   `./doctor` is a read-only summary of the recorded install, and names the
+   verifier for every capability that was selected. The platform verifier does
+   the real checking: when a hardware profile is configured, it automatically
+   includes its driver, service, DMI, and Secure Boot checks. For a focused
+   rerun, use `./platforms/fedora/scripts/verify-asus-hardware.sh`. See
+   [verification](verification.md) for the full inventory.
 
 9. Confirm Git identity:
 
