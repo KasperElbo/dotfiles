@@ -109,7 +109,7 @@ documentation both read:
 | `config/capabilities.tsv` | Which capability exists on which platform, its provider, packages and their installers, Stow packages, verifier, state file and documentation |
 | `config/install-options.tsv` | Every persistent installer option: flag spelling, kind, default, permitted values |
 | `config/network-sources.tsv` | Every network source the repository fetches, its provenance tier, privilege and integrity mechanism |
-| `config/fedora-command-providers.tsv` | The Fedora bootstrap command closure: which capability owns each native command |
+| `config/command-providers.tsv` | The pre-mutation command closure of every bash platform: which capability owns each native command |
 | `config/actions.tsv` | Every repository-defined user action: binding, platform, source, how it is discoverable, and whether a printable sheet carries it |
 | `config/shell-file-roles.tsv` | Every tracked shell file's role and required file mode |
 | `config/terra-keys.tsv` | The reviewed Terra signing-key fingerprint pinned for each Fedora release |

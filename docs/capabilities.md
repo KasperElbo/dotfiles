@@ -196,21 +196,29 @@ name which half is missing. `check_mason_inventory`, `check_catppuccin_tmux`
 and `check_mise_owned` are the component and ownership checks every workstation
 verifier shares.
 
-## Fedora command-provider closure
+## Command-provider closure
 
-`config/fedora-command-providers.tsv` closes the narrower bootstrap boundary
-for the Fedora workstation and official Fedora WSL profiles. It maps each
-native command used by bootstrap, installation, or base/Sway verification to
-one owning capability and provider, and classifies availability as:
+`config/command-providers.tsv` is the one list of native commands each bash
+platform's installer checks before it mutates the host. Every
+`platforms/*/install.sh` preflight reads it through
+`preflight_platform_command_providers`; no installer states its own command
+list, and `tests/test-command-provider-closure.sh` fails if one does. Each row
+maps a command to one owning capability and provider, and classifies its
+availability as:
 
 - `bootstrap-prerequisite`: required before the installer can mutate the host;
-- `supported-base`: guaranteed by the documented supported Fedora image but
+- `supported-base`: guaranteed by the documented supported base system but
   still checked before mutation;
 - `baseline-package`: installed by exactly one capability package owner before
   the command is used;
 - `repository-file`: installed or linked from one named file in this checkout.
 
+The Fedora workstation and official Fedora WSL rows close the wider bootstrap
+boundary: every native command used by bootstrap, installation, or base/Sway
+verification. The Apple Silicon macOS and Parrot CTF rows cover exactly their
+pre-mutation checks; the commands their verifiers use are not yet closed here.
+
 The table does not duplicate language-runtime or repository-script ownership.
 Those remain with mise, Mason, Stow, and the capability manifest. Run
-`./scripts/validate-fedora-dependency-closure.py` after changing either Fedora
+`./scripts/validate-command-provider-closure.py` after changing a platform
 baseline, the Sway packages, or their command requirements.

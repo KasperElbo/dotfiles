@@ -48,6 +48,32 @@ plan_add() {
   PLAN_COUNT=$((PLAN_COUNT + 1))
 }
 
+# A step whose work is one repository script states that command once, in a
+# function printing its argument vector one argument per line, starting with
+# the script's path relative to the checkout. The step's apply function runs
+# the vector through plan_command_run and its note prints it through
+# plan_command_note, so a dry-run can never describe a different script or
+# different arguments than the ones apply runs.
+
+# plan_command_note <command-function>: the vector as the plan shows it.
+plan_command_note() {
+  local argument note=""
+  while IFS= read -r argument; do note+="${note:+ }$argument"; done < <("$1")
+  printf '%s\n' "$note"
+}
+
+# plan_command_run <command-function> [argument]...: run the vector from this
+# checkout. Extra arguments belong to this invocation only, not to the planned
+# command, such as --non-interactive or --preflight.
+plan_command_run() {
+  local command_function="$1" argument
+  local -a command=()
+  shift
+  while IFS= read -r argument; do command+=("$argument"); done < <("$command_function")
+  ((${#command[@]} > 0)) || die "Plan command function printed no command: $command_function"
+  "$DOTFILES_ROOT/${command[0]}" "${command[@]:1}" "$@"
+}
+
 plan_render() {
   local i
   printf 'Resolved steps (dry-run and apply use this exact order):\n'

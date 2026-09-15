@@ -1,26 +1,18 @@
 #!/usr/bin/env bash
 
+# shellcheck source=manifest.sh
+source "$(dirname "${BASH_SOURCE[0]}")/manifest.sh"
+
 CAPABILITY_MANIFEST="${CAPABILITY_MANIFEST:-$DOTFILES_ROOT/config/capabilities.tsv}"
-FEDORA_COMMAND_PROVIDER_MANIFEST="${FEDORA_COMMAND_PROVIDER_MANIFEST:-$DOTFILES_ROOT/config/fedora-command-providers.tsv}"
+COMMAND_PROVIDER_MANIFEST="${COMMAND_PROVIDER_MANIFEST:-$DOTFILES_ROOT/config/command-providers.tsv}"
 
-capability_field_number() {
-  case "$1" in
-  capability) printf 1 ;; platform) printf 2 ;; profile) printf 3 ;;
-  cli_flag) printf 4 ;; default) printf 5 ;; dependencies) printf 6 ;;
-  conflicts) printf 7 ;; provider) printf 8 ;; packages) printf 9 ;;
-  stow) printf 10 ;; verifier) printf 11 ;; state) printf 12 ;;
-  docs) printf 13 ;; provenance) printf 14 ;; status) printf 15 ;;
-  installers) printf 16 ;;
-  *) return 1 ;;
-  esac
-}
-
+# One field of a capability row, read by column name (see manifest.sh). Exit 1
+# when the platform has no such capability row; a manifest whose header lacks
+# the field fails loudly instead.
 capability_field() {
-  local platform="$1" capability="$2" field="$3" number
-  number="$(capability_field_number "$field")" || return 1
-  awk -F '\t' -v p="$platform" -v c="$capability" -v n="$number" \
-    'NR > 1 && $1 == c && $2 == p { print $n; found=1; exit } END { exit !found }' \
-    "$CAPABILITY_MANIFEST"
+  local platform="$1" capability="$2" field="$3"
+  manifest_field "$CAPABILITY_MANIFEST" "$field" \
+    capability "$capability" platform "$platform"
 }
 
 # capability_packages <platform> <capability>: the row's declared packages,
@@ -50,7 +42,7 @@ capability_validate_selection() {
   local -a dependencies=() conflicts=()
   shift
   for capability in "$@"; do
-    status="$(capability_field "$platform" "$capability" status 2>/dev/null || true)"
+    status="$(capability_field "$platform" "$capability" status || true)"
     [[ "$status" == implemented ]] || {
       printf 'Capability %s is not implemented for %s.\n' "$capability" "$platform" >&2; return 1;
     }
@@ -91,29 +83,26 @@ capability_stow_specs() {
 }
 
 # Print pre-mutation command requirements as command<TAB>provider<TAB>class.
-# The manifest is deliberately narrow: it closes only the Fedora workstation
-# and official Fedora WSL bootstrap boundary. Package ownership remains in the
+# config/command-providers.tsv is the one home for the commands every bash
+# platform's installer checks before it mutates the host; the Fedora rows also
+# close the wider Fedora bootstrap boundary. Package ownership remains in the
 # capability manifest rather than being duplicated here.
 capability_preflight_command_specs() {
-  local wanted_platform="$1"
-  local header=true platform command provider _owner _required_by classification
+  local wanted_platform="$1" rows command provider classification
 
-  [[ -r "$FEDORA_COMMAND_PROVIDER_MANIFEST" ]] || {
+  [[ -r "$COMMAND_PROVIDER_MANIFEST" ]] || {
     printf 'Command provider manifest is not readable: %s\n' \
-      "$FEDORA_COMMAND_PROVIDER_MANIFEST" >&2
+      "$COMMAND_PROVIDER_MANIFEST" >&2
     return 1
   }
+  rows="$(manifest_values "$COMMAND_PROVIDER_MANIFEST" \
+    command,provider,classification platform "$wanted_platform")" || return 1
 
-  while IFS=$'\t' read -r platform command provider _owner _required_by classification; do
-    if [[ "$header" == true ]]; then
-      header=false
-      continue
-    fi
-    [[ "$platform" == "$wanted_platform" ]] || continue
+  while IFS=$'\t' read -r command provider classification; do
     case "$classification" in
     bootstrap-prerequisite | supported-base)
       printf '%s\t%s\t%s\n' "$command" "$provider" "$classification"
       ;;
     esac
-  done <"$FEDORA_COMMAND_PROVIDER_MANIFEST"
+  done <<<"$rows"
 }

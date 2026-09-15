@@ -100,3 +100,51 @@ assert_file_empty "$test_root/logs/dnf.log"
 [[ ! -e "$test_root/integration-state/dotfiles/install.conf" ]]
 grep -Fqx 'user-owned-late-conflict' "$integration_home/$late_relative"
 printf 'Complete non-mutating Stow preflight passed.\n'
+
+# Each installer resolves its selected capability set in one function, read by
+# the selection check, preflight and the lifecycle record that ./doctor and
+# --rerun trust (issue #243). A second hand-written "$flag:capability" loop
+# could drop a capability from the record alone, and doctor would then report
+# that capability's installed state as residual.
+assert_single_capability_selection() {
+  local installer="$1" function="$2" loops readers
+  loops="$(grep -c 'for selection in' "$installer" || true)"
+  readers="$(grep -cF "< <($function)" "$installer" || true)"
+  grep -q "^$function() " "$installer" || {
+    printf '%s does not define %s.\n' "$installer" "$function"
+    return 1
+  }
+  ((loops <= 1)) || {
+    printf '%s resolves its selected capabilities in %d loops; resolve them once, in %s.\n' \
+      "$installer" "$loops" "$function"
+    return 1
+  }
+  ((readers == 3)) || {
+    printf '%s reads %s %d times; the selection check, preflight and the lifecycle record must each read it.\n' \
+      "$installer" "$function" "$readers"
+    return 1
+  }
+}
+for platform_selection in fedora:fedora_selected_capabilities fedora-wsl:wsl_selected_capabilities \
+  macos:macos_selected_capabilities parrot-ctf:parrot_selected_capabilities; do
+  assert_single_capability_selection "$repo_root/platforms/${platform_selection%%:*}/install.sh" \
+    "${platform_selection#*:}"
+done
+
+# Negative control: restore the second, record-only loop in a scratch copy.
+duplicated_installer="$test_root/fedora-install-with-second-selection.sh"
+python3 - "$repo_root/platforms/fedora/install.sh" "$duplicated_installer" <<'EOF'
+import sys
+source = open(sys.argv[1], encoding="utf-8").read()
+reader = 'while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(fedora_selected_capabilities)'
+loop = ('capabilities="base,dotnet-debug"; for selection in "$bool_kde:kde" "$install_ai:ai"; do '
+        '[[ "${selection%%:*}" != true ]] || capabilities+=",${selection#*:}"; done')
+assert source.count(reader) == 1, "lifecycle record reader not found"
+open(sys.argv[2], "w", encoding="utf-8").write(source.replace(reader, loop))
+EOF
+if assert_single_capability_selection "$duplicated_installer" fedora_selected_capabilities \
+  >"$test_root/duplicated-selection" 2>&1; then
+  printf 'A second capability selection loop unexpectedly passed.\n' >&2; exit 1
+fi
+grep -Fq "$duplicated_installer resolves its selected capabilities in 2 loops" "$test_root/duplicated-selection"
+printf 'Single capability selection guard passed.\n'

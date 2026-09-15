@@ -343,4 +343,81 @@ sed -i '/verify-desktop-tools\.sh/d' "$scratch/tests/test-desktop-tools.sh"
 expect_scratch_rejected 'a mocked verifier its suite never runs is rejected' \
   'desktop-tools: tests/test-desktop-tools.sh is recorded as the CI evidence for platforms/fedora/scripts/verify-desktop-tools.sh but never runs it'
 
+# Shell reads every manifest column by name (common/lib/manifest.sh), never by
+# a position stated in shell. Reordering columns must not change what an
+# installer reads, and a header that loses or repeats a column must fail loudly
+# naming it instead of answering from whatever sits at the old position. The
+# fixtures are scratch copies; the checkout's manifests are never edited.
+swap_columns() {
+  awk -F '\t' -v first="$2" -v second="$3" 'BEGIN { OFS = "\t" }
+    NR == 1 { for (i = 1; i <= NF; i++) { if ($i == first) a = i; if ($i == second) b = i } }
+    { value = $a; $a = $b; $b = value; print }' "$1"
+}
+(
+  # shellcheck source=../common/lib/common.sh
+  source "$repo_root/common/lib/common.sh"
+  # shellcheck source=../common/lib/capabilities.sh
+  source "$repo_root/common/lib/capabilities.sh"
+  # shellcheck source=../common/lib/install-selection.sh
+  source "$repo_root/common/lib/install-selection.sh"
+
+  expect_column_failure() {
+    local description="$1" expected="$2" output log
+    shift 2
+    output="$fixture.column.out"; log="$fixture.column.log"
+    if "$@" >"$output" 2>"$log"; then
+      printf '%s unexpectedly answered: %s\n' "$description" "$(cat "$output")" >&2
+      exit 1
+    fi
+    grep -Fq "$expected" "$log" || {
+      printf '%s did not name the offending column (%s):\n' "$description" "$expected" >&2
+      cat "$log" >&2
+      exit 1
+    }
+  }
+
+  swap_columns "$repo_root/config/capabilities.tsv" cli_flag default >"$fixture.swapped"
+  [[ "$(CAPABILITY_MANIFEST="$fixture.swapped" capability_field fedora kde cli_flag)" == --kde &&
+    "$(CAPABILITY_MANIFEST="$fixture.swapped" capability_field fedora kde default)" == auto ]] || {
+    printf 'capability_field read a reordered capability manifest by position.\n' >&2
+    exit 1
+  }
+  sed '1s/\tcli_flag\t/\tcli-flag\t/' "$repo_root/config/capabilities.tsv" >"$fixture.renamed"
+  CAPABILITY_MANIFEST="$fixture.renamed" expect_column_failure \
+    'A capability manifest without cli_flag' "$fixture.renamed has no column: cli_flag" \
+    capability_field fedora kde cli_flag
+  sed '1s/\tdefault\t/\tcli_flag\t/' "$repo_root/config/capabilities.tsv" >"$fixture.repeated"
+  CAPABILITY_MANIFEST="$fixture.repeated" expect_column_failure \
+    'A capability manifest repeating cli_flag' 'repeats column: cli_flag' \
+    capability_field fedora kde status
+  # The status lookup of a selection check must surface a broken header, not
+  # report every capability as merely unimplemented.
+  sed '1s/\tstatus\t/\tstate-of-row\t/' "$repo_root/config/capabilities.tsv" >"$fixture.status"
+  CAPABILITY_MANIFEST="$fixture.status" expect_column_failure \
+    'A selection check against a manifest without status' 'has no column: status' \
+    capability_validate_selection fedora base
+
+  swap_columns "$repo_root/config/install-options.tsv" on_flag off_flag >"$fixture.options-swapped"
+  [[ "$(INSTALL_OPTION_MANIFEST="$fixture.options-swapped" install_option_field fedora kde on_flag)" == --kde &&
+    "$(INSTALL_OPTION_MANIFEST="$fixture.options-swapped" install_option_names fedora)" == "$(install_option_names fedora)" ]] || {
+    printf 'install_option_field read a reordered option manifest by position.\n' >&2
+    exit 1
+  }
+  sed '1s/\tkind\t/\ttype\t/' "$repo_root/config/install-options.tsv" >"$fixture.options-renamed"
+  INSTALL_OPTION_MANIFEST="$fixture.options-renamed" expect_column_failure \
+    'An option manifest without kind' 'has no column: kind' \
+    install_option_exists fedora kde
+
+  swap_columns "$repo_root/config/command-providers.tsv" command provider >"$fixture.providers-swapped"
+  [[ "$(COMMAND_PROVIDER_MANIFEST="$fixture.providers-swapped" capability_preflight_command_specs fedora)" == \
+    "$(capability_preflight_command_specs fedora)" ]] || {
+    printf 'capability_preflight_command_specs read a reordered provider manifest by position.\n' >&2
+    exit 1
+  }
+  sed '1s/\tclassification$/\tclass/' "$repo_root/config/command-providers.tsv" >"$fixture.providers-renamed"
+  COMMAND_PROVIDER_MANIFEST="$fixture.providers-renamed" expect_column_failure \
+    'A provider manifest without classification' 'has no column: classification' \
+    capability_preflight_command_specs fedora
+)
+
 printf 'Capability manifest validation passed.\n'

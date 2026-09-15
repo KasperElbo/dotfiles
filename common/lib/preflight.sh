@@ -7,14 +7,6 @@ preflight_writable_path() {
   [[ -w "$probe" ]] || { printf 'Path is not writable: %s\n' "$path" >&2; return 1; }
 }
 
-preflight_commands() {
-  local command missing=0
-  for command in "$@"; do
-    command_exists "$command" || { printf 'Missing preflight command: %s\n' "$command" >&2; missing=1; }
-  done
-  ((missing == 0))
-}
-
 preflight_platform_command_providers() {
   local platform="$1"
   local command provider classification missing=0

@@ -61,9 +61,14 @@ if [ "$rerun" = "true" ] && [ "$platform_explicit" = "false" ]; then
       '$1 == "last_successful_platform" { print $2; exit }' "$install_state")"
     # The supported names live in config/capabilities.tsv, as its implemented
     # base rows. Asking the manifest here keeps this guard from drifting away
-    # from the list scripts/install-main.sh validates against.
+    # from the list scripts/install-main.sh validates against. Columns are
+    # found by name in the header, as common/lib/manifest.sh does; this entry
+    # point runs before a supported Bash exists, so it cannot source that.
     if [ -n "$remembered_platform" ] && awk -F '\t' -v p="$remembered_platform" \
-      'NR > 1 && $1 == "base" && $2 == p && $15 == "implemented" { found = 1 }
+      'NR == 1 { for (i = 1; i <= NF; i++) column[$i] = i; next }
+       column["capability"] && column["platform"] && column["status"] &&
+       $column["capability"] == "base" && $column["platform"] == p &&
+       $column["status"] == "implemented" { found = 1 }
        END { exit !found }' "$repo_root/config/capabilities.tsv" 2>/dev/null; then
       platform="$remembered_platform"
     fi

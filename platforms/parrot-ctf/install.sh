@@ -90,7 +90,7 @@ preflight_parrot() {
   require_parrot
   require_qemu_vm >/dev/null
   require_guest_channels
-  preflight_commands apt-get awk date find git readlink sudo systemctl
+  preflight_platform_command_providers parrot-ctf
   preflight_sudo "$interactive"
   preflight_writable_path "$HOME"
   preflight_writable_path "$XDG_CONFIG_HOME"

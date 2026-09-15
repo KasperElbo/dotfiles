@@ -85,7 +85,7 @@ theme_source="$THEME_RESOLVED_SOURCE"
 # cleaned up.
 macos_require_implemented_capability() {
   local flag="$1" capability="$2" status
-  status="$(capability_field macos "$capability" status 2>/dev/null || printf 'undeclared')"
+  status="$(capability_field macos "$capability" status || printf 'undeclared')"
   [[ "$status" != implemented ]] || return 0
   die "$flag is not supported on Apple Silicon macOS.
 config/capabilities.tsv declares the '$capability' capability '$status' for
@@ -151,7 +151,9 @@ install_selection="$(install_selection_serialize)"
 preflight_macos() {
   require_regular_user
   require_apple_silicon_macos
-  preflight_commands awk date find git readlink xcode-select
+  # config/command-providers.tsv owns this list, including curl and sudo, which
+  # every supported macOS ships even when this run turns out not to need them.
+  preflight_platform_command_providers macos
   xcode-select -p >/dev/null 2>&1 || die "Apple Command Line Tools are required; run 'xcode-select --install'."
   # Both things this profile needs sudo for are decided here, before the plan
   # runs: installing Homebrew, and moving the account's login shell to a
@@ -160,15 +162,9 @@ preflight_macos() {
   # the Homebrew case, so a Mac with Homebrew and a non-Zsh login shell still
   # stopped at a sudo password prompt inside the system step.
   local needs_sudo=false
-  if [[ ! -x "$(homebrew_path)" ]]; then
-    preflight_commands curl
-    needs_sudo=true
-  fi
+  [[ -x "$(homebrew_path)" ]] || needs_sudo=true
   ! macos_login_shell_change_required || needs_sudo=true
-  if [[ "$needs_sudo" == true ]]; then
-    preflight_commands sudo
-    preflight_sudo "$interactive"
-  fi
+  [[ "$needs_sudo" != true ]] || preflight_sudo "$interactive"
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   local specs=() spec capability
