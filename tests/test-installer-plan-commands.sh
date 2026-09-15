@@ -58,6 +58,12 @@ printf 'systemd\n'
 EOF
 chmod +x "$mock_bin/id" "$mock_bin/ps"
 printf 'ID=fedora\n' >"$test_root/os-release"
+# The WSL containers preflight probes the host's user bus, cgroup v2, and user
+# namespaces; stand in for a capable host so the result never depends on them.
+: >"$test_root/systemd-user-bus"
+mkdir -p "$test_root/cgroup"
+: >"$test_root/cgroup/cgroup.controllers"
+printf '15000\n' >"$test_root/max-user-namespaces"
 test_isolate_path getent git
 PATH="$mock_bin:$TEST_STUB_ROOT/bin:$PATH"
 
@@ -70,6 +76,8 @@ run_installer() {
     HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/.local/state" \
     XDG_DATA_HOME="$home/.local/share" XDG_CACHE_HOME="$home/.cache" \
     OS_RELEASE_FILE="$test_root/os-release" WSL_DISTRO_NAME=Fedora \
+    SYSTEMD_USER_BUS_SOCKET="$test_root/systemd-user-bus" CGROUP_ROOT="$test_root/cgroup" \
+    MAX_USER_NAMESPACES_FILE="$test_root/max-user-namespaces" \
     "$tree/platforms/$platform/install.sh" "$@"
 }
 
