@@ -19,8 +19,8 @@ composition found no reason to copy the Fedora installer or any Stow package:
 Run the profile only inside the guest:
 
 ```bash
-./scripts/install-vm-guest.sh
-./scripts/verify-vm-guest.sh
+./platforms/fedora/scripts/install-vm-guest.sh
+./platforms/fedora/scripts/verify-vm-guest.sh
 ```
 
 It uses `systemd-detect-virt --vm` as an explicit preflight and currently

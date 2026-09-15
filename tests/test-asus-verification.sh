@@ -78,7 +78,7 @@ run_verification() {
     DMI_ROOT="$test_root/dmi" \
     MOCK_MESA_VA_PROVIDER="${1:-}" \
     MOCK_SUPERGFXCTL_INSTALLED="${2:-false}" \
-    "$repo_root/scripts/verify-asus-hardware.sh" 2>&1
+    "$repo_root/platforms/fedora/scripts/verify-asus-hardware.sh" 2>&1
 }
 
 provider="mesa-dri-drivers-26.1.8-1.fc44.x86_64"

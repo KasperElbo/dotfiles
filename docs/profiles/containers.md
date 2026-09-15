@@ -5,9 +5,9 @@ development workflow. It is not part of the default `./install.sh` path,
 appears in `--dry-run`, and can be run and rerun on its own:
 
 ```bash
-./scripts/install-containers.sh
-./scripts/install-containers.sh --dry-run
-./scripts/verify-containers.sh
+./platforms/fedora/scripts/install-containers.sh
+./platforms/fedora/scripts/install-containers.sh --dry-run
+./platforms/fedora/scripts/verify-containers.sh
 ```
 
 Rootless Podman is treated as the normal, supported mode; nothing here runs
@@ -152,7 +152,7 @@ tooling. Pass `--api-socket` to `install-containers.sh` (or
 you use expects a Docker-style API socket:
 
 ```bash
-./scripts/install-containers.sh --api-socket
+./platforms/fedora/scripts/install-containers.sh --api-socket
 ```
 
 This enables `podman.socket` in your own **user** systemd instance

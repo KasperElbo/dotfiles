@@ -13,6 +13,11 @@ diff and expensive to notice later:
    the repository. The check never demands that a licence be chosen: an
    undecided repository is valid. It only requires that the page and the tree
    say the same thing.
+4. A reference to a repository *script* that no longer exists. Renaming one and
+   missing a caller leaves a path that reads as real in documentation, in a
+   comment, or in another script, and fails only when someone follows it.
+   ShellCheck already catches a broken `source` directive; this catches the
+   mentions it cannot see.
 
 Usage:
     scripts/validate-repository-hygiene.py [--root DIR]
@@ -21,9 +26,25 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import pathlib
 import re
+import subprocess
 import sys
+
+REFERENCE_SUFFIXES = (".sh", ".py", ".md", ".yml", ".yaml", ".tex", ".zsh", ".lua", ".toml", ".tsv")
+# A path-shaped string naming one of this repository's own executable scripts.
+# Deliberately narrow: runtime paths under ~/.config and documentation links
+# have their own checks, and widening this only produces noise.
+REPOSITORY_PATH = re.compile(
+    r"(?<![\w./-])(?:common|scripts|platforms|tests)/[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:sh|py)"
+)
+# Placeholders in usage text, which name a shape rather than a file.
+REFERENCE_EXCEPTIONS = (
+    "platforms/NAME/*",
+    "platforms/PLATFORM/*",
+    "platforms/<*",
+)
 
 NPM_LOCKFILES = ("package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml")
 LICENSE_FILENAMES = ("LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING")
@@ -115,6 +136,40 @@ def check_license_decision(root: pathlib.Path, problems: list[str]) -> None:
         )
 
 
+def check_repository_references(root: pathlib.Path, problems: list[str]) -> None:
+    try:
+        listing = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        names = [name for name in listing.split("\0") if name]
+    except (OSError, subprocess.CalledProcessError):
+        return
+
+    tracked = set(names)
+    for name in names:
+        if not name.endswith(REFERENCE_SUFFIXES):
+            continue
+        path = root / name
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        seen: set[str] = set()
+        for match in REPOSITORY_PATH.finditer(text):
+            reference = match.group(0)
+            if reference in seen:
+                continue
+            seen.add(reference)
+            if reference in tracked or (root / reference).exists():
+                continue
+            if any(fnmatch.fnmatchcase(reference, pattern) for pattern in REFERENCE_EXCEPTIONS):
+                continue
+            problems.append(
+                f"{name}: names a repository path that does not exist: {reference}"
+            )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -130,6 +185,7 @@ def main() -> int:
     check_npm_lockfiles(root, problems)
     check_third_party_notices(root, problems)
     check_license_decision(root, problems)
+    check_repository_references(root, problems)
 
     for problem in problems:
         print(f"Repository hygiene: {problem}", file=sys.stderr)

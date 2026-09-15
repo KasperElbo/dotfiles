@@ -23,7 +23,7 @@ run_setup() {
   HOME="$home" \
     XDG_CONFIG_HOME="$home/.config" \
     XDG_DATA_HOME="$home/.local/share" \
-    "$repo_root/scripts/setup-local.sh" "$flavour" >/dev/null
+    "$repo_root/platforms/fedora/scripts/setup-local.sh" "$flavour" >/dev/null
 }
 
 run_stow() {
@@ -32,7 +32,7 @@ run_stow() {
   HOME="$home" \
     XDG_CONFIG_HOME="$home/.config" \
     XDG_DATA_HOME="$home/.local/share" \
-    "$repo_root/scripts/stow.sh" >/dev/null
+    "$repo_root/platforms/fedora/scripts/stow.sh" >/dev/null
 }
 
 home="$test_root/home"

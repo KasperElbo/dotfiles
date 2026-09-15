@@ -14,7 +14,7 @@ run_setup() {
   HOME="$home" \
     XDG_CONFIG_HOME="$home/.config" \
     XDG_DATA_HOME="$home/.local/share" \
-    "$repo_root/scripts/setup-local.sh" "$flavour" >/dev/null
+    "$repo_root/platforms/fedora/scripts/setup-local.sh" "$flavour" >/dev/null
 }
 
 fresh_home="$test_root/fresh-home"
@@ -58,7 +58,7 @@ mkdir -p "$sway_home"
 HOME="$sway_home" \
   XDG_CONFIG_HOME="$sway_home/.config" \
   XDG_DATA_HOME="$sway_home/.local/share" \
-  "$repo_root/scripts/setup-local.sh" \
+  "$repo_root/platforms/fedora/scripts/setup-local.sh" \
   mocha --sway --hardware ga402xz >/dev/null
 
 local_sway="$sway_home/.config/sway/local.conf"
@@ -69,7 +69,7 @@ printf 'output DP-9 mode 1920x1080\n' >"$local_sway"
 HOME="$sway_home" \
   XDG_CONFIG_HOME="$sway_home/.config" \
   XDG_DATA_HOME="$sway_home/.local/share" \
-  "$repo_root/scripts/setup-local.sh" latte --sway >/dev/null
+  "$repo_root/platforms/fedora/scripts/setup-local.sh" latte --sway >/dev/null
 
 grep -Fqx 'output DP-9 mode 1920x1080' "$local_sway"
 printf 'PASS: local Sway output configuration remains machine-owned\n'
@@ -93,7 +93,7 @@ HOME="$migration_home" \
   XDG_CONFIG_HOME="$migration_home/.config" \
   XDG_DATA_HOME="$migration_home/.local/share" \
   DOTFILES_GIT_IDENTITY_BACKUP_DIR="$migration_backup" \
-  "$repo_root/scripts/setup-local.sh" macchiato >/dev/null
+  "$repo_root/platforms/fedora/scripts/setup-local.sh" macchiato >/dev/null
 
 for identity in local drdk; do
   identity_path="$migration_home/.config/git/$identity"

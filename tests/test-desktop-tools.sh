@@ -101,20 +101,20 @@ test_environment=(
 
 run_install() {
   RPM_PRESENT="${RPM_PRESENT:-}" "${test_environment[@]}" \
-    "$repo_root/scripts/install-desktop-tools.sh" "$@" >/dev/null
+    "$repo_root/platforms/fedora/scripts/install-desktop-tools.sh" "$@" >/dev/null
 }
 
 # --- dry-run makes no changes and reports missing baseline packages -------
 
 dry_run_output="$(RPM_PRESENT="" "${test_environment[@]}" \
-  "$repo_root/scripts/install-desktop-tools.sh" --dry-run)"
+  "$repo_root/platforms/fedora/scripts/install-desktop-tools.sh" --dry-run)"
 grep -Fq 'Currently missing and would be installed: ark gwenview okular' \
   <<<"$dry_run_output"
 grep -Fq 'Force-override existing default applications: false' <<<"$dry_run_output"
 grep -Fq 'No changes were made.' <<<"$dry_run_output"
 
 force_dry_run_output="$(RPM_PRESENT="" "${test_environment[@]}" \
-  "$repo_root/scripts/install-desktop-tools.sh" --dry-run --force-defaults)"
+  "$repo_root/platforms/fedora/scripts/install-desktop-tools.sh" --dry-run --force-defaults)"
 grep -Fq 'Force-override existing default applications: true' \
   <<<"$force_dry_run_output"
 grep -Fq 'overriding any existing default' <<<"$force_dry_run_output"

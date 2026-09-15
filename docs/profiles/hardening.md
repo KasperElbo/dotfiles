@@ -21,9 +21,9 @@ deleting one file. It is opt-in and does not change the default install:
 or, once the base workstation is already installed:
 
 ```bash
-./scripts/install-hardening.sh
-./scripts/install-hardening.sh --dry-run   # show the plan first
-./scripts/verify-hardening.sh              # re-run verification any time
+./platforms/fedora/scripts/install-hardening.sh
+./platforms/fedora/scripts/install-hardening.sh --dry-run   # show the plan first
+./platforms/fedora/scripts/verify-hardening.sh              # re-run verification any time
 ```
 
 ### Fedora's baseline (verified, not changed)

@@ -53,7 +53,7 @@ run_preflight() {
     DMI_ROOT="$dmi_root" \
     KERNEL_RELEASE=7.1.0-test \
     MOCK_SECURE_BOOT="$secure_boot" \
-    "$repo_root/scripts/install-asus-hardware.sh" \
+    "$repo_root/platforms/fedora/scripts/install-asus-hardware.sh" \
     --model "$model" --preflight "$@" 2>&1
 }
 

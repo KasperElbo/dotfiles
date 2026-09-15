@@ -181,6 +181,28 @@ both fail, and the checker never silently repairs the tracked file. The suite
 also asserts that the README stays an entry point rather than growing back
 into the operating manual.
 
+### Compatibility wrappers, file modes and names
+
+`tests/test-compat-wrappers.sh` owns the deprecation policy (issue #161). A
+deprecation window only means something if the wrapper still works, so the
+suite proves both halves: every deprecated wrapper forwards to a real target
+and passes its arguments through, and the notice names the wrapper's own path,
+the supported replacement, the platform script and the removal date. It also
+checks the properties that keep the notice from being harmful — it goes to
+stderr so stdout stays parseable, and `DOTFILES_SUPPRESS_DEPRECATION=1`
+silences it — and that the removal milestone lives in one constant rather than
+being copied into every wrapper. A window that has already expired fails the
+suite, which is how the follow-up removal gets noticed.
+
+The mode policy is tested against a throwaway copy of the tree, one defect at a
+time: an executable sourced library fails, a non-executable entry point fails,
+and a shell file no role in `config/shell-file-roles.tsv` claims fails, so
+classifying a new script is unavoidable rather than optional.
+
+The renamed theme libraries are checked for stale references across every
+tracked file, and the deprecated shim is sourced to prove it still provides
+what it used to while warning that it is deprecated.
+
 ### Custom actions and printable sheets
 
 `tests/test-action-registry.sh` owns `config/actions.tsv` and everything

@@ -114,8 +114,8 @@ KVM/QEMU + libvirt stack without changing the default workstation bootstrap:
 The same profile can be installed or validated independently:
 
 ```bash
-./scripts/install-vm-host.sh
-./scripts/verify-vm-host.sh --smoke-test
+./platforms/fedora/scripts/install-vm-host.sh
+./platforms/fedora/scripts/verify-vm-host.sh --smoke-test
 ```
 
 Inside a Fedora guest created by that host profile, reuse the normal bootstrap
@@ -196,12 +196,12 @@ After a fresh install:
 8. Run:
 
    ```bash
-   ./scripts/verify.sh
+   ./platforms/fedora/scripts/verify.sh
    ```
 
    When a hardware profile is configured, this automatically includes its
    driver, service, DMI, and Secure Boot checks. For a focused rerun, use
-   `./scripts/verify-asus-hardware.sh`.
+   `./platforms/fedora/scripts/verify-asus-hardware.sh`.
 
 9. Confirm Git identity:
 

@@ -101,7 +101,7 @@ records, Git identities, Sway output overrides — lives under
 never tracked. See
 [docs/architecture/file-ownership.md](docs/architecture/file-ownership.md).
 
-Five manifests under `config/` are the normative contract the code and the
+Six manifests under `config/` are the normative contract the code and the
 documentation both read:
 
 | Manifest | Owns |
@@ -111,6 +111,7 @@ documentation both read:
 | `config/network-sources.tsv` | Every network source the repository fetches, its provenance tier, privilege and integrity mechanism |
 | `config/fedora-command-providers.tsv` | The Fedora bootstrap command closure: which capability owns each native command |
 | `config/actions.tsv` | Every repository-defined user action: binding, platform, source, how it is discoverable, and whether a printable sheet carries it |
+| `config/shell-file-roles.tsv` | Every tracked shell file's role and required file mode |
 
 Documentation that states a supported capability, an option, a default or a
 provider is generated from these manifests or checked against them; see
@@ -141,7 +142,7 @@ never prints the record itself and never changes anything.
 ## Verifying an installation
 
 ```bash
-./scripts/verify.sh   # Fedora; each platform has its own verifier
+./platforms/fedora/scripts/verify.sh   # each platform has its own verifier
 ```
 
 See [docs/workflows/verification.md](docs/workflows/verification.md) for what

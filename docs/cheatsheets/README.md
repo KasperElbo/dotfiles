@@ -47,7 +47,7 @@ and `needspace` are the only non-base packages used). On Fedora, the
 repository's own optional LaTeX profile already provides this:
 
 ```bash
-./scripts/install-latex.sh
+./platforms/fedora/scripts/install-latex.sh
 ```
 
 or any other TeX Live install (`texlive-scheme-medium` or larger) that

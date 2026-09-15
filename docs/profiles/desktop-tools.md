@@ -6,9 +6,9 @@ the default `./install.sh` path, appears in `--dry-run`, and can be run and
 rerun on its own:
 
 ```bash
-./scripts/install-desktop-tools.sh
-./scripts/install-desktop-tools.sh --dry-run
-./scripts/verify-desktop-tools.sh
+./platforms/fedora/scripts/install-desktop-tools.sh
+./platforms/fedora/scripts/install-desktop-tools.sh --dry-run
+./platforms/fedora/scripts/verify-desktop-tools.sh
 ```
 
 The Fedora KDE baseline was inspected first so the profile reuses what is

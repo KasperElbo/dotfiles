@@ -21,12 +21,12 @@ Run the component directly when the workstation configuration is already
 installed:
 
 ```bash
-./scripts/install-asus-hardware.sh \
+./platforms/fedora/scripts/install-asus-hardware.sh \
   --model ga402xz \
   --secure-boot \
   --charge-limit 80
 
-./scripts/install-asus-hardware.sh \
+./platforms/fedora/scripts/install-asus-hardware.sh \
   --model ga402rk \
   --secure-boot
 ```
@@ -42,7 +42,7 @@ packages, or changing services.
 The preflight can also be run independently:
 
 ```bash
-./scripts/install-asus-hardware.sh \
+./platforms/fedora/scripts/install-asus-hardware.sh \
   --model ga402rk \
   --secure-boot \
   --preflight
@@ -91,7 +91,7 @@ check confirms that the certificate is enrolled.
 Then run:
 
 ```bash
-./scripts/verify-asus-hardware.sh
+./platforms/fedora/scripts/verify-asus-hardware.sh
 ```
 
 ## Keyboard layouts

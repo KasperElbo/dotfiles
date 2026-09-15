@@ -13,7 +13,7 @@ LaTeX support is optional, and `--latex` is a Fedora and Fedora WSL flag only:
 or:
 
 ```bash
-./scripts/install-latex.sh
+./platforms/fedora/scripts/install-latex.sh
 ```
 
 Fedora owns the TeX distribution and Biber.

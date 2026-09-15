@@ -7,9 +7,9 @@ be installed and reverified independently of the rest of the workstation:
 
 ```bash
 ./install.sh --tailscale
-./scripts/install-tailscale.sh
-./scripts/install-tailscale.sh --dry-run   # show the plan first
-./scripts/verify-tailscale.sh              # re-run verification any time
+./platforms/fedora/scripts/install-tailscale.sh
+./platforms/fedora/scripts/install-tailscale.sh --dry-run   # show the plan first
+./platforms/fedora/scripts/verify-tailscale.sh              # re-run verification any time
 ```
 
 This profile installs and enables the local client only. Everything

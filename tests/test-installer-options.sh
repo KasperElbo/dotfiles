@@ -143,7 +143,7 @@ run_success "Hardening remains opt-in" "Hardening profile:   false" \
   ./install.sh --dry-run
 run_success "Standalone hardening dry-run" \
   "kernel.yama.ptrace_scope=1, kernel.kptr_restrict=2" \
-  ./scripts/install-hardening.sh --dry-run
+  ./platforms/fedora/scripts/install-hardening.sh --dry-run
 run_success "Desktop tools remains opt-in" "Desktop tools:       false" \
   ./install.sh --dry-run
 run_success "Desktop-tools dry-run" \
@@ -165,7 +165,7 @@ run_success "Containers dry-run" \
   ./install.sh --dry-run --containers
 run_success "Containers dry-run documents no Docker Engine/alias" \
   "Docker Engine/alias:   not installed" \
-  ./scripts/install-containers.sh --dry-run
+  ./platforms/fedora/scripts/install-containers.sh --dry-run
 run_success "Containers API socket remains opt-in" \
   "Containers API socket: false" \
   ./install.sh --dry-run --containers
@@ -174,7 +174,7 @@ run_success "Containers API socket dry-run" \
   ./install.sh --dry-run --containers --containers-api-socket
 run_success "Standalone containers dry-run" \
   "Rootless API socket:   false" \
-  ./scripts/install-containers.sh --dry-run
+  ./platforms/fedora/scripts/install-containers.sh --dry-run
 run_success "Tailscale remains opt-in" "Tailscale profile:   false" \
   ./install.sh --dry-run
 run_success "Tailscale dry-run" \
@@ -182,10 +182,10 @@ run_success "Tailscale dry-run" \
   ./install.sh --dry-run --tailscale
 run_success "Tailscale dry-run documents no automated authentication" \
   "not automated; 'tailscale up' is never run here" \
-  ./scripts/install-tailscale.sh --dry-run
+  ./platforms/fedora/scripts/install-tailscale.sh --dry-run
 run_success "Standalone Tailscale dry-run documents no embedded credentials" \
   "none (no auth key, no OAuth secret, no tailnet policy)" \
-  ./scripts/install-tailscale.sh --dry-run
+  ./platforms/fedora/scripts/install-tailscale.sh --dry-run
 run_success "AI remains opt-in" "AI profile:          false" \
   ./install.sh --dry-run
 run_success "AI dry-run" "common/install-ai.sh" \
@@ -238,7 +238,7 @@ run_success "GA402XZ Sway dry-run forwards hardware to local setup" \
 run_success "GA402XZ dry-run" "Require Secure Boot: true" \
   ./install.sh --dry-run --hardware ga402xz --secure-boot --charge-limit 80
 run_success "GA402RK dry-run" "Graphics:               AMD iGPU + AMD dGPU" \
-  ./scripts/install-asus-hardware.sh --dry-run --model ga402rk
+  ./platforms/fedora/scripts/install-asus-hardware.sh --dry-run --model ga402rk
 
 run_failure "unknown option" "Unknown option: --invalid-option" \
   ./install.sh --invalid-option

@@ -96,11 +96,11 @@ ln -s \
 HOME="$stow_home" \
   XDG_CONFIG_HOME="$stow_home/.config" \
   XDG_DATA_HOME="$stow_home/.local/share" \
-  "$repo_root/scripts/setup-local.sh" macchiato --sway >/dev/null
+  "$repo_root/platforms/fedora/scripts/setup-local.sh" macchiato --sway >/dev/null
 HOME="$stow_home" \
   XDG_CONFIG_HOME="$stow_home/.config" \
   XDG_DATA_HOME="$stow_home/.local/share" \
-  "$repo_root/scripts/stow.sh" --sway >/dev/null
+  "$repo_root/platforms/fedora/scripts/stow.sh" --sway >/dev/null
 
 [[ -L "$stow_home/.config/sway/config" ]]
 [[ -L "$stow_home/.config/xdg-desktop-portal/sway-portals.conf" ]]
@@ -119,7 +119,7 @@ stow_theme_assets() {
   HOME="$asset_home" \
     XDG_CONFIG_HOME="$asset_home/.config" \
     XDG_DATA_HOME="$asset_home/.local/share" \
-    "$repo_root/scripts/stow.sh" >/dev/null
+    "$repo_root/platforms/fedora/scripts/stow.sh" >/dev/null
 }
 stow_theme_assets
 stow_theme_assets

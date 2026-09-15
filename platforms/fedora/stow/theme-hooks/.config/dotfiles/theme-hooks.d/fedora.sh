@@ -5,7 +5,7 @@
 # command report a complete application afterwards.
 
 # shellcheck source=/dev/null
-source "$DOTFILES_ROOT/platforms/fedora/lib/theme-state.sh"
+source "$DOTFILES_ROOT/platforms/fedora/lib/theme-desktop.sh"
 
 # shellcheck disable=SC2154
 theme_action fedora:generated-state \

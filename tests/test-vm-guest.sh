@@ -98,7 +98,7 @@ test_environment=(
 )
 
 run_install() {
-  "${test_environment[@]}" "$repo_root/scripts/install-vm-guest.sh" >/dev/null
+  "${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-vm-guest.sh" >/dev/null
 }
 
 legacy_clipboard_bridge="$test_root/xdg/systemd/user/dotfiles-spice-wayland-clipboard.service"
@@ -135,7 +135,7 @@ if grep -Eiq 'asus|nvidia|power-profile|brctl|nmcli' "$command_log"; then
 fi
 
 verification_output="$(
-  "${test_environment[@]}" "$repo_root/scripts/verify-vm-guest.sh" 2>&1
+  "${test_environment[@]}" "$repo_root/platforms/fedora/scripts/verify-vm-guest.sh" 2>&1
 )"
 grep -Fq 'Virtual machine detected: kvm' <<<"$verification_output"
 grep -Fq 'Guest has a default network route' <<<"$verification_output"
@@ -144,7 +144,7 @@ grep -Fq 'VM-guest verification passed.' <<<"$verification_output"
 before_rejection="$(sha256sum "$command_log")"
 if "${test_environment[@]}" \
   env MOCK_VIRTUALIZATION_TYPE=none \
-  "$repo_root/scripts/install-vm-guest.sh" >"$test_root/bare-metal.log" 2>&1; then
+  "$repo_root/platforms/fedora/scripts/install-vm-guest.sh" >"$test_root/bare-metal.log" 2>&1; then
   printf 'VM-guest install unexpectedly accepted bare metal.\n' >&2
   exit 1
 fi
@@ -165,7 +165,7 @@ grep -Eq 'Refusing to run the user installer as root|must be run inside a detect
 
 if "${test_environment[@]}" \
   env MOCK_VIRTUALIZATION_TYPE=vmware \
-  "$repo_root/scripts/install-vm-guest.sh" >"$test_root/unsupported.log" 2>&1; then
+  "$repo_root/platforms/fedora/scripts/install-vm-guest.sh" >"$test_root/unsupported.log" 2>&1; then
   printf 'VM-guest install unexpectedly accepted an unsupported hypervisor.\n' >&2
   exit 1
 fi
@@ -178,7 +178,7 @@ mkdir -p "$dry_run_root"
 dry_run_output="$(
   HOME="$dry_run_root" \
     XDG_CONFIG_HOME="$dry_run_root/config" \
-    "$repo_root/scripts/install-vm-guest.sh" --dry-run
+    "$repo_root/platforms/fedora/scripts/install-vm-guest.sh" --dry-run
 )"
 grep -Fq 'qemu-guest-agent' <<<"$dry_run_output"
 grep -Fq 'spice-vdagent' <<<"$dry_run_output"

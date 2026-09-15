@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-# This file is sourced by setup-local.sh and the user-facing theme command.
+# The portable half of applying a theme: the derived state files every
+# platform reads. Sourced by setup-local.sh and by the user-facing theme
+# command. The Fedora desktop half lives in platforms/fedora/lib/theme-desktop.sh.
 
 write_theme_state() {
   local flavour="$1"

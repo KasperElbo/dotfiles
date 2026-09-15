@@ -59,7 +59,7 @@ cat >"$fixture_repo/scripts/unregistered-source.sh" <<'EOF'
 #!/usr/bin/env bash
 curl --fail --silent https://example.invalid/install.sh --output /tmp/x
 EOF
-git -C "$fixture_repo" add scripts/unregistered-source.sh
+git -C "$fixture_repo" add -A
 if lint_output="$(lint_fixture)"; then
   printf 'The linter accepted an unregistered curl source.\n' >&2
   exit 1
@@ -85,7 +85,7 @@ cat >"$fixture_repo/scripts/unregistered-clone.sh" <<'EOF'
 #!/usr/bin/env bash
 git clone https://example.invalid/thing.git /tmp/thing
 EOF
-git -C "$fixture_repo" add scripts/unregistered-clone.sh
+git -C "$fixture_repo" add -A
 if lint_output="$(lint_fixture)"; then
   printf 'The linter accepted an unregistered Git clone source.\n' >&2
   exit 1
@@ -99,7 +99,7 @@ cat >"$fixture_repo/scripts/unregistered-image.sh" <<'EOF'
 #!/usr/bin/env bash
 podman run --rm docker.io/library/nonesuch:latest true
 EOF
-git -C "$fixture_repo" add scripts/unregistered-image.sh
+git -C "$fixture_repo" add -A
 if lint_output="$(lint_fixture)"; then
   printf 'The linter accepted an unregistered validation image.\n' >&2
   exit 1
@@ -117,7 +117,7 @@ packages=(bat curl eza)
 require_command curl
 printf 'curl is required.\n'
 EOF
-git -C "$fixture_repo" add scripts/mentions-curl.sh
+git -C "$fixture_repo" add -A
 lint_fixture >/dev/null
 rm -f -- "$fixture_repo/scripts/mentions-curl.sh"
 git -C "$fixture_repo" add -A

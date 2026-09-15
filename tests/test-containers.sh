@@ -273,7 +273,7 @@ new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 
 dry_run_output="$(env "${test_environment[@]}" \
-  "$repo_root/scripts/install-containers.sh" --dry-run)"
+  "$repo_root/platforms/fedora/scripts/install-containers.sh" --dry-run)"
 
 assert_contains "$dry_run_output" 'podman'
 assert_contains "$dry_run_output" 'podman-compose'
@@ -285,7 +285,7 @@ assert_contains "$dry_run_output" \
 assert_contains "$dry_run_output" 'No changes were made.'
 
 api_socket_dry_run_output="$(env "${test_environment[@]}" \
-  "$repo_root/scripts/install-containers.sh" --dry-run --api-socket)"
+  "$repo_root/platforms/fedora/scripts/install-containers.sh" --dry-run --api-socket)"
 assert_contains "$api_socket_dry_run_output" 'Rootless API socket:   true'
 assert_contains "$api_socket_dry_run_output" 'podman.socket'
 
@@ -301,7 +301,7 @@ mapfile -t test_environment < <(base_environment "$test_root")
 
 run_install() {
   env "${test_environment[@]}" \
-    "$repo_root/scripts/install-containers.sh" \
+    "$repo_root/platforms/fedora/scripts/install-containers.sh" \
     >"$test_root/install-output.log" 2>&1
 }
 
@@ -354,7 +354,7 @@ mapfile -t test_environment < <(base_environment "$test_root")
 printf 'other-user:100000:65536\n' >"$test_root/subuid"
 printf 'other-user:100000:65536\n' >"$test_root/subgid"
 
-if ! env "${test_environment[@]}" "$repo_root/scripts/install-containers.sh" \
+if ! env "${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-containers.sh" \
   >"$test_root/install-output.log" 2>&1; then
   cat "$test_root/install-output.log" >&2
   fail_with_context 'install-containers.sh failed with an existing range'
@@ -373,7 +373,7 @@ mapfile -t test_environment < <(base_environment "$test_root")
 printf 'tester:200000:65536\n' >"$test_root/subuid"
 printf 'tester:200000:65536\n' >"$test_root/subgid"
 
-if ! env "${test_environment[@]}" "$repo_root/scripts/install-containers.sh" \
+if ! env "${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-containers.sh" \
   >"$test_root/install-output.log" 2>&1; then
   cat "$test_root/install-output.log" >&2
   fail_with_context 'install-containers.sh failed for an already-provisioned user'
@@ -388,7 +388,7 @@ printf 'PASS: an already-provisioned user is left untouched\n'
 new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 
-if ! env "${test_environment[@]}" "$repo_root/scripts/install-containers.sh" \
+if ! env "${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-containers.sh" \
   --api-socket >"$test_root/install-output.log" 2>&1; then
   cat "$test_root/install-output.log" >&2
   fail_with_context 'install-containers.sh --api-socket failed'
@@ -409,7 +409,7 @@ assert_status 96
 assert_contains "$TEST_OUTPUT" 'strict stub rejected unsupported argv: systemctl'
 
 verify_socket_output="$(env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test 2>&1)"
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test 2>&1)"
 assert_contains "$verify_socket_output" \
   'podman.socket is enabled and active for the user'
 assert_contains "$verify_socket_output" 'as recorded'
@@ -432,7 +432,7 @@ printf 'podman.socket\n' >"$test_root/user-enabled-units"
 printf 'podman.socket\n' >"$test_root/user-active-units"
 
 run_capture env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test
 assert_success
 assert_contains "$TEST_OUTPUT" 'podman.socket is enabled and active for the user'
 printf 'PASS: recorded api_socket=enabled with a healthy user socket passes\n'
@@ -445,7 +445,7 @@ printf 'tester:100000:65536\n' >"$test_root/subgid"
 write_containers_state "$test_root" enabled
 
 run_capture env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test
 assert_failure
 assert_contains "$TEST_OUTPUT" 'api_socket=enabled was recorded'
 assert_contains "$TEST_OUTPUT" 'systemctl --user enable --now podman.socket'
@@ -460,7 +460,7 @@ write_containers_state "$test_root" enabled
 printf 'podman.socket\n' >"$test_root/user-enabled-units"
 
 run_capture env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test
 assert_failure
 assert_contains "$TEST_OUTPUT" 'enabled but not active for the user'
 printf 'PASS: an enabled-but-inactive user socket fails verification\n'
@@ -475,7 +475,7 @@ printf 'podman.socket\n' >"$test_root/system-enabled-units"
 printf 'podman.socket\n' >"$test_root/system-active-units"
 
 run_capture env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test
 assert_failure
 assert_contains "$TEST_OUTPUT" \
   'a system-scoped podman.socket is present and does not satisfy this rootless profile'
@@ -489,7 +489,7 @@ printf 'tester:100000:65536\n' >"$test_root/subgid"
 write_containers_state "$test_root" disabled
 
 run_capture env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test
 assert_success
 assert_contains "$TEST_OUTPUT" 'podman.socket is not enabled, as recorded'
 printf 'PASS: recorded api_socket=disabled with no socket passes\n'
@@ -504,7 +504,7 @@ printf 'podman.socket\n' >"$test_root/user-enabled-units"
 printf 'podman.socket\n' >"$test_root/user-active-units"
 
 run_capture env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test
 assert_success
 assert_contains "$TEST_OUTPUT" 'api_socket=disabled was recorded, but'
 assert_contains "$TEST_OUTPUT" 'passed with warnings'
@@ -525,7 +525,7 @@ mode=rootless
 EOF
 
 run_capture env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test
 assert_failure
 assert_contains "$TEST_OUTPUT" 'missing or invalid api_socket'
 assert_contains "$TEST_OUTPUT" 'install-containers.sh'
@@ -551,7 +551,7 @@ provenance=capability-manifest@unknown
 EOF
 
 run_capture env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test
 assert_failure
 assert_contains "$TEST_OUTPUT" 'the containers profile is selected in'
 assert_contains "$TEST_OUTPUT" 'is missing'
@@ -566,7 +566,7 @@ printf 'tester:100000:65536\n' >"$test_root/subuid"
 printf 'tester:100000:65536\n' >"$test_root/subgid"
 
 verify_output="$(env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test 2>&1)" ||
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test 2>&1)" ||
   fail_with_context "verify-containers.sh --skip-smoke-test failed:\n$verify_output"
 
 assert_contains "$verify_output" 'podman version'
@@ -595,7 +595,7 @@ printf 'tester:100000:65536\n' >"$test_root/subuid"
 printf 'tester:100000:65536\n' >"$test_root/subgid"
 
 if env "${test_environment[@]}" MOCK_PODMAN_ROOTLESS=false \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test \
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test \
   >"$test_root/verify-output.log" 2>&1; then
   fail_with_context \
     'verify-containers.sh must fail when podman is not running rootless' \
@@ -610,7 +610,7 @@ new_test_root
 mapfile -t test_environment < <(base_environment "$test_root")
 
 if env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" --skip-smoke-test \
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test \
   >"$test_root/verify-output.log" 2>&1; then
   fail_with_context \
     'verify-containers.sh must fail without a subuid/subgid range' \
@@ -630,7 +630,7 @@ printf 'tester:100000:65536\n' >"$test_root/subgid"
 write_containers_state "$test_root" disabled
 
 smoke_output="$(env "${test_environment[@]}" \
-  "$repo_root/scripts/verify-containers.sh" 2>&1)" ||
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" 2>&1)" ||
   fail_with_context "full smoke test failed:\n$smoke_output"
 
 assert_contains "$smoke_output" 'pull: docker.io/library/busybox:stable'
@@ -664,7 +664,7 @@ printf 'tester:100000:65536\n' >"$test_root/subuid"
 printf 'tester:100000:65536\n' >"$test_root/subgid"
 
 if env "${test_environment[@]}" MOCK_PODMAN_BUILD_EXIT=1 \
-  "$repo_root/scripts/verify-containers.sh" \
+  "$repo_root/platforms/fedora/scripts/verify-containers.sh" \
   >"$test_root/smoke-failure.log" 2>&1; then
   fail_with_context \
     'verify-containers.sh must fail when podman build fails' \

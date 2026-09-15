@@ -4,8 +4,8 @@ set -euo pipefail
 
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
-# shellcheck source=lib/theme-state.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/theme-state.sh"
+# shellcheck source=lib/theme-shared-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/theme-shared-state.sh"
 # shellcheck source=lib/git-identity.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/git-identity.sh"
 

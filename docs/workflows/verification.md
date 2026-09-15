@@ -3,7 +3,7 @@
 Run:
 
 ```bash
-./scripts/verify.sh
+./platforms/fedora/scripts/verify.sh
 ```
 
 The verifier checks:

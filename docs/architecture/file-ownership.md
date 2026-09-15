@@ -75,5 +75,5 @@ verification requirements.
 The Git files contain user-specific identity and optional authentication/signing configuration.
 
 When upgrading from a version that tracked these files accidentally,
-`scripts/setup-local.sh` replaces the old Stow links with private local files
+`platforms/fedora/scripts/setup-local.sh` replaces the old Stow links with private local files
 before the remaining dotfiles are restowed.

@@ -264,7 +264,7 @@ blocking, time-limited `:MasonInstall` for any missing packages. This avoids
 depending on language-specific plugins and filetypes loading during an
 interactive first launch. Mason's normal `ensure_installed` configuration uses
 the same inventory, so later interactive starts retain the expected behavior.
-`scripts/verify.sh` fails when an intended package is missing and warns about
+`platforms/fedora/scripts/verify.sh` fails when an intended package is missing and warns about
 additional Mason packages so stale or manually installed tools can be reviewed
 instead of silently acquiring a second owner.
 
