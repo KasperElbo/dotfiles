@@ -49,9 +49,11 @@ def tracked(root: pathlib.Path) -> list[str]:
 
 def governed(name: str) -> bool:
     """Files whose executable bit this repository is responsible for."""
-    if name.endswith(".sh") or name.endswith(".zsh"):
+    if name.endswith((".sh", ".zsh", ".ps1")):
         return True
     if "/.local/bin/" in name or name.startswith("bin/.local/bin/"):
+        return True
+    if name.startswith("scripts/") and name.endswith(".py"):
         return True
     return name in {"doctor", "zsh/.zshenv"} or name.startswith("zsh/.config/zsh/")
 
