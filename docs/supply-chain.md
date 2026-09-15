@@ -112,9 +112,18 @@ repository runs is instead:
 4. executed only then, by an explicit interpreter, so a missing or hostile
    shebang cannot choose one;
 5. removed immediately afterwards;
-6. followed by verification of the exact expected target — a regular file,
-   owned by the invoking user, executable, and able to run `--version` or
-   `--help`.
+6. followed by verification of the exact expected command path — which must
+   resolve to a regular file, owned by the invoking user, executable, and able
+   to run `--version` or `--help`.
+
+Where an upstream puts the binary behind that command path is the upstream's
+own choice: No Mistakes on darwin/arm64 installs into `~/.no-mistakes/bin` and
+leaves a launcher symlink on `PATH`, while Treehouse writes the binary straight
+to the command path. Verification resolves the chain first and asks every
+question of the file it names, and the profile state records that file's path
+alongside its digest — so a later `--no-firstmate` removes the binary an
+upstream installed, not just the launcher pointing at it, and refuses when the
+command now resolves somewhere else.
 
 Only after that verification may any state record the component as installed.
 

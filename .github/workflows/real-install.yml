@@ -155,6 +155,13 @@ jobs:
           probe lavish-axi lavish-axi --help
           probe tasks-axi tasks-axi --help
           probe quota-axi quota-axi --help
+          # These two come from staged upstream installers, and they do not
+          # agree on a layout: Treehouse writes the binary to the command path,
+          # No Mistakes installs under ~/.no-mistakes/bin and leaves a launcher
+          # symlink. Both are proved here against the real upstreams, including
+          # that the provenance the profile state records is about the binary
+          # that actually runs -- which is what a later --no-firstmate deletes.
+          ai_state="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/ai.conf"
           for own_script in treehouse no-mistakes; do
             target="$HOME/.local/bin/$own_script"
             if [ ! -x "$target" ]; then
@@ -169,8 +176,19 @@ jobs:
                 failures=$((failures + 1))
                 ;;
             esac
+            state_key="$(printf '%s_target_path' "$own_script" | tr - _)"
+            recorded="$(awk -F= -v key="$state_key" \
+              '$1 == key { print substr($0, length(key) + 2) }' "$ai_state")"
+            if [ -z "$recorded" ] || [ "$recorded" = not-recorded ]; then
+              printf '::error::%s recorded no installed path in %s\n' "$own_script" "$ai_state"
+              failures=$((failures + 1))
+            elif [ ! "$recorded" -ef "$target" ]; then
+              printf '::error::%s records %s, which is not the file %s runs\n' \
+                "$own_script" "$recorded" "$target"
+              failures=$((failures + 1))
+            fi
             if "$target" --version >/dev/null 2>&1 || "$target" --help >/dev/null 2>&1; then
-              printf 'ok: %s (%s)\n' "$own_script" "$target"
+              printf 'ok: %s (%s -> %s)\n' "$own_script" "$target" "${recorded:-unrecorded}"
             else
               printf '::error::%s did not run a harmless self-description\n' "$own_script"
               failures=$((failures + 1))

@@ -169,31 +169,12 @@ check_file_mode() {
   fi
 }
 
-# Resolve an existing path without GNU-only readlink flags. Basic readlink is
-# available on GNU/Linux and macOS; directory canonicalization is delegated to
-# the shell's portable `cd -P` behavior. Symlink loops are bounded explicitly.
+# Resolve an existing path without GNU-only readlink flags. Installers and
+# verifiers must agree on what a path resolves to, so the implementation lives
+# in common/lib/common.sh (sourced before this library by every verifier) and
+# this is the verifier-facing name for it.
 verify_canonical_existing_path() {
-  local path="$1"
-  local target directory basename iteration=0
-
-  [[ -e "$path" ]] || return 1
-
-  while [[ -L "$path" ]]; do
-    iteration=$((iteration + 1))
-    ((iteration <= 64)) || return 1
-    target="$(readlink "$path" 2>/dev/null)" || return 1
-    if [[ "$target" == /* ]]; then
-      path="$target"
-    else
-      path="$(dirname "$path")/$target"
-    fi
-    [[ -e "$path" ]] || return 1
-  done
-
-  directory="$(cd -P -- "$(dirname -- "$path")" 2>/dev/null && pwd)" || return 1
-  basename="$(basename -- "$path")"
-  [[ -e "$directory/$basename" ]] || return 1
-  printf '%s/%s\n' "$directory" "$basename"
+  resolve_existing_path "$1"
 }
 
 verify_path_is_within_root() {

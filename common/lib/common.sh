@@ -163,6 +163,37 @@ ensure_dir() {
   mkdir -p "$1"
 }
 
+# resolve_existing_path <path>: the path an existing file ultimately names,
+# with every symlink in the chain followed and the directory canonicalized.
+# Basic readlink is all this uses, because macOS only grew 'readlink -f' in
+# recent releases and this repository supports Apple's tools as shipped.
+# Fails when the path does not exist, when a link dangles, or when the chain
+# loops; the bound is explicit rather than left to the kernel.
+resolve_existing_path() {
+  local path="$1"
+  local target directory name iteration=0
+
+  [[ -e "$path" || -L "$path" ]] || return 1
+
+  while [[ -L "$path" ]]; do
+    iteration=$((iteration + 1))
+    ((iteration <= 64)) || return 1
+    target="$(readlink "$path" 2>/dev/null)" || return 1
+    if [[ "$target" == /* ]]; then
+      path="$target"
+    else
+      path="$(dirname "$path")/$target"
+    fi
+    [[ -e "$path" || -L "$path" ]] || return 1
+  done
+
+  [[ -e "$path" ]] || return 1
+  directory="$(cd -P -- "$(dirname -- "$path")" 2>/dev/null && pwd)" || return 1
+  name="$(basename -- "$path")"
+  [[ -e "$directory/$name" ]] || return 1
+  printf '%s/%s\n' "$directory" "$name"
+}
+
 resolve_symlink_target() {
   local path="$1"
   local target

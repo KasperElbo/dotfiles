@@ -247,6 +247,30 @@ emit_installer() {
   } >"$output"
 }
 
+# The layout No Mistakes actually uses on darwin/arm64: the binary goes into
+# the upstream's own directory and a launcher symlink is left on PATH. Nothing
+# about that is macOS-specific -- any upstream may choose it -- so the fixture
+# can emit it for either component.
+emit_launcher_installer() {
+  {
+    printf '#!/usr/bin/env sh\n'
+    printf 'mkdir -p "$HOME/.%s/bin" "$HOME/.local/bin"\n' "$1"
+    printf 'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$HOME/.%s/bin/%s"\n' "$1" "$1"
+    printf 'chmod +x "$HOME/.%s/bin/%s"\n' "$1" "$1"
+    printf 'ln -sf "$HOME/.%s/bin/%s" "$HOME/.local/bin/%s"\n' "$1" "$1" "$1"
+  } >"$output"
+}
+
+# The same layout, with the binary missing: a launcher that points at nothing
+# is an install that did not happen, however convincing the PATH entry looks.
+emit_dangling_launcher_installer() {
+  {
+    printf '#!/usr/bin/env sh\n'
+    printf 'mkdir -p "$HOME/.local/bin"\n'
+    printf 'ln -sf "$HOME/.%s/bin/%s" "$HOME/.local/bin/%s"\n' "$1" "$1" "$1"
+  } >"$output"
+}
+
 case "$url" in
 *treehouse*)
   if [[ -n "${MOCK_CURL_MUTATE_URL:-}" && "$url" == *"$MOCK_CURL_MUTATE_URL"* ]]; then
@@ -255,7 +279,13 @@ case "$url" in
     emit_installer treehouse
   fi
   ;;
-*no-mistakes*) emit_installer no-mistakes ;;
+*no-mistakes*)
+  case "${MOCK_NO_MISTAKES_LAYOUT:-direct}" in
+  launcher) emit_launcher_installer no-mistakes ;;
+  dangling-launcher) emit_dangling_launcher_installer no-mistakes ;;
+  *) emit_installer no-mistakes ;;
+  esac
+  ;;
 *)
   printf 'strict curl fixture rejected unexpected URL: %s\n' "$url" >&2
   exit 96
@@ -671,7 +701,94 @@ assert_file_line "$state_file" \
   "treehouse_target_digest=$(sha256sum "$treehouse_target" | cut -d' ' -f1)"
 assert_file_line "$state_file" \
   "no_mistakes_target_digest=$(sha256sum "$no_mistakes_target" | cut -d' ' -f1)"
+assert_file_line "$state_file" "treehouse_target_path=$treehouse_target"
+assert_file_line "$state_file" "no_mistakes_target_path=$no_mistakes_target"
 printf 'PASS: staged installation records source, resolved commit, and digests\n'
+
+# --- An upstream that installs elsewhere and links onto PATH ----------------
+#
+# No Mistakes on darwin/arm64 installs its binary under ~/.no-mistakes/bin and
+# leaves a launcher symlink on PATH. The command path is what this repository
+# promises; the layout behind it belongs to the upstream. Demanding a regular
+# file at the command path asserted the other upstream's layout and failed the
+# only supported macOS install of a component this repository advertises.
+
+launcher_home="$test_root/launcher-home"
+mkdir -p "$launcher_home"
+launcher_environment=(
+  env
+  "HOME=$launcher_home" "CODEX_HOME=$launcher_home/.codex"
+  "XDG_CONFIG_HOME=$launcher_home/.config"
+  "XDG_DATA_HOME=$launcher_home/.local/share"
+  "XDG_STATE_HOME=$launcher_home/.local/state"
+  "PATH=$mock_bin:$PATH"
+  "MISE_DATA_DIR=$mise_data" "MISE_SHIMS_DIR=$mise_shims"
+  "MISE_INSTALLS_DIR=$mise_installs"
+  "FIRSTMATE_REPO_URL=$firstmate_origin"
+  MOCK_NO_MISTAKES_LAYOUT=launcher
+)
+launcher_command="$launcher_home/.local/bin/no-mistakes"
+launcher_binary="$launcher_home/.no-mistakes/bin/no-mistakes"
+launcher_state="$launcher_home/.config/dotfiles/ai.conf"
+
+if ! launcher_output="$("${launcher_environment[@]}" \
+  "$repo_root/common/install-ai.sh" --firstmate 2>&1)"; then
+  printf '%s\n' "$launcher_output" >&2
+  printf 'install-ai.sh rejected an upstream launcher-symlink layout\n' >&2
+  exit 1
+fi
+[[ -L "$launcher_command" ]] || {
+  printf 'the launcher fixture did not install a symlink at %s\n' "$launcher_command" >&2
+  exit 1
+}
+assert_path_executable "$launcher_binary"
+assert_contains "$launcher_output" "No Mistakes installed binary: $launcher_command -> $launcher_binary"
+
+# Provenance is recorded for the binary the upstream produced, not for the
+# launcher: the digest is the binary's, and the recorded path is what a later
+# removal has to delete.
+assert_file_line "$launcher_state" "no_mistakes_target_path=$launcher_binary"
+assert_file_line "$launcher_state" \
+  "no_mistakes_target_digest=$(sha256sum "$launcher_binary" | cut -d' ' -f1)"
+# The other component installed straight to its command path in the same run,
+# so both layouts are recorded by the same code.
+assert_file_line "$launcher_state" \
+  "treehouse_target_path=$launcher_home/.local/bin/treehouse"
+
+if ! launcher_verify="$("${launcher_environment[@]}" \
+  "PATH=$launcher_home/.local/bin:$mise_shims:$mock_bin:$PATH" \
+  "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf '%s\n' "$launcher_verify" >&2
+  printf 'verify-ai.sh failed an upstream launcher-symlink layout\n' >&2
+  exit 1
+fi
+assert_contains "$launcher_verify" "no-mistakes: $launcher_command -> $launcher_binary"
+assert_contains "$launcher_verify" \
+  "no-mistakes resolves to the recorded installed binary: $launcher_binary"
+printf 'PASS: an upstream launcher symlink installs, records its binary, and verifies\n'
+
+# A launcher pointing at nothing is an install that did not happen, whatever
+# the PATH entry suggests. It must fail at the component responsible for it.
+dangling_home="$test_root/dangling-home"
+mkdir -p "$dangling_home"
+if dangling_output="$(env \
+  HOME="$dangling_home" CODEX_HOME="$dangling_home/.codex" \
+  XDG_CONFIG_HOME="$dangling_home/.config" \
+  XDG_DATA_HOME="$dangling_home/.local/share" \
+  XDG_STATE_HOME="$dangling_home/.local/state" \
+  PATH="$mock_bin:$PATH" MISE_DATA_DIR="$mise_data" \
+  MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
+  FIRSTMATE_REPO_URL="$firstmate_origin" \
+  MOCK_NO_MISTAKES_LAYOUT=dangling-launcher \
+  "$repo_root/common/install-ai.sh" --firstmate 2>&1)"; then
+  printf '%s\n' "$dangling_output" >&2
+  printf 'install-ai.sh accepted a launcher symlink with no binary behind it\n' >&2
+  exit 1
+fi
+assert_contains "$dangling_output" \
+  'No Mistakes target does not resolve to an existing file'
+assert_file_not_contains "$dangling_home/.config/dotfiles/ai.conf" 'no_mistakes=installed'
+printf 'PASS: a launcher symlink with no binary behind it fails the component\n'
 
 # --- A failing download can never be masked by a successful consumer --------
 #
