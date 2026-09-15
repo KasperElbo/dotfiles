@@ -115,10 +115,16 @@ run_setup "$legacy_home" frappe
 [[ -d "$legacy_home/.config/git" ]]
 [[ ! -L "$legacy_home/.config/git" ]]
 
+# No migration source is configured for this fixture, so each slot must become
+# a machine-local file that states plainly that nothing was migrated — never an
+# empty file that looks like a successful migration, and never a fabricated
+# [user] section. tests/test-git-identity.sh covers the recoverable cases.
 for identity in local drdk; do
   identity_path="$legacy_home/.config/git/$identity"
   [[ -f "$identity_path" && ! -L "$identity_path" ]]
   [[ -s "$identity_path" ]]
+  grep -Fq 'No Git identity was migrated into this file' "$identity_path"
+  grep -Fq '[user]' "$identity_path" && exit 1
   [[ "$(stat -c '%a' "$identity_path")" == 600 ]]
 done
 

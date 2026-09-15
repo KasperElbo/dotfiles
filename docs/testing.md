@@ -167,6 +167,19 @@ decision disagrees with the tree. The positive cases prove the rules do not
 over-reach — a lockfile beside its own manifest, and a fixture project below
 the root, are both accepted.
 
+### Machine-local Git identity
+
+`tests/test-git-identity.sh` owns machine-local Git identity migration (issue
+#163). Every scenario builds the exact history or backup state it needs in a
+temporary directory, so nothing depends on this repository's own object graph
+or on `fetch-depth: 0`; the suite behaves identically in a full clone, a
+shallow clone, and an export with no `.git` at all. It covers each migration
+source, validation of recovered content, byte-exact restoration at mode `0600`,
+a no-op rerun, and the three failure modes that must never fabricate an
+identity: a missing source, invalid content, and a shallow clone whose
+historical objects are absent. It also asserts that no message contains the
+fixture's name or email, because identity values must never reach a log.
+
 ### Installer lifecycle repeatability
 
 `tests/test-install-rerun.sh` owns the `./install.sh --rerun` contract. It

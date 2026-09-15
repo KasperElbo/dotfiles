@@ -2,6 +2,9 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -71,20 +74,31 @@ HOME="$sway_home" \
 grep -Fqx 'output DP-9 mode 1920x1080' "$local_sway"
 printf 'PASS: local Sway output configuration remains machine-owned\n'
 
+# Legacy Stow-managed identity links migrate from an explicit machine-local
+# backup. The backup is part of the fixture, so this assertion never depends on
+# the real repository's history or checkout depth; tests/test-git-identity.sh
+# owns the full matrix of migration sources and failure modes.
 migration_home="$test_root/migration-home"
-mkdir -p "$migration_home/.config/git"
+migration_backup="$test_root/migration-backup"
+mkdir -p "$migration_home/.config/git" "$migration_backup"
 
 for identity in local drdk; do
   ln -s "$repo_root/git/.config/git/$identity" \
     "$migration_home/.config/git/$identity"
+  printf '[user]\n\tname = Fixture User\n\temail = fixture@example.invalid\n' \
+    >"$migration_backup/$identity"
 done
 
-run_setup "$migration_home" macchiato
+HOME="$migration_home" \
+  XDG_CONFIG_HOME="$migration_home/.config" \
+  XDG_DATA_HOME="$migration_home/.local/share" \
+  DOTFILES_GIT_IDENTITY_BACKUP_DIR="$migration_backup" \
+  "$repo_root/scripts/setup-local.sh" macchiato >/dev/null
 
 for identity in local drdk; do
   identity_path="$migration_home/.config/git/$identity"
   [[ -f "$identity_path" && ! -L "$identity_path" ]]
-  grep -Fq '[user]' "$identity_path"
+  files_identical "$migration_backup/$identity" "$identity_path"
   [[ "$(stat -c '%a' "$identity_path")" == 600 ]]
 done
 

@@ -1277,6 +1277,15 @@ Example:
 
 The tracked Git configuration conditionally applies the DR profile for remotes matching the `drdk` GitHub organization.
 
+Both files are machine-local, created at mode `0600`, and never committed. If
+you are upgrading a machine that predates this layout — where these files were
+symlinks into the checkout — the installer migrates them, and reports per slot
+whether it migrated, found nothing to migrate, or needs manual action. It never
+invents an identity and never prints one.
+[`docs/reference/git-identity.md`](docs/reference/git-identity.md) describes the
+migration sources, what a failed migration leaves behind, and the privacy
+limits of recovering identities from public history.
+
 ## 3. SSH authentication
 
 SSH authentication is intentionally not automated.
