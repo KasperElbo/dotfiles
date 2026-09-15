@@ -516,9 +516,10 @@ git diff --check
 Add `--containers` and/or `--tailscale` to verification when those optional
 profiles are installed. The verifier checks arm64, `/opt/homebrew`, the
 absence of Intel Homebrew, SIP, Gatekeeper, shared/macOS Stow links,
-tools/runtimes, apps, defaults, the Podman machine, and Tailscale (app
-presence, CLI version, and connection state via `tailscale status --json`)
-when selected. An ungranted AeroSpace Accessibility permission and a
+tools (each run as well as found), mise ownership of the managed runtimes,
+the applied theme, the Mason inventory, the Catppuccin tmux plugin, apps,
+defaults, the Podman machine, and Tailscale (app presence, CLI version, and
+connection state via `tailscale status --json`) when selected. An ungranted AeroSpace Accessibility permission and a
 not-yet-installed Tailscale CLI are both reported as warnings with their
 manual remedy, not hard failures, since both are optional interactive steps.
 
