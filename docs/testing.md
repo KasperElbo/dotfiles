@@ -28,6 +28,9 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 `mktemp`, `sed` and `timeout`, which are assumed already present on any
 supported development machine.
 
+`scripts/test-installer.sh` is a deprecated compatibility alias that forwards
+to `./scripts/test.sh` unchanged; use `./scripts/test.sh`.
+
 ## Fast PR validation
 
 `.github/workflows/validate.yml` is the workflow that runs on every pull
@@ -64,10 +67,12 @@ containers where appropriate. Their output is labelled
 
 Shell suites should source `tests/lib/test.sh` instead of defining another
 temporary-root, assertion, capture, or privileged-command framework. The
-library creates per-suite HOME/XDG roots and provides exact-argv stubs for
-`sudo`, `dnf`, `apt-get`, `systemctl`, `git`, `curl`, and `mise`. A command is
-rejected with status 96 unless the suite explicitly registers its complete
-argument vector with `test_stub_allow`.
+library creates per-suite HOME/XDG roots and provides one generic exact-argv
+stub: `test_stub_install <root> <name>` installs a strict stub for any command
+a suite needs — `sudo`, `dnf`, `systemctl`, `git`, `curl` and `mise` are the
+usual ones, but the list belongs to each suite, not to the library. A stubbed
+command is rejected with status 96 unless the suite explicitly registers its
+complete argument vector with `test_stub_allow`.
 
 Stateful behavior remains visible in the owning suite. After the shared stub
 has logged and accepted an invocation, it executes an optional handler at

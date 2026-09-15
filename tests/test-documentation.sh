@@ -161,10 +161,13 @@ printf 'PASS: a transient control the platform rejects fails\n'
 
 matrix="$repo_root/docs/reference/capability-matrix.md"
 options="$repo_root/docs/reference/installer-options.md"
+verifiers="$repo_root/docs/reference/verifiers.md"
 
 run_capture python3 "$repo_root/scripts/render-capability-matrix.py" --check
 assert_success
 run_capture python3 "$repo_root/scripts/render-installer-options.py" --check
+assert_success
+run_capture python3 "$repo_root/scripts/render-verifier-reference.py" --check
 assert_success
 printf 'PASS: generated normative documentation is current\n'
 
@@ -174,9 +177,11 @@ scratch="$TEST_ROOT/generated"
 mkdir -p "$scratch"
 cp "$matrix" "$scratch/capability-matrix.md"
 cp "$options" "$scratch/installer-options.md"
+cp "$verifiers" "$scratch/verifiers.md"
 restore_generated() {
   cp "$scratch/capability-matrix.md" "$matrix"
   cp "$scratch/installer-options.md" "$options"
+  cp "$scratch/verifiers.md" "$verifiers"
 }
 trap 'restore_generated; test_cleanup' EXIT INT TERM
 
@@ -188,6 +193,12 @@ restore_generated
 
 printf '\nAn edit the manifest does not justify.\n' >>"$options"
 run_capture python3 "$repo_root/scripts/render-installer-options.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" "stale"
+restore_generated
+
+printf '\nAn edit the manifest does not justify.\n' >>"$verifiers"
+run_capture python3 "$repo_root/scripts/render-verifier-reference.py" --check
 assert_failure
 assert_contains "$TEST_OUTPUT" "stale"
 restore_generated
@@ -235,6 +246,35 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "stale"
 restore_capabilities
 printf 'PASS: a provider change that is not regenerated fails\n'
+
+python3 - "$repo_root/config/capabilities.tsv" <<'PYTHON'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+for index, line in enumerate(lines):
+    fields = line.split("\t")
+    if fields[0] == "kde" and fields[1] == "fedora":
+        fields[10] = "platforms/fedora/scripts/verify-hardening.sh"
+        lines[index] = "\t".join(fields)
+        break
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PYTHON
+run_capture python3 "$repo_root/scripts/render-verifier-reference.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" "stale"
+restore_capabilities
+printf 'PASS: a verifier change that is not regenerated fails\n'
+
+# --- Verification and troubleshooting cover the tools they hand people ------
+
+assert_file_contains "$repo_root/docs/troubleshooting.md" "./doctor"
+assert_file_contains "$repo_root/docs/troubleshooting.md" "Stow conflict"
+assert_file_contains "$repo_root/docs/workflows/verification.md" "./doctor"
+assert_file_contains "$repo_root/docs/workflows/verification.md" "reference/verifiers.md"
+for flag in --codex --firstmate --gnhf --backpass; do
+  assert_file_contains "$repo_root/docs/troubleshooting.md" "$flag"
+done
+printf 'PASS: troubleshooting and verification name doctor, Stow conflicts and every AI sub-flag\n'
 
 # --- Document roles are stated ---------------------------------------------
 
