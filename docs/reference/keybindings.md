@@ -6,9 +6,11 @@ actually useful while working on the machine, not every upstream keybinding
 each tool ships with.
 
 The complete, exhaustive table below is generated from `config/actions.tsv`,
-the canonical registry of every action this repository defines. The prose
-around it is hand-written: what to reach for, and which tool's own help to
-prefer over any static list.
+the canonical registry of every action this repository defines. Every binding
+and command this repository defines is in that table and nowhere else on this
+page: the prose around it is hand-written and covers only what a table cannot —
+what to reach for, which tool's own help to prefer over any static list, and
+what this repository deliberately does not configure.
 
 It is deliberately larger than any printable sheet. The per-profile
 [cheat sheets](../cheatsheets/) are a curated subset sized for one or two
@@ -17,10 +19,8 @@ holds the shared block each workstation sheet `\input`s). This page and that
 source are separate artifacts with separate jobs: completeness here, a page
 budget there.
 
-Every binding below is checked against the tracked configuration at the time
-this page was last updated, not reconstructed from memory or old discussion.
-Where this repository does not configure something, that is stated
-explicitly so an upstream default is never confused for a dotfiles binding.
+Where this repository does not configure something, that is stated explicitly
+below, so an upstream default is never confused for a dotfiles binding.
 
 ## Discover first
 
@@ -51,18 +51,9 @@ Linux/Wayland, `Cmd+C/V` on macOS.
 
 ## Zsh
 
-`zsh/.zshenv` and `zsh/.config/zsh/.zshrc` are the tracked startup files.
-Repository-defined aliases and functions that matter day to day:
-
-| Command | Action |
-|---|---|
-| `ls` / `ll` / `la` | `eza` (short / long with git status / all files) |
-| `tree` | `eza --tree` |
-| `cat` | `bat` (syntax-highlighted) |
-| `theme <flavour>` | switch the active Catppuccin flavour |
-| `tar <archive> <path>…` | create an archive, compression chosen from the suffix |
-| `untar <archive>` | extract an archive |
-| `shell-integrations` | report optional tooling this shell could not activate |
+`zsh/.zshenv` and `zsh/.config/zsh/.zshrc` are the tracked startup files. The
+aliases, functions and line-editing keys they define are in the generated table
+below, under `zsh`.
 
 `theme` accepts `latte`, `frappe`, `macchiato`, or `mocha`, plus an optional
 `--preserve-wallpaper` flag. It updates tmux, Ghostty/Noctty, Starship,
@@ -73,21 +64,11 @@ anything.
 
 ### Line editing
 
-| Key | Action |
-|---|---|
-| `Up` / `Down` | previous/next history entry matching the current prefix |
-| `Ctrl-R` | fuzzy-search command history with fzf |
-| `Tab` | open/select from the Zsh completion menu |
-| `Home` / `End` | beginning/end of the command line |
-| `Delete` | delete the character under the cursor |
-| `Ctrl+Left` / `Ctrl+Right` | move one word backward/forward |
-| `#` | starts an interactive comment |
-
 `Up`/`Down` use Zsh's `up-line-or-beginning-search` and
 `down-line-or-beginning-search`: with text already typed they walk only the
 history entries starting with it, and on an empty line they behave like plain
-history navigation. `Ctrl-R` is untouched — prefix search and fzf's fuzzy
-search are complementary, not alternatives.
+history navigation. `Ctrl+R` is untouched, and stays fzf's — prefix search and
+fuzzy search are complementary, not alternatives.
 
 Each of these keys is bound to the sequence `terminfo` reports **and** to the
 documented xterm, application-cursor and vt220/rxvt fallbacks, because the
@@ -155,24 +136,13 @@ load-dependent.
 
 The shared `.zshrc` sources `fzf --zsh` and only sets
 `FZF_CTRL_R_OPTS` (a preview pane); it does not rebind any key. The three
-default shell integration bindings are therefore unmodified upstream
-defaults, confirmed against this config rather than assumed:
-
-| Key | Action |
-|---|---|
-| `Ctrl-R` | fuzzy history search |
-| `Ctrl-T` | fuzzy file selection |
-| `Alt-C` | fuzzy `cd` into a directory |
+default shell-integration bindings in the table below are therefore unmodified
+upstream defaults, confirmed against this config rather than assumed.
 
 ## zoxide
 
-`eval "$(zoxide init zsh)"` is the only configuration; both subcommands are
-zoxide's own:
-
-| Command | Action |
-|---|---|
-| `z name` | jump to a ranked directory matching `name` |
-| `zi` | interactive directory picker |
+`eval "$(zoxide init zsh)"` is the only configuration; both subcommands in the
+table below are zoxide's own.
 
 ## tmux
 
@@ -181,67 +151,33 @@ zoxide's own:
 numbering, mouse support, a longer status refresh, and Catppuccin styling.
 tmux is for persistence, long-running processes, and remote/SSH sessions ---
 Ghostty remains the local tab/split/zoom manager, so tmux does not duplicate
-that here.
-
-| Command / key | Action |
-|---|---|
-| `tmux new -As NAME` | create or attach a session |
-| `tmux ls` | list sessions |
-| `Prefix d` | detach |
-| `Prefix s` | choose session |
-| `Prefix [` | scroll/copy mode |
-| `Prefix ?` | list every current key binding |
+that here. `Prefix ?` lists every key binding the running tmux actually has,
+which is the list to trust; the table below carries the handful worth knowing
+by heart.
 
 ## LazyVim / Neovim
 
 `nvim-lazyvim/.config/nvim/lua/config/keymaps.lua` adds no repository keymaps
-of its own; the bindings below are LazyVim's own defaults (verified against
-the pinned LazyVim commit in `lazy-lock.json`), which is why `Space` +
-WhichKey is the primary way to discover the rest.
+of its own. The LazyVim defaults in the table below are the ones worth knowing
+by heart, verified against the pinned LazyVim commit in `lazy-lock.json`;
+`Space` + WhichKey is the primary way to discover the rest.
 
-| Key | Action |
-|---|---|
-| `Space` | WhichKey menu |
-| `<leader>ff` | find files |
-| `<leader>/` | live grep |
-| `<leader>,` | buffers |
-| `Shift+H` / `Shift+L` | previous/next buffer |
-| `gd` / `gr` | go to definition / references |
-| `K` | hover docs |
-| `<leader>ca` | code action |
-| `<leader>cr` | rename symbol |
-| `<leader>cf` | format buffer |
-| `]d` / `[d` | next/previous diagnostic |
-| `<leader>xx` | diagnostics list (Trouble) |
-| `<leader>db` | toggle breakpoint (nvim-dap) |
-| `<leader>dc` | start/continue debugging |
-| `<leader>du` | toggle the debug UI |
-| `<leader>ft` | floating terminal |
-| `<leader>gg` | Lazygit |
-
-The `dap.core` extra is enabled (see `lazyvim.json`); its bindings above were
-checked against LazyVim's current `dap/core.lua`, not assumed.
+Which LazyVim extras are enabled is decided by the `extras` list in
+`nvim-lazyvim/.config/nvim/lua/config/profile.lua`, one per Neovim profile —
+not by `lazyvim.json`, whose own `extras` array is deliberately empty so the
+tracked profile is the only thing that selects them. `dap.core` is in the
+workstation profile's list, and its bindings in that table were checked
+against LazyVim's current `dap/core.lua`, not assumed.
 
 ### Markdown
 
 The Markdown extra is enabled; Marksman, GFM rendering, and browser preview
 are LazyVim's own. `markdown.lua` disables the extra's global
 markdownlint-cli2/markdown-toc integrations (project-local formatting wins
-instead) and adds `table-nvim` for table editing:
+instead) and adds `table-nvim` for table editing; its full set of row and
+column operations sits under `<leader>m` in WhichKey and in the table below.
 
-| Key | Action |
-|---|---|
-| `gd` | follow an internal link/heading through Marksman |
-| `gx` | open the URL under the cursor |
-| `<leader>cp` | toggle the live browser preview |
-| `<leader>um` | toggle rendered Markdown in-buffer |
-| `<leader>mt` | insert a GFM table |
-| `Alt-l` / `Alt-h` | next/previous table cell |
-| `<leader>mr` | insert a table row below |
-| `<leader>mc` | insert a table column to the right |
-
-The remaining row/column operations are under `<leader>m` via WhichKey. On
-Fedora WSL, `gx` and preview URLs route through `wsl-open` to the Windows
+On Fedora WSL, `gx` and preview URLs route through `wsl-open` to the Windows
 browser.
 
 ### LaTeX
@@ -252,17 +188,8 @@ and `--latex` is rejected, but the bindings below work once you install MacTeX
 or BasicTeX yourself. VimTeX owns compilation, PDF viewing,
 and build-log errors; TexLab owns completion, navigation, diagnostics, and
 formatting (its own build/ChkTeX-on-save are disabled to avoid duplicating
-VimTeX). Bindings use the local leader `\`, shown under `\l` via WhichKey:
-
-| Key | Command | Action |
-|---|---|---|
-| `\ll` | `:VimtexCompile` | start/stop continuous `latexmk` |
-| `\lv` | `:VimtexView` | open PDF, forward-search to cursor |
-| `\le` | `:VimtexErrors` | toggle parsed errors (quickfix) |
-| `\lo` | `:VimtexCompileOutput` | raw compiler output |
-| `\lt` | `:VimtexTocOpen` | document table of contents |
-| `\li` | `:VimtexInfo` | detected main file/compiler/viewer |
-| `<leader>cf` | LazyVim format | format via TexLab + `latexindent` |
+VimTeX). Bindings use the local leader `\`, shown under `\l` via WhichKey and
+listed in the table below.
 
 `\lv` uses Okular (forward/inverse SyncTeX) on Fedora KDE, `wsl-open` on
 Fedora WSL, and macOS's `open` (no SyncTeX) elsewhere. See
@@ -281,13 +208,18 @@ to reproduce it.
 
 `theme <flavour> [--preserve-wallpaper]` (`bin/.local/bin/theme`) is the
 single portable command for switching the active Catppuccin flavour
-(`latte`, `frappe`, `macchiato`, `mocha`) across tmux, Ghostty/Noctty,
-Starship, bat, and Lazygit. Platform-specific hooks under
-`~/.config/dotfiles/theme-hooks.d/` extend it: the Fedora hook additionally
-re-themes KDE/Sway/Waybar and the flavour-matched wallpaper; the Fedora WSL
-hook updates Noctty's managed config through Windows PowerShell. There is no
-macOS theme hook, so `theme` there only changes the terminal/editor/CLI tooling
-above, not system appearance. Wallpaper and `--preserve-wallpaper` are
+(`latte`, `frappe`, `macchiato`, `mocha`). It writes the shared state under
+`~/.config/dotfiles/`, and everything themed here reads that one choice:
+Ghostty/Noctty, tmux and `delta` — and so Git's own diffs — re-read it
+directly; Starship, bat, Lazygit and fzf are selected from it when Zsh starts,
+and Neovim reads `~/.config/dotfiles/theme` when it starts, so those three
+groups follow in shells and editor instances opened afterwards.
+
+Platform-specific hooks under `~/.config/dotfiles/theme-hooks.d/` extend it:
+the Fedora hook additionally re-themes KDE/Sway/Waybar and the flavour-matched
+wallpaper; the Fedora WSL hook updates Noctty's managed config through Windows
+PowerShell. There is no macOS theme hook, so `theme` there only changes the
+terminal/editor/CLI tooling above, not system appearance. Wallpaper and `--preserve-wallpaper` are
 Fedora-desktop concepts: on Fedora WSL, macOS and the Parrot guest there is no
 repository-managed wallpaper to preserve.
 

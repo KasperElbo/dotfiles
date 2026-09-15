@@ -29,6 +29,40 @@ project it belongs to. `./scripts/lint.sh` rejects a lone root lockfile: it
 makes dependency and supply-chain tooling treat this repository as a project it
 is not.
 
+## Generated artifacts
+
+Some tracked files are output, not source. Editing one by hand is wasted work:
+the next `./scripts/lint.sh` fails because the file no longer matches what its
+generator produces, and the next regeneration overwrites the edit. This is the
+complete list — if a tracked file is generated and is not here, that is a bug in
+this table.
+
+| Artifact | Generated from | Generator |
+|---|---|---|
+| [`docs/reference/capability-matrix.md`](../reference/capability-matrix.md) | `config/capabilities.tsv` | `scripts/render-capability-matrix.py` |
+| [`docs/reference/installer-options.md`](../reference/installer-options.md) | `config/install-options.tsv` | `scripts/render-installer-options.py` |
+| [`docs/reference/verifiers.md`](../reference/verifiers.md) | `config/capabilities.tsv` | `scripts/render-verifier-reference.py` |
+| [`docs/supply-chain-sources.md`](../supply-chain-sources.md) | `config/network-sources.tsv` | `scripts/render-supply-chain.py` |
+| The action reference block in [`docs/reference/keybindings.md`](../reference/keybindings.md) | `config/actions.tsv` | `scripts/render-action-reference.py` |
+| The inventory blocks in [`docs/architecture/package-ownership.md`](package-ownership.md) | `config/capabilities.tsv`, the tracked mise config, the Mason inventories | `scripts/render-package-ownership.py` |
+| The flow block in [`docs/architecture/installation.md`](installation.md) | the `plan_add` calls in `platforms/*/install.sh` | `scripts/render-install-flows.py` |
+| The Stow and state blocks in [`docs/architecture/file-ownership.md`](file-ownership.md) | the stow scripts and `config/capabilities.tsv` | `scripts/render-file-ownership.py` |
+| `starship/.config/starship/catppuccin-*.toml` | `config/starship/` | `scripts/update-starship-themes.sh` |
+
+Every one of those generators takes `--check`, and `./scripts/lint.sh` runs all
+of them that way, so a manifest edit that is not reflected in its output fails
+the build rather than quietly making a page wrong. Regenerate by running the
+generator with no arguments.
+
+A whole-file artifact says so in its first lines; a partial one is delimited by
+`<!-- BEGIN GENERATED … -->` and `<!-- END GENERATED … -->` markers, and the
+prose outside those markers is hand-written and yours to edit.
+
+The printable [cheat sheets](../cheatsheets/README.md) are the deliberate
+exception: `docs/cheatsheets/generate.sh` renders them from tracked LaTeX
+source, but the PDFs are not committed, so there is no output that can go
+stale.
+
 ## Entry points, and what `scripts/` actually is
 
 A file living under `scripts/` is not automatically a public, cross-platform

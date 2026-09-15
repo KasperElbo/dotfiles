@@ -46,6 +46,9 @@ python3 ./scripts/render-capability-matrix.py --check
 python3 ./scripts/render-installer-options.py --check
 python3 ./scripts/render-verifier-reference.py --check
 python3 ./scripts/render-action-reference.py --check
+python3 ./scripts/render-package-ownership.py --check
+python3 ./scripts/render-install-flows.py --check
+python3 ./scripts/render-file-ownership.py --check
 python3 ./scripts/validate-actions.py
 python3 ./scripts/validate-docs.py
 
