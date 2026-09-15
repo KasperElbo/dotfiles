@@ -106,8 +106,16 @@ surface; the profile adds no Linux-shaped wrappers.
 For an unattended run after reviewing the plan:
 
 ```bash
+sudo -v
 ./install.sh --platform macos --non-interactive
 ```
+
+The preflight establishes the `sudo` authorization the run will need before
+the first step, so `--non-interactive` never stops on a password prompt: this
+profile needs `sudo` when Homebrew has to be installed and when the account's
+login shell has to be moved to a registered Zsh, and either one makes the
+cached authorization above a precondition. A Mac that already has Homebrew and
+a registered Zsh login shell needs no `sudo` at all.
 
 Use `--no-defaults` to deploy tools and configuration without changing macOS
 preferences. Use `--dev-workflows` to also run the network-dependent

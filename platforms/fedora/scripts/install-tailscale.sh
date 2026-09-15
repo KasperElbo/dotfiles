@@ -33,7 +33,7 @@ standalone downloaded binary. Enables and starts tailscaled. Never runs
 'tailscale up', never embeds an auth key or OAuth client secret, and never
 sets tailnet-specific policy (ACLs, exit nodes, subnet routes, Tailscale
 SSH) -- authenticating this machine remains a manual, interactive step. See
-README.md, "Optional Tailscale networking profile" for follow-up commands.
+docs/profiles/tailscale.md for follow-up commands.
 EOF
 }
 
@@ -137,9 +137,9 @@ this machine, run:
     sudo tailscale up
 
 This opens an interactive login link; it does not carry any account/tailnet
-policy of its own. See README.md, "Optional Tailscale networking profile"
-for common follow-up commands (status, IPs, logout) and what this profile
-intentionally leaves to you (ACLs, exit nodes, subnet routes, Tailscale SSH,
+policy of its own. See docs/profiles/tailscale.md for common follow-up
+commands (status, IPs, logout) and what this profile intentionally leaves
+to you (ACLs, exit nodes, subnet routes, Tailscale SSH,
 --accept-routes/--accept-dns).
 
 EOF

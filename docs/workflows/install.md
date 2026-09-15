@@ -179,6 +179,39 @@ Fedora profile, but with WSL-specific preconditions checked first; see
 `--dev-workflows`, `--platform` and `-h/--help` are never remembered and never
 replayed by [`--rerun`](rerun.md).
 
+## The confirmation prompt
+
+An interactive run resolves every option first — auto-detection, the theme
+source, and any question the installer asks — then prints what it resolved and
+asks once before it changes anything. On Fedora:
+
+```text
+Installation choices resolved.
+Catppuccin flavour: macchiato (source: default — first-install default)
+Continue with installation? [Y/n]
+```
+
+The other platforms print their own heading in place of the first line and ask
+the same question; Parrot asks `Continue with the isolated lab profile?`
+instead. Fedora asks one further question, before that summary, when
+`--latex/--no-latex` was not given:
+
+```text
+Install LaTeX toolchain? [y/N]
+```
+
+The bracketed hint is the answer an empty line takes, so pressing Enter
+continues the installation and declines the LaTeX toolchain. `y`, `yes`, `n`
+and `no` are accepted in any case; anything else is rejected as unparseable
+rather than guessed, and the run stops. Declining the installation prompt exits
+with `Cancelled; no changes made.` before the first step runs, and a cancelled
+run never replaces the machine's [remembered configuration](rerun.md).
+
+`--non-interactive` asks nothing: every question resolves to the value the
+options and defaults already imply, so the prompts above never appear. A run
+whose standard input is closed — a CI job or a `nohup` with no terminal, and
+without `--non-interactive` — declines rather than inheriting the default.
+
 ## Manual post-install checklist
 
 After a fresh install, on every platform:

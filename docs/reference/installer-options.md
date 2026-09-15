@@ -92,6 +92,6 @@ authoritative list for this checkout.
 | `--platform PLATFORM` | all | Select the platform installer: `fedora` (default), `fedora-wsl`, `macos`, `parrot-ctf`. Selects which `platforms/NAME/install.sh` runs. |
 | `--rerun` | all | Reapply this machine's last successful configuration. See [rerun.md](../workflows/rerun.md). |
 | `--dry-run` | all | Resolve and print the plan; change nothing. |
-| `--non-interactive` | all | Use defaults without prompting; requires cached sudo where sudo is needed. |
+| `--non-interactive` | all | Never prompt; resolve every choice from the given options and their defaults. Requires cached sudo (run `sudo -v` first) where the run needs it. |
 | `--dev-workflows` | `fedora`, `fedora-wsl`, `macos` | Run the disposable development-workflow smoke tests after installing. |
 | `-h`, `--help` | all | Print the platform installer's own help, which is authoritative for this checkout. |

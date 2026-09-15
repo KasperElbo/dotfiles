@@ -24,9 +24,9 @@ package install, subuid/subgid, API socket, and verification work: none of
 that logic is WSL-specific. What differs under WSL is the preconditions --
 this profile requires systemd as PID 1 AND a reachable systemd --user
 session (unlike the rest of the Fedora WSL profile, where systemd is
-optional -- and PID 1 alone is not enough, see README.md's "Podman
-containers under WSL"), cgroup v2, and unprivileged user namespaces, and
-checks all four before making any change.
+optional -- and PID 1 alone is not enough, see
+docs/platforms/fedora-wsl.md), cgroup v2, and unprivileged user
+namespaces, and checks all four before making any change.
 
 Options:
   --api-socket       Enable the rootless Podman API socket (socket-activated,

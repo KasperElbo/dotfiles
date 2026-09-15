@@ -60,7 +60,9 @@ Options:
   --charge-limit N   ASUS battery limit (40-100)
   --dev-workflows    Run the disposable development workflow smoke tests
   --dry-run          Show the resolved plan without changing anything
-  --non-interactive  Use defaults without prompting (requires cached sudo)
+  --non-interactive  Never prompt; resolve every choice from the given
+                     options and their defaults. Requires cached sudo
+                     (run 'sudo -v' first) where the run needs it.
   -h, --help         Show this help
 EOF
 }
@@ -167,41 +169,6 @@ hardware_args=()
 [[ -z "$hardware_charge_limit" ]] || hardware_args+=(--charge-limit "$hardware_charge_limit")
 hardware_selected=false
 [[ -z "$hardware_model" ]] || hardware_selected=true
-
-build_rerun_command() {
-  local args=(./install.sh --platform fedora --theme "$theme")
-  local arg rendered='' quoted
-
-  if [[ "$bool_kde" == true ]]; then args+=(--kde); else args+=(--no-kde); fi
-  if [[ "$bool_latex" == true ]]; then args+=(--latex); else args+=(--no-latex); fi
-  [[ "$install_ocaml" != true ]] || args+=(--ocaml)
-  [[ "$install_sway" != true ]] || args+=(--sway)
-  [[ "$install_vm_host" != true ]] || args+=(--vm-host)
-  [[ "$install_vm_guest" != true ]] || args+=(--vm-guest)
-  [[ "$install_hardening" != true ]] || args+=(--hardening)
-  [[ "$install_desktop_tools" != true ]] || args+=(--desktop-tools)
-  [[ "$desktop_tools_force_defaults" != true ]] || args+=(--desktop-tools-force-defaults)
-  [[ "$install_containers" != true ]] || args+=(--containers)
-  [[ "$containers_api_socket" != true ]] || args+=(--containers-api-socket)
-  [[ "$install_tailscale" != true ]] || args+=(--tailscale)
-  [[ "$install_ai" != true ]] || args+=(--ai)
-  case "$ai_codex" in true) args+=(--codex) ;; false) args+=(--no-codex) ;; esac
-  case "$ai_firstmate" in true) args+=(--firstmate) ;; false) args+=(--no-firstmate) ;; esac
-  case "$ai_gnhf" in true) args+=(--gnhf) ;; false) args+=(--no-gnhf) ;; esac
-  case "$ai_backpass" in true) args+=(--backpass) ;; false) args+=(--no-backpass) ;; esac
-  if [[ "$hardware_selected" == true ]]; then
-    args+=(--hardware "$hardware_model")
-    [[ "$hardware_secure_boot" != true ]] || args+=(--secure-boot)
-    [[ -z "$hardware_charge_limit" ]] || args+=(--charge-limit "$hardware_charge_limit")
-  fi
-  args+=(--non-interactive)
-
-  for arg in "${args[@]}"; do
-    printf -v quoted '%q' "$arg"
-    rendered+="${rendered:+ }$quoted"
-  done
-  printf '%s\n' "$rendered"
-}
 
 preflight_fedora() {
   require_regular_user; require_fedora
@@ -326,7 +293,7 @@ fi
 plan_preflight
 capabilities=base,dotnet-debug
 for selection in "$bool_kde:kde" "$bool_latex:latex" "$install_ocaml:ocaml" "$install_sway:sway" "$install_vm_host:vm-host" "$install_vm_guest:vm-guest" "$hardware_selected:hardware" "$install_hardening:hardening" "$install_desktop_tools:desktop-tools" "$install_containers:containers" "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do [[ "${selection%%:*}" != true ]] || capabilities+=,"${selection#*:}"; done
-DOTFILES_RERUN_COMMAND="$(build_rerun_command)"
+DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command fedora "$install_selection")"
 install_lifecycle_begin fedora "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?; install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"; exit "$result"
