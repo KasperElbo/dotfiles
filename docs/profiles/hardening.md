@@ -1,9 +1,9 @@
 # Optional Fedora security-hardening profile
 
-This is a conservative, explicit workstation-hardening profile, not the Parrot
-Security Edition CTF guest under `platforms/parrot-ctf`. The Parrot guest is a
-disposable, offensive-security lab environment (see "Parrot Security Edition
-CTF VM" above); this profile does the opposite: it makes the everyday Fedora
+This is a conservative, explicit workstation-hardening profile, not the
+[Parrot Security Edition CTF guest](../platforms/parrot-ctf.md) under
+`platforms/parrot-ctf`. The Parrot guest is a disposable, offensive-security
+lab environment; this profile does the opposite: it makes the everyday Fedora
 host a little more resistant to local attacks while staying a normal
 day-to-day development machine. The two are intentionally unrelated code
 paths and are never installed together by the same flag.

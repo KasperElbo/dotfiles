@@ -261,6 +261,19 @@ Install the profile explicitly:
 ./install.sh --ocaml
 ```
 
+Native build prerequisites differ per platform; `opam` itself always owns
+every compiler switch and OCaml ecosystem package installed afterwards:
+
+| Platform | Native provider | Packages |
+| --- | --- | --- |
+| Fedora | DNF | `bzip2`, `bubblewrap`, `gcc`, `gcc-c++`, `m4`, `make`, `opam`, `patch`, `pkgconf-pkg-config`, `unzip` |
+| Fedora WSL | DNF, a smaller set (the WSL baseline already owns compiler/build prerequisites) | `bubblewrap`, `m4`, `opam`, `patch`, `pkgconf-pkg-config` |
+| macOS | Homebrew | `opam`, `pkg-config`, `gmp` |
+
+`common/verify-ocaml.sh` fails when `opam` resolves outside that platform's
+native package prefix (`/usr` on Fedora/Fedora WSL, the Homebrew prefix on
+macOS), since that is not the `opam` this profile installed.
+
 The default profile creates the named switch `dotfiles-ocaml-5.5.0`, selects it
 as the global opam switch, and installs dune, utop, `ocaml-lsp-server`,
 OCamlFormat, and Earlybird into that switch. The selection is recorded in the machine-local

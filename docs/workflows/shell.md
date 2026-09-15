@@ -49,13 +49,23 @@ Contains:
 - Lazygit/Bat/fzf/Starship theme selection
 - zoxide
 - fzf integration
-- autosuggestions
 - aliases and the `tar`/`untar` archive helpers
 - mise activation
 - Starship
-- syntax highlighting
 
 The configuration intentionally avoids Oh My Zsh or another shell framework.
+
+`.zshrc` sources the platform-owned file
+`${XDG_CONFIG_HOME:-$HOME/.config}/zsh/platform.zsh` last, deliberately after
+Starship, so that autosuggestions and syntax highlighting initialize in the
+correct order. **Autosuggestions and syntax highlighting themselves are not
+in `.zshrc`** — each platform's own `platform.zsh`
+(`platforms/*/stow/zsh-platform/.config/zsh/platform.zsh`) sources its
+packaged `zsh-autosuggestions`/`zsh-syntax-highlighting` plugin files from
+that platform's package path. On Fedora and Parrot this is guarded
+(`[[ -r ... ]] ||`), so a machine missing the packages still starts cleanly;
+on macOS and Fedora WSL it is unconditional, because both platforms always
+install those packages as part of the base profile.
 
 ## Optional tooling degrades, it does not break the shell
 

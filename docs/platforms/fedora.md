@@ -51,7 +51,13 @@ It currently supports these ROG Zephyrus G14 profiles:
 | `ga402xz` | 2023 GA402XZ | Fedora AMD iGPU plus RPM Fusion NVIDIA akmod |
 | `ga402rk` | 2022 GA402RK, including GA402RK-L81152 | Fedora AMD firmware, kernel `amdgpu`, and Mesa |
 
-Run the component directly when the workstation configuration is already
+Enable it as part of the main installer with `--hardware`:
+
+```bash
+./install.sh --hardware ga402xz --secure-boot --charge-limit 80
+```
+
+Or run the component directly when the workstation configuration is already
 installed:
 
 ```bash
@@ -127,6 +133,14 @@ Then run:
 ```bash
 ./platforms/fedora/scripts/verify-asus-hardware.sh
 ```
+
+## SFTP client
+
+Command-line and Dolphin/KIO SFTP access (including the Sway case) is
+documented in
+[the first-run guide's SFTP client section](../workflows/first-run.md#6-sftp-client),
+since it ships as part of the base workstation install rather than being an
+ASUS-hardware concern.
 
 ## Keyboard layouts
 

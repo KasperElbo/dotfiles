@@ -162,7 +162,10 @@ Known Plasma identifiers:
 
 ## Ghostty
 
-All four official Ghostty theme files are tracked under:
+Ghostty's theme files exist only where the `ghostty` package is stowed —
+that is, on a headed installation (`common/stow.sh` skips the `ghostty`
+package entirely on a headless one). Where it applies, all four official
+Ghostty theme files are tracked under:
 
 ```text
 ~/.config/ghostty/themes/
@@ -275,7 +278,12 @@ The `Ctrl-R` configuration adds:
 
 ## Bat
 
-Bat uses its packaged Catppuccin themes.
+On Fedora, Fedora WSL, and macOS, Bat uses its packaged Catppuccin themes.
+On the Parrot CTF guest, the packaged `bat` does not ship those syntaxes, so
+`platforms/parrot-ctf/scripts/install-terminal.sh` downloads and verifies
+(against pinned SHA-256 hashes) the four upstream Catppuccin theme files
+itself, into `~/.config/bat/themes/`, so Git paging never silently falls back
+without them.
 
 The active flavor is selected using `BAT_THEME`.
 
