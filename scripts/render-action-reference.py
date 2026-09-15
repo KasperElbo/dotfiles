@@ -17,8 +17,16 @@ import csv
 import pathlib
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import supported_platforms  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "config" / "actions.tsv"
+
+# "all" is the registry's own sentinel for an action every platform carries; the
+# rest come from config/capabilities.tsv, so a new platform needs no edit here
+# beyond its human-authored title below.
+SECTION_PLATFORMS = ("all",) + supported_platforms()
 TARGET = ROOT / "docs" / "reference" / "keybindings.md"
 BEGIN = "<!-- BEGIN GENERATED ACTION REFERENCE -->"
 END = "<!-- END GENERATED ACTION REFERENCE -->"
@@ -70,7 +78,7 @@ def render() -> str:
         "",
     ]
 
-    for platform in ("all", "fedora", "fedora-wsl", "macos", "parrot-ctf"):
+    for platform in SECTION_PLATFORMS:
         platform_rows = [row for row in rows if row["platform"] == platform]
         if not platform_rows:
             continue

@@ -32,16 +32,29 @@ is not.
 ## Entry points, and what `scripts/` actually is
 
 A file living under `scripts/` is not automatically a public, cross-platform
-command. There are five distinct kinds of executable in this repository, and
-`config/shell-file-roles.tsv` records which one every tracked shell file is:
+command. This repository groups its executables and sourced files into a
+handful of illustrative kinds below, but the table is a reading aid, not the
+inventory: **`config/shell-file-roles.tsv` is the exhaustive, authoritative
+list of roles.** Every tracked shell file (and every tracked file under a
+stowed `bin` directory, plus the PowerShell/Python files `scripts/validate-shell-file-roles.py`
+also governs) matches exactly one row there, which fixes both its role and its
+required file mode; `./scripts/lint.sh` enforces the match.
 
-| Kind | Where | What it means |
+| Kind | Where (examples) | What it means |
 |---|---|---|
-| **Portable entry point** | `./install.sh`, `./doctor`, `./scripts/lint.sh`, `./scripts/test.sh` | Works on every supported platform. These are the documented way in. |
-| **Platform command** | `platforms/<platform>/install.sh`, `platforms/<platform>/scripts/*.sh` | Belongs to exactly one platform and says so in its path. Safe to run directly when you want one component. |
-| **Portable wrapper** | `scripts/install-ai.sh`, `scripts/install-mise.sh`, `scripts/install-neovim-tools.sh`, `scripts/install-tmux-theme.sh`, `scripts/verify-ai.sh` | A supported alias for the matching `common/` script. Not deprecated: the target really is portable. |
-| **Deprecated compatibility wrapper** | every other `scripts/*.sh`, plus `scripts/lib/*.sh` | A Fedora-only path from before the platform layout existed. Still forwards; see below. |
-| **Internal implementation** | `common/*.sh`, `scripts/install-main.sh`, `scripts/bootstrap-macos.sh` | Called by the installers. Individually rerunnable, but not the documented interface. |
+| **Portable entry point** (`public-entrypoint`) | `./install.sh`, `./doctor`, `./scripts/lint.sh`, `./scripts/test.sh` | Works on every supported platform. These are the documented way in. |
+| **Platform entry point** (`platform-entrypoint`) | `platforms/<platform>/install.sh` | Belongs to exactly one platform and is the documented way to install just that platform. |
+| **Platform command** (`platform-command`) | `platforms/<platform>/scripts/*.sh` | Belongs to exactly one platform and says so in its path. Safe to run directly when you want one component. |
+| **Portable wrapper** (`portable-wrapper`) | `scripts/install-ai.sh`, `scripts/install-mise.sh`, `scripts/install-neovim-tools.sh`, `scripts/install-tmux-theme.sh`, `scripts/verify-ai.sh` | A supported alias for the matching `common/` script. Not deprecated: the target really is portable. |
+| **Deprecated compatibility wrapper** (`deprecated-wrapper`) | every other `scripts/*.sh` | A Fedora-only path from before the platform layout existed. Still forwards; see below. |
+| **Internal implementation** (`internal-executable`) | `common/*.sh`, `scripts/install-main.sh`, `scripts/bootstrap-macos.sh`, `scripts/doctor.sh` | Called by a documented entry point. Individually rerunnable, but not the documented interface — `scripts/doctor.sh` is the implementation `./doctor` execs into, not something to run directly. |
+| **Sourced library** (`sourced-library`) | `common/lib/*.sh`, `platforms/*/lib/*.sh`, `scripts/lib/*.sh`, `tests/lib/*.sh` | Meant to be sourced, never executed. Never carries the executable bit. |
+| **Stowed command** (`stowed-command`) | `bin/.local/bin/*`, `platforms/*/stow/*/.local/bin/*` | Lands on `PATH` once stowed; a real command a user runs by name. |
+| **Stowed config / data** (`stowed-config`, `stowed-data`) | `zsh/.config/zsh/*`, `fzf/.config/fzf/themes/*.sh` | Sourced by an interactive shell or another tool once stowed; never executed directly. |
+| **Test entry point** (`test-entrypoint`) | `tests/test-*.sh`, `tests/integration/*.sh` | A test suite, run by `./scripts/test.sh` or directly. |
+
+See `config/shell-file-roles.tsv` for the full set of patterns, including the
+Windows (`.ps1`) and Python entry points and libraries it also governs.
 
 ### Deprecated wrappers
 

@@ -19,6 +19,7 @@ if [[ "${1:-}" == doctor ]]; then
 fi
 
 platform="fedora"
+default_platform="$platform"
 platform_explicit=false
 rerun=false
 help_requested=false
@@ -135,8 +136,23 @@ if [[ "$rerun" == true && "$help_requested" != true ]]; then
   forwarded_args=("${remembered_args[@]}" "${transient_args[@]}")
 fi
 
-supported_platforms="$(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
-  "$repo_root/config/capabilities.tsv" | sort -u | paste -sd'|' -)"
+supported_platform_names=()
+while IFS= read -r supported_platform_name; do
+  supported_platform_names+=("$supported_platform_name")
+done < <(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
+  "$repo_root/config/capabilities.tsv" | sort -u)
+supported_platforms="$(
+  IFS='|'
+  printf '%s' "${supported_platform_names[*]}"
+)"
+
+# The same list as prose, for the help text: one source, two renderings.
+supported_platforms_sentence=""
+for supported_platform_name in "${supported_platform_names[@]}"; do
+  entry="$supported_platform_name"
+  [[ "$supported_platform_name" != "$default_platform" ]] || entry+=" (default)"
+  supported_platforms_sentence+="${supported_platforms_sentence:+, }$entry"
+done
 if ! awk -F '\t' -v platform="$platform" \
   'NR > 1 && $1 == "base" && $2 == platform && $15 == "implemented" {found=1} END {exit !found}' \
   "$repo_root/config/capabilities.tsv"; then
@@ -171,10 +187,10 @@ Usage: ./install.sh [--platform NAME|--platform=NAME] [options]
        ./install.sh doctor
 
 Options (platform '$platform'):
-  --platform NAME    Target platform: fedora (default), fedora-wsl, macos,
-                     or parrot-ctf. Selects which platforms/NAME/install.sh
+  --platform NAME    Target platform: selects which platforms/NAME/install.sh
                      runs; all other options below are that platform's own
-                     and are simply forwarded to it.
+                     and are simply forwarded to it. Available platforms:
+                     $supported_platforms_sentence
   --rerun            Reapply this machine's last successful configuration.
                      The selection comes from the recorded lifecycle state
                      and is resolved by the installer in this checkout; no

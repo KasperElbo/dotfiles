@@ -64,14 +64,25 @@ PLATFORM_ARGUMENT = re.compile(r"--platform[ =]([a-z-]+)")
 OPTION_ARGUMENT = re.compile(r"(?<![\w-])--[a-z][a-z0-9-]*")
 
 # Controls that belong to one invocation and therefore have no manifest row.
+# The root installer owns these four and every platform accepts them.
 TRANSIENT_FLAGS = {
     "--platform",
     "--rerun",
     "--dry-run",
     "--non-interactive",
-    "--dev-workflows",
-    "--smoke-test",
     "--help",
+}
+
+# The rest are not universal, so advertising one against the wrong platform is
+# as wrong as advertising an option that does not exist. Each entry is what
+# that platform's own parser accepts: the CTF guest rejects --dev-workflows
+# outright (platforms/parrot-ctf/install.sh), and the deprecated spellings live
+# only where they were released.
+PLATFORM_TRANSIENT_FLAGS = {
+    "fedora": {"--dev-workflows", "--no-dev-workflows"},
+    "fedora-wsl": {"--dev-workflows", "--no-dev-workflows", "--smoke-test"},
+    "macos": {"--dev-workflows", "--no-dev-workflows", "--workflows", "--no-workflows"},
+    "parrot-ctf": set(),
 }
 
 
@@ -243,7 +254,11 @@ def check_platform_options(root: pathlib.Path, documents: list[pathlib.Path], pr
                     )
                     continue
                 for flag in OPTION_ARGUMENT.findall(command):
-                    if flag in TRANSIENT_FLAGS or flag in declared[platform]:
+                    if (
+                        flag in TRANSIENT_FLAGS
+                        or flag in PLATFORM_TRANSIENT_FLAGS.get(platform, set())
+                        or flag in declared[platform]
+                    ):
                         continue
                     problems.append(
                         f"{relative}:{number}: `{flag}` is not an option of "

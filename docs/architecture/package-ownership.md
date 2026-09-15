@@ -67,10 +67,11 @@ The optional OCaml profile adds the `opam` binary plus `bzip2`,`gcc`, `gcc-c++`,
 package/build prerequisites only; DNF does not own the selected OCaml compiler
 or the OCaml Platform tools.
 
-The optional desktop-tools profile adds `gimp`, `pdfarranger`, `skanpage`, and
-`xdg-utils`. It reuses the Fedora KDE baseline's Gwenview, Okular, and Ark
-instead of installing alternatives, installing one only if it is genuinely
-missing. See [Optional desktop-tools profile](../profiles/desktop-tools.md#optional-desktop-tools-profile).
+The optional desktop-tools profile adds `gimp`, `pdfarranger`, `skanpage` and,
+from RPM Fusion, `mpv`. It reuses the Fedora KDE baseline's Gwenview, Okular,
+and Ark instead of installing alternatives, installing one only if it is
+genuinely missing, and it re-requests the baseline's own `xdg-utils` to claim
+MIME defaults without taking ownership of it. See [Optional desktop-tools profile](../profiles/desktop-tools.md#optional-desktop-tools-profile).
 
 The optional containers profile adds `podman` and `podman-compose`. It
 deliberately does not add Buildah, Skopeo, Docker Engine, or a `docker`

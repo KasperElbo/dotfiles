@@ -147,4 +147,34 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "but no root licence file"
 printf 'PASS: deleting LICENSE while the page still claims MIT is rejected\n'
 
+# --- A tracked Python bytecode artifact is rejected -------------------------
+#
+# The bytecode filename below is assembled from parts rather than written as
+# one literal path: a contiguous "tests/.../*.py[c]" string in *this* file
+# would itself be caught by validate-repository-hygiene.py's own
+# nonexistent-repository-path check.
+
+pycache_dirname="__pycache__"
+bytecode_basename="smoke.cpython-311.py"
+bytecode_basename+="c"
+
+new_clean_tree
+git -C "$tree" init --quiet
+mkdir -p "$tree/tests/support/$pycache_dirname"
+printf 'bytecode\n' >"$tree/tests/support/$pycache_dirname/$bytecode_basename"
+git -C "$tree" add --all
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" "is a regenerated Python bytecode artifact tracked in git"
+printf 'PASS: a tracked __pycache__/*.pyc file is rejected\n'
+
+# An untracked .pyc file (the ordinary case once .gitignore covers it) must
+# not be flagged.
+new_clean_tree
+mkdir -p "$tree/tests/support/$pycache_dirname"
+printf 'bytecode\n' >"$tree/tests/support/$pycache_dirname/$bytecode_basename"
+run_capture python3 "$validator" --root "$tree"
+assert_success
+printf 'PASS: an untracked __pycache__ directory is not flagged\n'
+
 printf '\nAll repository hygiene checks passed.\n'

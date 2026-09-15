@@ -53,8 +53,12 @@ workstation:
 gimp
 pdfarranger
 skanpage
-xdg-utils
 ```
+
+The profile re-requests `xdg-utils` because it uses `xdg-mime` to claim MIME
+defaults, but it does not own it: the Fedora baseline installs `xdg-utils` and
+`config/capabilities.tsv` records it under `base`, which is why it is not in
+the list above.
 
 `mpv` also comes from DNF, but requires the RPM Fusion repositories (enabled
 automatically, the same way `install-asus-hardware.sh` already can) because

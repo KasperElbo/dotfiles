@@ -24,7 +24,10 @@ if ! command -v shellcheck >/dev/null 2>&1; then
 fi
 
 printf 'Running ShellCheck...\n'
-shellcheck -x -P SCRIPTDIR -s bash "${shell_files[@]}"
+# -S warning: fail only on warning-and-above findings, so info-level notes
+# that ShellCheck adds or removes between versions do not fail CI on version
+# drift alone (see docs/testing.md's "Contributor toolchain" section).
+shellcheck -x -P SCRIPTDIR -s bash -S warning "${shell_files[@]}"
 
 if ! command -v python3 >/dev/null 2>&1; then
   printf 'python3 is required but was not found in PATH.\n' >&2
