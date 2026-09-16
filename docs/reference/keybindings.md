@@ -300,7 +300,7 @@ The shell re-exec belongs to the Zsh wrapper, not to the command; see
 
 ## Complete action reference
 
-Every action this repository defines or deliberately puts in front of you: 232 entries, grouped by the platform they exist on.
+Every action this repository defines or deliberately puts in front of you: 233 entries, grouped by the platform they exist on.
 
 **Origin** is the distinction that matters when something behaves unexpectedly.
 `repository` means this repository binds it, and the `Source` column says where.
@@ -469,6 +469,12 @@ choice with a recorded reason, never an omission.
 | `<leader>mk` | table-nvim: move the row up | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
 | `<M-l>` | table-nvim: next table cell | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
 | `<M-h>` | table-nvim: previous table cell | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+
+#### zsh
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `cc` | Claude Code, started with permission prompts disabled | command | repository | `ai` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
 
 ### Fedora workstation
 
@@ -699,7 +705,7 @@ choice with a recorded reason, never an omission.
 
 ### Why an action is not on a printable sheet
 
-44 of the 232 registered actions are deliberately kept off every sheet:
+44 of the 233 registered actions are deliberately kept off every sheet:
 
 | Action | Reason |
 |---|---|
