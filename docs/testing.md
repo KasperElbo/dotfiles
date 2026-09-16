@@ -198,10 +198,14 @@ Three suites carry the invariants from the AI/mise/supply-chain workstream:
 
 - `tests/test-supply-chain.sh` validates the network-source registry, proves
   the linter fails closed on a new unregistered `curl`/`wget`/PowerShell
-  download, Git clone, or container image, rejects a registry row whose tier
-  and integrity mechanism contradict each other, rejects a wildcard used as
-  an exact pin, asserts no installer passes `--nogpgcheck` or pipes a
-  download into a shell, and exercises the bounded fetch policy (single
+  download, Git clone, container image, or new package trust root (a
+  `dnf config-manager addrepo` or an `rpm --import`), including one added to
+  an extensionless script the scanner selects by role or shebang rather than
+  by suffix, rejects a registry row whose tier and integrity mechanism
+  contradict each other, rejects a wildcard used as an exact pin, asserts no
+  installer passes `--nogpgcheck` or pipes a download into a shell, proves the
+  Fedora verifier's read-only Terra trust-root check against a mocked keyring
+  and repository configuration, and exercises the bounded fetch policy (single
   successful attempt, bounded retry on a transient failure, clear terminal
   failure, empty-body rejection, non-HTTPS refusal, digest and shape
   rejection).

@@ -27,14 +27,29 @@ Options:
   --non-interactive  Do not prompt before applying changes
   -h, --help         Show this help
 
-Every change is a small, named, dotfiles-owned drop-in file (sysctl.d,
-sudoers.d, sshd_config.d, faillock.conf.d, audit/rules.d). Nothing is
-mixed into a vendor config file, so it is always safe to delete a
-drop-in to roll a single change back. Does not disable SELinux or
-firewalld, does not install/enable sshd, and does not reboot.
+The rule is that every change is a small, named, dotfiles-owned drop-in
+file (sysctl.d, sudoers.d, sshd_config.d, faillock.conf.d, audit/rules.d),
+so deleting a drop-in rolls that single change back. Three changes are not
+drop-in files:
+
+  - the SELINUX= line of /etc/selinux/config, edited in place only when
+    SELinux is permissive, because SELinux has no drop-in mechanism. The
+    previous file is kept beside it as
+    /etc/selinux/config.dotfiles-<epoch>.bak; roll back with
+    'sudo setenforce 0' and copy that backup over /etc/selinux/config.
+  - the authselect 'with-faillock' feature, which regenerates /etc/pam.d;
+    deleting the faillock drop-in does not undo it. Roll back with
+    'sudo authselect disable-feature with-faillock'.
+  - dnf5-automatic.timer, enabled after installing dnf5-plugin-automatic
+    when it is missing. Roll back with
+    'sudo systemctl disable --now dnf5-automatic.timer', and
+    'sudo dnf remove dnf5-plugin-automatic' if you want the package gone.
+
+Does not disable SELinux or firewalld, does not install/enable sshd, and
+does not reboot.
 
 See docs/profiles/hardening.md for the full rationale, verification
-command, and rollback instructions for each change.
+command, and the per-change rollback table.
 EOF
 }
 
@@ -85,12 +100,15 @@ Verify only, never change:
   - enabled systemd services and listening sockets, against an allow-list
   - permissions on ~/.ssh, ~/.aws, ~/.config/gh, ~/.gnupg
 
-Apply (each as its own removable drop-in file):
+Apply (a removable drop-in file per change, except where noted; see the
+per-change rollback table in docs/profiles/hardening.md):
   1. SELinux: setenforce 1 if currently Permissive
-     /etc/selinux/config (SELINUX= line only)
+     /etc/selinux/config (SELINUX= line only, edited in place, no drop-in;
+     the previous file is kept as /etc/selinux/config.dotfiles-<epoch>.bak)
 
   2. pam_faillock: lock an account after 5 failed attempts for 15 minutes
-     authselect enable-feature with-faillock
+     authselect enable-feature with-faillock (regenerates /etc/pam.d,
+     not a drop-in; undone with 'authselect disable-feature with-faillock')
      /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
 
   3. sudo audit logfile
@@ -109,6 +127,8 @@ Apply (each as its own removable drop-in file):
 
   7. dnf5-automatic.timer: downloads and reports available updates daily
      (apply_updates=no by default), installs nothing automatically
+     installs dnf5-plugin-automatic when missing; no drop-in, undone with
+     'systemctl disable --now dnf5-automatic.timer'
 
 Never done by this profile: disabling SELinux or firewalld, changing
 firewalld zone services, noexec on /tmp, USBGuard, Wi-Fi MAC

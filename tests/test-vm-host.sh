@@ -27,6 +27,7 @@ test_stub_allow "$test_root" sudo dnf install -y "${vm_host_packages[@]}"
 test_stub_allow "$test_root" systemctl cat libvirtd.service
 test_stub_allow "$test_root" systemctl enable --now libvirtd.service
 test_stub_allow "$test_root" sudo systemctl enable --now libvirtd.service
+test_stub_allow "$test_root" sudo usermod -aG libvirt tester
 test_stub_allow "$test_root" sudo virsh -c qemu:///system net-autostart default
 test_stub_allow "$test_root" sudo virsh -c qemu:///system pool-autostart default
 
@@ -60,10 +61,15 @@ EOF
 cat >"$mock_bin/id" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$1" == -nG ]]; then
-  printf 'tester libvirt\n'
+  printf '%s\n' "${MOCK_GROUPS:-tester libvirt}"
 else
   printf 'tester\n'
 fi
+EOF
+
+cat >"$mock_bin/usermod" <<'EOF'
+#!/usr/bin/env bash
+printf 'usermod %s\n' "$*" >>"$COMMAND_LOG"
 EOF
 
 cat >"$mock_bin/virsh" <<'EOF'
@@ -155,5 +161,33 @@ grep -Fq -- '--dry-run --print-xml' "$command_log"
 grep -Fq -- '--channel=unix,target_type=virtio,name=org.qemu.guest_agent.0' \
   "$command_log"
 grep -Fq -- '--channel=spicevmc' "$command_log"
+
+# libvirt group membership is root-equivalent. The disclosure must reach the
+# user before the change (--dry-run), when it is made, and in the profile
+# document, which once claimed the opposite.
+run_capture "${test_environment[@]}" \
+  "$repo_root/platforms/fedora/scripts/install-vm-host.sh" --dry-run
+assert_success
+assert_contains "$TEST_OUTPUT" 'Add tester to the standard libvirt group'
+assert_contains "$TEST_OUTPUT" 'libvirt group membership is root-equivalent'
+assert_contains "$TEST_OUTPUT" 'Roll back with: sudo gpasswd -d tester libvirt'
+assert_contains "$TEST_OUTPUT" 'No changes were made.'
+
+: >"$command_log"
+run_capture "${test_environment[@]}" MOCK_GROUPS=tester \
+  "$repo_root/platforms/fedora/scripts/install-vm-host.sh"
+assert_success
+assert_file_contains "$command_log" 'usermod -aG libvirt tester'
+assert_contains "$TEST_OUTPUT" \
+  'tester is now in the libvirt group; libvirt group membership is root-equivalent'
+assert_contains "$TEST_OUTPUT" 'Roll back with: sudo gpasswd -d tester libvirt'
+
+vm_host_doc="$repo_root/docs/profiles/vm-host.md"
+assert_not_contains "$(cat "$vm_host_doc")" \
+  'never grants broad administrator permissions'
+assert_file_contains "$vm_host_doc" '**root-equivalent**'
+assert_file_contains "$vm_host_doc" 'sudo gpasswd -d "$USER" libvirt'
+assert_file_contains "$vm_host_doc" 'authentication prompt each session'
+printf 'PASS: the root-equivalent libvirt group is disclosed in the plan, the run, and the doc\n'
 
 printf 'VM-host package, service, validation, smoke-test, and idempotency tests passed.\n'

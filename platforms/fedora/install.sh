@@ -266,7 +266,7 @@ plan_add terra 'Enable Terra and install Terra-managed packages' apply : apply_t
 [[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora-owned OCaml prerequisites' apply : apply_ocaml_native : "$(plan_command_note fedora_ocaml_native_command)"
 [[ -z "$hardware_model" ]] || plan_add hardware "Install ASUS hardware support for $hardware_model" apply : apply_hardware : "$(plan_command_note fedora_hardware_command)"
 [[ "$install_sway" != true ]] || plan_add sway 'Install the optional Sway daily-driver session' apply : apply_sway : "$(plan_command_note fedora_sway_command)"
-[[ "$install_vm_host" != true ]] || plan_add vm-host 'Install the optional Fedora KVM/QEMU + libvirt VM-host profile' apply : apply_vm_host : "$(plan_command_note fedora_vm_host_command)"
+[[ "$install_vm_host" != true ]] || plan_add vm-host 'Install the optional Fedora KVM/QEMU + libvirt VM-host profile' apply : apply_vm_host : "$(plan_command_note fedora_vm_host_command); adds you to the root-equivalent libvirt group"
 [[ "$install_vm_guest" != true ]] || plan_add vm-guest 'Install the explicit Fedora KVM/QEMU VM-guest profile' apply : apply_vm_guest : "$(plan_command_note fedora_vm_guest_command)"
 [[ "$install_hardening" != true ]] || plan_add hardening 'Install the optional conservative security-hardening profile' apply : apply_hardening : "$(plan_command_note fedora_hardening_command)"
 [[ "$install_desktop_tools" != true ]] || plan_add desktop-tools 'Install the optional day-to-day desktop application profile' apply : apply_desktop : "$(plan_command_note fedora_desktop_tools_command); GIMP, pdfarranger, mpv, Skanpage; reuses Gwenview, Okular, Ark"

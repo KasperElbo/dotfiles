@@ -107,6 +107,7 @@ ensure_terra_repository() {
   fi
 
   info "Importing the Terra $releasever signing key"
+  # network-source: terra-signing-key
   sudo rpm --import "$staged" ||
     die "Could not import the Terra signing key."
 
@@ -121,6 +122,83 @@ ensure_terra_repository() {
 
   rpm -q terra-release >/dev/null 2>&1 ||
     die "The Terra bootstrap did not install terra-release."
+}
+
+# terra_repo_gpgcheck_values: the effective signature-checking settings DNF
+# applies to the terra repository, as "<option> = <value>" lines, or nothing
+# when DNF does not know the repository. DNF resolves the repository files and
+# every override itself, so this reads what DNF will actually enforce rather
+# than one file's spelling of it. Read-only and sudo-free.
+terra_repo_gpgcheck_values() {
+  dnf --dump-repo-config=terra 2>/dev/null |
+    awk -F ' = ' '$1 == "gpgcheck" || $1 == "pkg_gpgcheck" { print $1 " = " $2 }'
+}
+
+# rpm_keyring_fingerprints: the primary fingerprint of every key in the RPM
+# keyring, one per line, upper case. RPM 4 names an imported key by its short
+# key ID and RPM 6 by its fingerprint, so the fingerprint is read from the
+# armoured key each keyring entry carries instead of from its package name.
+rpm_keyring_fingerprints() {
+  rpm -q gpg-pubkey --qf '%{DESCRIPTION}\n' 2>/dev/null |
+    gpg --show-keys --with-colons 2>/dev/null |
+    awk -F: '
+      $1 == "pub" { primary = 1; next }
+      $1 == "fpr" && primary { print toupper($10); primary = 0 }
+    '
+}
+
+# verify_terra_trust_root: re-asserts, on an installed machine, the trust root
+# ensure_terra_repository established once. The bootstrap returns early for
+# good once terra-release is installed, so a repository later edited to
+# gpgcheck=0 or a signing key removed from the keyring is only ever caught
+# here. Read-only and sudo-free. Source common/lib/verify.sh first.
+verify_terra_trust_root() {
+  local releasever gpgcheck_values setting unchecked="" pinned
+
+  if ! rpm -q terra-release >/dev/null 2>&1; then
+    fail "terra-release is not installed; run" \
+      "./platforms/fedora/scripts/install-terra.sh"
+    return 0
+  fi
+
+  gpgcheck_values="$(terra_repo_gpgcheck_values)"
+  if ! grep -q '^gpgcheck = ' <<<"$gpgcheck_values"; then
+    fail "DNF reports no gpgcheck setting for the terra repository;" \
+      "Terra packages may install without signature verification"
+  else
+    while IFS= read -r setting; do
+      [[ "$setting" == *' = 1' ]] || unchecked+="${unchecked:+, }$setting"
+    done <<<"$gpgcheck_values"
+    if [[ -n "$unchecked" ]]; then
+      fail "terra repository has $unchecked, expected 1;" \
+        "Terra packages install without signature verification"
+    else
+      pass "terra repository enforces package signatures (gpgcheck = 1)"
+    fi
+  fi
+
+  releasever="$(rpm -E %fedora 2>/dev/null || true)"
+  if [[ ! "$releasever" =~ ^[0-9]+$ ]]; then
+    fail "Could not determine the Fedora release version to check the Terra signing key"
+    return 0
+  fi
+  if [[ ! -r "$TERRA_KEY_MANIFEST" ]]; then
+    fail "Terra key manifest is not readable: $TERRA_KEY_MANIFEST"
+    return 0
+  fi
+
+  pinned="$(terra_pinned_fingerprint "$releasever")"
+  if [[ -z "$pinned" ]]; then
+    warning "No pinned Terra signing key for Fedora $releasever in" \
+      "$TERRA_KEY_MANIFEST; the RPM keyring cannot be checked against a" \
+      "reviewed fingerprint"
+  elif rpm_keyring_fingerprints | grep -Fxq -- "$pinned"; then
+    pass "Terra signing key for Fedora $releasever is in the RPM keyring" \
+      "and matches the pinned fingerprint $pinned"
+  else
+    fail "The pinned Terra signing key for Fedora $releasever ($pinned)" \
+      "is not in the RPM keyring"
+  fi
 }
 
 ensure_rpm_fusion_repositories() {

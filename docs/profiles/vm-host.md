@@ -39,10 +39,28 @@ new externally reachable service, or change host Secure Boot, SELinux, or
 firewalld. Bridged networking is intentionally outside this profile and must
 be designed as a separate, explicit option if it is needed later.
 
-Normal users use Fedora's upstream libvirt/polkit policy and, where Fedora
-provides it, the standard `libvirt` group. The installer never makes the
-libvirt socket world-writable and never grants broad administrator permissions.
-After a group change, log out and back in before using `qemu:///system`.
+Where Fedora provides the standard `libvirt` group, the installer adds the
+installing user to it. That membership is **root-equivalent**: it grants
+passwordless read-write access to `qemu:///system`, so a member can define a
+guest whose disk is a raw host block device such as `/dev/nvme0n1` and read or
+write that whole disk through the root-owned QEMU process. Adding the
+workstation's owner is a deliberate choice for a single-user machine, not an
+oversight, and it is disclosed both in the `--dry-run` plan and when the change
+is made. After the group change, log out and back in before using
+`qemu:///system`.
+
+To roll it back, remove the membership, then log out and back in:
+
+```bash
+sudo gpasswd -d "$USER" libvirt
+```
+
+Without the group, Fedora's upstream libvirt/polkit policy still lets an
+administrator use `qemu:///system`, with an authentication prompt each session
+instead. Prefer that posture by removing the membership as above; a later
+`--vm-host` rerun adds it back. Independently of the group, the installer
+never makes the libvirt socket world-writable and installs no polkit rule of
+its own.
 
 Validation checks `virt-host-validate qemu`, KVM device availability, access to
 `qemu:///system`, the active/autostart NAT network, and the active/autostart

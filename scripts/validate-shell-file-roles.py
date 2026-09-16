@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import argparse
 import csv
-import fnmatch
 import pathlib
 import subprocess
 import sys
 
-MANIFEST = pathlib.Path("config") / "shell-file-roles.tsv"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import SHELL_FILE_ROLES_MANIFEST as MANIFEST  # noqa: E402
+from manifests import role_pattern_matches as matches  # noqa: E402
+
 FIELDS = ["role", "mode", "pattern", "description"]
 
 
@@ -56,30 +58,6 @@ def governed(name: str) -> bool:
     if name.startswith("scripts/") and name.endswith(".py"):
         return True
     return name in {"doctor", "zsh/.zshenv"} or name.startswith("zsh/.config/zsh/")
-
-
-def matches(pattern: str, name: str) -> bool:
-    """Path-aware globbing: `*` stays inside one path segment, `**` spans them.
-
-    fnmatch alone would let `common/*.sh` claim `common/lib/common.sh`, which
-    is exactly the ambiguity this inventory exists to remove.
-    """
-    pattern_parts = pattern.split("/")
-    name_parts = name.split("/")
-    if pattern_parts and pattern_parts[-1] == "**":
-        return (
-            len(name_parts) > len(pattern_parts) - 1
-            and all(
-                fnmatch.fnmatchcase(actual, expected)
-                for expected, actual in zip(pattern_parts[:-1], name_parts)
-            )
-        )
-    if len(pattern_parts) != len(name_parts):
-        return False
-    return all(
-        fnmatch.fnmatchcase(actual, expected)
-        for expected, actual in zip(pattern_parts, name_parts)
-    )
 
 
 def is_exact(pattern: str) -> bool:

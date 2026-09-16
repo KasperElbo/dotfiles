@@ -11,9 +11,15 @@ Two independent jobs:
 2. No tracked file introduces a direct network source that the registry does
    not know about. Every network-executing construct -- ``curl``/``wget``,
    ``Invoke-WebRequest``/``Invoke-RestMethod``, a remote ``git clone``/
-   ``fetch``, a remote release RPM, ``--repofrompath``, or a container image --
-   must carry a ``# network-source: <id>`` annotation naming a registered
-   source. CI fails when a new one appears unregistered.
+   ``fetch``, a remote release RPM, ``--repofrompath``, a DNF
+   ``config-manager addrepo``, an ``rpm --import`` of a signing key, or a
+   container image -- must carry a ``# network-source: <id>`` annotation naming
+   a registered source. CI fails when a new one appears unregistered.
+
+   A file is scanned by what it is, not only by its name: a scanned suffix, a
+   path ``config/shell-file-roles.tsv`` classifies, or a shell or Python
+   shebang each select it, so an extensionless command such as ``doctor`` or a
+   stowed ``.local/bin`` helper is held to the same rule as an installer.
 
 The annotation may sit on the same line or on any of the preceding comment
 lines, so a single annotation can cover a short multi-line invocation.
@@ -27,6 +33,9 @@ import pathlib
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import role_pattern_matches, shell_file_role_patterns  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REGISTRY = pathlib.Path(
@@ -94,6 +103,12 @@ NETWORK_PATTERNS = [
     (re.compile(r"(?<![\w-])git\s+(?:-C\s+\S+\s+)?(?:clone|fetch|ls-remote)(?![\w-])"), "git-remote"),
     (re.compile(r"--repofrompath"), "repofrompath"),
     (re.compile(r"https://\S*\.rpm"), "remote-rpm"),
+    # The two constructs that give a machine a new package trust root: a DNF
+    # repository definition and a package-signing key. Both count however
+    # their argument is spelled, because a variable holding a URL adds the
+    # same trust as a literal one.
+    (re.compile(r"config-manager\s+(?:addrepo|--add-repo)(?![\w-])"), "dnf-addrepo"),
+    (re.compile(r"(?<![\w.-])rpm(?:keys)?\s+(?:-\S+\s+)*--import(?![\w-])"), "rpm-key-import"),
     (re.compile(r"(?:docker\.io|ghcr\.io|quay\.io|registry\.fedoraproject\.org)/\S+"), "container-image"),
 ]
 
@@ -113,7 +128,11 @@ POLICY_FILES = {
     "common/lib/fetch.sh",
 }
 
-SCANNED_SUFFIXES = {".sh", ".ps1", ".yml", ".yaml", ".bash", ".zsh"}
+# Fast path: these suffixes are always scanned. Anything else is scanned when
+# config/shell-file-roles.tsv classifies it (the validated inventory of every
+# tracked shell file) or when its first line is a shell or Python shebang.
+SCANNED_SUFFIXES = {".sh", ".ps1", ".yml", ".yaml", ".bash", ".zsh", ".py"}
+SCANNED_SHEBANG = re.compile(r"^#!.*(?:\b(?:ba|z|da|k)?sh\b|\bpython[0-9.]*\b)")
 
 
 def fail(message: str) -> None:
@@ -126,6 +145,18 @@ def tracked_files() -> list[pathlib.Path]:
         check=True, capture_output=True, text=True,
     ).stdout
     return [pathlib.Path(name) for name in output.split("\0") if name]
+
+
+def is_scanned(relative: str, full_path: pathlib.Path, role_patterns: tuple[str, ...]) -> bool:
+    if pathlib.PurePosixPath(relative).suffix in SCANNED_SUFFIXES:
+        return True
+    if any(role_pattern_matches(pattern, relative) for pattern in role_patterns):
+        return True
+    # Only the first line decides, so a large document or binary is never read
+    # whole just to be skipped.
+    with full_path.open("rb") as stream:
+        first_line = stream.readline(256)
+    return bool(SCANNED_SHEBANG.match(first_line.decode("utf-8", errors="replace")))
 
 
 def is_exempt(relative: str) -> bool:
@@ -200,12 +231,13 @@ def load_registry() -> tuple[list[dict[str, str]], int]:
 
 def scan_for_unregistered(known: set[str]) -> int:
     errors = 0
+    role_patterns = shell_file_role_patterns(ROOT)
     for relative_path in tracked_files():
         relative = relative_path.as_posix()
-        if is_exempt(relative) or relative_path.suffix not in SCANNED_SUFFIXES:
+        if is_exempt(relative):
             continue
         full_path = ROOT / relative_path
-        if not full_path.is_file():
+        if not full_path.is_file() or not is_scanned(relative, full_path, role_patterns):
             continue
         try:
             lines = full_path.read_text(encoding="utf-8").splitlines()
