@@ -474,7 +474,7 @@ choice with a recorded reason, never an omission.
 
 | Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
 |---|---|---|---|---|---|---|---|
-| `cc` | Claude Code, started with permission prompts disabled | command | repository | `ai` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
+| `cld` | Claude Code, started with permission prompts disabled | command | repository | `ai` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
 
 ### Fedora workstation
 
