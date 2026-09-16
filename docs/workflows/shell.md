@@ -116,6 +116,10 @@ z foo     zoxide ranked directory jump
 zi        interactive zoxide selection
 ```
 
+On macOS, `Alt` is **Left Option**: Ghostty is configured to send it to the
+shell as Alt/Meta, while Right Option keeps typing symbols. See
+[the macOS platform guide](../platforms/macos.md#left-option-is-alt).
+
 Every editing key is bound to its `terminfo` sequence *and* to the documented
 xterm, application-cursor and vt220/rxvt fallbacks, so the same keys work in
 Ghostty, Noctty/WSL, KDE Konsole, a VM text console, SSH and tmux. See

@@ -142,9 +142,9 @@ Rosetta.
 ## Terminal
 
 The terminal is **Ghostty**, installed from the Brewfile as part of the
-baseline and configured by the portable `ghostty` Stow package. Like the rest
-of the baseline it is not optional and has no flag; Terminal.app and iTerm are
-left untouched.
+baseline and configured by the portable `ghostty` Stow package plus the
+macOS-only `ghostty-macos` package below. Like the rest of the baseline it is
+not optional and has no flag; Terminal.app and iTerm are left untouched.
 
 ### Left Option is Alt
 

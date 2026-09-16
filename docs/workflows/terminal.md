@@ -19,6 +19,10 @@ SSH terminfo handling
 Catppuccin theme
 ```
 
+macOS adds one platform-only setting on top of that portable set: Left Option
+reaches the shell as Alt/Meta, so fzf's `Alt-C` works there. See
+[the macOS platform guide](../platforms/macos.md#left-option-is-alt).
+
 ### Fonts
 
 The Starship prompt uses the Catppuccin Powerline preset, whose separators and

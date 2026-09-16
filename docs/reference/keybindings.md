@@ -49,6 +49,12 @@ splits, tab navigation, zoom/font sizing, config reload --- is an unmodified
 upstream default. Ghostty is the local tab/split/zoom manager; tmux is
 deliberately not used to duplicate that on the same machine.
 
+The one Ghostty setting this repository does own is the macOS modifier
+mapping: the `ghostty-macos` Stow package makes Left Option arrive as
+Alt/Meta, which is why `Left Option` appears below with origin `repository`
+and why `Alt+C` below is Left Option on a Mac. See
+[the macOS platform guide](../platforms/macos.md#left-option-is-alt).
+
 Being an upstream default is not a reason to leave it off a desk reference, so
 the ones worth knowing by heart are printed on the profile cheat sheets and
 registered in `config/actions.tsv` with `origin=upstream` --- the column that
