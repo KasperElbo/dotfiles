@@ -208,10 +208,25 @@ check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git/"
 check_symlink "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise/"
 check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim/"
 check_symlink "$XDG_CONFIG_HOME/nvim/lua/plugins/macos.lua" "$DOTFILES_ROOT/platforms/macos/stow/nvim-macos/"
+check_symlink "$XDG_CONFIG_HOME/ghostty/macos.conf" "$DOTFILES_ROOT/platforms/macos/stow/ghostty-macos/"
 
 # verifies: terminal -- Ghostty is the macOS terminal, installed from the
 # Brewfile with the baseline.
-if [[ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]]; then pass "Ghostty application is installed"; else fail "Ghostty application is missing"; fi
+ghostty_binary=/Applications/Ghostty.app/Contents/MacOS/ghostty
+if [[ -x "$ghostty_binary" ]]; then
+  pass "Ghostty application is installed"
+  # An include chain decides this, not any one tracked file, so ask Ghostty
+  # what it resolved. Left Option has to arrive as Alt for fzf's shared Alt-C
+  # directory picker; Right Option stays a macOS modifier for symbol entry.
+  if "$ghostty_binary" +show-config 2>/dev/null |
+    grep -Eq '^macos-option-as-alt[[:space:]]*=[[:space:]]*left$'; then
+    pass "Ghostty sends Left Option as Alt, leaving Right Option for symbol entry"
+  else
+    fail "Ghostty does not resolve macos-option-as-alt = left; fzf's Alt-C will not reach the shell"
+  fi
+else
+  fail "Ghostty application is missing"
+fi
 if [[ -d /Applications/AeroSpace.app ]]; then pass "AeroSpace application is installed"; else fail "AeroSpace application is missing"; fi
 
 if aerospace list-workspaces --focused >/dev/null 2>&1; then

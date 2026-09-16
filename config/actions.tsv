@@ -182,6 +182,7 @@ ghostty.macos.clear-select	macos	base	ghostty	upstream	key	Cmd+K / Cmd+A	Clear t
 ghostty.macos.prompt-jump	macos	base	ghostty	upstream	key	Cmd+Shift+Up / Down	Jump to the previous / next shell prompt	-	-	tool-help	true	macos	-
 ghostty.macos.font-size	macos	base	ghostty	upstream	key	Cmd+Plus / Minus / 0	Grow / shrink / reset the font	-	-	tool-help	true	macos	-
 ghostty.macos.config	macos	base	ghostty	upstream	key	Cmd+, / Cmd+Shift+,	Open / reload the configuration	-	-	tool-help	true	macos	-
+ghostty.macos.option-as-alt	macos	base	ghostty	repository	key	Left Option	Sends Alt/Meta to the shell, so the shared fzf Alt+C directory picker reaches it; Right Option still types symbols	platforms/macos/stow/ghostty-macos/.config/ghostty/macos.conf	^macos-option-as-alt = left$	config-only	true	macos:prose	-
 noctty.copy-paste	fedora-wsl	base	noctty	upstream	key	Ctrl+Shift+C / V	Copy / paste	-	-	tool-help	true	fedora-wsl	-
 noctty.tab-open-close	fedora-wsl	base	noctty	upstream	key	Ctrl+Shift+T / W	New / close tab	-	-	tool-help	true	fedora-wsl	-
 noctty.tab-cycle	fedora-wsl	base	noctty	upstream	key	Ctrl+Tab / Ctrl+Shift+Tab	Next / previous tab	-	-	tool-help	true	fedora-wsl	-

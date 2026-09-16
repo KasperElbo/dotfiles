@@ -9,7 +9,7 @@ require_command stow
 "$DOTFILES_ROOT/common/stow.sh"
 
 platform_stow_dir="$DOTFILES_ROOT/platforms/macos/stow"
-packages=(zsh-platform aerospace nvim-macos)
+packages=(zsh-platform aerospace nvim-macos ghostty-macos)
 
 info "Stowing macOS user integration into $HOME"
 for package in "${packages[@]}"; do

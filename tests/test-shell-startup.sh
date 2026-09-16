@@ -47,13 +47,17 @@ cat >"$tool_bin/starship" <<'EOF'
 #!/usr/bin/env bash
 printf 'export DOTFILES_TEST_STARSHIP_INIT=1\n'
 EOF
-# The real `fzf --zsh` binds Ctrl-R to its own history widget.
+# The real `fzf --zsh` binds Ctrl-R to its own history widget and Alt-C, which
+# the terminal sends as ESC c, to its directory picker.
 cat >"$tool_bin/fzf" <<'EOF'
 #!/usr/bin/env bash
 cat <<'ZSH'
 fzf-history-widget() { :; }
 zle -N fzf-history-widget
 bindkey '^R' fzf-history-widget
+fzf-cd-widget() { :; }
+zle -N fzf-cd-widget
+bindkey '\ec' fzf-cd-widget
 ZSH
 EOF
 printf '#!/usr/bin/env bash\nexit 0\n' >"$tool_bin/eza"
@@ -367,6 +371,15 @@ assert_contains "$ctrl_r_bare" 'history-incremental-search-backward'
 ctrl_r_full="$(run_zsh full xterm-256color "bindkey -- '^R'")"
 assert_contains "$ctrl_r_full" 'fzf-history-widget'
 printf 'PASS: Ctrl-R remains owned by the fzf history workflow\n'
+
+# Alt-C is fzf's too, and is the one shared binding whose physical key differs
+# per platform: on macOS the terminal has to send Left Option as Meta for this
+# same ESC c to arrive (#257). The shared configuration stays platform-neutral
+# and must not rebind it for any platform.
+assert_file_not_contains "$zshrc" "bindkey '\\ec'"
+alt_c_full="$(run_zsh full xterm-256color "bindkey -- '\ec'")"
+assert_contains "$alt_c_full" 'fzf-cd-widget'
+printf 'PASS: Alt-C remains owned by the fzf directory picker\n'
 
 # --- Archive helpers (#168) -------------------------------------------------
 

@@ -94,6 +94,10 @@
 \csrow{Cmd+Plus / Minus / 0}{Grow / shrink / reset the font}
 \csrow{Cmd+, / Cmd+Shift+,}{Open / reload the configuration}
 \end{cskeys}}
+% The shared workflow block prints fzf's Alt+C, and Alt is not a key a Mac
+% has: Ghostty is configured to send Left Option as Alt so that row works here.
+% csprose: ghostty.macos.option-as-alt
+\csnote{Where the shared blocks below say \texttt{Alt}, press \textbf{Left Option}: Ghostty sends it to the shell as Alt/Meta. \textbf{Right Option} is left alone, so it still types the symbols a Danish layout puts behind it.}
 \input{common-workflow}
 
 % The columns now reach the bottom of the last page, so \csfoot's \vfill would
