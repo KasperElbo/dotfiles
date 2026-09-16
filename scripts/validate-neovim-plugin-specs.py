@@ -39,7 +39,6 @@ MERGED_KEYS = {"opts", "dependencies", "cmd", "event", "ft", "keys"}
 GUARDED_KEYS = ("init", "config", "build", "priority")
 
 SHARED_PLUGINS = "nvim-lazyvim/.config/nvim/lua/plugins"
-PROFILE_PLUGINS = "nvim-lazyvim/.config/nvim/lua/ctf_plugins"
 OVERLAY_GLOB = "platforms/*/stow/nvim-*/.config/nvim/lua/plugins/*.lua"
 
 # A plugin is addressed as "owner/repo". Restricting identity to that shape
@@ -238,7 +237,6 @@ def spec_sets(root: pathlib.Path) -> dict[str, list[Fragment]]:
     never installed on the same machine, so they never contend with each other.
     """
     shared = fragments_in(sorted((root / SHARED_PLUGINS).glob("*.lua")), root)
-    profile = fragments_in(sorted((root / PROFILE_PLUGINS).glob("*.lua")), root)
 
     sets = {"the shared plugin fragments": shared}
     for overlay in sorted(root.glob(OVERLAY_GLOB)):
@@ -246,8 +244,6 @@ def spec_sets(root: pathlib.Path) -> dict[str, list[Fragment]]:
         name = f"the shared plugin fragments plus the {platform} overlay"
         sets.setdefault(name, list(shared))
         sets[name].extend(fragments_in([overlay], root))
-    if profile:
-        sets["the parrot-ctf profile fragments"] = profile
     return sets
 
 

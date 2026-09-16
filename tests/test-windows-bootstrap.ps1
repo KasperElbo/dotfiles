@@ -201,23 +201,41 @@ try {
         }
     }
 
-    $declined = & $runElevatedPhase $elevatedPhase.Extent.Text {
-        param($attempt)
-        throw [System.ComponentModel.Win32Exception]::new(1223)
-    }
+    # Start-Process -Verb RunAs never hands the caller the ERROR_CANCELLED
+    # Win32Exception it raised internally: it catches that and re-throws an
+    # InvalidOperationException quoting the message. Cover both that wrapped
+    # shape and the one where the original exception survives as the inner one.
+    $declinedShapes = @(
+        {
+            param($attempt)
+            throw [InvalidOperationException]::new(
+                'This command cannot be run due to the error: ' +
+                [System.ComponentModel.Win32Exception]::new(1223).Message)
+        },
+        {
+            param($attempt)
+            throw [InvalidOperationException]::new(
+                'This command cannot be run.',
+                [System.ComponentModel.Win32Exception]::new(1223))
+        }
+    )
 
-    if (-not $declined.Failure) {
-        throw 'A declined UAC prompt did not stop the elevated phase.'
-    }
-    Assert-Equal -Actual $declined.Attempts -Expected 1 `
-        -Message 'A declined UAC prompt was prompted for again.'
-    Assert-Equal -Actual $declined.Sleeps -Expected 0 `
-        -Message 'A declined UAC prompt slept before retrying.'
-    Assert-Equal -Actual $declined.Warnings.Count -Expected 0 `
-        -Message 'A declined UAC prompt was reported as a failed attempt.'
-    if ($declined.Failure.Exception.Message -notmatch 'approval was declined') {
-        throw ("A declined UAC prompt must say approval was declined, got: " +
-            $declined.Failure.Exception.Message)
+    foreach ($shape in $declinedShapes) {
+        $declined = & $runElevatedPhase $elevatedPhase.Extent.Text $shape
+
+        if (-not $declined.Failure) {
+            throw 'A declined UAC prompt did not stop the elevated phase.'
+        }
+        Assert-Equal -Actual $declined.Attempts -Expected 1 `
+            -Message 'A declined UAC prompt was prompted for again.'
+        Assert-Equal -Actual $declined.Sleeps -Expected 0 `
+            -Message 'A declined UAC prompt slept before retrying.'
+        Assert-Equal -Actual $declined.Warnings.Count -Expected 0 `
+            -Message 'A declined UAC prompt was reported as a failed attempt.'
+        if ($declined.Failure.Exception.Message -notmatch 'approval was declined') {
+            throw ("A declined UAC prompt must say approval was declined, got: " +
+                $declined.Failure.Exception.Message)
+        }
     }
 
     # The transient quirk the retry exists for still gets its three attempts.

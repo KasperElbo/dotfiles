@@ -276,8 +276,29 @@ function Invoke-ElevatedPhase {
                 # ShellExecute reports ERROR_CANCELLED (1223) as a
                 # Win32Exception. Retrying tells the user their own choice
                 # failed, twice, before giving up. Say what happened instead.
-                if ($_.Exception -is [System.ComponentModel.Win32Exception] -and
-                    $_.Exception.NativeErrorCode -eq 1223) {
+                #
+                # Start-Process does not hand that Win32Exception back: it
+                # re-throws an InvalidOperationException that only quotes the
+                # original message. Look for the error code anywhere in the
+                # exception chain first, since that is exact wherever it
+                # survives, and fall back to the message only when it does not.
+                $declined = $false
+                for ($inner = $_.Exception; $inner; $inner = $inner.InnerException) {
+                    if ($inner -is [System.ComponentModel.Win32Exception] -and
+                        $inner.NativeErrorCode -eq 1223) {
+                        $declined = $true
+                        break
+                    }
+                }
+                if (-not $declined) {
+                    # Message matching is locale-sensitive, so ask Windows for
+                    # its own text for 1223 rather than hard-coding the English
+                    # one: the quoted message came from the same source.
+                    $cancelled = [System.ComponentModel.Win32Exception]::new(1223).Message
+                    $declined = -not [string]::IsNullOrWhiteSpace($cancelled) -and
+                        ([string]$_.Exception.Message).Contains($cancelled)
+                }
+                if ($declined) {
                     throw "Administrator approval was declined. $FailureDescription was not started. Re-run this script and approve the prompt, or make the WSL change manually (for example: wsl --install <name>)."
                 }
                 if ($attempt -ge $maxAttempts) {
