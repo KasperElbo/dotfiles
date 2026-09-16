@@ -10,9 +10,10 @@
 # HARDENING_ROOT is prefixed to every path of those owned drop-ins and to
 # /etc/selinux/config, for the writes, reads, stats, removals, and reloads
 # below alike, so they can never target different roots. Empty (the default)
-# means the real root and leaves every command unchanged. Tests point it at a fake root so a machine with the
-# profile installed cannot answer checks that belong to the fixture. Always
-# pass the real /etc path; each function applies the prefix itself, once.
+# means the real root and leaves every command unchanged. Tests point it at a
+# fake root so a machine with the profile installed cannot answer checks that
+# belong to the fixture. Always pass the real /etc path; each function applies
+# the prefix itself, once.
 
 # write_managed_root_file <path> <mode> <description>
 # Reads new file content from stdin, then installs it at <path> with <mode>

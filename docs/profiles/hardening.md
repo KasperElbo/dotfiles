@@ -10,9 +10,13 @@ paths and are never installed together by the same flag.
 
 It never disables SELinux or firewalld, never installs or enables an SSH
 server, never changes firewalld zone services, never reboots, and never
-touches UEFI/Secure Boot settings. Every change it makes is a small, named,
-dotfiles-owned drop-in file, so any single change can be rolled back by
-deleting one file. It is opt-in and does not change the default install:
+touches UEFI/Secure Boot settings. The rule is that each change it makes is a
+small, named, dotfiles-owned drop-in file, so that single change is rolled back
+by deleting one file. Three changes are not drop-in files: the `SELINUX=` line
+of `/etc/selinux/config`, the `authselect` `with-faillock` feature, and
+`dnf5-automatic.timer`. Each of those has its own rollback in
+[what the profile changes](#what-the-profile-changes) below. It is opt-in and
+does not change the default install:
 
 ```bash
 ./install.sh --hardening
@@ -116,4 +120,4 @@ profile rather than a lab/appliance policy:
 | `kernel.unprivileged_bpf_disabled=1` | Closes a real local-privesc surface, but also blocks unprivileged `bpftrace`/`perf`-style tracing tools some debugging workflows use; the marginal single-user-workstation benefit didn't clear the bar against breaking a real (if less common) dev workflow |
 | Disabling `systemd-coredump` / capping core dumps | Crash dumps can contain sensitive memory (decrypted secrets, private keys), but this repo explicitly supports native/OCaml debugging workflows that rely on post-mortem crash inspection via `coredumpctl`; kept at Fedora's default, documented as a trade-off instead |
 | Rewriting `firewalld`'s default zone services (dropping mDNS/samba-client) | Would break local network discovery, printing, and KDE integration on a workstation for a negligible security gain on a single-user laptop; reported, not changed |
-| A single opaque "harden everything" script | Every change here is its own small, named, independently reversible drop-in instead, per the issue's own guidance to prefer small explicit changes |
+| A single opaque "harden everything" script | Every change here is its own small, named, independently reversible change instead, a drop-in file wherever the subsystem has one, per the issue's own guidance to prefer small explicit changes |

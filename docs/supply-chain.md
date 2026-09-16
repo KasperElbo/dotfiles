@@ -250,10 +250,11 @@ The scan covers every tracked file outside `tests/` (except
 three signals: its suffix, a classification in
 [`config/shell-file-roles.tsv`](../config/shell-file-roles.tsv), or a shell or
 Python shebang. An extensionless command such as `./doctor` or a stowed
-`~/.local/bin` helper is therefore held to the same rule as an installer. A construct that
-genuinely reaches no external network (a loopback probe, a request to the
-container under test) is annotated `# network-source: local-only`, which is
-still a deliberate, reviewable act.
+`~/.local/bin` helper is therefore held to the same rule as an installer.
+
+A construct that genuinely reaches no external network (a loopback probe, a
+request to the container under test) is annotated
+`# network-source: local-only`, which is still a deliberate, reviewable act.
 
 ## Authenticating the rate-limited API
 

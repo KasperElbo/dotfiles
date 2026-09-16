@@ -66,6 +66,10 @@ sections are representative of all of them:
 
 - the Fedora security baseline: SELinux enforcing, firewalld enabled and active, Secure
   Boot state (always, independent of `--hardening`)
+- the Terra package trust root: the repository's effective `gpgcheck` and the
+  pinned signing key in the RPM keyring, read-only and without `sudo` (always,
+  because the bootstrap imports that key only once; see
+  [the supply chain](../supply-chain.md))
 - required core commands, each run as well as found on PATH, and the SFTP
   client baseline
 - Stow-managed links, and nested Git repositories or generated junk files
