@@ -58,6 +58,7 @@ ZSH
 EOF
 printf '#!/usr/bin/env bash\nexit 0\n' >"$tool_bin/eza"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$tool_bin/bat"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$tool_bin/claude"
 chmod +x "$tool_bin"/*
 
 printf '# Catppuccin fzf colors\nexport DOTFILES_TEST_FZF_THEME=1\n' \
@@ -220,6 +221,45 @@ activated="$(run_zsh full xterm-256color \
   'print -r -- "${DOTFILES_TEST_MISE_ACTIVATED:-no}:${DOTFILES_TEST_STARSHIP_INIT:-no}:${DOTFILES_TEST_FZF_THEME:-no}"')"
 assert_eq '1:1:1' "$activated" 'present integrations must still be activated'
 printf 'PASS: present integrations are activated normally\n'
+
+# --- Claude Code alias ------------------------------------------------------
+#
+# `cc` is the C compiler driver on every machine, so the alias has to earn its
+# place twice: the `ai` capability must be installed, and Claude Code must
+# actually be on PATH. Either one missing leaves the compiler alone.
+
+install_state="$root/state/dotfiles/install.conf"
+mkdir -p "${install_state%/*}"
+
+write_install_state() {
+  printf 'schema_version=2\nprofile=install\nstatus=installed\n' >"$install_state"
+  printf 'requested_capabilities=base,ai\nobserved_capabilities=%s\n' "$1" \
+    >>"$install_state"
+}
+
+run_capture run_zsh full xterm-256color 'alias cc'
+assert_status 1
+printf 'PASS: cc is left alone when no install state was ever written\n'
+
+# Requested but not observed: asking for the capability is not having it.
+write_install_state base
+run_capture run_zsh full xterm-256color 'alias cc'
+assert_status 1
+printf 'PASS: cc is left alone when the ai capability is not installed\n'
+
+write_install_state base,ai
+run_capture run_zsh full xterm-256color 'alias cc'
+assert_success
+assert_contains "$TEST_OUTPUT" 'claude --dangerously-skip-permissions'
+printf 'PASS: cc starts Claude Code where the ai capability is installed\n'
+
+# Recorded, then removed by hand: an alias to a missing command would shadow
+# the compiler with nothing at all.
+run_capture run_zsh bare xterm-256color 'alias cc'
+assert_status 1
+printf 'PASS: cc is left alone when Claude Code is gone from PATH\n'
+
+rm -f "$install_state"
 
 # Startup itself must leave a clean status behind, or the first prompt of every
 # shell reports a failure the user never caused.
