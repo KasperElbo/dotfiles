@@ -22,6 +22,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `catppuccin-kde` | Catppuccin KDE theme | Catppuccin | `git` | `user` | `v0.2.7` | git rev-parse HEAD | `git-tag-pinned` | manual-bump |
 | `catppuccin-tmux` | Catppuccin tmux theme | Catppuccin | `git` | `user` | `v2.3.0` | git rev-parse HEAD | `git-tag-pinned` | manual-bump |
 | `dotfiles-repository` | This repository, checked out by CI | KasperElbo | `git` | `user` | `github.sha` | git rev-parse HEAD | `git-commit-pinned` | per-commit |
+| `lazy-nvim` | lazy.nvim plugin manager, cloned by CI to resolve plugin specs | folke | `git` | `user` | `lazy-lock.json` | lazy-lock.json | `git-commit-pinned` | manual-bump |
 | `lazyvim-plugins` | Neovim plugin set | LazyVim and plugin authors | `git` | `user` | `lazy-lock.json` | lazy-lock.json | `git-commit-pinned` | manual-bump |
 
 ## Tier: `exact-version`
@@ -80,7 +81,8 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `hack-nerd-font` | `https://github.com/ryanoasis/nerd-fonts/releases/download/v${font_version}/Hack.tar.xz` | reinstall the previous version directory | `platforms/parrot-ctf/scripts/install-terminal.sh` |
 | `homebrew-formulae` | `https://formulae.brew.sh` | brew uninstall | `platforms/macos/Brewfile` `platforms/macos/scripts/install-system.sh` |
 | `homebrew-installer` | `https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh` | Homebrew uninstall script | `scripts/bootstrap-macos.sh` `platforms/macos/scripts/install-system.sh` |
-| `lazyvim-plugins` | `https://github.com/LazyVim/LazyVim` | git restore lazy-lock.json and :Lazy restore | `nvim-lazyvim/.config/nvim/lazy-lock.json` `.github/workflows/validate.yml` |
+| `lazy-nvim` | `https://github.com/folke/lazy.nvim.git` | git restore lazy-lock.json and rerun the job | `nvim-lazyvim/.config/nvim/lazy-lock.json` `.github/workflows/validate.yml` |
+| `lazyvim-plugins` | `https://github.com/LazyVim/LazyVim` | git restore lazy-lock.json and :Lazy restore | `nvim-lazyvim/.config/nvim/lazy-lock.json` |
 | `mason-registry` | `https://github.com/mason-org/mason-registry` | Mason uninstall | `common/install-neovim-tools.sh` `common/mason-package-versions.txt` |
 | `mise-installer` | `https://mise.run` | rm ~/.local/bin/mise and rerun | `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |
 | `mise-tool-registry` | `https://mise.jdx.dev/registry.html` | mise uninstall | `mise/.config/mise/config.toml` `common/install-mise.sh` |

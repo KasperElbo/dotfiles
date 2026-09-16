@@ -55,7 +55,7 @@ jobs:
             nvim-lazyvim/.config/nvim/lazy-lock.json)"
           # The Neovim spec-resolution suite resolves the real fragment set
           # through lazy.nvim itself, at the revision this repository pins.
-          # network-source: lazyvim-plugins
+          # network-source: lazy-nvim
           git clone --quiet --filter=blob:none \
             https://github.com/folke/lazy.nvim.git "$LAZY_NVIM_DIR"
           git -C "$LAZY_NVIM_DIR" checkout --quiet "$commit"

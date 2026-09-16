@@ -257,7 +257,7 @@ treated as contending.
 `tests/test-neovim-tool-ownership.sh` proves the same rule behaviourally: it
 stows each platform overlay beside the shared fragments in a scratch config,
 resolves the set through lazy.nvim, and requires that refocusing the window
-reloads the machine-local flavour — the behaviour
+reloads the machine-local flavour - the behaviour
 [theming](workflows/theming.md) and [troubleshooting](troubleshooting.md)
 both promise. `tests/fixtures/neovim-contended-init/colorscheme.lua` keeps the
 arrangement that was wrong (issue #248, RA-36): the behavioural test and the
