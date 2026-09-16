@@ -180,7 +180,7 @@ if _dotfiles_integration bat 'cat is the plain system cat'; then
   alias cat='bat'
 fi
 
-# `cc` starts Claude Code with permission prompts disabled. The flag is the
+# `cld` starts Claude Code with permission prompts disabled. The flag is the
 # only way in: a `permissions.defaultMode` of `bypassPermissions` is ignored
 # when it comes from repo-level settings, and the mode cannot be raised once
 # the session is running.
@@ -188,12 +188,10 @@ fi
 # Gated on the `ai` capability rather than `_dotfiles_integration`: that
 # capability is opt-in and off by default, so an absent Claude Code is a
 # deliberate choice, not the reduced functionality `shell-integrations`
-# reports. The command check is what stops a recorded-but-since-removed
-# install from shadowing /usr/bin/cc, the C compiler driver, with a command
-# that is not there. `command cc` still reaches the compiler either way, as
-# does every non-interactive shell, where aliases never apply.
+# reports. The command check keeps a recorded-but-since-removed install from
+# leaving behind an alias that resolves to nothing.
 if _dotfiles_capability ai && command -v claude >/dev/null 2>&1; then
-  alias cc='claude --dangerously-skip-permissions'
+  alias cld='claude --dangerously-skip-permissions'
 fi
 
 # --- Archive helpers --------------------------------------------------------

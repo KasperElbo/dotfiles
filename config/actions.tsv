@@ -58,7 +58,7 @@ aerospace.resize.exit	macos	base	aerospace	repository	key	Enter, Esc	Resize mode
 zsh.alias.eza	all	base	zsh	repository	command	ls / ll / la	eza: short / long with git status / all files	zsh/.config/zsh/.zshrc	alias (ls|ll|la)='eza	shell-help	true	fedora-kde,fedora-sway,fedora-wsl,macos,parrot-ctf	-
 zsh.alias.tree	all	base	zsh	repository	command	tree	eza --tree	zsh/.config/zsh/.zshrc	alias tree='eza --tree'	shell-help	true	fedora-kde,fedora-sway,fedora-wsl,macos,parrot-ctf	-
 zsh.alias.bat	all	base	zsh	repository	command	cat	bat, with syntax highlighting	zsh/.config/zsh/.zshrc	alias cat='bat'	shell-help	true	fedora-kde,fedora-sway,fedora-wsl,macos,parrot-ctf	-
-zsh.alias.claude-code	workstation	ai	zsh	repository	command	cc	Claude Code, started with permission prompts disabled	zsh/.config/zsh/.zshrc	alias cc='claude	shell-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+zsh.alias.claude-code	workstation	ai	zsh	repository	command	cld	Claude Code, started with permission prompts disabled	zsh/.config/zsh/.zshrc	alias cld='claude	shell-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
 zsh.function.tar	all	base	zsh	repository	command	tar A.tar.gz P...	Create an archive, compression chosen from the suffix	zsh/.config/zsh/.zshrc	^tar\(\) \{	shell-help	true	fedora-kde,fedora-sway,fedora-wsl,macos,parrot-ctf	-
 zsh.function.untar	all	base	zsh	repository	command	untar A.tar.gz	Extract an archive	zsh/.config/zsh/.zshrc	^untar\(\) \{	shell-help	true	fedora-kde,fedora-sway,fedora-wsl,macos,parrot-ctf	-
 zsh.command.integrations	all	base	zsh	repository	command	shell-integrations	Report optional tooling this shell could not activate	zsh/.config/zsh/.zshrc	^shell-integrations\(\) \{	shell-help	true	fedora-kde,fedora-sway,fedora-wsl,macos,parrot-ctf	-
