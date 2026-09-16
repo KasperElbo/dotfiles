@@ -142,9 +142,27 @@ Rosetta.
 ## Terminal
 
 The terminal is **Ghostty**, installed from the Brewfile as part of the
-baseline and configured by the portable `ghostty` Stow package. Like the rest
-of the baseline it is not optional and has no flag; Terminal.app and iTerm are
-left untouched.
+baseline and configured by the portable `ghostty` Stow package plus the
+macOS-only `ghostty-macos` package below. Like the rest of the baseline it is
+not optional and has no flag; Terminal.app and iTerm are left untouched.
+
+### Left Option is Alt
+
+The shared shell workflow binds `Alt-C` to fzf's directory picker, alongside
+`Ctrl-R` and `Ctrl-T`. A Mac has no Alt key, and Ghostty does not send Option
+as Meta unless it is told to, so on a Danish layout `Option+C` would type a
+character instead of reaching the widget.
+
+The `ghostty-macos` Stow package sets `macos-option-as-alt = left`, loaded
+through the portable config's `config-file = ?macos.conf`, which resolves to
+nothing on the platforms that do not stow it. **Left Option** therefore reaches
+the shell as Alt/Meta, and **Right Option** is deliberately left alone so it
+still types the symbols a Danish layout puts behind it.
+
+`ghostty +show-config` prints what the installed terminal actually resolved,
+which is what the verifier checks. The
+[keybindings reference](../reference/keybindings.md) and the macOS cheat sheet
+record the physical-key mapping.
 
 ## 4. Development workflows
 
@@ -528,7 +546,7 @@ To remove only the Mac desktop layer while leaving common dotfiles intact:
 ```bash
 pkill AeroSpace || true
 brew uninstall --cask nikitabobko/tap/aerospace ghostty
-stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace zsh-platform nvim-macos
+stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace zsh-platform nvim-macos ghostty-macos
 platforms/macos/scripts/apply-defaults.sh --restore
 ```
 

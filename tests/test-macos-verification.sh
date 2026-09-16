@@ -23,7 +23,7 @@ data="$home/.local/share"
 mock_bin="$root/bin"
 debugger="$root/easydotnet/tools/netcoredbg/osx-arm64/netcoredbg"
 mkdir -p "$config/dotfiles" "$config/starship" "$config/zsh" "$config/git" \
-  "$config/mise" "$config/nvim/lua/plugins" "$config/aerospace" \
+  "$config/mise" "$config/nvim/lua/plugins" "$config/aerospace" "$config/ghostty" \
   "$home/.local/bin" "$data/mise/shims" "$mock_bin" "$(dirname "$debugger")"
 touch "$debugger"
 chmod +x "$debugger"
@@ -162,6 +162,8 @@ ln -s "$repo_root/mise/.config/mise/config.toml" "$config/mise/config.toml"
 ln -s "$repo_root/nvim-lazyvim/.config/nvim/init.lua" "$config/nvim/init.lua"
 ln -s "$repo_root/platforms/macos/stow/nvim-macos/.config/nvim/lua/plugins/macos.lua" \
   "$config/nvim/lua/plugins/macos.lua"
+ln -s "$repo_root/platforms/macos/stow/ghostty-macos/.config/ghostty/macos.conf" \
+  "$config/ghostty/macos.conf"
 
 # The theme the installer applied: the state common/lib/theme-shared-state.sh
 # writes, and the Stow-deployed Starship configuration for that flavour.

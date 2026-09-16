@@ -49,6 +49,12 @@ splits, tab navigation, zoom/font sizing, config reload --- is an unmodified
 upstream default. Ghostty is the local tab/split/zoom manager; tmux is
 deliberately not used to duplicate that on the same machine.
 
+The one Ghostty setting this repository does own is the macOS modifier
+mapping: the `ghostty-macos` Stow package makes Left Option arrive as
+Alt/Meta, which is why `Left Option` appears below with origin `repository`
+and why `Alt+C` below is Left Option on a Mac. See
+[the macOS platform guide](../platforms/macos.md#left-option-is-alt).
+
 Being an upstream default is not a reason to leave it off a desk reference, so
 the ones worth knowing by heart are printed on the profile cheat sheets and
 registered in `config/actions.tsv` with `origin=upstream` --- the column that
@@ -300,7 +306,7 @@ The shell re-exec belongs to the Zsh wrapper, not to the command; see
 
 ## Complete action reference
 
-Every action this repository defines or deliberately puts in front of you: 233 entries, grouped by the platform they exist on.
+Every action this repository defines or deliberately puts in front of you: 234 entries, grouped by the platform they exist on.
 
 **Origin** is the distinction that matters when something behaves unexpectedly.
 `repository` means this repository binds it, and the `Source` column says where.
@@ -648,6 +654,7 @@ choice with a recorded reason, never an omission.
 | `Cmd+C / Cmd+V` | Copy / paste | key | upstream | `base` | the tool's own help | yes | — |
 | `Cmd+Plus / Minus / 0` | Grow / shrink / reset the font | key | upstream | `base` | the tool's own help | yes | — |
 | `Cmd+Enter` | Toggle fullscreen | key | upstream | `base` | the tool's own help | yes | — |
+| `Left Option` | Sends Alt/Meta to the shell, so the shared fzf Alt+C directory picker reaches it; Right Option still types symbols | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/ghostty-macos/.config/ghostty/macos.conf` |
 | `Cmd+Shift+Up / Down` | Jump to the previous / next shell prompt | key | upstream | `base` | the tool's own help | yes | — |
 | `Cmd+[ / Cmd+]` | Previous / next split | key | upstream | `base` | the tool's own help | yes | — |
 | `Cmd+Opt+arrows` | Focus the split in that direction | key | upstream | `base` | the tool's own help | yes | — |
@@ -705,7 +712,7 @@ choice with a recorded reason, never an omission.
 
 ### Why an action is not on a printable sheet
 
-44 of the 233 registered actions are deliberately kept off every sheet:
+44 of the 234 registered actions are deliberately kept off every sheet:
 
 | Action | Reason |
 |---|---|

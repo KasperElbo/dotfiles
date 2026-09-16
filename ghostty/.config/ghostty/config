@@ -3,6 +3,10 @@
 # Portable terminal settings are also consumed by Noctty on Windows.
 config-file = shared.conf
 
+# Platform settings, present only where that platform stows them.
+# Relative path resolves to ~/.config/ghostty/macos.conf
+config-file = ?macos.conf
+
 # Machine-local theme override.
 # Relative path resolves to ~/.config/dotfiles/ghostty.conf
 config-file = ?../dotfiles/ghostty.conf

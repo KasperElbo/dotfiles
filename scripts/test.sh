@@ -90,6 +90,7 @@ default_tests=(
   tests/test-starship-themes.sh
   tests/test-kde-theme.sh
   tests/test-sway-config.sh
+  tests/test-ghostty-config.sh
   tests/test-cheatsheet-bindings.sh
   tests/test-action-registry.sh
   tests/test-shell-startup.sh
