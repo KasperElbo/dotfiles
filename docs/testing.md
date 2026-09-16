@@ -28,6 +28,13 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 `mktemp`, `sed` and `timeout`, which are assumed already present on any
 supported development machine.
 
+The Neovim spec-resolution suite inside `tests/test-neovim-tool-ownership.sh`
+additionally needs a lazy.nvim checkout, because it resolves this repository's
+plugin fragments through lazy.nvim itself instead of reading them. It uses
+`DOTFILES_LAZY_NVIM` when that names a checkout, and otherwise the one a normal
+install already leaves in `${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/lazy.nvim`.
+A missing checkout fails the suite; it is never skipped.
+
 `scripts/test-installer.sh` is a deprecated compatibility alias that forwards
 to `./scripts/test.sh` unchanged; use `./scripts/test.sh`.
 
@@ -38,7 +45,7 @@ request and on pushes to `main`. It has four independent jobs:
 
 | Job | Runner / image | What it runs |
 | --- | --- | --- |
-| `repository` (Repository validation) | `ubuntu-latest`, inside a pinned `fedora:44` container | `./scripts/lint.sh`, `./scripts/test.sh`, and a whitespace check (`git diff --check`) against the PR's base |
+| `repository` (Repository validation) | `ubuntu-latest`, inside a pinned `fedora:44` container | `./scripts/lint.sh`, then a clone of the lazy.nvim revision `nvim-lazyvim/.config/nvim/lazy-lock.json` pins, `./scripts/test.sh`, and a whitespace check (`git diff --check`) against the PR's base |
 | `cheatsheets` (Printable cheat sheets) | `ubuntu-latest`, inside the same pinned `fedora:44` container, with a LaTeX toolchain installed | `./docs/cheatsheets/verify.sh`, then asserts the compiled PDFs are left untracked |
 | `windows` (Windows PowerShell validation) | `windows-latest` | `tests/test-windows-bootstrap.ps1`, `tests/test-windows-verifier.ps1`, and a `verify.ps1` smoke test against a fixture |
 | `macos` (macOS 26 arm64 validation) | `macos-26` | `tests/integration/macos-dotnet-debug.sh`, `./scripts/lint.sh`, portable-verifier/shell-test/profile-state suites, a `--dry-run` macOS install, `tests/test-macos.sh`/`tests/test-macos-ai.sh`/`tests/test-ocaml-verification.sh`, and a whitespace check |
@@ -235,6 +242,26 @@ pointing at a path that no longer exists, and a licensing page whose stated
 decision disagrees with the tree. The positive cases prove the rules do not
 over-reach — a lockfile beside its own manifest, and a fixture project below
 the root, are both accepted.
+
+### Neovim plugin specs
+
+`scripts/validate-neovim-plugin-specs.py`, which `./scripts/lint.sh` runs,
+parses every plugin fragment under `nvim-lazyvim/` and `platforms/*/stow/nvim-*/`
+and fails when two fragments that are stowed together declare the same key
+lazy.nvim does not merge (`init`, `config`, `build`, `priority`). Only `opts`,
+`dependencies`, `cmd`, `event`, `ft` and `keys` are merged across fragments;
+everything else is overridden by the fragment imported last, silently. Two
+different platforms' overlays are never installed together, so they are not
+treated as contending.
+
+`tests/test-neovim-tool-ownership.sh` proves the same rule behaviourally: it
+stows each platform overlay beside the shared fragments in a scratch config,
+resolves the set through lazy.nvim, and requires that refocusing the window
+reloads the machine-local flavour — the behaviour
+[theming](workflows/theming.md) and [troubleshooting](troubleshooting.md)
+both promise. `tests/fixtures/neovim-contended-init/colorscheme.lua` keeps the
+arrangement that was wrong (issue #248, RA-36): the behavioural test and the
+validator must both reject it, so neither can go green vacuously.
 
 ### Documentation architecture
 

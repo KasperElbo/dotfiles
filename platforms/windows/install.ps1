@@ -272,6 +272,14 @@ function Invoke-ElevatedPhase {
                 break
             }
             catch {
+                # Declining the prompt is a decision, not the quirk above:
+                # ShellExecute reports ERROR_CANCELLED (1223) as a
+                # Win32Exception. Retrying tells the user their own choice
+                # failed, twice, before giving up. Say what happened instead.
+                if ($_.Exception -is [System.ComponentModel.Win32Exception] -and
+                    $_.Exception.NativeErrorCode -eq 1223) {
+                    throw "Administrator approval was declined. $FailureDescription was not started. Re-run this script and approve the prompt, or make the WSL change manually (for example: wsl --install <name>)."
+                }
                 if ($attempt -ge $maxAttempts) {
                     throw
                 }

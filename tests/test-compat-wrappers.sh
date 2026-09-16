@@ -162,6 +162,39 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "no role in"
 printf 'PASS: a shell file no role claims fails, so classifying it is unavoidable\n'
 
+# The `scripts/*.sh` catch-all claims every new helper as a deprecated wrapper.
+# A file it claims must actually be one, or the inventory describes it -- in
+# the authoritative place -- as scheduled for removal.
+rm -f "$tree/unclassified-script.sh"
+"${fixture_git[@]}" git -C "$tree" rm --cached --quiet unclassified-script.sh
+# The name is assembled rather than written out, so repository-hygiene
+# validation does not read this file as naming a script that does not exist.
+helper_name="summarize-${TEST_HELPER_SUFFIX:-profile-state}.sh"
+helper="$tree/scripts/$helper_name"
+cat >"$helper" <<'EOF_HELPER'
+#!/usr/bin/env bash
+set -euo pipefail
+true
+EOF_HELPER
+chmod 755 "$helper"
+"${fixture_git[@]}" git -C "$tree" add "scripts/$helper_name"
+run_capture "${fixture_git[@]}" python3 "$repo_root/scripts/validate-shell-file-roles.py" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" "scripts/$helper_name"
+assert_contains "$TEST_OUTPUT" "never calls deprecated_wrapper"
+printf 'PASS: a new scripts/ helper is not silently classified as a deprecated wrapper\n'
+
+cat >"$helper" <<EOF_HELPER
+#!/usr/bin/env bash
+set -euo pipefail
+deprecated_wrapper "scripts/$helper_name"
+EOF_HELPER
+run_capture "${fixture_git[@]}" python3 "$repo_root/scripts/validate-shell-file-roles.py" --root "$tree"
+assert_success
+printf 'PASS: a real wrapper still passes under the same catch-all\n'
+rm -f "$helper"
+"${fixture_git[@]}" git -C "$tree" rm --cached --quiet "scripts/$helper_name"
+
 # --- Responsibility-revealing names, with no stale references ---------------
 
 # Only the two paths that no longer exist are searched for. The surviving

@@ -167,6 +167,23 @@ check_grid 2 up 8
 check_grid 8 down 2
 check_grid 5 right 6
 
+# The same refusal, in the same words, as sway-workspace-grid: config/actions.tsv
+# describes the two bindings identically, so they must behave identically.
+refusal="$test_root/aerospace.err"
+: >"$command_log"
+status=0
+MOCK_WORKSPACE=10 COMMAND_LOG="$command_log" PATH="$mock_bin:$PATH" \
+  "$grid" right 2>"$refusal" || status=$?
+((status == 1)) || {
+  printf 'aerospace-workspace-grid exited %s outside the grid, expected 1.\n' "$status" >&2
+  exit 1
+}
+grep -Fqx 'Focused workspace is not in the 1-9 grid: 10' "$refusal"
+[[ ! -s "$command_log" ]] || {
+  printf 'aerospace-workspace-grid switched workspace despite refusing.\n' >&2
+  exit 1
+}
+
 # Defaults are inspectable and reversible without changing this Linux runner.
 apply_plan="$("$macos_root"/scripts/apply-defaults.sh --dry-run)"
 restore_plan="$("$macos_root"/scripts/apply-defaults.sh --restore --dry-run)"

@@ -122,6 +122,124 @@ try {
     if (Select-String -LiteralPath $themeHelper -SimpleMatch '+perform-action' -Quiet) {
         throw 'Noctty theme helper must not invoke interactive CLI automation.'
     }
+
+    # Declining the UAC prompt is a decision, not the transient ShellExecute
+    # launch quirk the retry loop exists for. Invoke-ElevatedPhase is lifted
+    # out of install.ps1 by its own parse tree, so these cases exercise the
+    # shipped code without running the installer's main body or elevating
+    # anything.
+    $installerTokens = $null
+    $installerErrors = $null
+    $installerAst = [System.Management.Automation.Language.Parser]::ParseFile(
+        $installer,
+        [ref]$installerTokens,
+        [ref]$installerErrors
+    )
+    $elevatedPhase = $installerAst.Find(
+        {
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq 'Invoke-ElevatedPhase'
+        },
+        $true
+    )
+    if (-not $elevatedPhase) {
+        throw 'install.ps1 no longer defines Invoke-ElevatedPhase.'
+    }
+
+    # Runs the real function with Start-Process, Start-Sleep and Write-Warning
+    # replaced, and reports what it did. $Behaviour receives the attempt number
+    # and either throws or returns a stand-in process.
+    $runElevatedPhase = {
+        param([string]$FunctionText, [scriptblock]$Behaviour)
+
+        $script:elevationAttempts = 0
+        $script:elevationSleeps = 0
+        $script:elevationWarnings = @()
+        $script:elevationBehaviour = $Behaviour
+
+        function Start-Process {
+            param(
+                [string]$FilePath,
+                [string[]]$ArgumentList,
+                [string]$Verb,
+                [switch]$Wait,
+                [switch]$PassThru
+            )
+
+            $script:elevationAttempts++
+            & $script:elevationBehaviour $script:elevationAttempts
+        }
+
+        function Start-Sleep {
+            param([int]$Seconds)
+            $script:elevationSleeps++
+        }
+
+        function Write-Warning {
+            param([string]$Message)
+            $script:elevationWarnings += $Message
+        }
+
+        . ([scriptblock]::Create($FunctionText))
+
+        $failure = $null
+        try {
+            Invoke-ElevatedPhase `
+                -PhaseSwitch '-ElevatedWslUpdateOnly' `
+                -FailureDescription 'The elevated WSL update' | Out-Null
+        }
+        catch {
+            $failure = $_
+        }
+
+        [pscustomobject]@{
+            Failure = $failure
+            Attempts = $script:elevationAttempts
+            Sleeps = $script:elevationSleeps
+            Warnings = $script:elevationWarnings
+        }
+    }
+
+    $declined = & $runElevatedPhase $elevatedPhase.Extent.Text {
+        param($attempt)
+        throw [System.ComponentModel.Win32Exception]::new(1223)
+    }
+
+    if (-not $declined.Failure) {
+        throw 'A declined UAC prompt did not stop the elevated phase.'
+    }
+    Assert-Equal -Actual $declined.Attempts -Expected 1 `
+        -Message 'A declined UAC prompt was prompted for again.'
+    Assert-Equal -Actual $declined.Sleeps -Expected 0 `
+        -Message 'A declined UAC prompt slept before retrying.'
+    Assert-Equal -Actual $declined.Warnings.Count -Expected 0 `
+        -Message 'A declined UAC prompt was reported as a failed attempt.'
+    if ($declined.Failure.Exception.Message -notmatch 'approval was declined') {
+        throw ("A declined UAC prompt must say approval was declined, got: " +
+            $declined.Failure.Exception.Message)
+    }
+
+    # The transient quirk the retry exists for still gets its three attempts.
+    $transient = & $runElevatedPhase $elevatedPhase.Extent.Text {
+        param($attempt)
+        if ($attempt -lt 3) {
+            throw [InvalidOperationException]::new(
+                'the system cannot find all the information required')
+        }
+        [pscustomobject]@{ ExitCode = 0 }
+    }
+
+    if ($transient.Failure) {
+        throw ("A transient launch failure was not retried to success: " +
+            $transient.Failure.Exception.Message)
+    }
+    Assert-Equal -Actual $transient.Attempts -Expected 3 `
+        -Message 'A transient launch failure did not use every attempt.'
+    Assert-Equal -Actual $transient.Sleeps -Expected 2 `
+        -Message 'A transient launch failure did not back off between attempts.'
+    Assert-Equal -Actual $transient.Warnings.Count -Expected 2 `
+        -Message 'A transient launch failure did not warn about each retry.'
 }
 finally {
     $env:LOCALAPPDATA = $originalLocalAppData

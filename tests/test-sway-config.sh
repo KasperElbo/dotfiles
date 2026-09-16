@@ -164,6 +164,37 @@ assert_grid 7 down 1
 assert_grid 5 right 6
 assert_grid 5 up 2
 
+# Outside the 1-9 grid the script refuses instead of teleporting the user in
+# from an invented origin, matching aerospace-workspace-grid word for word
+# (the action registry describes both with the same sentence).
+refusal="$test_root/state/refusal"
+: >"$test_root/state/result"
+status=0
+CURRENT_WORKSPACE=10 \
+  GRID_RESULT="$test_root/state/result" \
+  PATH="$test_root/bin:$PATH" \
+  "$grid" right 2>"$refusal" || status=$?
+((status == 1)) || {
+  printf 'sway-workspace-grid exited %s outside the grid, expected 1.\n' "$status" >&2
+  exit 1
+}
+grep -Fqx 'Focused workspace is not in the 1-9 grid: 10' "$refusal"
+[[ ! -s "$test_root/state/result" ]] || {
+  printf 'sway-workspace-grid switched workspace despite refusing.\n' >&2
+  exit 1
+}
+
+# A leading zero is a decimal workspace number, never octal.
+status=0
+CURRENT_WORKSPACE=08 \
+  GRID_RESULT="$test_root/state/result" \
+  PATH="$test_root/bin:$PATH" \
+  "$grid" right 2>"$refusal" || status=$?
+((status == 1)) || {
+  printf 'sway-workspace-grid accepted the out-of-grid workspace 08.\n' >&2
+  exit 1
+}
+
 for flavour in latte frappe macchiato mocha; do
   wallpaper="$wallpaper_package/catppuccin-$flavour.webp"
   lock_wallpaper="$wallpaper_package/catppuccin-$flavour-lock.webp"
