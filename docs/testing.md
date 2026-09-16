@@ -293,7 +293,12 @@ suite, which is how the follow-up removal gets noticed.
 The mode policy is tested against a throwaway copy of the tree, one defect at a
 time: an executable sourced library fails, a non-executable entry point fails,
 and a shell file no role in `config/shell-file-roles.tsv` claims fails, so
-classifying a new script is unavoidable rather than optional.
+classifying a new script is unavoidable rather than optional. The
+`deprecated-wrapper` catch-all is covered the same way (issue #248, RA-35): a
+new `scripts/` helper the pattern would claim fails until it has its own row,
+while a file that really calls `deprecated_wrapper` still passes under that
+same pattern. The rule itself belongs to
+[repository conventions](architecture/repository-conventions.md#entry-points-and-what-scripts-actually-is).
 
 The renamed theme libraries are checked for stale references across every
 tracked file, and the deprecated shim is sourced to prove it still provides
