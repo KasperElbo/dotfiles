@@ -151,7 +151,11 @@ try {
     # replaced, and reports what it did. $Behaviour receives the attempt number
     # and either throws or returns a stand-in process.
     $runElevatedPhase = {
-        param([string]$FunctionText, [scriptblock]$Behaviour)
+        param(
+            [string]$FunctionText,
+            [scriptblock]$Behaviour,
+            [string]$ManualEquivalent = 'wsl --update --web-download'
+        )
 
         $script:elevationAttempts = 0
         $script:elevationSleeps = 0
@@ -187,7 +191,8 @@ try {
         try {
             Invoke-ElevatedPhase `
                 -PhaseSwitch '-ElevatedWslUpdateOnly' `
-                -FailureDescription 'The elevated WSL update' | Out-Null
+                -FailureDescription 'The elevated WSL update' `
+                -ManualEquivalent $ManualEquivalent | Out-Null
         }
         catch {
             $failure = $_
@@ -236,6 +241,26 @@ try {
             throw ("A declined UAC prompt must say approval was declined, got: " +
                 $declined.Failure.Exception.Message)
         }
+        if (-not $declined.Failure.Exception.Message.Contains('wsl --update --web-download')) {
+            throw ("The declined message must name this phase's own manual command, got: " +
+                $declined.Failure.Exception.Message)
+        }
+    }
+
+    # The other call site has a different manual equivalent, and a hint naming
+    # the wrong one is the defect this covers: installing a distribution is not
+    # a substitute for updating WSL.
+    $declinedInstall = & $runElevatedPhase $elevatedPhase.Extent.Text $declinedShapes[0] `
+        'wsl --install FedoraLinux-42'
+    if (-not $declinedInstall.Failure) {
+        throw 'A declined UAC prompt did not stop the elevated installation phase.'
+    }
+    if (-not $declinedInstall.Failure.Exception.Message.Contains('wsl --install FedoraLinux-42')) {
+        throw ("The declined message must name the installation phase's own command, got: " +
+            $declinedInstall.Failure.Exception.Message)
+    }
+    if ($declinedInstall.Failure.Exception.Message.Contains('wsl --update')) {
+        throw 'The installation phase reported the update phase''s manual command.'
     }
 
     # The transient quirk the retry exists for still gets its three attempts.

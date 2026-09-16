@@ -236,7 +236,14 @@ function Invoke-ElevatedPhase {
         [string[]]$ExtraArguments = @(),
 
         [Parameter(Mandatory = $true)]
-        [string]$FailureDescription
+        [string]$FailureDescription,
+
+        # What this phase's caller would have the user run by hand instead.
+        # Each phase has its own: the update path cannot be replaced by a
+        # distribution install, so the hint has to come from the call site
+        # rather than being guessed here.
+        [Parameter(Mandatory = $true)]
+        [string]$ManualEquivalent
     )
 
     # Start-Process -Verb RunAs launches the elevated phase in its own console
@@ -299,7 +306,7 @@ function Invoke-ElevatedPhase {
                         ([string]$_.Exception.Message).Contains($cancelled)
                 }
                 if ($declined) {
-                    throw "Administrator approval was declined. $FailureDescription was not started. Re-run this script and approve the prompt, or make the WSL change manually (for example: wsl --install <name>)."
+                    throw "Administrator approval was declined. $FailureDescription was not started. Re-run this script and approve the prompt, or make the change manually with: $ManualEquivalent"
                 }
                 if ($attempt -ge $maxAttempts) {
                     throw
@@ -335,7 +342,10 @@ function Invoke-ElevatedWslUpdate {
     }
 
     Write-Step 'The current WSL catalogue does not advertise Fedora; requesting administrator approval to update WSL'
-    Invoke-ElevatedPhase -PhaseSwitch '-ElevatedWslUpdateOnly' -FailureDescription 'The elevated WSL update'
+    Invoke-ElevatedPhase `
+        -PhaseSwitch '-ElevatedWslUpdateOnly' `
+        -FailureDescription 'The elevated WSL update' `
+        -ManualEquivalent 'wsl --update --web-download'
 }
 
 function Get-WslDistributionVersion {
@@ -368,7 +378,8 @@ function Invoke-ElevatedWslInstall {
     Invoke-ElevatedPhase `
         -PhaseSwitch '-ElevatedWslPhase' `
         -ExtraArguments @('-FedoraDistribution', $Distribution) `
-        -FailureDescription 'The elevated WSL installation phase'
+        -FailureDescription 'The elevated WSL installation phase' `
+        -ManualEquivalent "wsl --install $Distribution"
 }
 
 function Install-WslDistribution {

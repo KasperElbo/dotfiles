@@ -167,9 +167,7 @@ printf 'PASS: a shell file no role claims fails, so classifying it is unavoidabl
 # the authoritative place -- as scheduled for removal.
 rm -f "$tree/unclassified-script.sh"
 "${fixture_git[@]}" git -C "$tree" rm --cached --quiet unclassified-script.sh
-# The name is assembled rather than written out, so repository-hygiene
-# validation does not read this file as naming a script that does not exist.
-helper_name="summarize-${TEST_HELPER_SUFFIX:-profile-state}.sh"
+helper_name="summarize-profile-state.sh"
 helper="$tree/scripts/$helper_name"
 cat >"$helper" <<'EOF_HELPER'
 #!/usr/bin/env bash
