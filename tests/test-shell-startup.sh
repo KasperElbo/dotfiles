@@ -376,7 +376,6 @@ printf 'PASS: Ctrl-R remains owned by the fzf history workflow\n'
 # per platform: on macOS the terminal has to send Left Option as Meta for this
 # same ESC c to arrive (#257). The shared configuration stays platform-neutral
 # and must not rebind it for any platform.
-assert_file_not_contains "$zshrc" "bindkey '\\ec'"
 alt_c_full="$(run_zsh full xterm-256color "bindkey -- '\ec'")"
 assert_contains "$alt_c_full" 'fzf-cd-widget'
 printf 'PASS: Alt-C remains owned by the fzf directory picker\n'

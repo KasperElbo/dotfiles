@@ -546,7 +546,7 @@ To remove only the Mac desktop layer while leaving common dotfiles intact:
 ```bash
 pkill AeroSpace || true
 brew uninstall --cask nikitabobko/tap/aerospace ghostty
-stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace zsh-platform nvim-macos
+stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace zsh-platform nvim-macos ghostty-macos
 platforms/macos/scripts/apply-defaults.sh --restore
 ```
 

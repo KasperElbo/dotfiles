@@ -16,16 +16,10 @@ source "$repo_root/tests/lib/test.sh"
 test_install_cleanup_trap
 test_isolate_path git python3 stow
 
-command -v stow >/dev/null 2>&1 || {
-  printf 'GNU Stow is required for the Ghostty configuration tests.\n' >&2
-  exit 1
-}
-
-# resolve <entry-point> [key]: the effective configuration Ghostty would hold
-# after following the entry point's includes, as `key = value` lines sorted by
-# key. With a key, just that key's effective value, empty if it is never set.
+# resolve <entry-point> <key>: the effective value Ghostty would hold for that
+# key after following the entry point's includes, empty if it is never set.
 resolve() {
-  python3 - "$1" "${2-}" <<'PYTHON'
+  python3 - "$1" "$2" <<'PYTHON'
 import pathlib, sys
 
 entry, wanted = pathlib.Path(sys.argv[1]), sys.argv[2]
@@ -61,28 +55,25 @@ def load(path: pathlib.Path, seen: set[pathlib.Path]) -> None:
 
 
 load(entry, set())
-if wanted:
-    print(settings.get(wanted, ""))
-else:
-    for key in sorted(settings):
-        print(f"{key} = {settings[key]}")
+print(settings.get(wanted, ""))
 PYTHON
 }
 
-# stow_home <script> [args...]: a fresh HOME with that entry point's packages
-# really stowed into it. Prints the HOME.
+# stow_home <script>: a fresh HOME with that entry point's packages really
+# stowed into it, left in STOW_HOME. Assigning rather than printing keeps
+# test_new_root's bookkeeping in this shell, so the exit trap still removes the
+# root instead of leaking it from a command substitution's subshell.
+STOW_HOME=""
 stow_home() {
   local script="$1"
-  shift
   test_new_root
-  local home="$TEST_ROOT/home"
-  mkdir -p "$home"
-  HOME="$home" \
-    XDG_CONFIG_HOME="$home/.config" \
-    XDG_DATA_HOME="$home/.local/share" \
+  STOW_HOME="$TEST_ROOT/home"
+  mkdir -p "$STOW_HOME"
+  HOME="$STOW_HOME" \
+    XDG_CONFIG_HOME="$STOW_HOME/.config" \
+    XDG_DATA_HOME="$STOW_HOME/.local/share" \
     DOTFILES_ROOT="$repo_root" \
-    "$script" "$@" >/dev/null
-  printf '%s' "$home"
+    "$script" >/dev/null
 }
 
 # --- macOS resolves Left Option as Alt --------------------------------------
@@ -92,16 +83,15 @@ stow_home() {
 # it as Meta when told to, so without this setting Option+C types a character
 # on a Danish layout instead of reaching the widget.
 
-macos_home="$(stow_home "$repo_root/platforms/macos/scripts/stow.sh")"
+stow_home "$repo_root/platforms/macos/scripts/stow.sh"
+macos_home="$STOW_HOME"
 macos_config="$macos_home/.config/ghostty/config"
 
 assert_path_exists "$macos_config"
-assert_eq left "$(resolve "$macos_config" macos-option-as-alt)" \
-  'macOS Ghostty must send Left Option as Alt'
-
 # Right Option stays a normal macOS modifier: `left`, not `true`, is what
 # keeps Danish symbol entry working on the other key.
-assert_not_contains "$(resolve "$macos_config")" 'macos-option-as-alt = true'
+assert_eq left "$(resolve "$macos_config" macos-option-as-alt)" \
+  'macOS Ghostty must send Left Option as Alt'
 printf 'PASS: macOS Ghostty resolves Left Option as Alt, Right Option untouched\n'
 
 # The setting is owned by the macOS platform layer, not the portable package.
@@ -114,7 +104,8 @@ printf 'PASS: the macOS Ghostty include is owned by the macOS Stow package\n'
 
 # --- The setting does not leak to any other platform ------------------------
 
-fedora_home="$(stow_home "$repo_root/platforms/fedora/scripts/stow.sh")"
+stow_home "$repo_root/platforms/fedora/scripts/stow.sh"
+fedora_home="$STOW_HOME"
 fedora_config="$fedora_home/.config/ghostty/config"
 
 assert_path_exists "$fedora_config"
