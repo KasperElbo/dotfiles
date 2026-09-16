@@ -1,3 +1,14 @@
+-- The arrangement issue #248 (RA-36) removed, kept as a fixture: the
+-- `FocusGained` reload registered from the `"LazyVim/LazyVim"` fragment, the
+-- one spec both platform overlays also declare `init` on.
+--
+-- Two negative controls use it. The behavioural test must fail when the
+-- reload is registered here, because the macOS and Fedora WSL overlays
+-- override this `init` outright; and
+-- `scripts/validate-neovim-plugin-specs.py` must reject the file pair. If
+-- either control goes green against this fixture, the guard it protects has
+-- stopped working -- not the fixture.
+
 local function catppuccin_flavour()
   local config_home = vim.env.XDG_CONFIG_HOME or (vim.env.HOME .. "/.config")
 
@@ -30,19 +41,16 @@ return {
     "catppuccin/nvim",
     name = "catppuccin",
     priority = 1000,
+  },
 
-    -- The `theme` command writes the machine-local flavour while Neovim is
-    -- already running, so open windows pick it up on the next focus.
-    --
-    -- This belongs here rather than on the "LazyVim/LazyVim" spec below,
-    -- where it used to live: both platform overlays
-    -- (platforms/macos/.../plugins/macos.lua and
-    -- platforms/fedora-wsl/.../plugins/wsl.lua) declare `init` on that spec
-    -- for their launch settings, and lazy.nvim merges only `opts`,
-    -- `dependencies`, `cmd`, `event`, `ft` and `keys` -- every other key,
-    -- `init` among them, is overridden by the last fragment imported. No
-    -- fragment competes for this spec's `init`, and
-    -- scripts/validate-neovim-plugin-specs.py fails the lint if one ever does.
+  {
+    "LazyVim/LazyVim",
+    opts = {
+      colorscheme = function()
+        vim.cmd.colorscheme(colorscheme())
+      end,
+    },
+
     init = function()
       vim.api.nvim_create_autocmd("FocusGained", {
         callback = function()
@@ -54,14 +62,5 @@ return {
         end,
       })
     end,
-  },
-
-  {
-    "LazyVim/LazyVim",
-    opts = {
-      colorscheme = function()
-        vim.cmd.colorscheme(colorscheme())
-      end,
-    },
   },
 }

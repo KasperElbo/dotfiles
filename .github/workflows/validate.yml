@@ -47,6 +47,20 @@ jobs:
       - name: Validate shell scripts
         run: ./scripts/lint.sh
 
+      - name: Fetch the lazy.nvim revision the lock file pins
+        env:
+          LAZY_NVIM_DIR: ${{ runner.temp }}/lazy.nvim
+        run: |
+          commit="$(jq -r '."lazy.nvim".commit' \
+            nvim-lazyvim/.config/nvim/lazy-lock.json)"
+          # The Neovim spec-resolution suite resolves the real fragment set
+          # through lazy.nvim itself, at the revision this repository pins.
+          # network-source: lazy-nvim
+          git clone --quiet --filter=blob:none \
+            https://github.com/folke/lazy.nvim.git "$LAZY_NVIM_DIR"
+          git -C "$LAZY_NVIM_DIR" checkout --quiet "$commit"
+          printf 'DOTFILES_LAZY_NVIM=%s\n' "$LAZY_NVIM_DIR" >>"$GITHUB_ENV"
+
       - name: Test bootstrap and installer behavior
         run: ./scripts/test.sh
 

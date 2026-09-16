@@ -236,7 +236,14 @@ function Invoke-ElevatedPhase {
         [string[]]$ExtraArguments = @(),
 
         [Parameter(Mandatory = $true)]
-        [string]$FailureDescription
+        [string]$FailureDescription,
+
+        # What this phase's caller would have the user run by hand instead.
+        # Each phase has its own: the update path cannot be replaced by a
+        # distribution install, so the hint has to come from the call site
+        # rather than being guessed here.
+        [Parameter(Mandatory = $true)]
+        [string]$ManualEquivalent
     )
 
     # Start-Process -Verb RunAs launches the elevated phase in its own console
@@ -272,6 +279,35 @@ function Invoke-ElevatedPhase {
                 break
             }
             catch {
+                # Declining the prompt is a decision, not the quirk above:
+                # ShellExecute reports ERROR_CANCELLED (1223) as a
+                # Win32Exception. Retrying tells the user their own choice
+                # failed, twice, before giving up. Say what happened instead.
+                #
+                # Start-Process does not hand that Win32Exception back: it
+                # re-throws an InvalidOperationException that only quotes the
+                # original message. Look for the error code anywhere in the
+                # exception chain first, since that is exact wherever it
+                # survives, and fall back to the message only when it does not.
+                $declined = $false
+                for ($inner = $_.Exception; $inner; $inner = $inner.InnerException) {
+                    if ($inner -is [System.ComponentModel.Win32Exception] -and
+                        $inner.NativeErrorCode -eq 1223) {
+                        $declined = $true
+                        break
+                    }
+                }
+                if (-not $declined) {
+                    # Message matching is locale-sensitive, so ask Windows for
+                    # its own text for 1223 rather than hard-coding the English
+                    # one: the quoted message came from the same source.
+                    $cancelled = [System.ComponentModel.Win32Exception]::new(1223).Message
+                    $declined = -not [string]::IsNullOrWhiteSpace($cancelled) -and
+                        ([string]$_.Exception.Message).Contains($cancelled)
+                }
+                if ($declined) {
+                    throw "Administrator approval was declined. $FailureDescription was not started. Re-run this script and approve the prompt, or make the change manually with: $ManualEquivalent"
+                }
                 if ($attempt -ge $maxAttempts) {
                     throw
                 }
@@ -306,7 +342,10 @@ function Invoke-ElevatedWslUpdate {
     }
 
     Write-Step 'The current WSL catalogue does not advertise Fedora; requesting administrator approval to update WSL'
-    Invoke-ElevatedPhase -PhaseSwitch '-ElevatedWslUpdateOnly' -FailureDescription 'The elevated WSL update'
+    Invoke-ElevatedPhase `
+        -PhaseSwitch '-ElevatedWslUpdateOnly' `
+        -FailureDescription 'The elevated WSL update' `
+        -ManualEquivalent 'wsl --update --web-download'
 }
 
 function Get-WslDistributionVersion {
@@ -339,7 +378,8 @@ function Invoke-ElevatedWslInstall {
     Invoke-ElevatedPhase `
         -PhaseSwitch '-ElevatedWslPhase' `
         -ExtraArguments @('-FedoraDistribution', $Distribution) `
-        -FailureDescription 'The elevated WSL installation phase'
+        -FailureDescription 'The elevated WSL installation phase' `
+        -ManualEquivalent "wsl --install $Distribution"
 }
 
 function Install-WslDistribution {

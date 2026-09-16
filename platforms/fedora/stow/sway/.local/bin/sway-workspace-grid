@@ -14,11 +14,19 @@ esac
 
 current="$(swaymsg -t get_workspaces -r | jq -r '.[] | select(.focused).num')"
 
-if [[ ! "$current" =~ ^[1-9]$ ]]; then
-  current=1
-fi
+# Refusing matches aerospace-workspace-grid, which config/actions.tsv describes
+# with the same sentence: a workspace outside the grid has no place in it, and
+# silently landing the user somewhere they did not ask for is worse than saying
+# so. The arithmetic below then forces base 10, as aerospace does, so the two
+# scripts stay identical rather than relying on the pattern above to be the
+# only thing standing between a leading zero and an octal read.
+[[ "$current" =~ ^[1-9]$ ]] || {
+  printf 'Focused workspace is not in the 1-9 grid: %s\n' "$current" >&2
+  exit 1
+}
 
-index=$((current - 1))
+workspace=$((10#$current))
+index=$((workspace - 1))
 row=$((index / 3))
 column=$((index % 3))
 

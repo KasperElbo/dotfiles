@@ -60,6 +60,15 @@ def governed(name: str) -> bool:
     return name in {"doctor", "zsh/.zshenv"} or name.startswith("zsh/.config/zsh/")
 
 
+def is_deprecated_wrapper(path: pathlib.Path) -> bool:
+    """A deprecated wrapper is a file that announces itself as one."""
+    try:
+        body = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return 'deprecated_wrapper "' in body
+
+
 def is_exact(pattern: str) -> bool:
     return not any(character in pattern for character in "*?[")
 
@@ -108,6 +117,19 @@ def main() -> int:
             continue
         for item in applicable:
             used.add(item["pattern"])
+        # The `scripts/*.sh` catch-all would otherwise classify any new helper
+        # as a deprecated wrapper -- a false claim, in the authoritative
+        # inventory, that marks the file for deletion. A role that describes
+        # what a file *does* has to be checked against what it does.
+        if rule["role"] == "deprecated-wrapper" and not is_deprecated_wrapper(root / name):
+            roles = ", ".join(sorted({item["role"] for item in rules}))
+            problems.append(
+                f"{name}: matched the {rule['pattern']!r} catch-all and is therefore "
+                f"classified {rule['role']!r}, but it never calls deprecated_wrapper. "
+                f"Give it its own exact row in {MANIFEST} with the role it really has "
+                f"(available roles: {roles})"
+            )
+            continue
         actual = oct((root / name).stat().st_mode & 0o777)[2:]
         if actual != rule["mode"]:
             problems.append(
