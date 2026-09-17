@@ -339,14 +339,17 @@ stub_roomy_df
 printf 'Disk-space and reachability preflight passed.\n'
 
 # The system floor is measured where the package-manager transaction and its
-# download cache land, not on /. A supported split-/var layout with a roomy /
-# and a full /var must still be refused before the first mutating step.
-cat >"$mock_bin/df" <<'EOF'
+# download cache land, not on the filesystem carrying the user's data. A
+# supported split-/var layout, roomy where this run's HOME lives and full where
+# DNF caches, must still be refused before the first mutating step. The answer
+# is chosen by this run's own root rather than by a /var prefix, because
+# TMPDIR itself is under /var on macOS and on any host that sets /var/tmp.
+cat >"$mock_bin/df" <<EOF
 #!/usr/bin/env bash
 printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
-case "${!#}" in
-/var*) printf '/dev/var-volume 102400000 102398976 1024 100%% /var\n' ;;
-*) printf '/dev/root-volume 102400000 20480000 81920000 20%% /\n' ;;
+case "\${!#}" in
+"$test_root"/*) printf '/dev/home-volume 102400000 20480000 81920000 20%% /home\n' ;;
+*) printf '/dev/var-volume 102400000 102398976 1024 100%% /var\n' ;;
 esac
 EOF
 chmod +x "$mock_bin/df"
@@ -355,7 +358,7 @@ if HOME="$integration_home" XDG_CONFIG_HOME="$integration_config" \
   OS_RELEASE_FILE="$test_root/os-release" \
   "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
   >"$test_root/var-disk" 2>&1; then
-  printf 'A full /var unexpectedly passed preflight on a roomy /.\n' >&2; exit 1
+  printf 'A full /var unexpectedly passed preflight on a roomy home.\n' >&2; exit 1
 fi
 grep -Fq 'Not enough free disk space for /var/cache/dnf: 1 MiB available' "$test_root/var-disk"
 assert_file_empty "$test_root/logs/dnf.log"
