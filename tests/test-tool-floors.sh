@@ -92,6 +92,24 @@ assert_contains "$TEST_OUTPUT" \
 assert_not_contains "$TEST_OUTPUT" 'docs/platforms/parrot-ctf.md'
 assert_not_contains "$TEST_OUTPUT" 'docs/architecture/package-ownership.md'
 
+# The pin itself is held to the raised floor, so the Parrot guest cannot keep
+# provisioning a Neovim the registry no longer accepts.
+assert_contains "$TEST_OUTPUT" \
+  'platforms/parrot-ctf/stow/mise-ctf/.config/mise/config.toml pins nvim'
+
+# The same holds for the pin whose mise key is not the registry's tool name:
+# the workstation mise configuration pins `python`, the registry row is
+# `python3`, and raising that floor must name the pin rather than pass.
+raised_python="$root/raised-python-floors.tsv"
+sed 's/^python3\t3.11\t/python3\t3.99\t/' "$repo_root/config/tool-floors.tsv" \
+  >"$raised_python"
+run_capture env TOOL_FLOOR_MANIFEST="$raised_python" \
+  python3 "$repo_root/scripts/validate-tool-floors.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'mise/.config/mise/config.toml pins python '
+assert_contains "$TEST_OUTPUT" 'requires python3 3.99 or newer'
+
 # One line may state a floor for several tools, and each number belongs to the
 # tool it is written after: comparing every tool named on a line against every
 # version on it would refuse correct prose.
@@ -190,10 +208,38 @@ pin_nvim '"0.11.9"'
 run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
 assert_failure
 assert_contains "$TEST_OUTPUT" \
-  'mise/.config/mise/config.toml pins nvim 0.11.9, below the 0.12 floor'
+  'mise/.config/mise/config.toml pins nvim 0.11.9; tool-floors.tsv requires nvim 0.12 or newer'
 
 # A pin that names no version cannot drift below a floor and is not an error.
 pin_nvim '"latest"'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_success
+
+# mise names a tool the way the toolchain table labels it, which is not always
+# the command name the registry keys on: `Python 3` is pinned as `python`.
+pin_python() {
+  mkdir -p "$fixture/mise/.config/mise"
+  printf '[tools]\npython = "%s"\nuv = "latest"\n' "$1" \
+    >"$fixture/mise/.config/mise/config.toml"
+  git -C "$fixture" add -A
+}
+pin_python '3.14'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_success
+
+pin_python '3.10'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'mise/.config/mise/config.toml pins python 3.10; tool-floors.tsv requires python3 3.11 or newer'
+
+# The fixture mise configuration a caller's unrelated project would carry is
+# not one this repository provisions, so its pins are none of the validator's
+# business even when they name a registry tool.
+mkdir -p "$fixture/tests/fixtures/unrelated-project"
+printf '[tools]\nnvim = "0.9.0"\n' \
+  >"$fixture/tests/fixtures/unrelated-project/.mise.toml"
+pin_python '3.14'
 run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
 assert_success
 

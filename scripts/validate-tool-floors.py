@@ -60,7 +60,11 @@ DOC_FLOOR = re.compile(
 # `nvim-treesitter` is a plugin, not this registry's Neovim.
 MENTION = r"(?<![\w.-])%s(?![\w-])"
 TOOLCHAIN_DOC = pathlib.Path("docs") / "testing.md"
-MISE_CONFIGS = ("*mise/config.toml", "*.mise.toml", "mise.toml")
+MISE_CONFIG = "*mise/config.toml"
+# A mise key carries neither the spacing nor the major-version word a label
+# does, so the tool this registry calls `python3` and labels `Python 3` is
+# pinned as `python`.
+LABEL_VERSION = re.compile(r"\s+[0-9]+(?:\.[0-9]+)*$")
 # What starts a statement of its own: a list item, a table row, a heading. A
 # blank line ends one. Everything else continues the statement above it, which
 # is how a hard-wrapped sentence keeps the tool it named.
@@ -84,6 +88,11 @@ def satisfies(version: str, minimum: str) -> bool:
     found += [0] * (width - len(found))
     floor += [0] * (width - len(floor))
     return found >= floor
+
+
+def pin_keys(tool: str, label: str) -> set[str]:
+    """The keys a mise configuration may pin this registry tool under."""
+    return {tool.lower(), LABEL_VERSION.sub("", label).replace(" ", "").lower()}
 
 
 def stated_floors(line: str) -> list[tuple[int, str]]:
@@ -272,23 +281,26 @@ def main() -> int:
             )
             errors += 1
 
-    for path in tracked(root, *MISE_CONFIGS):
+    for path in tracked(root, MISE_CONFIG):
         config = path.relative_to(root).as_posix()
         with path.open("rb") as stream:
             pins = tomllib.load(stream).get("tools", {})
         for tool, minimum in floors.items():
-            requested = pins.get(tool)
-            for entry in requested if isinstance(requested, list) else [requested]:
-                pinned = entry.get("version") if isinstance(entry, dict) else entry
-                if not isinstance(pinned, str) or not VERSION.match(pinned):
+            keys = pin_keys(tool, names[tool])
+            for key, requested in pins.items():
+                if key.lower() not in keys:
                     continue
-                if satisfies(pinned, minimum):
-                    continue
-                fail(
-                    f"{config} pins {tool} {pinned}, below the {minimum} floor "
-                    f"{manifest.name} declares"
-                )
-                errors += 1
+                for entry in requested if isinstance(requested, list) else [requested]:
+                    pinned = entry.get("version") if isinstance(entry, dict) else entry
+                    if not isinstance(pinned, str) or not VERSION.match(pinned):
+                        continue
+                    if satisfies(pinned, minimum):
+                        continue
+                    fail(
+                        f"{config} pins {key} {pinned}; {manifest.name} requires "
+                        f"{tool} {minimum} or newer"
+                    )
+                    errors += 1
 
     return 1 if errors else 0
 
