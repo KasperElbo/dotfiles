@@ -1,5 +1,21 @@
 #!/usr/bin/env bash
 
+# Pre-mutation checks shared by the platform installers and the Stow scripts.
+#
+# Each check prints a specific message to stderr and returns 1, so a preflight
+# function under errexit refuses at the first failure, before anything changes.
+# This library deliberately does not select shell options. It needs
+# DOTFILES_ROOT and command_exists from lib/common.sh and the command-provider
+# reader from lib/capabilities.sh, and sources both itself, so it is correct
+# however the caller was set up.
+
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
+# shellcheck source=capabilities.sh
+source "$(dirname "${BASH_SOURCE[0]}")/capabilities.sh"
+
 preflight_writable_path() {
   local path="$1"
   local probe="$path"
@@ -32,12 +48,12 @@ preflight_platform_command_providers() {
 
 preflight_stow_packages() {
   local spec package_root package source relative target resolved parent conflict_type
-  local conflicts=0
+  local conflict_count=0
   for spec in "$@"; do
     package_root="${spec%%::*}"; package="${spec#*::}"
     [[ -d "$package_root/$package" ]] || {
       printf 'Stow package is missing: %s (%s)\n' "$package" "$package_root" >&2
-      conflicts=$((conflicts + 1)); continue
+      conflict_count=$((conflict_count + 1)); continue
     }
     while IFS= read -r -d '' source; do
       relative="${source#"$package_root/$package/"}"
@@ -46,7 +62,7 @@ preflight_stow_packages() {
       while [[ "$parent" != "$HOME" && "$parent" == "$HOME/"* ]]; do
         if [[ -e "$parent" && ! -d "$parent" ]] || [[ -L "$parent" ]]; then
           printf 'Stow conflict [%s]: parent path is not a real directory: %s\n' "$package" "$parent" >&2
-          conflicts=$((conflicts + 1)); break
+          conflict_count=$((conflict_count + 1)); break
         fi
         parent="$(dirname "$parent")"
       done
@@ -58,15 +74,15 @@ preflight_stow_packages() {
         else conflict_type='link owned by another checkout or source'
         fi
         printf 'Stow conflict [%s]: %s: %s\n' "$package" "$conflict_type" "$target" >&2
-        conflicts=$((conflicts + 1))
+        conflict_count=$((conflict_count + 1))
       elif [[ -e "$target" ]]; then
         printf 'Stow conflict [%s]: existing file or directory: %s\n' "$package" "$target" >&2
-        conflicts=$((conflicts + 1))
+        conflict_count=$((conflict_count + 1))
       fi
     done < <(find "$package_root/$package" \( -type f -o -type l \) -print0)
   done
-  if ((conflicts > 0)); then
-    printf '%d Stow conflict(s) found. Move or back up these paths; --adopt is never automatic.\n' "$conflicts" >&2
+  if ((conflict_count > 0)); then
+    printf '%d Stow conflict(s) found. Move or back up these paths; --adopt is never automatic.\n' "$conflict_count" >&2
     return 1
   fi
 }

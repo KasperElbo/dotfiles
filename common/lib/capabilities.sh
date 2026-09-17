@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 
+# Reads of config/capabilities.tsv and config/command-providers.tsv.
+#
+# This library deliberately does not select shell options. It resolves the
+# manifests from DOTFILES_ROOT and reports through die, both from lib/common.sh,
+# and sources that itself when the caller has not.
+
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
 # shellcheck source=manifest.sh
 source "$(dirname "${BASH_SOURCE[0]}")/manifest.sh"
 
