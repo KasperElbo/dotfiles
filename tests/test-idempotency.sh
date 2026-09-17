@@ -77,6 +77,46 @@ run_stow "$conflict_home"
 [[ -L "$conflict_home/.tmux.conf" ]]
 printf 'PASS: Stow conflicts are non-destructive and safely retryable\n'
 
+# The scripts that own the mutation refuse on their own. Stow aborts on the
+# first conflicting package, but only after the packages before it are linked,
+# so a script run directly -- as the tests and the documented entry points do
+# -- would otherwise leave a partly stowed HOME.
+direct_home="$test_root/direct-home"
+mkdir -p "$direct_home"
+printf 'user-owned zshenv\n' >"$direct_home/.zshenv"
+if HOME="$direct_home" \
+  XDG_CONFIG_HOME="$direct_home/.config" \
+  XDG_DATA_HOME="$direct_home/.local/share" \
+  "$repo_root/common/stow.sh" >"$test_root/direct-stow.log" 2>&1; then
+  printf 'A conflicting HOME unexpectedly passed common/stow.sh.\n' >&2; exit 1
+fi
+grep -Fq 'Stow conflict [zsh]: existing file or directory' "$test_root/direct-stow.log"
+grep -Fqx 'user-owned zshenv' "$direct_home/.zshenv"
+deployed="$(find "$direct_home" -mindepth 1 ! -path "$direct_home/.zshenv" -print)"
+[[ -z "$deployed" ]] || {
+  printf 'A refused stow created entries in HOME: %s\n' "$deployed" >&2; exit 1
+}
+
+# A platform script checks its own packages before the portable ones are
+# deployed, so a conflict in a platform package leaves nothing behind either.
+platform_home="$test_root/platform-home"
+theme_asset="$(find "$repo_root/platforms/fedora/stow/theme-assets" -type f | head -n 1)"
+theme_relative="${theme_asset#"$repo_root/platforms/fedora/stow/theme-assets/"}"
+mkdir -p "$platform_home/$(dirname "$theme_relative")"
+printf 'user-owned asset\n' >"$platform_home/$theme_relative"
+if HOME="$platform_home" \
+  XDG_CONFIG_HOME="$platform_home/.config" \
+  XDG_DATA_HOME="$platform_home/.local/share" \
+  "$repo_root/platforms/fedora/scripts/stow.sh" >"$test_root/platform-stow.log" 2>&1; then
+  printf 'A conflicting HOME unexpectedly passed the Fedora Stow script.\n' >&2; exit 1
+fi
+grep -Fq 'Stow conflict [theme-assets]' "$test_root/platform-stow.log"
+grep -Fqx 'user-owned asset' "$platform_home/$theme_relative"
+[[ ! -e "$platform_home/.zshenv" ]] || {
+  printf 'A refused platform stow deployed the portable packages.\n' >&2; exit 1
+}
+printf 'PASS: the Stow scripts refuse before they change HOME\n'
+
 tracked_config="$repo_root/ghostty/.config/ghostty/config"
 tracked_hash="$(sha256sum "$tracked_config")"
 unlink "$home/.config/dotfiles/ghostty.conf"
@@ -255,6 +295,15 @@ fi
 exit 0
 EOF
 
+# The disk preflight must decide on a known figure, never on the free space of
+# the machine running the tests.
+cat >"$mock_bin/df" <<'EOF_DF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
+EOF_DF
+chmod +x "$mock_bin/df"
+
 chmod +x \
   "$mock_bin/mock-command" \
   "$mock_bin/terra-dnf" \
@@ -344,6 +393,13 @@ chmod +x "$mock_bin/mise"
 
 cat >"$mock_bin/nvim" <<'EOF'
 #!/usr/bin/env bash
+# The installer checks the Neovim floor before any bootstrap phase. Answer it
+# here, at the floor config/tool-floors.tsv declares, and do not let the probe
+# count as a bootstrap invocation.
+if [[ "${1:-}" == --version ]]; then
+  printf 'NVIM v0.12.5\n'
+  exit 0
+fi
 for argument in "$@"; do
   if [[ "$argument" == '+Lazy! restore mason.nvim' ]]; then
     mkdir -p "$XDG_DATA_HOME/nvim/lazy/mason.nvim"
