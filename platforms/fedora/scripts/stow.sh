@@ -3,6 +3,10 @@ set -euo pipefail
 
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
+# shellcheck source=../../../common/lib/preflight.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/preflight.sh"
+# shellcheck source=../lib/fedora.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 
 require_command stow
 
@@ -20,74 +24,44 @@ while (($#)); do
   shift
 done
 
-"$DOTFILES_ROOT/common/stow.sh"
-
-platform_stow_dir="$DOTFILES_ROOT/platforms/fedora/stow"
 packages=(zsh-platform theme-hooks theme-assets)
 
 if [[ "$install_sway" == "true" ]]; then
   packages+=(sway waybar)
 fi
 
-migrate_moved_package_links() {
-  local package="$1"
-  local source_path
-  local relative_path
-  local target_path
-  local resolved_target
+# Checked before common/stow.sh links anything, which checks its own packages
+# the same way, so no conflict is found after part of HOME is already stowed.
+# The retired links the apply loop removes below are exempted here, from the
+# same list the installer's own preflight reads, so both agree.
+specs=()
+replaced=()
+for package in "${packages[@]}"; do
+  specs+=("$FEDORA_STOW_DIR::$package")
+done
+while IFS= read -r exemption; do
+  replaced+=("$exemption")
+done < <(fedora_retired_link_exemptions "${packages[@]}")
+preflight_stow_packages ${replaced[@]+"${replaced[@]}"} "${specs[@]}" ||
+  die "Refusing to stow; nothing in $HOME was changed."
 
-  while IFS= read -r -d '' source_path; do
-    relative_path="${source_path#"$platform_stow_dir/$package/"}"
-    target_path="$HOME/$relative_path"
-
-    [[ -L "$target_path" ]] || continue
-    resolved_target="$(realpath -m "$target_path")"
-
-    if [[ "$resolved_target" == "$DOTFILES_ROOT/$package/"* ]]; then
-      info "Removing moved $package link: $target_path"
-      rm -- "$target_path"
-    fi
-  done < <(find "$platform_stow_dir/$package" -type f -print0)
-}
-
-migrate_sway_owned_wallpaper_links() {
-  local source_path
-  local relative_path
-  local target_path
-  local resolved_target
-
-  while IFS= read -r -d '' source_path; do
-    relative_path="${source_path#"$platform_stow_dir/theme-assets/"}"
-    target_path="$HOME/$relative_path"
-
-    [[ -L "$target_path" ]] || continue
-    resolved_target="$(realpath -m "$target_path")"
-
-    if [[ "$resolved_target" == "$platform_stow_dir/sway/.local/share/wallpapers/"* ]]; then
-      info "Removing Sway-owned wallpaper link: $target_path"
-      rm -- "$target_path"
-    fi
-  done < <(find "$platform_stow_dir/theme-assets" -type f -print0)
-}
+"$DOTFILES_ROOT/common/stow.sh"
 
 info "Stowing Fedora user integration into $HOME"
 
 for package in "${packages[@]}"; do
-  package_dir="$platform_stow_dir/$package"
+  package_dir="$FEDORA_STOW_DIR/$package"
 
   [[ -d "$package_dir" ]] || die "Missing Fedora Stow package: $package"
 
-  if [[ "$package" == sway || "$package" == waybar ]]; then
-    migrate_moved_package_links "$package"
-  fi
-
-  if [[ "$package" == theme-assets ]]; then
-    migrate_sway_owned_wallpaper_links
-  fi
+  while IFS= read -r retired_link; do
+    info "Removing retired $package link: $retired_link"
+    rm -- "$retired_link"
+  done < <(fedora_retired_stow_links "$package")
 
   info "Stowing Fedora package $package"
   stow \
-    --dir="$platform_stow_dir" \
+    --dir="$FEDORA_STOW_DIR" \
     --target="$HOME" \
     --restow \
     --no-folding \

@@ -52,6 +52,13 @@ variants name the cause: an existing real file or directory, a `dangling
 link`, a `link to another package in this checkout`, a `link owned by another
 checkout or source`, or a parent path that `is not a real directory`.
 
+The check runs whichever entry point you used. A platform installer preflights
+every package it plans to deploy, and `common/stow.sh` and each
+`platforms/<platform>/scripts/stow.sh` check their own packages before linking
+anything, adding `Refusing to stow; nothing in $HOME was changed.` A conflict
+therefore never leaves a partly linked `$HOME` behind, whether you ran the
+installer or a Stow script directly.
+
 The remedy is always the same — move the named path aside (or delete it if you
 are sure), then rerun:
 

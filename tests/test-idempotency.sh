@@ -77,6 +77,87 @@ run_stow "$conflict_home"
 [[ -L "$conflict_home/.tmux.conf" ]]
 printf 'PASS: Stow conflicts are non-destructive and safely retryable\n'
 
+# The scripts that own the mutation refuse on their own. Stow aborts on the
+# first conflicting package, but only after the packages before it are linked,
+# so a script run directly -- as the tests and the documented entry points do
+# -- would otherwise leave a partly stowed HOME.
+direct_home="$test_root/direct-home"
+mkdir -p "$direct_home"
+printf 'user-owned zshenv\n' >"$direct_home/.zshenv"
+if HOME="$direct_home" \
+  XDG_CONFIG_HOME="$direct_home/.config" \
+  XDG_DATA_HOME="$direct_home/.local/share" \
+  "$repo_root/common/stow.sh" >"$test_root/direct-stow.log" 2>&1; then
+  printf 'A conflicting HOME unexpectedly passed common/stow.sh.\n' >&2; exit 1
+fi
+grep -Fq 'Stow conflict [zsh]: existing file or directory' "$test_root/direct-stow.log"
+grep -Fqx 'user-owned zshenv' "$direct_home/.zshenv"
+deployed="$(find "$direct_home" -mindepth 1 ! -path "$direct_home/.zshenv" -print)"
+[[ -z "$deployed" ]] || {
+  printf 'A refused stow created entries in HOME: %s\n' "$deployed" >&2; exit 1
+}
+
+# A platform script checks its own packages before the portable ones are
+# deployed, so a conflict in a platform package leaves nothing behind either.
+platform_home="$test_root/platform-home"
+theme_asset="$(find "$repo_root/platforms/fedora/stow/theme-assets" -type f | head -n 1)"
+theme_relative="${theme_asset#"$repo_root/platforms/fedora/stow/theme-assets/"}"
+mkdir -p "$platform_home/$(dirname "$theme_relative")"
+printf 'user-owned asset\n' >"$platform_home/$theme_relative"
+if HOME="$platform_home" \
+  XDG_CONFIG_HOME="$platform_home/.config" \
+  XDG_DATA_HOME="$platform_home/.local/share" \
+  "$repo_root/platforms/fedora/scripts/stow.sh" >"$test_root/platform-stow.log" 2>&1; then
+  printf 'A conflicting HOME unexpectedly passed the Fedora Stow script.\n' >&2; exit 1
+fi
+grep -Fq 'Stow conflict [theme-assets]' "$test_root/platform-stow.log"
+grep -Fqx 'user-owned asset' "$platform_home/$theme_relative"
+[[ ! -e "$platform_home/.zshenv" ]] || {
+  printf 'A refused platform stow deployed the portable packages.\n' >&2; exit 1
+}
+printf 'PASS: the Stow scripts refuse before they change HOME\n'
+
+# The migration this script carries exists for machines still holding the
+# retired layout: top-level sway and waybar links, and wallpaper links the Sway
+# package owned before theme-assets did. Every one of those either dangles or
+# points into this checkout, so the preflight has to exempt the links the apply
+# loop removes, or it refuses exactly the machines the migration repairs.
+migration_home="$test_root/migration-home"
+retired_sway="$migration_home/.config/sway/config"
+retired_waybar="$migration_home/.config/waybar/style.css"
+retired_wallpaper="$migration_home/.local/share/wallpapers/catppuccin-macchiato.webp"
+fedora_stow_dir="$repo_root/platforms/fedora/stow"
+mkdir -p "$(dirname "$retired_sway")" "$(dirname "$retired_waybar")" \
+  "$(dirname "$retired_wallpaper")"
+ln -s "$repo_root/sway/.config/sway/config" "$retired_sway"
+ln -s "$repo_root/waybar/.config/waybar/style.css" "$retired_waybar"
+ln -s "$fedora_stow_dir/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
+  "$retired_wallpaper"
+
+if ! HOME="$migration_home" \
+  XDG_CONFIG_HOME="$migration_home/.config" \
+  XDG_DATA_HOME="$migration_home/.local/share" \
+  "$repo_root/platforms/fedora/scripts/stow.sh" --sway \
+  >"$test_root/migration-stow.log" 2>&1; then
+  printf 'The Fedora Stow script refused a HOME carrying the retired links:\n' >&2
+  cat "$test_root/migration-stow.log" >&2
+  exit 1
+fi
+
+assert_relinked() {
+  local target="$1" source="$2"
+  [[ "$(realpath "$target")" == "$(realpath "$source")" ]] || {
+    printf 'Retired link was not rewritten: %s -> %s\n' \
+      "$target" "$(readlink "$target")" >&2
+    exit 1
+  }
+}
+assert_relinked "$retired_sway" "$fedora_stow_dir/sway/.config/sway/config"
+assert_relinked "$retired_waybar" "$fedora_stow_dir/waybar/.config/waybar/style.css"
+assert_relinked "$retired_wallpaper" \
+  "$fedora_stow_dir/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp"
+printf 'PASS: the Fedora preflight exempts the retired links its migration removes\n'
+
 tracked_config="$repo_root/ghostty/.config/ghostty/config"
 tracked_hash="$(sha256sum "$tracked_config")"
 unlink "$home/.config/dotfiles/ghostty.conf"

@@ -6,6 +6,50 @@
 # shellcheck source=../../../common/lib/fetch.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/fetch.sh"
 
+FEDORA_STOW_DIR="$DOTFILES_ROOT/platforms/fedora/stow"
+
+# fedora_retired_stow_links <package>: links in HOME an earlier layout of this
+# checkout left where <package> now links, one per line. Sway and Waybar were
+# top-level packages before they moved under platforms/fedora/stow, and the
+# wallpapers theme-assets owns used to belong to the Sway package. This is the
+# one place they are named: the Stow script removes them before stowing the
+# package, and both its preflight and the installer's pass them as --replaces
+# exemptions, so neither refuses the machines the migration exists for.
+fedora_retired_stow_links() {
+  local package="$1"
+  local retired_prefix
+  local source_path
+  local relative_path
+  local target_path
+
+  case "$package" in
+  sway | waybar) retired_prefix="$DOTFILES_ROOT/$package/" ;;
+  theme-assets) retired_prefix="$FEDORA_STOW_DIR/sway/.local/share/wallpapers/" ;;
+  *) return 0 ;;
+  esac
+  [[ -d "$FEDORA_STOW_DIR/$package" ]] || return 0
+
+  while IFS= read -r -d '' source_path; do
+    relative_path="${source_path#"$FEDORA_STOW_DIR/$package/"}"
+    target_path="$HOME/$relative_path"
+
+    [[ -L "$target_path" ]] || continue
+    [[ "$(realpath -m "$target_path")" != "$retired_prefix"* ]] ||
+      printf '%s\n' "$target_path"
+  done < <(find "$FEDORA_STOW_DIR/$package" \( -type f -o -type l \) -print0)
+}
+
+# fedora_retired_link_exemptions <package>...: the --replaces argument vector
+# preflight_stow_packages takes for those packages, empty when none apply.
+fedora_retired_link_exemptions() {
+  local package retired_link
+  for package in "$@"; do
+    while IFS= read -r retired_link; do
+      printf -- '--replaces\n%s\n' "$retired_link"
+    done < <(fedora_retired_stow_links "$package")
+  done
+}
+
 require_fedora() {
   local os_release_file="${OS_RELEASE_FILE:-/etc/os-release}"
   local os_id

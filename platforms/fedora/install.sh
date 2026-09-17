@@ -226,15 +226,19 @@ preflight_fedora() {
   [[ -z "$hardware_model" ]] || plan_command_run fedora_hardware_command --preflight
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
-  local specs=() spec capability stow_specs
-  local selected=()
+  local specs=() spec capability stow_specs exemption
+  local selected=() packages=() replaced=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(fedora_selected_capabilities)
   capability_validate_selection fedora "${selected[@]}"
   # A checked substitution, not < <(...): a manifest header without the stow
   # column must stop preflight, not silently skip the conflict check.
   stow_specs="$(capability_stow_specs fedora "${selected[@]}")" || return
-  while IFS= read -r spec; do [[ -z "$spec" ]] || specs+=("$spec"); done <<<"$stow_specs"
-  preflight_stow_packages "${specs[@]}"
+  while IFS= read -r spec; do
+    [[ -z "$spec" ]] || { specs+=("$spec"); packages+=("${spec#*::}"); }
+  done <<<"$stow_specs"
+  while IFS= read -r exemption; do replaced+=("$exemption"); done \
+    < <(fedora_retired_link_exemptions ${packages[@]+"${packages[@]}"})
+  preflight_stow_packages ${replaced[@]+"${replaced[@]}"} "${specs[@]}"
 }
 
 apply_system() { plan_command_run fedora_system_command; }

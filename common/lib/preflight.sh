@@ -46,9 +46,20 @@ preflight_platform_command_providers() {
   ((missing == 0))
 }
 
+# preflight_stow_packages [--replaces <target>]... <package-root>::<package>...
+#
+# Refuse when any path a package would link is already taken. A --replaces
+# target is a link the caller removes itself before stowing, such as one an
+# earlier layout of this checkout left behind, and is not a conflict.
 preflight_stow_packages() {
   local spec package_root package source relative target resolved parent conflict_type
+  local candidate is_replaced
   local conflict_count=0
+  local -a replaces=()
+  while [[ "${1:-}" == --replaces ]]; do
+    replaces+=("$2")
+    shift 2
+  done
   for spec in "$@"; do
     package_root="${spec%%::*}"; package="${spec#*::}"
     [[ -d "$package_root/$package" ]] || {
@@ -66,7 +77,13 @@ preflight_stow_packages() {
         fi
         parent="$(dirname "$parent")"
       done
-      if [[ -L "$target" ]]; then
+      is_replaced=false
+      for candidate in ${replaces[@]+"${replaces[@]}"}; do
+        [[ "$candidate" != "$target" ]] || is_replaced=true
+      done
+      if [[ "$is_replaced" == true ]]; then
+        continue
+      elif [[ -L "$target" ]]; then
         resolved="$(resolve_symlink_target "$target" 2>/dev/null || true)"
         if [[ -z "$resolved" ]]; then conflict_type='dangling link'
         elif [[ "$resolved" == "$source" ]]; then continue
