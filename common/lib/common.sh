@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# Libraries that need this one source it themselves when this marker is unset,
+# so sourcing them standalone works and a second source is a no-op that cannot
+# reset a DOTFILES_ROOT or XDG value the caller already adjusted.
+# shellcheck disable=SC2034
+DOTFILES_COMMON_LOADED=true
+
 # Shared library value consumed by sourcing scripts.
 # shellcheck disable=SC2034
 DOTFILES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

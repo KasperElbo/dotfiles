@@ -163,3 +163,28 @@ if assert_single_capability_selection "$duplicated_installer" fedora_selected_ca
 fi
 grep -Fq "$duplicated_installer resolves its selected capabilities in 2 loops" "$test_root/duplicated-selection"
 printf 'Single capability selection guard passed.\n'
+# The preflight, capability and installer-selection libraries are each correct
+# sourced alone, without lib/common.sh first. preflight.sh used to report a
+# present command as missing, because command_exists lives in common.sh.
+standalone_providers="$test_root/standalone-providers.tsv"
+printf 'platform\tcommand\tprovider\towner\trequired_by\tclassification\n' >"$standalone_providers"
+printf 'fedora\tls\tcoreutils\tbase\tbase\tsupported-base\n' >>"$standalone_providers"
+run_standalone() {
+  local library="$1" probe="$2"
+  run_capture env COMMAND_PROVIDER_MANIFEST="$standalone_providers" \
+    bash -c 'set -euo pipefail; source "$1"; eval "$2"' standalone \
+    "$repo_root/common/lib/$library" "$probe"
+  assert_not_contains "$TEST_OUTPUT" 'command not found'
+  assert_not_contains "$TEST_OUTPUT" 'unbound variable'
+}
+run_standalone preflight.sh 'preflight_platform_command_providers fedora'
+assert_success
+assert_not_contains "$TEST_OUTPUT" 'Missing'
+run_standalone capabilities.sh 'printf "%s\n" "$CAPABILITY_MANIFEST"; capability_field fedora base provider'
+assert_success
+assert_eq "$repo_root/config/capabilities.tsv"$'\n'"dnf+terra" "$TEST_OUTPUT"
+run_standalone install-selection.sh 'printf "%s\n" "$INSTALL_OPTION_MANIFEST"; install_selection_set theme mocha'
+assert_status 1
+assert_contains "$TEST_OUTPUT" "$repo_root/config/install-options.tsv"
+assert_contains "$TEST_OUTPUT" 'install_selection_set requires install_selection_reset first'
+printf 'Standalone preflight, capability and selection libraries passed.\n'

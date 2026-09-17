@@ -12,7 +12,15 @@
 # Transient execution controls (--dry-run, --non-interactive, --help, the
 # development-workflow smoke tests) are deliberately absent from the manifest.
 # They belong to a single invocation, not to the machine's configuration.
+#
+# This library deliberately does not select shell options. It resolves the
+# option manifest from DOTFILES_ROOT and reports through die, both from
+# lib/common.sh, and sources that itself when the caller has not.
 
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
 # shellcheck source=manifest.sh
 source "$(dirname "${BASH_SOURCE[0]}")/manifest.sh"
 
