@@ -77,6 +77,10 @@ profile_state_validate_value() {
   status) [[ "$value" == applying || "$value" == installed || "$value" == failed ]] ;;
   rootful | force_defaults) [[ "$value" == true || "$value" == false ]] ;;
   secure_boot | api_socket) [[ "$value" == enabled || "$value" == disabled || "$value" == required || "$value" == not-required || "$value" == true || "$value" == false ]] ;;
+  # The checkout's git remote, recorded verbatim. Real remotes use characters
+  # the narrow charset below rejects (git@host:~user/repo.git), and the only
+  # bytes that break this file format, a newline or '=', were refused above.
+  repository) return 0 ;;
   *) [[ "$value" =~ ^[[:alnum:]._/@:+,\ -]+$ ]] ;;
   esac
 }

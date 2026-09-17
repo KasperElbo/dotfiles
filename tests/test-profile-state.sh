@@ -53,4 +53,34 @@ profile_state_write "$install_state" install applying \
   rerun=install.sh
 profile_state_validate_file "$install_state" install
 
+# The checkout's git remote is recorded verbatim. Real remotes use characters
+# the generic charset refuses, and refusing one used to abort a fresh install
+# before any package was touched.
+for remote in 'git@host:~user/repo.git' 'ssh://git@host/~/repo.git' \
+  'https://user@dev.azure.com/o/p/_git/r' 'git@github.com:KasperElbo/dotfiles.git'; do
+  profile_state_validate_value repository "$remote" || {
+    printf 'Valid git remote rejected as a repository value: %s\n' "$remote" >&2; exit 1
+  }
+done
+for invalid in $'git@host:repo.git\nstatus=installed' 'https://host/repo.git?ref=main'; do
+  if profile_state_validate_value repository "$invalid"; then
+    printf 'Repository value that breaks the state format passed: %s\n' "$invalid" >&2; exit 1
+  fi
+done
+
+remote_checkout="$test_root/remote-checkout"
+git init -q "$remote_checkout"
+git -C "$remote_checkout" -c user.name=Test -c user.email=test@example.com \
+  commit -q --allow-empty -m 'scratch checkout'
+git -C "$remote_checkout" remote add origin 'git@host:~user/repo.git'
+(
+  # shellcheck source=../common/lib/install-lifecycle.sh
+  source "$repo_root/common/lib/install-lifecycle.sh"
+  HOME="$test_root/lifecycle-home"
+  XDG_STATE_HOME="$test_root/lifecycle-state"
+  DOTFILES_ROOT="$remote_checkout"
+  install_lifecycle_begin fedora base './install.sh --non-interactive'
+  [[ "$(profile_state_read "$(install_state_path)" repository install)" == 'git@host:~user/repo.git' ]]
+)
+
 printf 'Versioned profile-state validation and migration passed.\n'
