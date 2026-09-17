@@ -14,6 +14,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/secure-boot.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/hardening.sh"
 # shellcheck source=../../../common/lib/install-lifecycle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/install-lifecycle.sh"
+# shellcheck source=../../../common/lib/tool-floors.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/tool-floors.sh"
 
 verify_reset
 
@@ -505,15 +507,17 @@ section "Neovim tooling"
 
 check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
 
-# A Lua error raised from an Ex command does not become Neovim's exit status,
-# so the baseline check must turn a failed version test into `cquit` itself.
-# Otherwise the trailing +qa would report success on an unsupported Neovim.
-if nvim --headless \
-  '+lua if vim.fn.has("nvim-0.12") ~= 1 then vim.cmd("cquit 1") end' \
-  +qa >/dev/null 2>&1; then
-  pass "Neovim >= 0.12"
+# The floor comes from config/tool-floors.tsv like every other enforcer of it,
+# and Neovim itself asserts it, which also proves it starts: a Lua error raised
+# from an Ex command never reaches the exit status, so this check must turn a
+# failed version test into `cquit` itself rather than rely on the error
+# propagating (tests/test-neovim-tool-ownership.sh holds it to that).
+nvim_floor="$(tool_floor nvim)"
+nvim_baseline_lua='+lua if vim.fn.has("nvim-'"$nvim_floor"'") ~= 1 then vim.cmd("cquit 1") end'
+if nvim --headless "$nvim_baseline_lua" +qa >/dev/null 2>&1; then
+  pass "Neovim starts and reports >= $nvim_floor"
 else
-  fail "Neovim startup/version check failed"
+  fail "Neovim startup/version check failed (requires >= $nvim_floor)"
 fi
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ uv = "latest"
 
 # Parrot/APT owns the system Python used by the distribution and its security
 # tools. Neovim is the one profile exception because Parrot 7.3 only packages
-# 0.10.x while the tracked LazyVim configuration requires 0.12 or newer. Add
+# 0.10.x, below the floor config/tool-floors.tsv states; the pin above is
+# checked against that floor by scripts/validate-tool-floors.py. Add
 # challenge-specific runtimes in the challenge repository instead of turning
 # this VM profile into the general workstation manifest.

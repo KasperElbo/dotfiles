@@ -52,6 +52,7 @@ public-entrypoint	755	scripts/validate-command-provider-closure.py	Validates the
 public-entrypoint	755	scripts/validate-network-sources.py	Validates the network-source registry
 public-entrypoint	755	scripts/validate-repository-hygiene.py	Validates repository hygiene rules
 public-entrypoint	755	scripts/validate-shell-file-roles.py	Validates shell/PowerShell/Python file roles and modes
+public-entrypoint	755	scripts/validate-tool-floors.py	Validates the dependency version-floor registry and its enforcement
 platform-entrypoint	644	platforms/windows/install.ps1	Platform installer, the Windows host pieces for Fedora WSL
 internal-executable	644	platforms/windows/verify.ps1	Verifier implementation behind ./verify.ps1
 platform-command	644	platforms/windows/set-noctty-theme.ps1	Windows Noctty theme command; safe to run directly

@@ -34,6 +34,34 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+# version_at_least <actual> <minimum>: compare dotted numeric versions, field
+# by field, with a missing field read as 0 so "0.12" satisfies "0.12.0". A
+# value that is not purely dotted digits is not a version and never satisfies a
+# floor. It lives here rather than in lib/verify.sh so an installer or the test
+# runner can check a floor without pulling in verifier reporting.
+version_at_least() {
+  local actual="$1"
+  local minimum="$2"
+  local -a actual_parts=() minimum_parts=()
+  local index actual_part minimum_part count
+
+  [[ "$actual" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
+  [[ "$minimum" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
+
+  IFS=. read -r -a actual_parts <<<"$actual"
+  IFS=. read -r -a minimum_parts <<<"$minimum"
+  count="${#actual_parts[@]}"
+  ((${#minimum_parts[@]} > count)) && count="${#minimum_parts[@]}"
+
+  for ((index = 0; index < count; index++)); do
+    actual_part="${actual_parts[index]:-0}"
+    minimum_part="${minimum_parts[index]:-0}"
+    ((10#$actual_part > 10#$minimum_part)) && return 0
+    ((10#$actual_part < 10#$minimum_part)) && return 1
+  done
+  return 0
+}
+
 prepend_path() {
   local entry="$1"
   local current

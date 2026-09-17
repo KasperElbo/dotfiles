@@ -429,11 +429,6 @@ case "${1:-}" in
   *) /usr/bin/id "$@" ;;
 esac
 EOF
-cat >"$bootstrap_bin/df" <<'EOF'
-#!/usr/bin/env bash
-printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
-printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
-EOF
 cat >"$bootstrap_bin/getent" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == passwd && "${2:-}" == fedora-test ]]; then
@@ -453,8 +448,17 @@ fi
 printf '%s\n' "$path"
 EOF
 chmod +x "$bootstrap_bin/mock-command" \
-  "$bootstrap_bin/id" "$bootstrap_bin/getent" "$bootstrap_bin/df"
+  "$bootstrap_bin/id" "$bootstrap_bin/getent"
 chmod +x "$bootstrap_stub_root/handlers/sudo" "$bootstrap_bin/mktemp"
+
+# The disk preflight must decide on a known figure, never on the free space of
+# the machine running the tests.
+cat >"$bootstrap_bin/df" <<'EOF_DF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
+EOF_DF
+chmod +x "$bootstrap_bin/df"
 
 bootstrap_commands=(
   bat biber curl delta eza fd fzf gh latex latexindent latexmk lualatex
@@ -523,6 +527,13 @@ exit 0
 EOF
 cat >"$bootstrap_bin/nvim" <<'EOF'
 #!/usr/bin/env bash
+# The installer checks the Neovim floor before any bootstrap phase. Answer it
+# here, at the floor config/tool-floors.tsv declares, and do not let the probe
+# count as a bootstrap invocation.
+if [[ "${1:-}" == --version ]]; then
+  printf 'NVIM v0.12.5\n'
+  exit 0
+fi
 for argument in "$@"; do
   if [[ "$argument" == '+Lazy! restore mason.nvim' ]]; then
     mkdir -p "$XDG_DATA_HOME/nvim/lazy/mason.nvim"

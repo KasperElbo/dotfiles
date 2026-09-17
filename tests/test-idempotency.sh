@@ -434,6 +434,13 @@ chmod +x "$mock_bin/mise"
 
 cat >"$mock_bin/nvim" <<'EOF'
 #!/usr/bin/env bash
+# The installer checks the Neovim floor before any bootstrap phase. Answer it
+# here, at the floor config/tool-floors.tsv declares, and do not let the probe
+# count as a bootstrap invocation.
+if [[ "${1:-}" == --version ]]; then
+  printf 'NVIM v0.12.5\n'
+  exit 0
+fi
 for argument in "$@"; do
   if [[ "$argument" == '+Lazy! restore mason.nvim' ]]; then
     mkdir -p "$XDG_DATA_HOME/nvim/lazy/mason.nvim"
