@@ -1,5 +1,6 @@
 platform	command	provider	owner	required_by	classification
 fedora	bash	bash	base	base	bootstrap-prerequisite
+fedora	curl	curl	base	base	bootstrap-prerequisite
 fedora	dnf	dnf	base	base	bootstrap-prerequisite
 fedora	git	git	base	base	bootstrap-prerequisite
 fedora	rpm	rpm	base	base	bootstrap-prerequisite
@@ -10,6 +11,7 @@ fedora	cat	coreutils	base	base	supported-base
 fedora	chmod	coreutils	base	base	supported-base
 fedora	cut	coreutils	base	base	supported-base
 fedora	date	coreutils	base	base	supported-base
+fedora	df	coreutils	base	base	supported-base
 fedora	dirname	coreutils	base	base	supported-base
 fedora	find	findutils	base	base	supported-base
 fedora	getent	glibc-common	base	base	supported-base
@@ -32,7 +34,6 @@ fedora	tr	coreutils	base	base	supported-base
 fedora	uname	coreutils	base	base	supported-base
 fedora	wc	coreutils	base	base	supported-base
 fedora	bat	bat	base	base	baseline-package
-fedora	curl	curl	base	base	baseline-package
 fedora	delta	git-delta	base	base	baseline-package
 fedora	eza	eza	base	base	baseline-package
 fedora	fd	fd-find	base	base	baseline-package
@@ -80,6 +81,7 @@ fedora	waybar	waybar	sway	sway	baseline-package
 fedora	dotfiles-sway	platforms/fedora/assets/dotfiles-sway	sway	sway	repository-file
 fedora	sway-session-start	platforms/fedora/stow/sway/.local/bin/sway-session-start	sway	sway	repository-file
 fedora-wsl	bash	bash	base	base	bootstrap-prerequisite
+fedora-wsl	curl	curl	base	base	bootstrap-prerequisite
 fedora-wsl	dnf	dnf	base	base	bootstrap-prerequisite
 fedora-wsl	git	git	base	base	bootstrap-prerequisite
 fedora-wsl	rpm	rpm	base	base	bootstrap-prerequisite
@@ -90,6 +92,7 @@ fedora-wsl	cat	coreutils	base	base	supported-base
 fedora-wsl	chmod	coreutils	base	base	supported-base
 fedora-wsl	cut	coreutils	base	base	supported-base
 fedora-wsl	date	coreutils	base	base	supported-base
+fedora-wsl	df	coreutils	base	base	supported-base
 fedora-wsl	dirname	coreutils	base	base	supported-base
 fedora-wsl	find	findutils	base	base	supported-base
 fedora-wsl	getent	glibc-common	base	base	supported-base
@@ -112,7 +115,6 @@ fedora-wsl	uname	coreutils	base	base	supported-base
 fedora-wsl	wc	coreutils	base	base	supported-base
 fedora-wsl	wslpath	wsl-runtime	base	base	supported-base
 fedora-wsl	bat	bat	base	base	baseline-package
-fedora-wsl	curl	curl	base	base	baseline-package
 fedora-wsl	delta	git-delta	base	base	baseline-package
 fedora-wsl	eza	eza	base	base	baseline-package
 fedora-wsl	fd	fd-find	base	base	baseline-package
@@ -142,13 +144,16 @@ macos	sudo	macos	base	base	bootstrap-prerequisite
 macos	xcode-select	macos	base	base	bootstrap-prerequisite
 macos	awk	macos	base	base	supported-base
 macos	date	macos	base	base	supported-base
+macos	df	macos	base	base	supported-base
 macos	find	macos	base	base	supported-base
 macos	readlink	macos	base	base	supported-base
 parrot-ctf	apt-get	apt	base	base	bootstrap-prerequisite
+parrot-ctf	curl	curl	base	base	bootstrap-prerequisite
 parrot-ctf	git	git	base	base	bootstrap-prerequisite
 parrot-ctf	sudo	sudo	base	base	bootstrap-prerequisite
 parrot-ctf	awk	mawk	base	base	supported-base
 parrot-ctf	date	coreutils	base	base	supported-base
+parrot-ctf	df	coreutils	base	base	supported-base
 parrot-ctf	find	findutils	base	base	supported-base
 parrot-ctf	readlink	coreutils	base	base	supported-base
 parrot-ctf	systemctl	systemd	base	base	supported-base

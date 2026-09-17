@@ -96,6 +96,13 @@ preflight_parrot() {
   preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"
   preflight_writable_path "$(profile_state_dir)"
+  preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
+  preflight_disk_space /var/cache/apt "$PREFLIGHT_SYSTEM_MIN_MB"
+  # Only for the upstream installer this run is certain to fetch: a guest that
+  # already has mise asks nothing of the network here.
+  # network-source: mise-installer
+  resolve_mise_command >/dev/null 2>&1 ||
+    preflight_network https://mise.run 'the mise installer'
   local specs=() spec capability stow_specs
   local selected=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(parrot_selected_capabilities)

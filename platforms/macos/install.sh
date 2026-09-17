@@ -167,6 +167,14 @@ preflight_macos() {
   [[ "$needs_sudo" != true ]] || preflight_sudo "$interactive"
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
+  preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
+  preflight_disk_space /opt/homebrew "$PREFLIGHT_SYSTEM_MIN_MB"
+  # Only for a download this run is certain to make: a Mac that already has
+  # Homebrew asks nothing of the network here, and still installs offline.
+  # network-source: homebrew-installer
+  [[ -x "$(homebrew_path)" ]] ||
+    preflight_network https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
+      'the Homebrew installer'
   local specs=() spec capability stow_specs
   local selected=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(macos_selected_capabilities)

@@ -162,16 +162,21 @@ profile_state_read() {
 profile_state_write() {
   local path="$1" profile="$2" status="$3"
   shift 3
-  local entry key value
-  local -a keys=(schema_version profile status)
+  local entry key value allowed_output
+  local -a keys=(schema_version profile status) allowed=()
 
-  profile_state_allowed_keys "$profile" >/dev/null || die "Unknown state profile: $profile"
+  # Read the key list once, in this shell. Membership is decided by the same
+  # helper the file validator uses: piping the list into a reader that stops at
+  # the first match leaves the writer to be killed by SIGPIPE, which under the
+  # callers' pipefail rejected a key the list contains.
+  allowed_output="$(profile_state_allowed_keys "$profile")" || die "Unknown state profile: $profile"
+  while IFS= read -r key; do allowed+=("$key"); done <<<"$allowed_output"
   profile_state_validate_value status "$status" || die "Invalid profile state status: $status"
   for entry in "$@"; do
     [[ "$entry" == *=* ]] || die "Invalid state entry: $entry"
     key="${entry%%=*}"; value="${entry#*=}"
     profile_state_key_is_listed "$key" "${keys[@]}" && die "Duplicate state key: $key"
-    profile_state_allowed_keys "$profile" | grep -Fxq "$key" || die "Unknown state key for $profile: $key"
+    profile_state_key_is_listed "$key" "${allowed[@]}" || die "Unknown state key for $profile: $key"
     profile_state_validate_value "$key" "$value" || die "Invalid state value for $key"
     keys+=("$key")
   done

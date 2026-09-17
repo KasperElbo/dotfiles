@@ -56,7 +56,21 @@ cat >"$mock_bin/ps" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemd\n'
 EOF
-chmod +x "$mock_bin/id" "$mock_bin/ps"
+# These scratch machines have neither Terra nor mise, so their preflight checks
+# that the hosts it would download from answer. Stand in for a reachable
+# network: no suite may depend on the machine running it having one.
+cat >"$mock_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+# Same rule for the disk floor: the preflight arithmetic runs against a known
+# figure, not against whatever this machine happens to have free.
+cat >"$mock_bin/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
+EOF
+chmod +x "$mock_bin/id" "$mock_bin/ps" "$mock_bin/curl" "$mock_bin/df"
 printf 'ID=fedora\n' >"$test_root/os-release"
 # The WSL containers preflight probes the host's user bus, cgroup v2, and user
 # namespaces; stand in for a capable host so the result never depends on them.

@@ -15,12 +15,70 @@ if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
 fi
 # shellcheck source=capabilities.sh
 source "$(dirname "${BASH_SOURCE[0]}")/capabilities.sh"
+# shellcheck source=fetch.sh
+source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
 
 preflight_writable_path() {
   local path="$1"
   local probe="$path"
   while [[ ! -e "$probe" ]]; do probe="$(dirname "$probe")"; done
   [[ -w "$probe" ]] || { printf 'Path is not writable: %s\n' "$path" >&2; return 1; }
+}
+
+# Free space below which an installation refuses to start. The user figure
+# covers the mise runtimes, the Mason inventory and the LazyVim plugin set that
+# every platform installs under XDG_DATA_HOME; the system figure covers one
+# package-manager transaction and its download cache, and each platform names
+# the path its own package manager writes to so a separate /var is measured
+# rather than a roomy /. Both are floors for "certainly not enough", not an
+# estimate of a full installation.
+# Shared library values consumed by the platform installers.
+# shellcheck disable=SC2034
+PREFLIGHT_USER_DATA_MIN_MB=3072
+# shellcheck disable=SC2034
+PREFLIGHT_SYSTEM_MIN_MB=2048
+
+# preflight_disk_space <path> <minimum-mb>
+#
+# Refuse when the filesystem holding <path> has less than <minimum-mb> free.
+# The path itself need not exist yet; the nearest existing ancestor is the one
+# that answers, because that is the filesystem the new directory lands on.
+# Free space is read in KiB: -P -k is the one block size POSIX fixes for both
+# GNU and BSD/Apple df, and BLOCKSIZE from the environment cannot change it.
+preflight_disk_space() {
+  local path="$1" minimum="$2"
+  local probe="$path" available
+
+  while [[ ! -e "$probe" ]]; do probe="$(dirname "$probe")"; done
+  available="$(df -Pk -- "$probe" 2>/dev/null | awk 'NR == 2 { print $4 }')" ||
+    available=""
+  [[ "$available" =~ ^[0-9]+$ ]] || {
+    printf 'Could not determine the free disk space for: %s\n' "$path" >&2
+    return 1
+  }
+  available=$((available / 1024))
+  ((available >= minimum)) || {
+    printf 'Not enough free disk space for %s: %s MiB available, %s MiB required\n' \
+      "$path" "$available" "$minimum" >&2
+    return 1
+  }
+}
+
+# preflight_network <url> [label]
+#
+# Refuse when a host this run will certainly download from cannot be reached.
+# The check is connect-level (see fetch_host_reachable) and bounded by a short
+# timeout. Platforms call it only for a fetch the run is certain to make, so a
+# machine whose plan needs nothing from the network still installs offline.
+preflight_network() {
+  local url="$1"
+  local label="${2:-$url}"
+
+  fetch_host_reachable "$url" || {
+    printf 'Cannot reach %s, which this installation downloads from: %s\n' \
+      "$label" "$url" >&2
+    return 1
+  }
 }
 
 preflight_platform_command_providers() {

@@ -226,6 +226,15 @@ preflight_fedora() {
   [[ -z "$hardware_model" ]] || plan_command_run fedora_hardware_command --preflight
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
+  preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
+  preflight_disk_space /var/cache/dnf "$PREFLIGHT_SYSTEM_MIN_MB"
+  # Only for a download this run is certain to make: a machine that already has
+  # Terra asks nothing of the network here, and still installs offline.
+  # The host, not a release-specific path: any answer from it proves the
+  # network path the key fetch and dnf both use, so this needs no releasever.
+  # network-source: terra-signing-key,terra-repo
+  terra_release_installed ||
+    preflight_network "$TERRA_HOST_URL" 'the Terra repository'
   local specs=() spec capability stow_specs exemption
   local selected=() packages=() replaced=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(fedora_selected_capabilities)
