@@ -317,6 +317,14 @@ else
 fi
 EOF
 
+# The preflight disk floor decides on a known figure rather than on whatever
+# this machine happens to have free.
+cat >"$mock_bin/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
+EOF
+
 cat >"$mock_bin/terra-dnf" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == --dump-repo-config=terra ]]; then
@@ -343,6 +351,7 @@ chmod +x \
   "$mock_bin/rpm" \
   "$mock_bin/id" \
   "$mock_bin/getent" \
+  "$mock_bin/df" \
   "$stub_root/handlers/sudo"
 
 mock_commands=(

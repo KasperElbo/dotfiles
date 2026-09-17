@@ -80,11 +80,11 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `firstmate-repo` | `https://github.com/kunchenguid/firstmate.git` | git -C ~/.local/share/firstmate checkout <commit> | `common/install-ai.sh` |
 | `hack-nerd-font` | `https://github.com/ryanoasis/nerd-fonts/releases/download/v${font_version}/Hack.tar.xz` | reinstall the previous version directory | `platforms/parrot-ctf/scripts/install-terminal.sh` |
 | `homebrew-formulae` | `https://formulae.brew.sh` | brew uninstall | `platforms/macos/Brewfile` `platforms/macos/scripts/install-system.sh` |
-| `homebrew-installer` | `https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh` | Homebrew uninstall script | `scripts/bootstrap-macos.sh` `platforms/macos/scripts/install-system.sh` |
+| `homebrew-installer` | `https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh` | Homebrew uninstall script | `scripts/bootstrap-macos.sh` `platforms/macos/install.sh` `platforms/macos/scripts/install-system.sh` |
 | `lazy-nvim` | `https://github.com/folke/lazy.nvim.git` | git restore lazy-lock.json and rerun the job | `nvim-lazyvim/.config/nvim/lazy-lock.json` `.github/workflows/validate.yml` |
 | `lazyvim-plugins` | `https://github.com/LazyVim/LazyVim` | git restore lazy-lock.json and :Lazy restore | `nvim-lazyvim/.config/nvim/lazy-lock.json` |
 | `mason-registry` | `https://github.com/mason-org/mason-registry` | Mason uninstall | `common/install-neovim-tools.sh` `common/mason-package-versions.txt` |
-| `mise-installer` | `https://mise.run` | rm ~/.local/bin/mise and rerun | `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |
+| `mise-installer` | `https://mise.run` | rm ~/.local/bin/mise and rerun | `platforms/fedora-wsl/install.sh` `platforms/parrot-ctf/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |
 | `mise-tool-registry` | `https://mise.jdx.dev/registry.html` | mise uninstall | `mise/.config/mise/config.toml` `common/install-mise.sh` |
 | `netcoredbg-legacy-release` | `https://github.com/Samsung/netcoredbg/releases/download/3.1.3-1062/netcoredbg-osx-amd64.tar.gz` | pin the previous release tag | `tests/integration/macos-dotnet-debug.sh` |
 | `no-mistakes-installer` | `https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh` | ./scripts/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
@@ -97,10 +97,10 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `scoop-noctty-bucket` | `https://github.com/amanthanvi/scoop-noctty` | scoop bucket rm noctty | `platforms/windows/install.ps1` |
 | `smoke-image-alpine` | `docker.io/library/alpine:latest` | podman rmi | `platforms/macos/scripts/install-containers.sh` `platforms/macos/scripts/verify.sh` |
 | `smoke-image-busybox` | `docker.io/library/busybox:stable` | podman rmi | `platforms/fedora/scripts/verify-containers.sh` |
-| `starship-installer` | `https://starship.rs/install.sh` | rm ~/.local/bin/starship and rerun | `platforms/fedora-wsl/scripts/install-system.sh` |
+| `starship-installer` | `https://starship.rs/install.sh` | rm ~/.local/bin/starship and rerun | `platforms/fedora-wsl/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` |
 | `tailscale-repo` | `https://pkgs.tailscale.com/stable/fedora/tailscale.repo` | sudo rm /etc/yum.repos.d/tailscale.repo | `platforms/fedora/lib/tailscale.sh` |
-| `terra-repo` | `https://repos.fyralabs.com/terra$releasever` | sudo dnf remove terra-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-terra.sh` |
-| `terra-signing-key` | `https://repos.fyralabs.com/terra$releasever/key.asc` | sudo rpm -e --allmatches gpg-pubkey-<id> | `platforms/fedora/lib/fedora.sh` `config/terra-keys.tsv` |
+| `terra-repo` | `https://repos.fyralabs.com/terra$releasever` | sudo dnf remove terra-release | `platforms/fedora/install.sh` `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-terra.sh` |
+| `terra-signing-key` | `https://repos.fyralabs.com/terra$releasever/key.asc` | sudo rpm -e --allmatches gpg-pubkey-<id> | `config/terra-keys.tsv` `platforms/fedora/install.sh` `platforms/fedora/lib/fedora.sh` |
 | `treehouse-installer` | `https://kunchenguid.github.io/treehouse/install.sh` | ./scripts/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
 | `validation-image-fedora` | `docker.io/library/fedora:44` | pin the previous digest | `.github/workflows/validate.yml` `tests/integration/fedora-clean-install.sh` |
 | `wsl-distribution-catalog` | `https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json` | not-applicable | `platforms/windows/install.ps1` |
