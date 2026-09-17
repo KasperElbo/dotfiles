@@ -53,4 +53,20 @@ profile_state_write "$install_state" install applying \
   rerun=install.sh
 profile_state_validate_file "$install_state" install
 
+# The checkout's git remote is recorded verbatim. Real remotes use characters
+# the generic charset refuses, and refusing one used to abort a fresh install
+# before any package was touched.
+for remote in 'git@host:~user/repo.git' 'ssh://git@host/~/repo.git' \
+  'https://user@dev.azure.com/o/p/_git/r' 'git@github.com:KasperElbo/dotfiles.git'; do
+  profile_state_validate_value repository "$remote" || {
+    printf 'Valid git remote rejected as a repository value: %s\n' "$remote" >&2; exit 1
+  }
+done
+for invalid in $'git@host:repo.git\nstatus=installed' $'git@host:repo.git\nstatus' \
+  'https://host/repo.git?ref=main'; do
+  if profile_state_validate_value repository "$invalid"; then
+    printf 'Repository value that breaks the state format passed: %s\n' "$invalid" >&2; exit 1
+  fi
+done
+
 printf 'Versioned profile-state validation and migration passed.\n'
