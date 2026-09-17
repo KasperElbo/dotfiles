@@ -226,8 +226,17 @@ preflight_fedora() {
   [[ -z "$hardware_model" ]] || plan_command_run fedora_hardware_command --preflight
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
-  local specs=() spec capability stow_specs exemption
-  local selected=() packages=() replaced=()
+  preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
+  preflight_disk_space /var/cache/dnf "$PREFLIGHT_SYSTEM_MIN_MB"
+  # Only for a download this run is certain to make: a machine that already has
+  # Terra asks nothing of the network here, and still installs offline.
+  # The host, not a release-specific path: any answer from it proves the
+  # network path the key fetch and dnf both use, so this needs no releasever.
+  # network-source: terra-signing-key,terra-repo
+  terra_release_installed ||
+    preflight_network "$TERRA_HOST_URL" 'the Terra repository'
+  local specs=() packages=() replaced=() spec capability stow_specs exemption
+  local selected=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(fedora_selected_capabilities)
   capability_validate_selection fedora "${selected[@]}"
   # A checked substitution, not < <(...): a manifest header without the stow
@@ -236,8 +245,12 @@ preflight_fedora() {
   while IFS= read -r spec; do
     [[ -z "$spec" ]] || { specs+=("$spec"); packages+=("${spec#*::}"); }
   done <<<"$stow_specs"
-  while IFS= read -r exemption; do replaced+=("$exemption"); done \
-    < <(fedora_retired_link_exemptions ${packages[@]+"${packages[@]}"})
+  # The same exemptions platforms/fedora/scripts/stow.sh removes before it
+  # stows, so a machine still carrying the pre-move Sway layout is migrated
+  # here rather than refused at the entry point the migration runs from.
+  while IFS= read -r exemption; do
+    replaced+=("$exemption")
+  done < <(fedora_retired_link_exemptions ${packages[@]+"${packages[@]}"})
   preflight_stow_packages ${replaced[@]+"${replaced[@]}"} "${specs[@]}"
 }
 

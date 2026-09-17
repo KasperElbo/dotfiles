@@ -67,8 +67,10 @@ require_fedora() {
 }
 
 TERRA_KEY_MANIFEST="${TERRA_KEY_MANIFEST:-$DOTFILES_ROOT/config/terra-keys.tsv}"
-TERRA_KEY_URL_TEMPLATE="${TERRA_KEY_URL_TEMPLATE:-https://repos.fyralabs.com/terra%s/key.asc}"
-TERRA_REPO_URL_TEMPLATE="${TERRA_REPO_URL_TEMPLATE:-https://repos.fyralabs.com/terra%s}"
+# The host is stated once; the key and repository URLs are paths on it.
+TERRA_HOST_URL="${TERRA_HOST_URL:-https://repos.fyralabs.com}"
+TERRA_KEY_URL_TEMPLATE="${TERRA_KEY_URL_TEMPLATE:-$TERRA_HOST_URL/terra%s/key.asc}"
+TERRA_REPO_URL_TEMPLATE="${TERRA_REPO_URL_TEMPLATE:-$TERRA_HOST_URL/terra%s}"
 
 # terra_pinned_fingerprint <releasever>: the signing-key fingerprint this
 # repository has reviewed for that Fedora release, or empty when the release
@@ -90,6 +92,13 @@ terra_key_fingerprint() {
     awk -F: '$1 == "fpr" { print $10; exit }'
 }
 
+# terra_release_installed: true when this machine already has the Terra
+# repository, which is what decides whether a run has to fetch anything from
+# Terra at all. Read by the bootstrap below and by the installer's preflight.
+terra_release_installed() {
+  rpm -q terra-release >/dev/null 2>&1
+}
+
 # Terra's own documentation bootstraps with --nogpgcheck because the signing
 # key ships inside terra-release itself. This repository does not accept that
 # trust hole: Terra also publishes the key at a stable HTTPS URL, so the key is
@@ -102,7 +111,7 @@ terra_key_fingerprint() {
 ensure_terra_repository() {
   local releasever key_url repo_url staged pinned observed work_dir
 
-  if rpm -q terra-release >/dev/null 2>&1; then
+  if terra_release_installed; then
     info "Terra repository already installed"
     return
   fi
@@ -164,7 +173,7 @@ ensure_terra_repository() {
     --repofrompath "terra,$repo_url" \
     terra-release
 
-  rpm -q terra-release >/dev/null 2>&1 ||
+  terra_release_installed ||
     die "The Terra bootstrap did not install terra-release."
 }
 

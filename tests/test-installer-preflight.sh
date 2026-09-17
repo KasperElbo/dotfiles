@@ -53,6 +53,18 @@ integration_home="$test_root/integration-home"
 integration_config="$test_root/integration-config"
 mock_bin="$test_root/bin"
 mkdir -p "$integration_home" "$integration_config" "$mock_bin"
+# Every installer run below decides on a stubbed figure, never on the free
+# space of the machine running the tests; the cases that mean to exercise a
+# full disk replace this stub and restore it afterwards.
+stub_roomy_df() {
+  cat >"$mock_bin/df" <<'EOF_DF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
+EOF_DF
+  chmod +x "$mock_bin/df"
+}
+stub_roomy_df
 test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
 test_stub_install "$test_root" sudo
@@ -163,6 +175,7 @@ if assert_single_capability_selection "$duplicated_installer" fedora_selected_ca
 fi
 grep -Fq "$duplicated_installer resolves its selected capabilities in 2 loops" "$test_root/duplicated-selection"
 printf 'Single capability selection guard passed.\n'
+
 # The preflight, capability and installer-selection libraries are each correct
 # sourced alone, without lib/common.sh first. preflight.sh used to report a
 # present command as missing, because command_exists lives in common.sh.
@@ -188,3 +201,192 @@ assert_status 1
 assert_contains "$TEST_OUTPUT" "$repo_root/config/install-options.tsv"
 assert_contains "$TEST_OUTPUT" 'install_selection_set requires install_selection_reset first'
 printf 'Standalone preflight, capability and selection libraries passed.\n'
+
+# Disk space and reachability are checked before any mutating step, and only
+# for a download the run is certain to make.
+probe_bin="$test_root/probe-bin"
+mkdir -p "$probe_bin"
+cat >"$probe_bin/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/full-disk 102400000 102398976 1024 100%% /\n'
+EOF
+chmod +x "$probe_bin/df"
+run_preflight_probe() {
+  run_capture env PATH="$probe_bin:$PATH" bash -c \
+    'set -uo pipefail; source "$1"; shift; "$@"' probe \
+    "$repo_root/common/lib/preflight.sh" "$@"
+}
+
+run_preflight_probe preflight_disk_space "$test_root/not-created-yet" 2048
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "Not enough free disk space for $test_root/not-created-yet: 1 MiB available, 2048 MiB required"
+rm -- "$probe_bin/df"
+run_preflight_probe preflight_disk_space "$test_root" 1
+assert_success
+
+# The floor is stated in MiB but df answers in its own block size, and the two
+# implementations this repository installs on disagree about which one -P
+# selects: GNU df honours a block-size flag, while Apple's df documents -P as
+# overriding the block size to 512-byte counts. Each stub answers the flags the
+# way its real implementation does, so the same free space must produce the
+# same decision from both; a run that asks for a unit only one of them honours
+# reads 500 MiB as gigabytes on the other and never refuses.
+stub_df() {
+  local posix_unit="$1"
+  cat >"$probe_bin/df" <<EOF
+#!/usr/bin/env bash
+unit=$posix_unit
+for argument in "\$@"; do
+  case "\$argument" in
+  -*k*) unit=1024 ;;
+  ${2:-}
+  esac
+done
+printf 'Filesystem blocks Used Available Capacity Mounted on\n'
+printf '/dev/stub 0 0 %s 50%% /\n' "\$((\${PROBE_FREE_MIB:?} * unit))"
+EOF
+  chmod +x "$probe_bin/df"
+}
+stub_df_gnu() { stub_df 1024 '-*m*) unit=1 ;;'; }
+stub_df_apple() { stub_df 2048; }
+
+for shape in gnu apple; do
+  "stub_df_$shape"
+  PROBE_FREE_MIB=500 run_preflight_probe preflight_disk_space "$test_root" 2048
+  assert_failure
+  assert_contains "$TEST_OUTPUT" '500 MiB available, 2048 MiB required'
+  PROBE_FREE_MIB=500 run_preflight_probe preflight_disk_space "$test_root" 400
+  assert_success
+done
+rm -- "$probe_bin/df"
+
+cat >"$probe_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+exit "${PROBE_CURL_STATUS:?}"
+EOF
+chmod +x "$probe_bin/curl"
+# 7 is curl's "could not connect": no network path to the host.
+PROBE_CURL_STATUS=7 run_preflight_probe preflight_network \
+  https://example.invalid/installer.sh 'the example installer'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'Cannot reach the example installer, which this installation downloads from: https://example.invalid/installer.sh'
+# 60 is curl's "peer certificate did not verify": the TLS session the real
+# download needs cannot be established, so the run must refuse here rather
+# than fail partway through the first mutating step.
+PROBE_CURL_STATUS=60 run_preflight_probe preflight_network \
+  https://example.invalid/installer.sh 'the example installer'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'Cannot reach the example installer, which this installation downloads from: https://example.invalid/installer.sh'
+# 22 is an HTTP error answer, which still proves the network path works.
+PROBE_CURL_STATUS=22 run_preflight_probe preflight_network \
+  https://example.invalid/installer.sh 'the example installer'
+assert_success
+
+# A host that connects at once and answers slowly is reachable, not refused.
+# The probe's connect bound and its total ceiling are separate budgets: this
+# curl honours the ones it is handed, the way the real one does -- the
+# connection is immediate, so only --max-time can expire, and exit 28 then
+# means "said nothing at all", not "could not connect".
+cat >"$probe_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+max_time=0
+while (($#)); do
+  [[ "$1" != --max-time ]] || max_time="$2"
+  shift
+done
+delay="${PROBE_RESPONSE_DELAY:?}"
+if ((delay > max_time)); then
+  sleep "$max_time"
+  exit 28
+fi
+sleep "$delay"
+EOF
+chmod +x "$probe_bin/curl"
+PROBE_RESPONSE_DELAY=3 DOTFILES_FETCH_PROBE_TIMEOUT=1 DOTFILES_FETCH_PROBE_MAX_TIME=10 \
+  run_preflight_probe preflight_network \
+  https://example.invalid/installer.sh 'the example installer'
+assert_success
+# The ceiling still bounds the probe: a host that says nothing at all within
+# it is unreachable, so an offline machine is still refused in seconds.
+PROBE_RESPONSE_DELAY=5 DOTFILES_FETCH_PROBE_TIMEOUT=1 DOTFILES_FETCH_PROBE_MAX_TIME=2 \
+  run_preflight_probe preflight_network \
+  https://example.invalid/installer.sh 'the example installer'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'Cannot reach the example installer, which this installation downloads from: https://example.invalid/installer.sh'
+
+# The same failure stops the top-level plan before DNF or lifecycle state.
+cat >"$mock_bin/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/full-disk 102400000 102398976 1024 100%% /\n'
+EOF
+chmod +x "$mock_bin/df"
+if HOME="$integration_home" XDG_CONFIG_HOME="$integration_config" \
+  XDG_STATE_HOME="$test_root/disk-state" PATH="$mock_bin:$PATH" \
+  OS_RELEASE_FILE="$test_root/os-release" \
+  "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
+  >"$test_root/disk" 2>&1; then
+  printf 'A full disk unexpectedly passed preflight.\n' >&2; exit 1
+fi
+grep -Fq 'Not enough free disk space' "$test_root/disk"
+assert_file_empty "$test_root/logs/dnf.log"
+[[ ! -e "$test_root/disk-state/dotfiles/install.conf" ]]
+stub_roomy_df
+printf 'Disk-space and reachability preflight passed.\n'
+
+# The system floor is measured where the package-manager transaction and its
+# download cache land, not on /. A supported split-/var layout with a roomy /
+# and a full /var must still be refused before the first mutating step.
+cat >"$mock_bin/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+case "${!#}" in
+/var*) printf '/dev/var-volume 102400000 102398976 1024 100%% /var\n' ;;
+*) printf '/dev/root-volume 102400000 20480000 81920000 20%% /\n' ;;
+esac
+EOF
+chmod +x "$mock_bin/df"
+if HOME="$integration_home" XDG_CONFIG_HOME="$integration_config" \
+  XDG_STATE_HOME="$test_root/var-state" PATH="$mock_bin:$PATH" \
+  OS_RELEASE_FILE="$test_root/os-release" \
+  "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
+  >"$test_root/var-disk" 2>&1; then
+  printf 'A full /var unexpectedly passed preflight on a roomy /.\n' >&2; exit 1
+fi
+grep -Fq 'Not enough free disk space for /var/cache/dnf: 1 MiB available' "$test_root/var-disk"
+assert_file_empty "$test_root/logs/dnf.log"
+[[ ! -e "$test_root/var-state/dotfiles/install.conf" ]]
+stub_roomy_df
+printf 'System disk floor is measured on the package-manager filesystem.\n'
+
+# A machine still carrying the pre-move Sway layout is migrated by ./install.sh,
+# not refused by it: the entry-point preflight is given the same retired-link
+# exemptions platforms/fedora/scripts/stow.sh removes before it stows.
+retired_home="$test_root/retired-home"
+retired_config="$test_root/retired-config"
+retired_wallpaper="$retired_home/.local/share/wallpapers/catppuccin-macchiato.webp"
+mkdir -p "$(dirname "$retired_wallpaper")" "$retired_config"
+ln -s "$repo_root/platforms/fedora/stow/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
+  "$retired_wallpaper"
+# An unrelated conflict, so the run still stops in preflight and the output
+# proves the check ran rather than being skipped.
+printf 'user-owned zshenv\n' >"$retired_home/.zshenv"
+if HOME="$retired_home" XDG_CONFIG_HOME="$retired_config" \
+  XDG_STATE_HOME="$test_root/retired-state" PATH="$mock_bin:$PATH" \
+  OS_RELEASE_FILE="$test_root/os-release" \
+  "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
+  >"$test_root/retired" 2>&1; then
+  printf 'A conflicting HOME unexpectedly passed the entry-point preflight.\n' >&2; exit 1
+fi
+retired_output="$(cat "$test_root/retired")"
+assert_contains "$retired_output" 'Stow conflict [zsh]: existing file or directory'
+assert_not_contains "$retired_output" "$retired_wallpaper"
+[[ -L "$retired_wallpaper" ]] || {
+  printf 'The refused preflight removed the retired link it only exempted.\n' >&2; exit 1
+}
+printf 'Entry-point preflight exempts the retired Sway links.\n'

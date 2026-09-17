@@ -154,6 +154,16 @@ preflight_wsl() {
   [[ "$install_containers" != true ]] || require_wsl_containers_prereqs
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
+  preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
+  preflight_disk_space /var/cache/dnf "$PREFLIGHT_SYSTEM_MIN_MB"
+  # Only for the upstream installers this run is certain to fetch: an account
+  # that already has both tools asks nothing of the network here.
+  # network-source: mise-installer
+  resolve_mise_command >/dev/null 2>&1 ||
+    preflight_network https://mise.run 'the mise installer'
+  # network-source: starship-installer
+  command_exists starship || [[ -x "$HOME/.local/bin/starship" ]] ||
+    preflight_network https://starship.rs/install.sh 'the Starship installer'
   local specs=() spec capability stow_specs
   local selected=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(wsl_selected_capabilities)

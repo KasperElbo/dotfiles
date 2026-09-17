@@ -31,6 +31,8 @@ Missing bootstrap-prerequisite command: xcode-select (provider: macos)
 Missing bootstrap-prerequisite command: sudo (provider: sudo)
 Missing supported-base command: awk (provider: gawk)
 Path is not writable: /home/you/.config
+Not enough free disk space for /home/you/.local/share: 812 MiB available, 3072 MiB required
+Cannot reach the Terra repository, which this installation downloads from: https://repos.fyralabs.com
 ```
 
 Install the named command — the message names the package that provides it —
@@ -39,6 +41,23 @@ is something the installer needs before it can install anything at all;
 `supported-base` is a command the finished environment is defined to have.
 Both come from `config/command-providers.tsv`. The installer making no
 changes at all is the intended outcome here, not a failure to recover from.
+
+The disk figures are floors for "certainly not enough" -- one package-manager
+transaction, and the mise runtimes, Mason inventory and LazyVim plugins under
+`XDG_DATA_HOME` -- not an estimate of a full installation. The message names
+the path that was measured: the system figure is taken on the filesystem the
+platform's package manager writes to (`/var/cache/dnf` on Fedora,
+`/var/cache/apt` on Parrot, `/opt/homebrew` on macOS), so a machine with a
+separate `/var` is checked where the transaction actually lands. Free space on
+the named path, then rerun.
+
+The reachability check is connect-level and runs only for a download the run is
+certain to make: the Terra repository on a Fedora machine that does not have it
+yet, the mise, Starship or Homebrew installer on a machine missing that tool. A
+machine whose plan needs nothing from the network installs offline, and a
+machine that is offline when it does need one is told in seconds instead of
+failing partway through the first mutating step. It uses the same proxy
+settings as the download itself, so a proxy that works for `curl` works here.
 
 ## Stow conflicts
 
@@ -51,13 +70,6 @@ Preflight found something already at a path this repository would link. The
 variants name the cause: an existing real file or directory, a `dangling
 link`, a `link to another package in this checkout`, a `link owned by another
 checkout or source`, or a parent path that `is not a real directory`.
-
-The check runs whichever entry point you used. A platform installer preflights
-every package it plans to deploy, and `common/stow.sh` and each
-`platforms/<platform>/scripts/stow.sh` check their own packages before linking
-anything, adding `Refusing to stow; nothing in $HOME was changed.` A conflict
-therefore never leaves a partly linked `$HOME` behind, whether you ran the
-installer or a Stow script directly.
 
 The remedy is always the same — move the named path aside (or delete it if you
 are sure), then rerun:

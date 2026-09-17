@@ -79,7 +79,7 @@ _test_exit_trap() {
 # validation image and macOS. Anything else a suite needs from the host, such as
 # git, jq, zsh or the Linux-only getent, is named explicitly by that suite.
 TEST_HOST_COMMANDS=(
-  awk basename bash cat chmod cp cut date dirname echo env find grep head id
+  awk basename bash cat chmod cp cut date df dirname echo env find grep head id
   install ln ls mkdir mktemp mv paste pwd readlink realpath rm rmdir sed sh
   sleep sort stat sync tail tee touch tr uname uniq wc xargs
 )
