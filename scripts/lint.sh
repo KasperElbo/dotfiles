@@ -34,6 +34,13 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+# Everything below this line is Python. Check the interpreter against its floor
+# in config/tool-floors.tsv here, so an old interpreter is named once rather
+# than failing inside whichever validator first uses newer syntax.
+# shellcheck source=../common/lib/tool-floors.sh
+source "$repo_root/common/lib/tool-floors.sh"
+tool_floor_check python3 || exit 1
+
 printf 'Checking generated Starship configurations...\n'
 ./scripts/update-starship-themes.sh --check
 
@@ -57,6 +64,7 @@ printf 'Validating network-source provenance...\n'
 python3 ./scripts/validate-capabilities.py
 python3 ./scripts/validate-install-options.py
 python3 ./scripts/validate-command-provider-closure.py
+python3 ./scripts/validate-tool-floors.py
 python3 ./scripts/validate-network-sources.py
 python3 ./scripts/render-supply-chain.py --check
 

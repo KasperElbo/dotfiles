@@ -3,6 +3,8 @@ set -euo pipefail
 
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=lib/tool-floors.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/tool-floors.sh"
 
 establish_user_tool_environment
 require_command nvim
@@ -100,6 +102,21 @@ if [[ -n "$mise_command" ]]; then
   # even though this non-interactive Bash process has not activated mise.
   nvim_command=("$mise_command" exec -- nvim)
 fi
+
+# Checked against the Neovim these phases will actually run -- mise's, when
+# mise owns it, not whatever else is on PATH -- and before the first headless
+# phase. Below the floor, Mason fails partway through with a Lua error that
+# names neither Neovim nor a version (vim.uv is 0.10+, vim.iter 0.12+).
+#
+# Asked through run_mise, for the same reason the phases below use the
+# deterministic context (see lib/common.sh): run from the checkout's own
+# directory, `mise exec` resolves this repository's tool configuration and
+# answers nothing, which would refuse a Neovim that is perfectly current.
+nvim_version_probe=(nvim)
+[[ -z "$mise_command" ]] ||
+  nvim_version_probe=(run_mise "$mise_command" exec -- nvim)
+tool_floor_check nvim "${nvim_version_probe[@]}" ||
+  die "Install a newer Neovim first: DNF on Fedora, Homebrew on macOS, or the pinned mise tool on the Parrot CTF guest."
 
 # Bootstrap phases run from the deterministic mise context (see lib/common.sh),
 # so an installer started inside an unrelated project cannot have that

@@ -7,6 +7,13 @@ Homebrew (`Brewfile`) on macOS, and a pinned mise tool
 on the Parrot CTF guest — the one deliberate exception, because Parrot 7.3
 only packages Neovim 0.10.x and this configuration requires 0.12 or newer.
 
+That floor is stated once, in
+[`config/tool-floors.tsv`](../../config/tool-floors.tsv), and is what the test
+runner, `common/install-neovim-tools.sh` and every platform verifier check
+against; no shell script repeats it, and `scripts/validate-tool-floors.py`
+fails the build if any documentation page states a different minimum than the
+registry does.
+
 The editor configuration uses:
 
 ```text

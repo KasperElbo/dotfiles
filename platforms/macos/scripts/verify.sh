@@ -7,6 +7,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/macos.sh"
+# shellcheck source=../../../common/lib/tool-floors.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/tool-floors.sh"
 
 verify_reset
 verify_defaults="false"
@@ -320,6 +322,7 @@ fi
 # ---------------------------------------------------------------------------
 
 section "Neovim tooling"
+check_version_at_least "Neovim" "$(tool_version nvim)" "$(tool_floor nvim)"
 check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
 
 section "Catppuccin tmux"

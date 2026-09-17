@@ -10,6 +10,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../../../common/lib/capabilities.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/capabilities.sh"
+# shellcheck source=../../../common/lib/tool-floors.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/tool-floors.sh"
 # shellcheck source=../lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
@@ -154,12 +156,9 @@ fi
 
 nvim_version=""
 if [[ -n "$mise_command" ]]; then
-  nvim_version="$(
-    run_mise "$mise_command" exec -- nvim --version 2>/dev/null |
-      sed -n '1s/^NVIM v\([0-9][0-9.]*\).*/\1/p'
-  )"
+  nvim_version="$(tool_version nvim run_mise "$mise_command" exec -- nvim)"
 fi
-check_version_at_least "Neovim" "$nvim_version" "0.12"
+check_version_at_least "Neovim" "$nvim_version" "$(tool_floor nvim)"
 
 nvim_log="$(mktemp)"
 if [[ -n "$mise_command" ]] &&

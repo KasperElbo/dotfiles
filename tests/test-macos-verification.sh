@@ -61,10 +61,18 @@ printf '%s\n' "$mock_bin/zsh" >"$root/shells"
 # --- Homebrew and system commands -------------------------------------------
 
 # git is the real one: the tmux plugin fixture below is a real checkout.
-for command_name in delta eza fd fzf gh jq nvim rg shellcheck sqlite3 \
+for command_name in delta eza fd fzf gh jq rg shellcheck sqlite3 \
   starship stow tmux zoxide aerospace; do
   ln -s /usr/bin/true "$mock_bin/$command_name"
 done
+# The verifier checks Neovim against the floor in config/tool-floors.tsv, so
+# this fixture must report a version that parses; /usr/bin/true cannot, and a
+# check that can only fail proves nothing.
+stub nvim <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == --version ]] || exit 0
+printf 'NVIM v%s\n' "${MOCK_NVIM_VERSION:-0.12.5}"
+EOF
 stub ssh <<'EOF'
 #!/usr/bin/env bash
 [[ "${1:-}" == -V ]] && printf 'OpenSSH_9.9p2, LibreSSL 3.3.6\n' >&2
@@ -236,13 +244,15 @@ for expected in \
   'dotnet is mise-managed via shim' \
   'node is mise-managed via shim' \
   'git runs:' \
-  'scp runs:'; do
+  'scp runs:' \
+  'Neovim 0.12.5 satisfies the >= 0.12 baseline'; do
   assert_contains "$baseline_output" "$expected"
 done
 # The fixture itself is healthy: nothing this suite proves fails in it.
 for unexpected in 'Theme state' 'Starship configuration' 'theme override' \
   'bat does not' 'Zsh login STARSHIP_CONFIG' 'Zsh login BAT_THEME' 'Mason package' \
-  'Catppuccin tmux is' 'resolves outside mise' 'does not run'; do
+  'Catppuccin tmux is' 'resolves outside mise' 'does not run' \
+  'does not satisfy'; do
   if grep -F -- "$unexpected" <<<"$baseline_output" | grep -Fq '✗'; then
     _test_die "the healthy macOS fixture failed a check this suite owns ($unexpected):\n$baseline_output"
   fi
@@ -302,6 +312,12 @@ ln -s /usr/bin/true "$homebrew_bin/dotnet"
 run_verifier "MOCK_LOGIN_PATH_PREFIX=$homebrew_bin"
 expect_one_more_failure 'a Homebrew dotnet shadowing the mise-managed one fails verification' \
   "dotnet resolves outside mise in the configured login PATH: $homebrew_bin/dotnet"
+
+# A Neovim below the declared floor. It resolves and runs, so the command
+# probe above still passes it; only the floor check catches it.
+run_verifier MOCK_NVIM_VERSION=0.11.9
+expect_one_more_failure 'a Neovim below the declared floor fails verification' \
+  'Neovim 0.11.9 does not satisfy the >= 0.12 baseline'
 
 # A command that resolves but cannot start.
 rm "$mock_bin/stow"

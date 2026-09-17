@@ -73,4 +73,42 @@ assert_file_contains "$log" 'pass-one'
 assert_contains "$TEST_OUTPUT" 'passed:  1'
 assert_contains "$TEST_OUTPUT" 'failed:  0'
 
+printf 'A dependency below its documented floor is a runner error\n'
+floor_bin="$root/floor-bin"
+mkdir -p "$floor_bin"
+cat >"$floor_bin/nvim" <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == --version ]] || exit 0
+printf 'NVIM v0.9.5\n'
+EOF
+chmod +x "$floor_bin/nvim"
+: >"$log"
+run_capture env DOTFILES_TEST_REQUIRED_COMMANDS=nvim PATH="$floor_bin:$PATH" \
+  RUNNER_LOG="$log" "$repo_root/scripts/test.sh" "$pass_one"
+assert_status 2
+assert_contains "$TEST_OUTPUT" 'nvim 0.9.5 is older than the required 0.12'
+assert_eq '' "$(cat "$log")" 'a floor failure must happen before any suite executes'
+
+printf 'A floor manifest the runner cannot read is a runner error\n'
+: >"$log"
+run_capture env DOTFILES_TEST_REQUIRED_COMMANDS=nvim \
+  TOOL_FLOOR_MANIFEST="$root/no-such-floors.tsv" \
+  RUNNER_LOG="$log" "$repo_root/scripts/test.sh" "$pass_one"
+assert_status 2
+assert_contains "$TEST_OUTPUT" "could not read the version floors from $root/no-such-floors.tsv"
+assert_eq '' "$(cat "$log")" 'an unreadable floor manifest must stop before any suite executes'
+
+printf 'A floor manifest whose header lost the tool column is a runner error\n'
+headerless="$root/headerless-floors.tsv"
+printf 'name\tmin_version\trequirement\tconsumers\n' >"$headerless"
+printf 'nvim\t0.12\tThe tracked configuration requires it\tscripts/test.sh\n' >>"$headerless"
+: >"$log"
+run_capture env DOTFILES_TEST_REQUIRED_COMMANDS=nvim \
+  TOOL_FLOOR_MANIFEST="$headerless" \
+  RUNNER_LOG="$log" "$repo_root/scripts/test.sh" "$pass_one"
+assert_status 2
+assert_contains "$TEST_OUTPUT" "has no column: tool"
+assert_contains "$TEST_OUTPUT" "could not read the version floors from $headerless"
+assert_eq '' "$(cat "$log")" 'a floor manifest without a tool column must stop before any suite executes'
+
 printf 'Aggregate test-runner tests passed.\n'

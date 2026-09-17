@@ -4,7 +4,13 @@
 #
 # This library deliberately does not select shell options. Verifier entrypoints
 # own their execution policy; sourcing a common library must never change the
-# caller's errexit, nounset, or pipefail state.
+# caller's errexit, nounset, or pipefail state. It needs version_at_least from
+# lib/common.sh, and sources that itself when the caller has not.
+
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
 
 VERIFY_PASSES=${VERIFY_PASSES:-0}
 VERIFY_FAILURES=${VERIFY_FAILURES:-0}
@@ -157,35 +163,14 @@ check_command() {
     "(${probe_output%%$'\n'*})"
 }
 
-verify_version_at_least() {
-  local actual="$1"
-  local minimum="$2"
-  local -a actual_parts=() minimum_parts=()
-  local index actual_part minimum_part count
-
-  [[ "$actual" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
-  [[ "$minimum" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
-
-  IFS=. read -r -a actual_parts <<<"$actual"
-  IFS=. read -r -a minimum_parts <<<"$minimum"
-  count="${#actual_parts[@]}"
-  ((${#minimum_parts[@]} > count)) && count="${#minimum_parts[@]}"
-
-  for ((index = 0; index < count; index++)); do
-    actual_part="${actual_parts[index]:-0}"
-    minimum_part="${minimum_parts[index]:-0}"
-    ((10#$actual_part > 10#$minimum_part)) && return 0
-    ((10#$actual_part < 10#$minimum_part)) && return 1
-  done
-  return 0
-}
-
 check_version_at_least() {
   local label="$1"
   local actual="$2"
   local minimum="$3"
 
-  if verify_version_at_least "$actual" "$minimum"; then
+  if [[ -z "$minimum" ]]; then
+    fail "$label has no declared version floor to check against"
+  elif version_at_least "$actual" "$minimum"; then
     pass "$label $actual satisfies the >= $minimum baseline"
   else
     fail "$label ${actual:-unknown} does not satisfy the >= $minimum baseline"

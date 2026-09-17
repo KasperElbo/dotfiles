@@ -24,7 +24,8 @@ The workstation configuration has been developed and tested on:
 - Sway on Wayland when installed with `--sway`
 - Zsh
 - Ghostty
-- Neovim 0.12+
+- Neovim 0.12+ (the enforced floor is recorded in
+  [`config/tool-floors.tsv`](../../config/tool-floors.tsv))
 - GNU Stow
 
 The optional guest profiles target Fedora 44 and Parrot Security Edition 7.3

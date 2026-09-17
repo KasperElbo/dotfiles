@@ -16,17 +16,27 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 | Tool | Minimum version | Used by |
 | --- | --- | --- |
 | ShellCheck | any version supporting `-S warning` (`./scripts/lint.sh` pins the severity threshold so info-level notes never fail CI on version drift) | `./scripts/lint.sh` |
-| Neovim (`nvim`) | >= 0.10 | `./scripts/test.sh` preflight and the Neovim/editor suites |
+| Neovim (`nvim`) | >= 0.12 | `./scripts/test.sh` preflight and the Neovim/editor suites |
 | zsh | any recent release | shell-startup and profile suites |
 | GNU Stow (`stow`) | any recent release | install/stow suites |
 | OpenSSH client tools (`ssh`, `scp`, `sftp`) | any recent release | SFTP/remote-access suites |
-| Python 3 (`python3`) | 3.11+ | every `scripts/*.py` validator and generator |
+| Python 3 (`python3`) | >= 3.11 | every `scripts/*.py` validator and generator |
 | jq | any recent release | JSON-fixture and action-registry suites |
 | ripgrep (`rg`) | any recent release | `./scripts/test.sh` preflight and search-based checks |
 
 `./scripts/test.sh` also preflights `awk`, `bash`, `find`, `git`, `grep`,
 `mktemp`, `sed` and `timeout`, which are assumed already present on any
 supported development machine.
+
+Every minimum version in that table comes from
+[`config/tool-floors.tsv`](../config/tool-floors.tsv), which is the one place
+a floor is stated. `./scripts/test.sh` and `./scripts/lint.sh` check it in
+their preflight, `common/install-neovim-tools.sh` checks it before the first
+headless Neovim phase, and each platform verifier asserts it on an installed
+machine, so a tool below its floor is named here rather than failing later
+inside a suite or a Mason build. `./scripts/validate-tool-floors.py` fails the
+build if this table and that registry disagree, or if a consumer stops reading
+it.
 
 The Neovim spec-resolution suite inside `tests/test-neovim-tool-ownership.sh`
 additionally needs a lazy.nvim checkout, because it resolves this repository's

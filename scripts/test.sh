@@ -64,6 +64,7 @@ default_tests=(
   tests/test-test-support.sh
   tests/test-test-runner.sh
   tests/test-capabilities.sh
+  tests/test-tool-floors.sh
   tests/test-install-option-parsers.sh
   tests/test-repository-hygiene.sh
   tests/test-documentation.sh
@@ -157,6 +158,40 @@ done
 if ((${#missing_commands[@]} > 0)); then
   printf 'ERROR: missing required test dependencies: %s\n' "${missing_commands[*]}" >&2
   printf 'Policy: runner dependencies are required; no suites were run or credited as skipped.\n' >&2
+  exit 2
+fi
+
+# Presence is not enough. A tool below its documented floor fails later, inside
+# whichever suite first uses the feature it lacks, with a diagnostic that names
+# neither the tool nor a version. The floors come from config/tool-floors.tsv,
+# and which tools have one is the table's business, not a list repeated here.
+# shellcheck source=../common/lib/tool-floors.sh
+source "$repo_root/common/lib/tool-floors.sh"
+
+unsatisfied_floor=()
+if ((${#required_commands[@]} > 0)); then
+  # A checked substitution, not < <(...): a manifest that cannot be read, or
+  # whose header lost the tool column, must stop the runner rather than leave
+  # every floor silently unenforced while the suites report success.
+  floor_tools="$(manifest_values "$TOOL_FLOOR_MANIFEST" tool)" || {
+    printf 'ERROR: could not read the version floors from %s\n' "$TOOL_FLOOR_MANIFEST" >&2
+    printf 'Policy: runner dependencies must meet config/tool-floors.tsv; no suites were run or credited as skipped.\n' >&2
+    exit 2
+  }
+  while IFS= read -r floor_tool; do
+    [[ -n "$floor_tool" ]] || continue
+    for command_name in "${required_commands[@]}"; do
+      [[ "$command_name" == "$floor_tool" ]] || continue
+      tool_floor_check "$floor_tool" || unsatisfied_floor+=("$floor_tool")
+    done
+  done <<<"$floor_tools"
+fi
+
+# The reason is tool_floor_check's to state -- below the floor, unparseable, or
+# no probe at all -- so this names the tools without asserting which it was.
+if ((${#unsatisfied_floor[@]} > 0)); then
+  printf 'ERROR: test dependencies did not satisfy their documented floor: %s\n' "${unsatisfied_floor[*]}" >&2
+  printf 'Policy: runner dependencies must meet config/tool-floors.tsv; no suites were run or credited as skipped.\n' >&2
   exit 2
 fi
 

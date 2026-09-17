@@ -11,6 +11,12 @@ mkdir -p "$mock_bin" "$test_root/home" "$test_root/data"
 
 cat >"$mock_bin/nvim" <<'EOF'
 #!/usr/bin/env bash
+# Answered before anything is logged: the installer's floor check asks this,
+# and it must not count as a bootstrap invocation.
+if [[ "${1:-}" == --version ]]; then
+  printf 'NVIM v%s\n' "${MOCK_NVIM_VERSION:-0.12.5}"
+  exit 0
+fi
 printf 'bootstrap=%s nvim' "${DOTFILES_MASON_BOOTSTRAP:-}" >>"$COMMAND_LOG"
 printf ' <%s>' "$@" >>"$COMMAND_LOG"
 printf '\n' >>"$COMMAND_LOG"
@@ -194,4 +200,20 @@ fi
   exit 1
 }
 
+# A Neovim below the documented floor must stop before any headless phase,
+# naming the version and the floor. Below it, Mason fails partway through with
+# a Lua error that names neither Neovim nor a version.
+below_floor_log="$test_root/below-floor.log"
+if "${test_environment[@]}" MOCK_NVIM_VERSION=0.9.5 \
+  COMMAND_LOG="$below_floor_log" XDG_DATA_HOME="$test_root/below-floor-data" \
+  "$repo_root/common/install-neovim-tools.sh" >"$test_root/below-floor.out" 2>&1; then
+  printf 'A Neovim below the floor unexpectedly bootstrapped.\n' >&2
+  exit 1
+fi
+grep -Fq 'nvim 0.9.5 is older than the required 0.12' "$test_root/below-floor.out"
+[[ ! -s "$below_floor_log" ]] || {
+  printf 'The floor check must refuse before any nvim --headless call:\n%s\n' \
+    "$(cat "$below_floor_log")" >&2
+  exit 1
+}
 printf 'Neovim bootstrap convergence checks passed.\n'
