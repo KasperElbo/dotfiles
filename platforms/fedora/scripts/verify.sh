@@ -507,22 +507,17 @@ section "Neovim tooling"
 
 check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
 
-# Two facts, so a failure says which one broke. First the reported version
-# against the floor, which comes from config/tool-floors.tsv like every other
-# enforcer of it. Then the same floor asserted by Neovim itself, which also
-# proves it starts: a Lua error raised from an Ex command never reaches the
-# exit status, so this check must turn a failed version test into `cquit`
-# itself rather than rely on the error propagating (tests/test-neovim-tool-
-# ownership.sh holds it to that).
+# The floor comes from config/tool-floors.tsv like every other enforcer of it,
+# and Neovim itself asserts it, which also proves it starts: a Lua error raised
+# from an Ex command never reaches the exit status, so this check must turn a
+# failed version test into `cquit` itself rather than rely on the error
+# propagating (tests/test-neovim-tool-ownership.sh holds it to that).
 nvim_floor="$(tool_floor nvim)"
-check_version_at_least "Neovim" "$(tool_version nvim)" "$nvim_floor"
-if [[ -n "$nvim_floor" ]]; then
-  nvim_baseline_lua='+lua if vim.fn.has("nvim-'"$nvim_floor"'") ~= 1 then vim.cmd("cquit 1") end'
-  if nvim --headless "$nvim_baseline_lua" +qa >/dev/null 2>&1; then
-    pass "Neovim starts and reports >= $nvim_floor"
-  else
-    fail "Neovim startup/version check failed (requires >= $nvim_floor)"
-  fi
+nvim_baseline_lua='+lua if vim.fn.has("nvim-'"$nvim_floor"'") ~= 1 then vim.cmd("cquit 1") end'
+if nvim --headless "$nvim_baseline_lua" +qa >/dev/null 2>&1; then
+  pass "Neovim starts and reports >= $nvim_floor"
+else
+  fail "Neovim startup/version check failed (requires >= $nvim_floor)"
 fi
 
 # ---------------------------------------------------------------------------
