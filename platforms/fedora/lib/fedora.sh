@@ -36,7 +36,7 @@ fedora_retired_stow_links() {
     [[ -L "$target_path" ]] || continue
     [[ "$(realpath -m "$target_path")" != "$retired_prefix"* ]] ||
       printf '%s\n' "$target_path"
-  done < <(find "$FEDORA_STOW_DIR/$package" -type f -print0)
+  done < <(find "$FEDORA_STOW_DIR/$package" \( -type f -o -type l \) -print0)
 }
 
 # fedora_retired_link_exemptions <package>...: the --replaces argument vector

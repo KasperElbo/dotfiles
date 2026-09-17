@@ -117,6 +117,47 @@ grep -Fqx 'user-owned asset' "$platform_home/$theme_relative"
 }
 printf 'PASS: the Stow scripts refuse before they change HOME\n'
 
+# The migration this script carries exists for machines still holding the
+# retired layout: top-level sway and waybar links, and wallpaper links the Sway
+# package owned before theme-assets did. Every one of those either dangles or
+# points into this checkout, so the preflight has to exempt the links the apply
+# loop removes, or it refuses exactly the machines the migration repairs.
+migration_home="$test_root/migration-home"
+retired_sway="$migration_home/.config/sway/config"
+retired_waybar="$migration_home/.config/waybar/style.css"
+retired_wallpaper="$migration_home/.local/share/wallpapers/catppuccin-macchiato.webp"
+fedora_stow_dir="$repo_root/platforms/fedora/stow"
+mkdir -p "$(dirname "$retired_sway")" "$(dirname "$retired_waybar")" \
+  "$(dirname "$retired_wallpaper")"
+ln -s "$repo_root/sway/.config/sway/config" "$retired_sway"
+ln -s "$repo_root/waybar/.config/waybar/style.css" "$retired_waybar"
+ln -s "$fedora_stow_dir/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
+  "$retired_wallpaper"
+
+if ! HOME="$migration_home" \
+  XDG_CONFIG_HOME="$migration_home/.config" \
+  XDG_DATA_HOME="$migration_home/.local/share" \
+  "$repo_root/platforms/fedora/scripts/stow.sh" --sway \
+  >"$test_root/migration-stow.log" 2>&1; then
+  printf 'The Fedora Stow script refused a HOME carrying the retired links:\n' >&2
+  cat "$test_root/migration-stow.log" >&2
+  exit 1
+fi
+
+assert_relinked() {
+  local target="$1" source="$2"
+  [[ "$(realpath "$target")" == "$(realpath "$source")" ]] || {
+    printf 'Retired link was not rewritten: %s -> %s\n' \
+      "$target" "$(readlink "$target")" >&2
+    exit 1
+  }
+}
+assert_relinked "$retired_sway" "$fedora_stow_dir/sway/.config/sway/config"
+assert_relinked "$retired_waybar" "$fedora_stow_dir/waybar/.config/waybar/style.css"
+assert_relinked "$retired_wallpaper" \
+  "$fedora_stow_dir/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp"
+printf 'PASS: the Fedora preflight exempts the retired links its migration removes\n'
+
 tracked_config="$repo_root/ghostty/.config/ghostty/config"
 tracked_hash="$(sha256sum "$tracked_config")"
 unlink "$home/.config/dotfiles/ghostty.conf"
@@ -295,15 +336,6 @@ fi
 exit 0
 EOF
 
-# The disk preflight must decide on a known figure, never on the free space of
-# the machine running the tests.
-cat >"$mock_bin/df" <<'EOF_DF'
-#!/usr/bin/env bash
-printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
-printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
-EOF_DF
-chmod +x "$mock_bin/df"
-
 chmod +x \
   "$mock_bin/mock-command" \
   "$mock_bin/terra-dnf" \
@@ -393,13 +425,6 @@ chmod +x "$mock_bin/mise"
 
 cat >"$mock_bin/nvim" <<'EOF'
 #!/usr/bin/env bash
-# The installer checks the Neovim floor before any bootstrap phase. Answer it
-# here, at the floor config/tool-floors.tsv declares, and do not let the probe
-# count as a bootstrap invocation.
-if [[ "${1:-}" == --version ]]; then
-  printf 'NVIM v0.12.5\n'
-  exit 0
-fi
 for argument in "$@"; do
   if [[ "$argument" == '+Lazy! restore mason.nvim' ]]; then
     mkdir -p "$XDG_DATA_HOME/nvim/lazy/mason.nvim"
