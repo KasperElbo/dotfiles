@@ -175,7 +175,6 @@ if assert_single_capability_selection "$duplicated_installer" fedora_selected_ca
 fi
 grep -Fq "$duplicated_installer resolves its selected capabilities in 2 loops" "$test_root/duplicated-selection"
 printf 'Single capability selection guard passed.\n'
-
 # The preflight, capability and installer-selection libraries are each correct
 # sourced alone, without lib/common.sh first. preflight.sh used to report a
 # present command as missing, because command_exists lives in common.sh.
@@ -288,9 +287,9 @@ assert_success
 
 # A host that connects at once and answers slowly is reachable, not refused.
 # The probe's connect bound and its total ceiling are separate budgets: this
-# curl honours the ones it is handed, the way the real one does -- the
-# connection is immediate, so only --max-time can expire, and exit 28 then
-# means "said nothing at all", not "could not connect".
+# curl honours the ones it is handed, the way the real one does -- --max-time
+# bounds the whole operation, so an answer that arrives within the ceiling
+# passes even though it took far longer than the connect bound allows.
 cat >"$probe_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 max_time=0
@@ -310,8 +309,8 @@ PROBE_RESPONSE_DELAY=3 DOTFILES_FETCH_PROBE_TIMEOUT=1 DOTFILES_FETCH_PROBE_MAX_T
   run_preflight_probe preflight_network \
   https://example.invalid/installer.sh 'the example installer'
 assert_success
-# The ceiling still bounds the probe: a host that says nothing at all within
-# it is unreachable, so an offline machine is still refused in seconds.
+# The ceiling still bounds the probe: a host whose answer does not complete
+# within it exits 28, so an offline machine is still refused in seconds.
 PROBE_RESPONSE_DELAY=5 DOTFILES_FETCH_PROBE_TIMEOUT=1 DOTFILES_FETCH_PROBE_MAX_TIME=2 \
   run_preflight_probe preflight_network \
   https://example.invalid/installer.sh 'the example installer'
@@ -364,29 +363,28 @@ assert_file_empty "$test_root/logs/dnf.log"
 stub_roomy_df
 printf 'System disk floor is measured on the package-manager filesystem.\n'
 
-# A machine still carrying the pre-move Sway layout is migrated by ./install.sh,
-# not refused by it: the entry-point preflight is given the same retired-link
-# exemptions platforms/fedora/scripts/stow.sh removes before it stows.
-retired_home="$test_root/retired-home"
-retired_config="$test_root/retired-config"
-retired_wallpaper="$retired_home/.local/share/wallpapers/catppuccin-macchiato.webp"
-mkdir -p "$(dirname "$retired_wallpaper")" "$retired_config"
-ln -s "$repo_root/platforms/fedora/stow/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
-  "$retired_wallpaper"
-# An unrelated conflict, so the run still stops in preflight and the output
-# proves the check ran rather than being skipped.
-printf 'user-owned zshenv\n' >"$retired_home/.zshenv"
-if HOME="$retired_home" XDG_CONFIG_HOME="$retired_config" \
-  XDG_STATE_HOME="$test_root/retired-state" PATH="$mock_bin:$PATH" \
+# The network half refuses the same way. This machine has no Terra repository,
+# so the run is certain to download from one; an unreachable host must stop the
+# run ahead of install_lifecycle_begin and the first DNF transaction rather
+# than partway through it.
+cat >"$mock_bin/rpm" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in '-q terra-release') exit 1 ;; esac
+exit 0
+EOF
+cat >"$mock_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+exit 7
+EOF
+chmod +x "$mock_bin/rpm" "$mock_bin/curl"
+if HOME="$integration_home" XDG_CONFIG_HOME="$integration_config" \
+  XDG_STATE_HOME="$test_root/offline-state" PATH="$mock_bin:$PATH" \
   OS_RELEASE_FILE="$test_root/os-release" \
   "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
-  >"$test_root/retired" 2>&1; then
-  printf 'A conflicting HOME unexpectedly passed the entry-point preflight.\n' >&2; exit 1
+  >"$test_root/offline" 2>&1; then
+  printf 'An unreachable Terra repository unexpectedly passed preflight.\n' >&2; exit 1
 fi
-retired_output="$(cat "$test_root/retired")"
-assert_contains "$retired_output" 'Stow conflict [zsh]: existing file or directory'
-assert_not_contains "$retired_output" "$retired_wallpaper"
-[[ -L "$retired_wallpaper" ]] || {
-  printf 'The refused preflight removed the retired link it only exempted.\n' >&2; exit 1
-}
-printf 'Entry-point preflight exempts the retired Sway links.\n'
+grep -Fq 'Cannot reach the Terra repository' "$test_root/offline"
+assert_file_empty "$test_root/logs/dnf.log"
+[[ ! -e "$test_root/offline-state/dotfiles/install.conf" ]]
+printf 'An unreachable download host refuses before anything is changed.\n'

@@ -235,8 +235,8 @@ preflight_fedora() {
   # network-source: terra-signing-key,terra-repo
   terra_release_installed ||
     preflight_network "$TERRA_HOST_URL" 'the Terra repository'
-  local specs=() packages=() replaced=() spec capability stow_specs exemption
-  local selected=()
+  local specs=() spec capability stow_specs exemption
+  local selected=() packages=() replaced=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(fedora_selected_capabilities)
   capability_validate_selection fedora "${selected[@]}"
   # A checked substitution, not < <(...): a manifest header without the stow
@@ -245,12 +245,8 @@ preflight_fedora() {
   while IFS= read -r spec; do
     [[ -z "$spec" ]] || { specs+=("$spec"); packages+=("${spec#*::}"); }
   done <<<"$stow_specs"
-  # The same exemptions platforms/fedora/scripts/stow.sh removes before it
-  # stows, so a machine still carrying the pre-move Sway layout is migrated
-  # here rather than refused at the entry point the migration runs from.
-  while IFS= read -r exemption; do
-    replaced+=("$exemption")
-  done < <(fedora_retired_link_exemptions ${packages[@]+"${packages[@]}"})
+  while IFS= read -r exemption; do replaced+=("$exemption"); done \
+    < <(fedora_retired_link_exemptions ${packages[@]+"${packages[@]}"})
   preflight_stow_packages ${replaced[@]+"${replaced[@]}"} "${specs[@]}"
 }
 
