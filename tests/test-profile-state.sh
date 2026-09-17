@@ -62,7 +62,8 @@ for remote in 'git@host:~user/repo.git' 'ssh://git@host/~/repo.git' \
     printf 'Valid git remote rejected as a repository value: %s\n' "$remote" >&2; exit 1
   }
 done
-for invalid in $'git@host:repo.git\nstatus=installed' 'https://host/repo.git?ref=main'; do
+for invalid in $'git@host:repo.git\nstatus=installed' $'git@host:repo.git\nstatus' \
+  'https://host/repo.git?ref=main'; do
   if profile_state_validate_value repository "$invalid"; then
     printf 'Repository value that breaks the state format passed: %s\n' "$invalid" >&2; exit 1
   fi
