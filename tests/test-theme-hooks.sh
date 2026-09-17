@@ -238,6 +238,38 @@ assert_contains "$TEST_OUTPUT" 'hook:aaa-exits'
 assert_path_exists "$machine/state/later-hook-ran"
 printf 'PASS: a hook that exits is contained by its own boundary\n'
 
+# A hook that fails partway must stop at the failure. The two fixtures above
+# fail on their last statement, which is also the subshell's own status; a
+# failure followed by more code is what `(...) || status=$?` let run on,
+# because bash ignores errexit inside a command in an `||` list.
+new_machine 'base,dotnet-debug'
+cat >"$machine/config/dotfiles/theme-hooks.d/aaa-fails-early.sh" <<'EOF'
+false
+theme_action hook:mid-hook touch "$XDG_STATE_HOME/mid-hook-marker"
+EOF
+run_theme
+assert_status 3
+assert_contains "$TEST_OUTPUT" 'hook "hook:aaa-fails-early" failed (exit 1)'
+assert_not_contains "$TEST_OUTPUT" 'selected.'
+assert_path_missing "$machine/state/mid-hook-marker"
+printf 'PASS: a hook stops at its first failing statement\n'
+
+# The same holds one boundary down, inside a named action.
+new_machine 'base,dotnet-debug'
+cat >"$machine/config/dotfiles/theme-hooks.d/aaa-action-fails-early.sh" <<'EOF'
+fails_early() {
+  false
+  touch "$XDG_STATE_HOME/mid-action-marker"
+}
+theme_action hook:fails-early fails_early
+EOF
+run_theme
+assert_status 3
+assert_contains "$TEST_OUTPUT" 'action "hook:fails-early" failed (exit 1)'
+assert_not_contains "$TEST_OUTPUT" 'selected.'
+assert_path_missing "$machine/state/mid-action-marker"
+printf 'PASS: an action stops at its first failing statement\n'
+
 # A failure writing the shared state is different: nothing after it is
 # meaningful, so the command stops and says so.
 new_machine 'base,dotnet-debug'

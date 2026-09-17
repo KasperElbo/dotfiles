@@ -93,7 +93,10 @@ echo "Switching to Catppuccin $flavour..."
 
 # The shared state files are what every other consumer reads. If they cannot
 # be written there is nothing meaningful left to do, so this one is required.
-theme_action_required shared-state write_theme_state "$flavour" || exit 1
+# It is a plain statement, not `... || exit 1`: in an `||` list bash ignores
+# errexit inside the action, so a write that failed partway would run on. A
+# failure returns 1, which this script's errexit turns into exit status 1.
+theme_action_required shared-state write_theme_state "$flavour"
 
 # Reload an existing tmux server.
 # shellcheck disable=SC2329 # Invoked indirectly through theme_action.
