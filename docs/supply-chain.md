@@ -96,6 +96,18 @@ transactions, remote scripts, and anything else whose retry could duplicate a
 side effect are never retried automatically, and must never be routed through
 this library.
 
+The same library carries one operation that is not a transfer:
+`fetch_host_reachable`, the reachability probe a platform preflight runs before
+it changes anything. It asks for headers only and discards them, is never
+retried, and counts any HTTP answer as reachable, because only a failure to
+resolve, to connect, to establish a verified TLS session, or to finish within
+its own ceiling proves the network path unusable. It keeps the HTTPS and TLS
+floor above, but is bounded separately and far more tightly
+(`DOTFILES_FETCH_PROBE_TIMEOUT`, `DOTFILES_FETCH_PROBE_MAX_TIME`), so an offline
+machine is refused in seconds rather than after a download budget. Which run
+probes which host, and what the refusal means, is in
+[troubleshooting](troubleshooting.md#the-installer-refuses-to-start).
+
 `scripts/bootstrap-macos.sh` spells the same bounds out inline: it runs under
 Apple's Bash 3.2 before any repository library exists.
 

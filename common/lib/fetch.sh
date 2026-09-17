@@ -117,9 +117,9 @@ fetch_to_file() {
 # to connect, to establish a verified TLS session, or to finish the
 # headers-only request within the probe ceiling counts as unreachable -- an
 # HTTP answer of any status means the network path works, and the real
-# download reports its own error. curl is used rather than a raw socket precisely because it applies
-# the same proxy and TLS settings the download will, so anything rejected
-# here would have failed the download too.
+# download reports its own error. curl is used rather than a raw socket
+# precisely because it applies the same proxy and TLS settings the download
+# will, so anything rejected here would have failed the download too.
 #
 # Exit status: 0 reachable, 1 unreachable.
 fetch_host_reachable() {

@@ -54,10 +54,12 @@ the named path, then rerun.
 The reachability check is connect-level and runs only for a download the run is
 certain to make: the Terra repository on a Fedora machine that does not have it
 yet, the mise, Starship or Homebrew installer on a machine missing that tool. A
-machine whose plan needs nothing from the network installs offline, and a
-machine that is offline when it does need one is told in seconds instead of
-failing partway through the first mutating step. It uses the same proxy
-settings as the download itself, so a proxy that works for `curl` works here.
+run that needs none of those downloads is never refused by this check, and a run
+that needs one is told in seconds instead of failing partway through the first
+mutating step. Nothing else is probed, so a package-manager transaction still
+reports its own network failure when it reaches it. The probe uses the same
+proxy settings as the download itself, so a proxy that works for `curl` works
+here.
 
 ## Stow conflicts
 
