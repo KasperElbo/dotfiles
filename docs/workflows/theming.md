@@ -69,6 +69,9 @@ action with its own error boundary:
   the others, and leaves the command with status 3 and a summary of what
   applied and what did not.
 
+A boundary stops at the first statement that fails inside it, so an action or
+hook never runs on past its own failure and is never reported as applied.
+
 ```text
 Catppuccin mocha was applied only partially.
 Applied:
