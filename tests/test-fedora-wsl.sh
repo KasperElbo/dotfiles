@@ -429,6 +429,11 @@ case "${1:-}" in
   *) /usr/bin/id "$@" ;;
 esac
 EOF
+cat >"$bootstrap_bin/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
+EOF
 cat >"$bootstrap_bin/getent" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == passwd && "${2:-}" == fedora-test ]]; then
@@ -448,7 +453,7 @@ fi
 printf '%s\n' "$path"
 EOF
 chmod +x "$bootstrap_bin/mock-command" \
-  "$bootstrap_bin/id" "$bootstrap_bin/getent"
+  "$bootstrap_bin/id" "$bootstrap_bin/getent" "$bootstrap_bin/df"
 chmod +x "$bootstrap_stub_root/handlers/sudo" "$bootstrap_bin/mktemp"
 
 bootstrap_commands=(
