@@ -35,8 +35,9 @@ their preflight, `common/install-neovim-tools.sh` checks it before the first
 headless Neovim phase, and each platform verifier asserts it on an installed
 machine, so a tool below its floor is named here rather than failing later
 inside a suite or a Mason build. `./scripts/validate-tool-floors.py` fails the
-build if this table and that registry disagree, or if a consumer stops reading
-it.
+build if this table and that registry disagree, if a consumer stops reading it,
+or if a mise configuration this repository provisions pins a tool below its own
+floor.
 
 The Neovim spec-resolution suite inside `tests/test-neovim-tool-ownership.sh`
 additionally needs a lazy.nvim checkout, because it resolves this repository's

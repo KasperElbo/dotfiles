@@ -131,6 +131,72 @@ assert_contains "$TEST_OUTPUT" 'docs/workflows/editor.md:1 states 0.11 as the nv
 assert_not_contains "$TEST_OUTPUT" 'as the python3 minimum'
 assert_not_contains "$TEST_OUTPUT" '0.25'
 
+# Prose here is hard-wrapped, so a stated minimum belongs to the paragraph that
+# names the tool, not to the physical line the number landed on: a reword that
+# pushes the floor onto the next line must not drop the check.
+write_wrapped_requirement() {
+  {
+    printf -- 'Neovim is owned by whatever native provider the platform already\n'
+    printf -- 'uses, and the tracked configuration requires %s.\n' "$1"
+  } >"$requirements"
+  git -C "$fixture" add -A
+}
+write_wrapped_requirement '0.12 or newer'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_success
+
+write_wrapped_requirement '0.11 or newer'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'docs/workflows/editor.md:2 states 0.11 as the nvim minimum'
+
+# A minimum a paragraph states before naming any registry tool is an error, not
+# a silently dropped check: dropping it is what turns this into false assurance.
+{
+  printf -- 'The tracked configuration requires 0.12 or newer, which the Neovim\n'
+  printf -- 'each supported platform packages already satisfies.\n'
+} >"$requirements"
+git -C "$fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'docs/workflows/editor.md:1 states a 0.12 minimum before naming the tool'
+
+# A floor for something the registry does not track is left alone; the pages
+# state minimums for a kernel and a system Bash that this registry never owns.
+{
+  printf -- '- the hardware installer requires a kernel of at least 7.1\n'
+  printf -- '- the entry point re-executes with Bash 4.4 or newer\n'
+} >"$requirements"
+git -C "$fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_success
+
+# The one version this repository actually controls is the mise pin, so it is
+# held to the registry too: raising a floor above the pin must fail the build
+# rather than leave a machine provisioning less than the floor demands.
+pin_nvim() {
+  mkdir -p "$fixture/mise/.config/mise"
+  printf '[tools]\nnvim = %s\nuv = "latest"\n' "$1" \
+    >"$fixture/mise/.config/mise/config.toml"
+  git -C "$fixture" add -A
+}
+write_wrapped_requirement '0.12 or newer'
+pin_nvim '{ version = "0.12.5", bin_path = "bin" }'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_success
+
+pin_nvim '"0.11.9"'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'mise/.config/mise/config.toml pins nvim 0.11.9, below the 0.12 floor'
+
+# A pin that names no version cannot drift below a floor and is not an error.
+pin_nvim '"latest"'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_success
+
 # A consumer that stops reading the registry is a floor free to drift again.
 unenforced="$root/unenforced-floors.tsv"
 printf 'tool\tmin_version\trequirement\tconsumers\n' >"$unenforced"

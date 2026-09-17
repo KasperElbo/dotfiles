@@ -12,7 +12,7 @@ That floor is stated once, in
 runner, `common/install-neovim-tools.sh` and every platform verifier check
 against; no shell script repeats it, and `scripts/validate-tool-floors.py`
 fails the build if any documentation page states a different minimum than the
-registry does.
+registry does, or if the Parrot mise pin above drops below it.
 
 The editor configuration uses:
 

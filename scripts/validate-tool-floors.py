@@ -4,7 +4,7 @@
 ``config/tool-floors.tsv`` is the one place a documented minimum version is
 stated. Before it existed, three documentation pages stated two different
 Neovim minimums and nothing enforced either one, so this validator checks the
-two ways that can regress:
+three ways that can regress:
 
 1. **Nobody enforces the floor.** Every consumer a row names must exist and
    must actually read the floor through ``tool_floor``/``tool_floor_check``. A
@@ -16,6 +16,11 @@ two ways that can regress:
    state the registry's floor, and ``docs/testing.md`` must state every floor,
    so a new floor cannot be added without documenting it and a documented one
    cannot drift on a page nobody remembered to update.
+3. **A pinned version falls below its own floor.** The mise configurations
+   this repository provisions are the one place it controls an installed
+   version, so a pin for a registry tool must satisfy that tool's floor;
+   otherwise raising the floor leaves the machine provisioning less than the
+   floor demands with the build still green.
 
 Usage:
     scripts/validate-tool-floors.py [--root DIR]
@@ -30,6 +35,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tomllib
 
 FIELDS = ["tool", "min_version", "requirement", "consumers"]
 VERSION = re.compile(r"^[0-9]+(\.[0-9]+)*$")
@@ -46,24 +52,38 @@ LABEL_NOISE = re.compile(r"\([^)]*\)|`[^`]*`")
 DOC_FLOOR = re.compile(
     r">=\s*(?P<least>[0-9]+(?:\.[0-9]+)+)"
     r"|(?P<plus>[0-9]+(?:\.[0-9]+)+)\s*\+"
-    r"|(?P<newer>[0-9]+(?:\.[0-9]+)+)(?=\s+or\s+(?:newer|later|above))"
-    r"|(?:at least|minimum(?: version)?)\s+(?P<minimum>[0-9]+(?:\.[0-9]+)+)",
+    r"|(?P<newer>[0-9]+(?:\.[0-9]+)+)(?=\s+or\s+newer)"
+    r"|at least\s+(?P<minimum>[0-9]+(?:\.[0-9]+)+)",
     re.IGNORECASE,
 )
 # A tool is named only when it stands alone: `nvim` inside `lazy.nvim` or
 # `nvim-treesitter` is a plugin, not this registry's Neovim.
 MENTION = r"(?<![\w.-])%s(?![\w-])"
 TOOLCHAIN_DOC = pathlib.Path("docs") / "testing.md"
+MISE_CONFIGS = ("*mise/config.toml", "*.mise.toml", "mise.toml")
+# What starts a statement of its own: a list item, a table row, a heading. A
+# blank line ends one. Everything else continues the statement above it, which
+# is how a hard-wrapped sentence keeps the tool it named.
+BLOCK_START = re.compile(r"^\s*(?:[-*+]\s|[0-9]+[.)]\s|\||#)")
 
 
-def tracked_markdown(root: pathlib.Path) -> list[pathlib.Path]:
+def tracked(root: pathlib.Path, *patterns: str) -> list[pathlib.Path]:
     listing = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-z", "--", "*.md"],
+        ["git", "-C", str(root), "ls-files", "-z", "--", *patterns],
         check=True,
         capture_output=True,
         text=True,
     ).stdout
     return [root / name for name in listing.split("\0") if name]
+
+
+def satisfies(version: str, minimum: str) -> bool:
+    found = [int(part) for part in version.split(".")]
+    floor = [int(part) for part in minimum.split(".")]
+    width = max(len(found), len(floor))
+    found += [0] * (width - len(found))
+    floor += [0] * (width - len(floor))
+    return found >= floor
 
 
 def stated_floors(line: str) -> list[tuple[int, str]]:
@@ -74,30 +94,62 @@ def stated_floors(line: str) -> list[tuple[int, str]]:
     return found
 
 
-def attributed_floors(line: str, names: dict[str, str]) -> list[tuple[str, str]]:
-    """Each minimum the line states, paired with the tool it is stated for.
+def blocks(lines: list[str]) -> list[list[tuple[int, str]]]:
+    """The page split into statements, because a sentence wraps across lines.
 
-    A minimum belongs to the nearest tool name or label written before it, so
-    `Neovim 0.12+ and Python 3.11+` states one floor for each of the two tools
-    rather than both numbers for both tools.
+    Prose here is hard-wrapped, so `Neovim ... requires 0.12 or newer` is one
+    reword away from spanning two lines; attribution has to follow the
+    statement the sentence lives in rather than the line the number landed on.
+    A list item, a table row and a heading each start a statement of their own,
+    so one bullet's floor is never read as the bullet above it.
     """
-    lowered = line.lower()
-    mentions = sorted(
-        (match.start(), tool)
-        for tool, label in names.items()
-        for spelling in {tool.lower(), label.lower()}
-        for match in re.finditer(MENTION % re.escape(spelling), lowered)
-    )
+    found: list[list[tuple[int, str]]] = []
+    current: list[tuple[int, str]] = []
+    for number, raw in enumerate(lines, 1):
+        if not raw.strip() or BLOCK_START.match(raw):
+            if current:
+                found.append(current)
+                current = []
+        if raw.strip():
+            current.append((number, raw))
+    if current:
+        found.append(current)
+    return found
+
+
+def attributed_floors(
+    block: list[tuple[int, str]], names: dict[str, str]
+) -> tuple[list[tuple[int, str | None, str]], bool]:
+    """Each minimum the block states, paired with the tool it is stated for.
+
+    A minimum belongs to the nearest tool name or label written before it in
+    the same paragraph, so `Neovim 0.12+ and Python 3.11+` states one floor for
+    each of the two tools rather than both numbers for both tools. The owner is
+    ``None`` when no registry tool is named before it; the second return value
+    says whether the paragraph names a registry tool at all, which is how an
+    unattributable floor is told apart from a floor for something the registry
+    does not track, such as a kernel or a system Bash.
+    """
+    mentions: list[tuple[tuple[int, int], str]] = []
+    floors: list[tuple[tuple[int, int], str]] = []
+    for number, raw in block:
+        lowered = raw.lower()
+        for tool, label in names.items():
+            for spelling in {tool.lower(), label.lower()}:
+                for match in re.finditer(MENTION % re.escape(spelling), lowered):
+                    mentions.append(((number, match.start()), tool))
+        for column, version in stated_floors(raw):
+            floors.append(((number, column), version))
+    mentions.sort()
     attributed = []
-    for position, version in stated_floors(line):
+    for position, version in sorted(floors):
         owner = None
         for start, tool in mentions:
             if start >= position:
                 break
             owner = tool
-        if owner is not None:
-            attributed.append((owner, version))
-    return attributed
+        attributed.append((position[0], owner, version))
+    return attributed, bool(mentions)
 
 
 def fail(message: str) -> None:
@@ -185,11 +237,22 @@ def main() -> int:
     toolchain = TOOLCHAIN_DOC.as_posix()
     names = {tool: labels.get(tool, tool) for tool in floors}
     stated_in_toolchain: set[str] = set()
-    for path in tracked_markdown(root):
+    for path in tracked(root, "*.md"):
         page = path.relative_to(root).as_posix()
         lines = path.read_text(encoding="utf-8").splitlines()
-        for number, raw in enumerate(lines, 1):
-            for tool, stated in attributed_floors(raw, names):
+        for block in blocks(lines):
+            attributed, names_a_tool = attributed_floors(block, names)
+            for number, tool, stated in attributed:
+                if tool is None:
+                    if not names_a_tool:
+                        continue
+                    fail(
+                        f"{page}:{number} states a {stated} minimum before naming the "
+                        f"tool it belongs to; name the tool before its floor so the "
+                        f"registry can check it"
+                    )
+                    errors += 1
+                    continue
                 minimum = floors[tool]
                 if stated == minimum:
                     if page == toolchain:
@@ -208,6 +271,24 @@ def main() -> int:
                 f"({minimum}); every floor belongs in its toolchain table"
             )
             errors += 1
+
+    for path in tracked(root, *MISE_CONFIGS):
+        config = path.relative_to(root).as_posix()
+        with path.open("rb") as stream:
+            pins = tomllib.load(stream).get("tools", {})
+        for tool, minimum in floors.items():
+            requested = pins.get(tool)
+            for entry in requested if isinstance(requested, list) else [requested]:
+                pinned = entry.get("version") if isinstance(entry, dict) else entry
+                if not isinstance(pinned, str) or not VERSION.match(pinned):
+                    continue
+                if satisfies(pinned, minimum):
+                    continue
+                fail(
+                    f"{config} pins {tool} {pinned}, below the {minimum} floor "
+                    f"{manifest.name} declares"
+                )
+                errors += 1
 
     return 1 if errors else 0
 
