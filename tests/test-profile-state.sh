@@ -71,13 +71,13 @@ done
 remote_checkout="$test_root/remote-checkout"
 git init -q "$remote_checkout"
 git -C "$remote_checkout" -c user.name=Test -c user.email=test@example.com \
-  commit -q --allow-empty -m 'scratch checkout'
+  -c commit.gpgsign=false commit -q --allow-empty -m 'scratch checkout'
 git -C "$remote_checkout" remote add origin 'git@host:~user/repo.git'
 (
   # shellcheck source=../common/lib/install-lifecycle.sh
   source "$repo_root/common/lib/install-lifecycle.sh"
-  HOME="$test_root/lifecycle-home"
-  XDG_STATE_HOME="$test_root/lifecycle-state"
+  export HOME="$test_root/lifecycle-home"
+  export XDG_STATE_HOME="$test_root/lifecycle-state"
   DOTFILES_ROOT="$remote_checkout"
   install_lifecycle_begin fedora base './install.sh --non-interactive'
   [[ "$(profile_state_read "$(install_state_path)" repository install)" == 'git@host:~user/repo.git' ]]
