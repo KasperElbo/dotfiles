@@ -418,18 +418,9 @@ if [[ -f "$ai_state" ]]; then
     macos_ai_check_no_duplicate_provider "$name"
   done
 
-  global_npm="$(npm ls --global --depth=0 --parseable 2>/dev/null || true)"
-  npm_duplicate="false"
-  for package in @anthropic-ai/claude-code @openai/codex gnhf backpass acpx \
-    gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi; do
-    if [[ "$global_npm" == *"/node_modules/$package" ]] ||
-      [[ "$global_npm" == *"/node_modules/$package"$'\n'* ]]; then
-      fail "$package is also installed globally with npm; the AI profile is mise-owned"
-      npm_duplicate="true"
-    fi
-  done
-  [[ "$npm_duplicate" == true ]] ||
-    pass "No AI package is duplicated in a global npm prefix"
+  # The global npm prefix is ruled out by common/verify-ai.sh, which runs on
+  # every platform that selects the AI profile. It used to be checked only
+  # here, which left the same duplicate undetected on Fedora.
 
   # A command that only works because this verifier's process activated mise is
   # not actually installed for the user. Prove it resolves in a fresh login.

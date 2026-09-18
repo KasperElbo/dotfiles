@@ -110,6 +110,8 @@ esac
 EOF
 chmod +x "$mock_bin/mise"
 
+test_stub_npm_global "$mock_bin"
+
 cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 set -u

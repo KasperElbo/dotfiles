@@ -158,13 +158,21 @@ for forked in install-ai verify-ai; do
 done
 printf 'PASS: macOS reuses the shared AI installer and verifier\n'
 
-# The macOS verifier owns the two questions the shared verifier cannot answer.
+# The macOS verifier owns the one question the shared verifier cannot answer.
 macos_verifier="$macos_root/scripts/verify.sh"
 grep -Fq 'would need Rosetta' "$macos_verifier" ||
   _test_die 'the macOS verifier does not reject an Intel-only AI binary'
-grep -Fq 'global npm prefix' "$macos_verifier" ||
-  _test_die 'the macOS verifier does not rule out a global npm duplicate'
-printf 'PASS: macOS verification adds the arm64 and duplicate-provider checks\n'
+printf 'PASS: macOS verification adds the arm64 check\n'
+
+# The global npm prefix used to be ruled out here and nowhere else, which left
+# the same duplicate undetected on Fedora. It belongs to the shared verifier
+# now, so assert it there -- and assert it is gone from here, or the two could
+# drift back apart without anything noticing.
+grep -Fq 'check_no_global_npm_duplicate' "$repo_root/common/verify-ai.sh" ||
+  _test_die 'the shared AI verifier does not rule out a global npm duplicate'
+! grep -Fq 'npm ls --global' "$macos_verifier" ||
+  _test_die 'the macOS verifier still inspects the global npm prefix itself'
+printf 'PASS: the global npm prefix is ruled out once, for every platform\n'
 
 # ---------------------------------------------------------------------------
 # Rerun and lifecycle

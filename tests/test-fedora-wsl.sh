@@ -554,6 +554,8 @@ done
 EOF
 chmod +x "$bootstrap_bin/mise" "$bootstrap_bin/nvim"
 
+test_stub_npm_global "$bootstrap_bin"
+
 rm -- "$bootstrap_bin/zsh"
 # MOCK_LOGIN_PATH_PREFIX models a directory a real login would put ahead of
 # the mise shims, such as a dnf package's /usr/bin copy of a runtime.
@@ -572,6 +574,15 @@ elif [[ "$*" == *'command -v "$1"'* ]]; then
   command -v "${*: -1}" >/dev/null || exit 1
 elif [[ "$*" == *'claude --version'* ]]; then
   claude --version >/dev/null || exit 1
+elif [[ "$*" == *'login-env:'* ]]; then
+  # A fresh login reads the stowed ~/.zshenv, so the answer has to come from the
+  # file the installer actually deployed rather than from this fixture.
+  # Extracting the exports is enough, and is all this stub can do: .zshenv is
+  # Zsh and this is Bash.
+  while IFS= read -r assignment; do
+    export "${assignment%%=*}=${assignment#*=}"
+  done < <(sed -n 's/^export \([A-Z_][A-Z_0-9]*=[^ ]*\)$/\1/p' "$HOME/.zshenv" 2>/dev/null)
+  bash -c "${*: -1}"
 fi
 printf '\033[H\033[2J\033[3J\n'
 EOF
