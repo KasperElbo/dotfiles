@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
-# The one place a dependency's minimum version is stated.
+# The one place a dependency's minimum version is stated, for a tool this
+# repository's toolchain preflights.
+#
+# Two minimums sit outside it on purpose, and docs/testing.md says why: the
+# Bash floor, decided before this library can be sourced, and the Fedora
+# kernel floor, which belongs to the distribution.
 #
 # config/tool-floors.tsv holds one row per tool, read by column name through
 # lib/manifest.sh, so the test runner, lint, the Neovim installer, the four

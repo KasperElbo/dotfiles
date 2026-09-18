@@ -2,7 +2,8 @@
 """Validate the dependency version-floor registry and its enforcement.
 
 ``config/tool-floors.tsv`` is the one place a documented minimum version is
-stated. Before it existed, three documentation pages stated two different
+stated for a tool this repository's toolchain preflights; ``docs/testing.md``
+names the two floors deliberately kept outside it. Before it existed, three documentation pages stated two different
 Neovim minimums and nothing enforced either one, so this validator checks the
 three ways that can regress:
 
@@ -21,6 +22,14 @@ three ways that can regress:
    version, so a pin for a registry tool must satisfy that tool's floor;
    otherwise raising the floor leaves the machine provisioning less than the
    floor demands with the build still green.
+
+A pin is read the way mise reads it, which is the part that is easy to get
+wrong in both directions. A mise key may be backend-qualified, and a pin is a
+*prefix* rather than an exact version: `python = "3"` provisions the newest
+3.x, so it satisfies a 3.11 floor, while `python = "3.10"` cannot. Neither
+does this check skip what it does not understand -- an unreadable pin or an
+unclassified backend fails the build, because a check that silently drops a
+pin reports success for a floor nobody is enforcing.
 
 Usage:
     scripts/validate-tool-floors.py [--root DIR]
@@ -67,6 +76,25 @@ MISE_CONFIG = "*mise/config.toml"
 # does, so the tool this registry calls `python3` and labels `Python 3` is
 # pinned as `python`.
 LABEL_VERSION = re.compile(r"\s+[0-9]+(?:\.[0-9]+)*$")
+# `backend:name`, which is how mise names a tool it does not install from its
+# own core registry. This repository's own configuration already uses the form.
+BACKEND_KEY = re.compile(r"^(?P<backend>[A-Za-z0-9_-]+):(?P<name>.+)$")
+# Backends that install the tool itself, so the name after them is the tool
+# this registry may hold a floor for: `github:neovim/neovim` is Neovim.
+TOOL_BACKENDS = {"aqua", "asdf", "core", "github", "gitlab", "ubi", "vfox"}
+# Backends that install a package from a language ecosystem. The name after
+# them is a package, not a tool identity: the npm package `neovim` is Neovim's
+# Node client library, on its own version line, and holding it to Neovim's
+# floor would check the wrong artefact. These are skipped deliberately, which
+# is why an unlisted backend is an error rather than a third silent case.
+PACKAGE_BACKENDS = {"cargo", "dotnet", "gem", "go", "npm", "pip", "pipx", "spm"}
+# A version pin, with mise's optional explicit `prefix:` marker. `latest` and
+# the rest of mise's symbolic pins are handled separately.
+PIN_VERSION = re.compile(r"^(?:prefix:)?(?P<version>[0-9]+(?:\.[0-9]+)*)$")
+# A pin that names no version cannot drift below a floor.
+UNVERSIONED = {"latest"}
+# What `interpret_pin` returns for a pin it cannot read at all.
+UNREADABLE = object()
 # What starts a statement of its own: a list item, a table row, a heading. A
 # blank line ends one. Everything else continues the statement above it, which
 # is how a hard-wrapped sentence keeps the tool it named.
@@ -83,17 +111,70 @@ def tracked(root: pathlib.Path, *patterns: str) -> list[pathlib.Path]:
     return [root / name for name in listing.split("\0") if name]
 
 
-def satisfies(version: str, minimum: str) -> bool:
-    found = [int(part) for part in version.split(".")]
+class UnclassifiedBackend(Exception):
+    """A mise backend this check has never been told how to read."""
+
+
+def satisfies(pin: str, minimum: str) -> bool:
+    """Whether a mise pin can resolve to a version at or above the floor.
+
+    A pin is a prefix, not an exact version: mise resolves `python = "3"` to
+    the newest 3.x it can find. So the components the pin does not state are
+    unbounded rather than zero, and a pin is refused only when no version it
+    could resolve to reaches the floor. That is the opposite of the padding
+    `version_at_least` in `common/lib/common.sh` does, which is right there:
+    that compares a version a tool *reported*, where an absent component
+    really is zero.
+    """
+    found = [int(part) for part in pin.split(".")]
     floor = [int(part) for part in minimum.split(".")]
-    width = max(len(found), len(floor))
-    found += [0] * (width - len(found))
-    floor += [0] * (width - len(floor))
-    return found >= floor
+    for stated, required in zip(found, floor):
+        if stated != required:
+            return stated > required
+    return True
+
+
+def pin_identity(key: str) -> str | None:
+    """The tool a mise key names, or None when the key names a package.
+
+    Raises `UnclassifiedBackend` for a backend this check has not been taught,
+    because guessing either way is a wrong answer given silently.
+    """
+    match = BACKEND_KEY.match(key)
+    if match is None:
+        return key.lower()
+    backend = match.group("backend").lower()
+    if backend in PACKAGE_BACKENDS:
+        return None
+    if backend not in TOOL_BACKENDS:
+        raise UnclassifiedBackend(backend)
+    # `owner/repo`, and mise's trailing option syntax on the ubi backends.
+    name = match.group("name").split("[")[0].rstrip("/")
+    return name.rsplit("/", 1)[-1].lower()
+
+
+def interpret_pin(pinned: object) -> str | None | object:
+    """A pin's version prefix, None when it states no version, else UNREADABLE."""
+    if isinstance(pinned, dict):
+        if "version" not in pinned:
+            return UNREADABLE
+        pinned = pinned["version"]
+    if not isinstance(pinned, str):
+        return UNREADABLE
+    if pinned.lower() in UNVERSIONED:
+        return None
+    match = PIN_VERSION.match(pinned)
+    return match.group("version") if match else UNREADABLE
 
 
 def pin_keys(tool: str, label: str) -> set[str]:
-    """The keys a mise configuration may pin this registry tool under."""
+    """The names a mise configuration may pin this registry tool under.
+
+    The registry's own two spellings of a tool -- the command name it keys on
+    and the label the toolchain table gives it -- are the whole identity, so a
+    backend-qualified key is resolved back to a name by `pin_identity` and
+    matched here rather than by a second list of names kept in step by hand.
+    """
     return {tool.lower(), LABEL_VERSION.sub("", label).replace(" ", "").lower()}
 
 
@@ -283,26 +364,50 @@ def main() -> int:
             )
             errors += 1
 
+    identities = {tool: pin_keys(tool, names[tool]) for tool in floors}
     for path in tracked(root, MISE_CONFIG):
         config = path.relative_to(root).as_posix()
         with path.open("rb") as stream:
             pins = tomllib.load(stream).get("tools", {})
-        for tool, minimum in floors.items():
-            keys = pin_keys(tool, names[tool])
-            for key, requested in pins.items():
-                if key.lower() not in keys:
-                    continue
-                for entry in requested if isinstance(requested, list) else [requested]:
-                    pinned = entry.get("version") if isinstance(entry, dict) else entry
-                    if not isinstance(pinned, str) or not VERSION.match(pinned):
-                        continue
-                    if satisfies(pinned, minimum):
-                        continue
+        for key, requested in pins.items():
+            try:
+                identity = pin_identity(key)
+            except UnclassifiedBackend as unclassified:
+                fail(
+                    f"{config} pins {key} through the {unclassified} mise backend, "
+                    f"which this check cannot classify; add it to TOOL_BACKENDS in "
+                    f"{pathlib.Path(__file__).name} when it installs the tool "
+                    f"itself, or to PACKAGE_BACKENDS when it installs a package"
+                )
+                errors += 1
+                continue
+            if identity is None:
+                continue
+            tool = next(
+                (name for name, keys in identities.items() if identity in keys), None
+            )
+            if tool is None:
+                continue
+            minimum = floors[tool]
+            for entry in requested if isinstance(requested, list) else [requested]:
+                written = entry.get("version", entry) if isinstance(entry, dict) else entry
+                interpreted = interpret_pin(entry)
+                if interpreted is UNREADABLE:
                     fail(
-                        f"{config} pins {key} {pinned}; {manifest.name} requires "
-                        f"{tool} {minimum} or newer"
+                        f"{config} pins {key} {written!r}, which this check cannot read "
+                        f"as a version; state a version or 'latest', or teach "
+                        f"{pathlib.Path(__file__).name} the form. A pin it skips is a "
+                        f"{tool} floor nothing enforces"
                     )
                     errors += 1
+                    continue
+                if interpreted is None or satisfies(interpreted, minimum):
+                    continue
+                fail(
+                    f"{config} pins {key} {written}; {manifest.name} requires "
+                    f"{tool} {minimum} or newer"
+                )
+                errors += 1
 
     return 1 if errors else 0
 
