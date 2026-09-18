@@ -47,6 +47,7 @@ public-entrypoint	755	scripts/validate-actions.py	Validates config/actions.tsv a
 public-entrypoint	755	scripts/validate-capabilities.py	Validates network-source provenance against config/capabilities.tsv
 public-entrypoint	755	scripts/validate-docs.py	Validates documentation architecture and cross-references
 public-entrypoint	755	scripts/validate-install-options.py	Validates each installer argv parser against config/install-options.tsv
+public-entrypoint	755	scripts/validate-library-guards.py	Validates that every shared library sources common/lib/common.sh itself
 public-entrypoint	755	scripts/validate-neovim-plugin-specs.py	Validates Neovim plugin fragments against lazy.nvim's merge rules
 public-entrypoint	755	scripts/validate-command-provider-closure.py	Validates the command-provider dependency closure
 public-entrypoint	755	scripts/validate-network-sources.py	Validates the network-source registry

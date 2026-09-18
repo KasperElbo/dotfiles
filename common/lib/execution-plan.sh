@@ -3,6 +3,14 @@
 # Lightweight ordered plan shared by dry-run, preflight, apply and verify.
 # Callers register shell function names, keeping component scripts independently
 # useful while eliminating a second hand-maintained dry-run orchestration.
+#
+# It needs DOTFILES_ROOT, ensure_dir and the reporting helpers from
+# lib/common.sh, and sources that itself, so it is correct sourced standalone.
+
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
 
 PLAN_IDS=()
 PLAN_LABELS=()
