@@ -98,7 +98,7 @@ The last run's records stay in `~/.local/state/dotfiles/theme-actions.log`.
 | Layer | What it is | What it does |
 |---|---|---|
 | `theme` command | `bin/.local/bin/theme`, on `PATH` as `~/.local/bin/theme` | Writes the shared state files, runs the installed platform hooks, and reports what applied |
-| Platform theme hook | `~/.config/dotfiles/theme-hooks.d/*.sh`, stowed per platform | Applies the desktop half: KDE/Sway/Waybar/Fuzzel/Mako/swaylock and the wallpaper on Fedora, the Noctty bridge on Fedora WSL. macOS installs one that applies nothing yet and reports its wallpaper action as skipped. The Parrot guest installs none |
+| Platform theme hook | `~/.config/dotfiles/theme-hooks.d/*.sh`, stowed per platform | Applies the desktop half: KDE/Sway/Waybar/Fuzzel/Mako/swaylock and the wallpaper on Fedora, the Noctty bridge on Fedora WSL, the desktop wallpaper on macOS. The Parrot guest installs none |
 | Zsh `theme` function | `zsh/.config/zsh/.zshrc` | **Re-execs the shell** (`exec zsh`) after a successful or partially successful run, so this shell picks up the new `DOTFILES_THEME` and its fzf/bat/Lazygit/Starship selections |
 
 The re-exec is the shell wrapper's doing, not the command's. Running
@@ -131,12 +131,13 @@ The Parrot CTF guest deliberately installs no desktop theme hooks: it is a
 reduced lab profile, not a workstation, and parity is not a reason to give it
 desktop theming it has no use for.
 
-macOS installs a hook that applies nothing yet. Setting the desktop wallpaper
-is a separate change, so until it lands the hook reports `macos:wallpaper` as
-skipped and says why, which keeps `theme` from claiming a complete application
-on a Mac whose desktop did not change. A run that passed
-`--preserve-wallpaper` is reported as skipped for that reason instead, so
-"deliberately left alone" and "not implemented" do not read the same.
+macOS installs a hook that sets the desktop wallpaper to the flavour's image
+from the shared `theme-assets` package, reported as the `macos:wallpaper`
+action. `theme <flavour> --preserve-wallpaper` skips that mutation entirely
+rather than snapshotting and restoring anything, and says so, so a desktop
+deliberately left alone does not read like one where the wallpaper failed.
+The interface, what it depends on and the multi-display and Spaces behaviour
+are in [the macOS platform guide](../platforms/macos.md#desktop-wallpaper).
 
 ## Writing a theme hook
 

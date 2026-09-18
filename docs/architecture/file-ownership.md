@@ -22,7 +22,7 @@ manifest for the first; each platform's `stow.sh` is for the second.
 | Fedora on WSL (`platforms/fedora-wsl/stow/`) | `interop` `nvim-wsl` `theme-hooks` `zsh-platform` |
 | Apple Silicon macOS (`platforms/macos/stow/`) | `aerospace` `ghostty-macos` `nvim-macos` `theme-hooks` `zsh-platform` |
 | Parrot Security Edition CTF guest (`platforms/parrot-ctf/stow/`) | `command-shims` `mise-ctf` `neovim-profile` `zsh-platform` |
-| Shared (repository root, deployed by Fedora workstation) | `theme-assets` |
+| Shared (repository root, deployed by Fedora workstation, Apple Silicon macOS) | `theme-assets` |
 
 A shared row is a package at the repository root that `common/stow.sh`
 does not deploy: the platforms named there link it, and there is one

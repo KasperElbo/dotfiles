@@ -380,6 +380,64 @@ nodes, subnet routes, Tailscale SSH, `--accept-routes`/`--accept-dns`), and
 normal day-to-day commands. None of that is Fedora-specific; it applies here
 unchanged.
 
+## Desktop wallpaper
+
+`theme <flavour>` sets the desktop wallpaper to the matching Catppuccin image,
+through the macOS theme hook. The images are the tracked ones in the shared
+`theme-assets` package, linked into `~/.local/share/wallpapers`, so switching
+a theme downloads nothing.
+
+**The interface.** `osascript` telling System Events to set the picture of
+every desktop. That is the one documented automation surface Apple offers for
+this. Writing `~/Library/Application Support/com.apple.wallpaper/Store/Index.plist`
+or the older `desktoppicture.db` was rejected: both are undocumented system
+databases a macOS release may change without notice, and both fail silently
+rather than loudly.
+
+**What it depends on**, so a future macOS breaking it is diagnosable rather
+than mysterious:
+
+- Apple Events automation permission. The program running `theme` must be
+  allowed to control System Events, in System Settings > Privacy & Security >
+  Automation. The first run prompts for it; a denied or unapproved caller
+  gets osascript error `-1743`, which the hook reports as that permission
+  rather than as a generic failure.
+- System Events, and the `picture` property of its `desktop` objects. That
+  property is what a macOS release would remove.
+- The image being readable at `~/.local/share/wallpapers/catppuccin-<flavour>.webp`,
+  which is the stowed link. A missing one is refused before osascript is
+  invoked, so an unstowed machine gets an answer rather than an AppleScript
+  error.
+
+**Multi-display and Spaces.** `every desktop` is every attached display, so
+all displays change together; per-display wallpapers are not offered, because
+this repository applies one flavour to the whole desktop. AppleScript exposes
+one desktop object per display and none per Space, so the change lands on
+each display's current Space. A Space that carries its own wallpaper keeps
+it, and a Space created afterwards takes whatever macOS gives a new Space.
+
+**Failure is isolated.** The wallpaper is a named action inside the hook's
+error boundary, so a Mac that refuses the permission still gets its terminal,
+editor and CLI theming, and `theme` reports a partial application with
+`macos:wallpaper` named rather than claiming success.
+
+**Manual acceptance check**, which no CI runner can perform, because none has
+a desktop session:
+
+1. Set a wallpaper of your own in System Settings.
+2. Run `theme latte`, and confirm the desktop shows the Latte image on every
+   display.
+3. Run `theme mocha`, and confirm it changes again.
+4. Set a wallpaper of your own again.
+5. Run `theme frappe --preserve-wallpaper`, and confirm the desktop is
+   untouched while the terminal and editor follow Frappé.
+
+`tests/test-theme-hooks.sh` covers the rest with a stubbed `osascript`: that
+each flavour selects its own asset and invokes the interface once with that
+path, that `--preserve-wallpaper` invokes it not at all, and that a refused
+call is reported. The stub proves the hook's selection and invocation, not
+that macOS accepted the change.
+
 ## 5. AeroSpace decision record
 
 The mandatory comparison was completed before implementation, and AeroSpace

@@ -265,6 +265,10 @@ section "Theme"
 # a Mac missing it is one where `theme` silently does no desktop work.
 check_symlink "$XDG_CONFIG_HOME/dotfiles/theme-hooks.d/macos.sh" \
   "$DOTFILES_ROOT/platforms/macos/stow/theme-hooks/"
+for flavour in latte frappe macchiato mocha; do
+  check_symlink "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}.webp" \
+    "$DOTFILES_ROOT/theme-assets/"
+done
 
 theme_file="$XDG_CONFIG_HOME/dotfiles/theme"
 current_theme=""
