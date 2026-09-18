@@ -233,6 +233,115 @@ assert_failure
 assert_contains "$TEST_OUTPUT" \
   'mise/.config/mise/config.toml pins python 3.10; tool-floors.tsv requires python3 3.11 or newer'
 
+# mise resolves a short pin to the newest version that starts with it, so a pin
+# is a prefix and not an exact version. `python = "3"` provisions the newest
+# 3.x, which is at or above a 3.11 floor; reading it as 3.0 refused a pin that
+# is correct, and this repository already pins `dotnet` and `node` that way.
+pin_python '3'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_success
+
+# The prefix still cannot reach above itself: every 3.10.x is below 3.11.
+pin_python '3.10'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+
+# mise's explicit marker for the same thing.
+pin_python 'prefix:3'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_success
+
+# --- A backend-qualified key is the same tool ------------------------------
+
+# An ordinary edit can move a pin to a backend-qualified key, which is already
+# this repository's style elsewhere in the same file. The floor must follow it
+# there, because a key that quietly leaves the check's scope is the failure
+# this check exists to prevent: a floor nobody enforces, reported as success.
+pin_key() {
+  mkdir -p "$fixture/mise/.config/mise"
+  printf '[tools]\n"%s" = "%s"\nuv = "latest"\n' "$1" "$2" \
+    >"$fixture/mise/.config/mise/config.toml"
+  git -C "$fixture" add -A
+}
+pin_key 'core:python' '3.10'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'pins core:python 3.10; tool-floors.tsv requires python3 3.11 or newer'
+
+# A backend that names a repository resolves to the tool the repository builds.
+pin_key 'github:neovim/neovim' '0.11.9'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'pins github:neovim/neovim 0.11.9; tool-floors.tsv requires nvim 0.12 or newer'
+
+# A language-ecosystem backend names a package, not the tool: the npm package
+# `neovim` is Neovim's Node client on its own version line, so holding it to
+# Neovim's floor would check the wrong artefact and refuse a correct pin.
+pin_key 'npm:neovim' '5.3.0'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_success
+
+# A backend the check has never been taught is neither of those, so it is an
+# error rather than a silent third case: guessing either way is a wrong answer
+# given without saying so.
+pin_key 'notabackend:python' '3.14'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'pins notabackend:python through the notabackend mise backend'
+
+# --- A pin the check cannot read is an error, not a skip -------------------
+
+# Skipping what it does not understand is how this check would fail open, so a
+# pin it cannot interpret fails the build and names the tool left unenforced.
+pin_python 'ref:main'
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" "pins python 'ref:main', which this check cannot read"
+assert_contains "$TEST_OUTPUT" 'a python3 floor nothing enforces'
+
+# The same for a table that carries options but never a version.
+mkdir -p "$fixture/mise/.config/mise"
+printf '[tools]\npython = { backend = "core" }\n' \
+  >"$fixture/mise/.config/mise/config.toml"
+git -C "$fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'which this check cannot read'
+
+# A version written as a TOML number rather than a string is not a version mise
+# would accept either, and is named rather than dropped.
+printf '[tools]\npython = 3\n' >"$fixture/mise/.config/mise/config.toml"
+git -C "$fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'which this check cannot read'
+
+# --- Raising a floor names every stale pin, in every spelling --------------
+
+mkdir -p "$fixture/mise/.config/mise"
+cat >"$fixture/mise/.config/mise/config.toml" <<'EOF_PINS'
+[tools]
+nvim = "0.11.9"
+"github:neovim/neovim" = "0.11"
+python = "3.10"
+"core:python" = "3"
+"npm:neovim" = "5.3.0"
+uv = "latest"
+EOF_PINS
+git -C "$fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'pins nvim 0.11.9'
+assert_contains "$TEST_OUTPUT" 'pins github:neovim/neovim 0.11'
+assert_contains "$TEST_OUTPUT" 'pins python 3.10'
+# The package and the prefix that does reach the floor are the controls: naming
+# them would mean the check refuses pins that are correct.
+assert_not_contains "$TEST_OUTPUT" 'pins core:python'
+assert_not_contains "$TEST_OUTPUT" 'npm:neovim'
+
 # The fixture mise configuration a caller's unrelated project would carry is
 # not one this repository provisions, so its pins are none of the validator's
 # business even when they name a registry tool.

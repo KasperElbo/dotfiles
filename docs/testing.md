@@ -30,14 +30,29 @@ supported development machine.
 
 Every minimum version in that table comes from
 [`config/tool-floors.tsv`](../config/tool-floors.tsv), which is the one place
-a floor is stated. `./scripts/test.sh` and `./scripts/lint.sh` check it in
+a floor is stated for a tool the toolchain preflights. `./scripts/test.sh` and `./scripts/lint.sh` check it in
 their preflight, `common/install-neovim-tools.sh` checks it before the first
 headless Neovim phase, and each platform verifier asserts it on an installed
 machine, so a tool below its floor is named here rather than failing later
 inside a suite or a Mason build. `./scripts/validate-tool-floors.py` fails the
 build if this table and that registry disagree, if a consumer stops reading it,
 or if a mise configuration this repository provisions pins a tool below its own
-floor.
+floor. A mise pin is read the way mise reads it: the key may be
+backend-qualified, and the version is a prefix rather than an exact number, so
+a pin of `3` provisions the newest 3.x and satisfies the floor above. A pin the
+check cannot interpret fails the build rather than being skipped.
+
+Two minimums this repository enforces are deliberately stated where they are
+enforced instead, because neither is a tool the toolchain provisions or
+preflights. The Bash minimum in
+[`scripts/bootstrap-macos.sh`](../scripts/bootstrap-macos.sh) and
+[`common/lib/modern-bash.sh`](../common/lib/modern-bash.sh) is the interpreter
+every other check runs under, decided before a shared library can be sourced
+and while the shell is still Apple's 3.2, so it cannot read a registry whose
+reader it would have to start first. The kernel minimum in
+[`platforms/fedora/scripts/install-asus-hardware.sh`](../platforms/fedora/scripts/install-asus-hardware.sh)
+belongs to the distribution rather than to this repository, which can refuse to
+enable the hardware but cannot raise it.
 
 The Neovim spec-resolution suite inside `tests/test-neovim-tool-ownership.sh`
 additionally needs a lazy.nvim checkout, because it resolves this repository's
