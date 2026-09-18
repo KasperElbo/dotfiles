@@ -162,6 +162,7 @@ jobs:
         run: |
           /bin/bash ./tests/test-execution-plan.sh
           /bin/bash ./tests/test-profile-state.sh
+          /bin/bash ./tests/test-macos-command-surface.sh
           /bin/bash ./install.sh --platform macos \
             --theme macchiato --no-ocaml --no-containers --no-tailscale \
             --no-defaults --dry-run --non-interactive >/dev/null
