@@ -251,4 +251,63 @@ run_capture python3 "$validator" --root "$tracked"
 assert_success
 printf 'PASS: naming the README without quoting a section is accepted\n'
 
+# --- The shared libraries source common.sh themselves (#268) ----------------
+
+# The convention is enforced by scripts/validate-library-guards.py rather than
+# by review, so what is asserted here is that the checker actually refuses a
+# tree that breaks it. Without this the checker could pass vacuously -- and a
+# checker that cannot fail is the defect this repository files issues about.
+guard_validator="$repo_root/scripts/validate-library-guards.py"
+
+run_capture python3 "$guard_validator"
+assert_success
+printf 'PASS: every shared library reaches common.sh\n'
+
+guard_tree="$TEST_ROOT/guard-tree"
+mkdir -p "$guard_tree/common"
+cp -r "$repo_root/common/lib" "$guard_tree/common/lib"
+
+# Removing one guard must be refused, and the message must name the file and
+# the symbols that stop resolving, so the reader knows what broke.
+python3 - "$guard_tree/common/lib/fetch.sh" <<'PYTHON'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+guard = re.compile(
+    r'if \[\[ -z "\$\{DOTFILES_COMMON_LOADED:-\}" \]\]; then\n'
+    r"  # shellcheck source=common\.sh\n"
+    r'  source "\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/common\.sh"\n'
+    r"fi\n\n"
+)
+if not guard.search(text):
+    raise SystemExit("common/lib/fetch.sh no longer carries the guard to remove")
+path.write_text(guard.sub("", text, count=1), encoding="utf-8")
+PYTHON
+
+run_capture python3 "$guard_validator" --root "$guard_tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'common/lib/fetch.sh uses'
+assert_contains "$TEST_OUTPUT" 'die'
+assert_contains "$TEST_OUTPUT" 'but never sources it'
+printf 'PASS: removing a guard is refused, naming the file and the symbols\n'
+
+# A library that reaches common.sh through a guarded sibling is accepted: that
+# is how install-lifecycle.sh and theme-selection.sh are already written, and
+# demanding a repeated block would be noise rather than safety.
+cat >"$guard_tree/common/lib/borrows.sh" <<'EOF_BORROWS'
+#!/usr/bin/env bash
+
+# shellcheck source=verify.sh
+source "$(dirname "${BASH_SOURCE[0]}")/verify.sh"
+
+borrows_probe() { die "unreachable"; }
+EOF_BORROWS
+cp "$repo_root/common/lib/fetch.sh" "$guard_tree/common/lib/fetch.sh"
+run_capture python3 "$guard_validator" --root "$guard_tree"
+assert_success
+printf 'PASS: reaching common.sh through a guarded sibling is accepted\n'
+
 printf '\nAll repository hygiene checks passed.\n'

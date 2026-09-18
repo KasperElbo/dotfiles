@@ -2,6 +2,14 @@
 
 # Versioned machine-local profile state. This file intentionally does not set
 # shell options: sourcing a library must not alter its caller's policy.
+#
+# It needs atomic_write_file and die from lib/common.sh, and sources that
+# itself, so it is correct sourced standalone.
+
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
 
 PROFILE_STATE_SCHEMA_VERSION=2
 

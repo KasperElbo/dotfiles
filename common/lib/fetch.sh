@@ -5,7 +5,8 @@
 #
 # This library deliberately does not select shell options: sourcing a shared
 # library must never change the caller's errexit/nounset/pipefail policy. It
-# expects lib/common.sh to have been sourced first for info/warn/die.
+# needs info/warn/die and ensure_dir from lib/common.sh, and sources that
+# itself, so it is correct sourced standalone.
 #
 # Scope and safety boundary
 # -------------------------
@@ -14,6 +15,11 @@
 # manager transactions, remote scripts, and any other command whose retry can
 # duplicate a side effect are never retried by this library, and must never be
 # routed through it.
+
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
 
 DOTFILES_FETCH_CONNECT_TIMEOUT="${DOTFILES_FETCH_CONNECT_TIMEOUT:-10}"
 # A reachability probe is not a transfer: it is bounded far more tightly, so

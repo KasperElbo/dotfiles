@@ -48,6 +48,7 @@ printf 'Checking repository hygiene...\n'
 python3 ./scripts/validate-repository-hygiene.py
 python3 ./scripts/validate-shell-file-roles.py
 python3 ./scripts/validate-neovim-plugin-specs.py
+python3 ./scripts/validate-library-guards.py
 
 printf 'Checking generated and cross-referenced documentation...\n'
 python3 ./scripts/render-capability-matrix.py --check

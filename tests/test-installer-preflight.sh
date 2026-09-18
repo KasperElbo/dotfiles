@@ -192,6 +192,42 @@ run_standalone install-selection.sh 'printf "%s\n" "$INSTALL_OPTION_MANIFEST"; i
 assert_status 1
 assert_contains "$TEST_OUTPUT" "$repo_root/config/install-options.tsv"
 assert_contains "$TEST_OUTPUT" 'install_selection_set requires install_selection_reset first'
+
+# Every other library the guard checker names is exercised the same way, and
+# through a function that actually reaches common.sh rather than by sourcing
+# alone: an undefined function inside a test expression evaluates false, so a
+# library can source cleanly and still answer wrongly. Each probe below calls a
+# common.sh symbol, so removing that library's guard breaks this case.
+standalone_home="$test_root/standalone-home"
+mkdir -p "$standalone_home"
+
+# plan_add dies through common.sh's die when handed the wrong arity.
+run_standalone execution-plan.sh 'plan_reset; plan_add one'
+assert_failure
+assert_contains "$TEST_OUTPUT" 'plan_add requires id, label, phase'
+
+# Refusing a non-HTTPS URL is fetch.sh reaching common.sh's die.
+run_standalone fetch.sh \
+  'fetch_to_file http://example.invalid/x "'"$standalone_home"'/x" "the probe"'
+assert_failure
+assert_contains "$TEST_OUTPUT" 'Refusing a non-HTTPS download for the probe'
+
+run_standalone git-identity.sh \
+  'git_identity_write_manual_placeholder "'"$standalone_home"'/identity" local; cat "'"$standalone_home"'/identity"'
+assert_success
+assert_contains "$TEST_OUTPUT" 'No Git identity was migrated into this file.'
+
+# An unknown profile is profile-state.sh reaching common.sh's die.
+run_standalone profile-state.sh \
+  'profile_state_write "'"$standalone_home"'/state.conf" not-a-profile complete'
+assert_failure
+assert_contains "$TEST_OUTPUT" 'Unknown state profile: not-a-profile'
+
+run_standalone theme-shared-state.sh \
+  'HOME="'"$standalone_home"'"; XDG_CONFIG_HOME="$HOME/.config"; write_theme_state macchiato; cat "$XDG_CONFIG_HOME/dotfiles/theme"'
+assert_success
+assert_contains "$TEST_OUTPUT" macchiato
+
 printf 'Standalone preflight, capability and selection libraries passed.\n'
 
 # Disk space and reachability are checked before any mutating step, and only
