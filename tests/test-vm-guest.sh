@@ -19,6 +19,8 @@ mkdir -p \
   "$test_root/virtio-ports"
 
 test_stub_init "$test_root"
+# The disk preflight decides on a known figure, not on this machine's free space.
+test_stub_roomy_df "$mock_bin"
 for command_name in dnf sudo systemctl; do
   test_stub_install "$test_root" "$command_name"
 done

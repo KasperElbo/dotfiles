@@ -453,12 +453,7 @@ chmod +x "$bootstrap_stub_root/handlers/sudo" "$bootstrap_bin/mktemp"
 
 # The disk preflight must decide on a known figure, never on the free space of
 # the machine running the tests.
-cat >"$bootstrap_bin/df" <<'EOF_DF'
-#!/usr/bin/env bash
-printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
-printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
-EOF_DF
-chmod +x "$bootstrap_bin/df"
+test_stub_roomy_df "$bootstrap_bin"
 
 bootstrap_commands=(
   bat biber curl delta eza fd fzf gh latex latexindent latexmk lualatex

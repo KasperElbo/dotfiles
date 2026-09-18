@@ -65,12 +65,8 @@ exit 0
 EOF
 # Same rule for the disk floor: the preflight arithmetic runs against a known
 # figure, not against whatever this machine happens to have free.
-cat >"$mock_bin/df" <<'EOF'
-#!/usr/bin/env bash
-printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
-printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
-EOF
-chmod +x "$mock_bin/id" "$mock_bin/ps" "$mock_bin/curl" "$mock_bin/df"
+test_stub_roomy_df "$mock_bin"
+chmod +x "$mock_bin/id" "$mock_bin/ps" "$mock_bin/curl"
 printf 'ID=fedora\n' >"$test_root/os-release"
 # The WSL containers preflight probes the host's user bus, cgroup v2, and user
 # namespaces; stand in for a capable host so the result never depends on them.

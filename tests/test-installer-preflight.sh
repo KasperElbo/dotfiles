@@ -56,14 +56,7 @@ mkdir -p "$integration_home" "$integration_config" "$mock_bin"
 # Every installer run below decides on a stubbed figure, never on the free
 # space of the machine running the tests; the cases that mean to exercise a
 # full disk replace this stub and restore it afterwards.
-stub_roomy_df() {
-  cat >"$mock_bin/df" <<'EOF_DF'
-#!/usr/bin/env bash
-printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
-printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
-EOF_DF
-  chmod +x "$mock_bin/df"
-}
+stub_roomy_df() { test_stub_roomy_df "$mock_bin"; }
 stub_roomy_df
 test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
@@ -354,7 +347,9 @@ esac
 EOF
 chmod +x "$mock_bin/df"
 if HOME="$integration_home" XDG_CONFIG_HOME="$integration_config" \
-  XDG_STATE_HOME="$test_root/var-state" PATH="$mock_bin:$PATH" \
+  XDG_STATE_HOME="$test_root/var-state" \
+  XDG_DATA_HOME="$integration_home/.local/share" \
+  PATH="$mock_bin:$PATH" \
   OS_RELEASE_FILE="$test_root/os-release" \
   "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
   >"$test_root/var-disk" 2>&1; then
