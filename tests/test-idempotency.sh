@@ -100,8 +100,8 @@ deployed="$(find "$direct_home" -mindepth 1 ! -path "$direct_home/.zshenv" -prin
 # A platform script checks its own packages before the portable ones are
 # deployed, so a conflict in a platform package leaves nothing behind either.
 platform_home="$test_root/platform-home"
-theme_asset="$(find "$repo_root/platforms/fedora/stow/theme-assets" -type f | head -n 1)"
-theme_relative="${theme_asset#"$repo_root/platforms/fedora/stow/theme-assets/"}"
+theme_asset="$(find "$repo_root/theme-assets" -type f | head -n 1)"
+theme_relative="${theme_asset#"$repo_root/theme-assets/"}"
 mkdir -p "$platform_home/$(dirname "$theme_relative")"
 printf 'user-owned asset\n' >"$platform_home/$theme_relative"
 if HOME="$platform_home" \
@@ -155,7 +155,7 @@ assert_relinked() {
 assert_relinked "$retired_sway" "$fedora_stow_dir/sway/.config/sway/config"
 assert_relinked "$retired_waybar" "$fedora_stow_dir/waybar/.config/waybar/style.css"
 assert_relinked "$retired_wallpaper" \
-  "$fedora_stow_dir/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp"
+  "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp"
 printf 'PASS: the Fedora preflight exempts the retired links its migration removes\n'
 
 tracked_config="$repo_root/ghostty/.config/ghostty/config"

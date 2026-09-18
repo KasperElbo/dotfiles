@@ -24,6 +24,10 @@ while (($#)); do
   shift
 done
 
+# theme-assets is at the top of the checkout rather than under
+# platforms/fedora/stow, because the wallpapers are not Fedora's: they are one
+# set of images any platform can link. Its root is resolved rather than assumed
+# for that reason, through the same helper the installer's preflight uses.
 packages=(zsh-platform theme-hooks theme-assets)
 
 if [[ "$install_sway" == "true" ]]; then
@@ -37,7 +41,7 @@ fi
 specs=()
 replaced=()
 for package in "${packages[@]}"; do
-  specs+=("$FEDORA_STOW_DIR::$package")
+  specs+=("$(capability_stow_package_root fedora "$package")::$package")
 done
 while IFS= read -r exemption; do
   replaced+=("$exemption")
@@ -50,18 +54,18 @@ preflight_stow_packages ${replaced[@]+"${replaced[@]}"} "${specs[@]}" ||
 info "Stowing Fedora user integration into $HOME"
 
 for package in "${packages[@]}"; do
-  package_dir="$FEDORA_STOW_DIR/$package"
+  package_dir="$(capability_stow_package_root fedora "$package")/$package"
 
-  [[ -d "$package_dir" ]] || die "Missing Fedora Stow package: $package"
+  [[ -d "$package_dir" ]] || die "Missing Stow package: $package"
 
   while IFS= read -r retired_link; do
     info "Removing retired $package link: $retired_link"
     rm -- "$retired_link"
   done < <(fedora_retired_stow_links "$package")
 
-  info "Stowing Fedora package $package"
+  info "Stowing package $package"
   stow \
-    --dir="$FEDORA_STOW_DIR" \
+    --dir="$(dirname "$package_dir")" \
     --target="$HOME" \
     --restow \
     --no-folding \

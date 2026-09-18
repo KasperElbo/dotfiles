@@ -63,8 +63,8 @@ test_stub_install "$test_root" dnf
 test_stub_install "$test_root" sudo
 test_stub_install "$test_root" systemctl
 test_stub_allow "$test_root" sudo -n -v
-late_source="$(find "$repo_root/platforms/fedora/stow/theme-assets" -type f | head -n 1)"
-late_relative="${late_source#"$repo_root/platforms/fedora/stow/theme-assets/"}"
+late_source="$(find "$repo_root/theme-assets" -type f | head -n 1)"
+late_relative="${late_source#"$repo_root/theme-assets/"}"
 mkdir -p "$(dirname "$integration_home/$late_relative")"
 printf 'user-owned-late-conflict\n' >"$integration_home/$late_relative"
 cat >"$mock_bin/id" <<'EOF'

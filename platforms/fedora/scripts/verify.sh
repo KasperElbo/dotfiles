@@ -228,10 +228,10 @@ check_symlink "$HOME/.local/bin/theme" \
 for flavour in latte frappe macchiato mocha; do
   check_symlink \
     "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}.webp" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/theme-assets/"
+    "$DOTFILES_ROOT/theme-assets/"
   check_symlink \
     "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}-lock.webp" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/theme-assets/"
+    "$DOTFILES_ROOT/theme-assets/"
 done
 
 # ---------------------------------------------------------------------------
