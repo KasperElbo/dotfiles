@@ -377,6 +377,8 @@ if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]];
     "$DOTFILES_ROOT/platforms/fedora/stow/waybar/"
   check_symlink "$HOME/.local/bin/sway-workspace-grid" \
     "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
+  check_symlink "$HOME/.local/bin/sway-output-cycle" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
   check_symlink "$HOME/.local/bin/sway-session-start" \
     "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
 

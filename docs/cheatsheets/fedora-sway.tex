@@ -20,14 +20,14 @@
 
 \cssection{Navigate}
 \begin{cskeys}{0.30\linewidth}
-\csrow{Super+H/J/K/L}{Focus left/down/up/right}
+\csrow{Super+H/J/K/L}{Focus left/down/up/right, across displays}
 \csrow{Super+A}{Focus parent container}
 \csrow{Super+Space}{Toggle focus between tiling/floating}
 \end{cskeys}
 
 \cssection{Move}
 \begin{cskeys}{0.38\linewidth}
-\csrow{Super+Shift+H/J/K/L}{Move focused container left/down/up/right}
+\csrow{Super+Shift+H/J/K/L}{Move focused container left/down/up/right, across displays}
 \end{cskeys}
 
 \cssection{Workspaces}
@@ -64,6 +64,14 @@
 \end{cskeys}
 
 \columnbreak
+
+\cssection{Displays}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Super+Tab}{Focus next display}
+\csrow{Super+Shift+Tab}{Move window to next display}
+\csrow{Super+Ctrl+Tab}{Move workspace to next display}
+\end{cskeys}
+\csnote{Super+Shift is the window tier and Super+Ctrl the workspace tier, as with the numbered workspaces. The cycle wraps and follows the physical left-to-right order, so it works on stacked displays too (\texttt{sway-output-cycle}).}
 
 \cssection{System}
 \begin{cskeys}{0.34\linewidth}
