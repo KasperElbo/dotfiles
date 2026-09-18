@@ -79,10 +79,20 @@ _test_exit_trap() {
 # validation image and macOS. Anything else a suite needs from the host, such as
 # git, jq, zsh or the Linux-only getent, is named explicitly by that suite.
 TEST_HOST_COMMANDS=(
-  awk basename bash cat chmod cp cut date df dirname echo env find grep head id
+  awk basename bash cat chmod cp cut date dirname echo env find grep head id
   install ln ls mkdir mktemp mv paste pwd readlink realpath rm rmdir sed sh
   sleep sort stat sync tail tee touch tr uname uniq wc xargs
 )
+
+# df is deliberately not in that list. It was, and linking the host's df into
+# every isolated PATH made the disk preflight answer from the free space of the
+# machine running the tests. Four suites then carried a byte-identical roomy-df
+# heredoc to undo it, and RA-33 had to add that copy in three separate review
+# rounds because a different suite was missed each time. Left out, a suite that
+# reaches preflight_disk_space without stubbing df fails deterministically with
+# "Could not determine the free disk space" instead of depending on the host.
+# Suites that want the roomy figure call test_stub_roomy_df; a suite that wants
+# the real df names it in its own test_isolate_path call.
 
 # test_isolate_path [command ...]: replace PATH with one directory that links
 # only TEST_HOST_COMMANDS and the named commands, resolved from the current
@@ -297,6 +307,21 @@ printf 'strict stub rejected unsupported argv: %s%s%s\n' \
 exit 96
 STUB
   chmod +x "$root/bin/.dotfiles-strict-stub"
+}
+
+# test_stub_roomy_df <bin-dir>: install a df reporting plenty of free space.
+#
+# The disk preflight then decides on a known figure rather than on whatever the
+# machine running the tests happens to have free. Suites that mean to exercise a
+# full disk write their own df over this one and call this again to restore it.
+test_stub_roomy_df() {
+  local bin="$1"
+  cat >"$bin/df" <<'EOF_ROOMY_DF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
+EOF_ROOMY_DF
+  chmod +x "$bin/df"
 }
 
 test_stub_install() {
