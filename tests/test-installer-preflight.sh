@@ -121,6 +121,92 @@ assert_file_empty "$test_root/logs/dnf.log"
 grep -Fqx 'user-owned-late-conflict' "$integration_home/$late_relative"
 printf 'Complete non-mutating Stow preflight passed.\n'
 
+# The retired-link migration exists for machines still carrying the top-level
+# sway and waybar links and the wallpaper links the Sway package owned before
+# theme-assets did. Each of those dangles or points into this checkout, so the
+# preflight has to exempt the links the apply loop removes. The Stow script's
+# call is covered by tests/test-idempotency.sh; this covers the installer's own
+# call, which is the entry point most users actually run, and which was
+# previously free to lose its exemption argument with the suite still green.
+
+# retired_link_home <name>: a HOME carrying all three retired links.
+retired_link_home() {
+  local home="$test_root/$1"
+  local stow_dir="$repo_root/platforms/fedora/stow"
+  mkdir -p "$home/.config/sway" "$home/.config/waybar" \
+    "$home/.local/share/wallpapers"
+  ln -s "$repo_root/sway/.config/sway/config" "$home/.config/sway/config"
+  ln -s "$repo_root/waybar/.config/waybar/style.css" \
+    "$home/.config/waybar/style.css"
+  ln -s "$stow_dir/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
+    "$home/.local/share/wallpapers/catppuccin-macchiato.webp"
+  printf '%s\n' "$home"
+}
+
+# run_migrating_install <installer> <home> <log>: the Fedora installer against a
+# migrating HOME. It is expected to get past preflight and stop at the first
+# planned command, which the strict stub refuses; preflight is what is under
+# test, so the exit status is deliberately not asserted.
+run_migrating_install() {
+  local installer="$1" home="$2" log="$3"
+  HOME="$home" XDG_CONFIG_HOME="$home/.config" \
+    XDG_DATA_HOME="$home/.local/share" XDG_STATE_HOME="$test_root/$(basename "$log")-state" \
+    PATH="$mock_bin:$PATH" OS_RELEASE_FILE="$test_root/os-release" \
+    "$installer" --platform fedora --sway --no-kde --no-latex --non-interactive \
+    >"$log" 2>&1 || true
+}
+
+migrating_home="$(retired_link_home migrating-home)"
+run_migrating_install "$repo_root/install.sh" "$migrating_home" "$test_root/migrating"
+if grep -Fq 'Stow conflict' "$test_root/migrating"; then
+  printf 'The Fedora installer refused a HOME carrying the retired links:\n' >&2
+  grep -F 'Stow conflict' "$test_root/migrating" >&2
+  exit 1
+fi
+# Reaching the execution plan is what proves preflight ran and passed, rather
+# than the absence of a message proving only that preflight never got there.
+grep -Fq 'Install Fedora system packages' "$test_root/migrating" || {
+  printf 'The Fedora installer never reached its execution plan:\n' >&2
+  tail -n 20 "$test_root/migrating" >&2
+  exit 1
+}
+printf 'PASS: the Fedora installer preflight exempts the retired links\n'
+
+# The negative control is the point of the case, so it is asserted rather than
+# checked once by hand: against a copy of the checkout whose installer has lost
+# the exemption argument, the same HOME must be refused, naming all three links.
+sabotaged_tree="$test_root/sabotaged-tree"
+mkdir -p "$sabotaged_tree"
+tar -C "$repo_root" --exclude=.git -cf - . | tar -C "$sabotaged_tree" -xf -
+python3 - "$sabotaged_tree/platforms/fedora/install.sh" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+call = '  preflight_stow_packages ${replaced[@]+"${replaced[@]}"} "${specs[@]}"'
+if call not in text:
+    raise SystemExit(
+        "the Fedora installer no longer makes the preflight_stow_packages call "
+        "this negative control sabotages; update the test with the call"
+    )
+path.write_text(text.replace(call, '  preflight_stow_packages "${specs[@]}"', 1),
+                encoding="utf-8")
+PYTHON
+
+sabotaged_home="$(retired_link_home sabotaged-home)"
+run_migrating_install "$sabotaged_tree/install.sh" "$sabotaged_home" \
+  "$test_root/sabotaged"
+for retired in 'Stow conflict [sway]' 'Stow conflict [waybar]' \
+  'Stow conflict [theme-assets]'; do
+  grep -Fq "$retired" "$test_root/sabotaged" || {
+    printf 'Removing the exemption argument did not produce %s:\n' "$retired" >&2
+    tail -n 20 "$test_root/sabotaged" >&2
+    exit 1
+  }
+done
+printf 'PASS: removing the exemption argument makes that preflight refuse\n'
+
 # Each installer resolves its selected capability set in one function, read by
 # the selection check, preflight and the lifecycle record that ./doctor and
 # --rerun trust (issue #243). A second hand-written "$flag:capability" loop
