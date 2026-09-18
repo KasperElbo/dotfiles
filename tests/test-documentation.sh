@@ -414,6 +414,28 @@ done < <(grep -o 'scripts/render-[a-z-]*\.py' "$repo_root/scripts/lint.sh" |
 assert_file_contains "$conventions" "scripts/update-starship-themes.sh"
 printf 'PASS: every generator lint runs is in the generated-artifact list\n'
 
+# --- The theme-hook extension contract is written down ----------------------
+
+# The one genuinely reusable extension surface in the theme subsystem. Before
+# this section, writing a hook meant reading the command's source and copying
+# an existing hook, and the two things easiest to get wrong -- that a hook is
+# sourced inside a subshell under errexit, and which boundary function to use
+# -- were written down nowhere. Each name below is part of the contract, so
+# removing one from the page is a change the author has to make deliberately.
+theming="$repo_root/docs/workflows/theming.md"
+assert_file_contains "$theming" "## Writing a theme hook"
+for boundary in theme_action theme_action_required theme_action_skipped \
+  theme_capability_permits theme_capability_known_absent \
+  theme_note_ghostty_handled; do
+  assert_file_contains "$theming" "$boundary"
+done
+for scoped in flavour preserve_wallpaper DOTFILES_ROOT; do
+  assert_file_contains "$theming" "$scoped"
+done
+assert_file_contains "$theming" "errexit"
+assert_file_contains "$theming" "theme-hooks.d"
+printf 'PASS: the theme-hook contract states its scope, ordering and boundaries\n'
+
 # --- Document roles are stated ---------------------------------------------
 
 assert_file_contains "$repo_root/docs/README.md" "## Document roles"
