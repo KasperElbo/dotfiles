@@ -275,6 +275,14 @@ check_mise_owned claude
 check_mise_command_runs claude --version
 check_mise_owned herdr
 
+# mise installs and updates Claude Code; Claude Code must not replace its own
+# package. Without this the tool reinstalls itself under the mise-managed Node
+# prefix and shadows the dedicated npm-backend installation.
+check_login_environment DISABLE_UPDATES 1
+
+check_no_global_npm_duplicate @anthropic-ai/claude-code @openai/codex gnhf \
+  backpass acpx gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi
+
 if [[ "$codex_state" == mise-npm ]]; then
   check_mise_owned codex
 elif command -v codex >/dev/null 2>&1; then

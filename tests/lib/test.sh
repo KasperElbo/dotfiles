@@ -324,6 +324,40 @@ EOF_ROOMY_DF
   chmod +x "$bin/df"
 }
 
+# test_stub_npm_global <bin>: an `npm` reporting the global prefix named by
+# TEST_NPM_GLOBAL_PREFIX and exactly the packages listed in
+# TEST_NPM_GLOBAL_PACKAGES, space separated and empty for none.
+#
+# The AI verifier rules out an AI package duplicated in the active Node prefix.
+# Without this stub that question is answered by whatever global npm the host
+# happens to have, so a developer machine or a CI image carrying a global
+# @anthropic-ai/claude-code would fail suites that are about something else --
+# the same silent host dependency `df` had before it was stubbed. A suite that
+# wants the duplicate detected sets TEST_NPM_GLOBAL_PACKAGES instead of
+# unstubbing.
+test_stub_npm_global() {
+  local bin="$1"
+  cat >"$bin/npm" <<'EOF_NPM_GLOBAL'
+#!/usr/bin/env bash
+set -u
+prefix="${TEST_NPM_GLOBAL_PREFIX:-/test/npm-prefix}"
+case "$*" in
+"ls --global --depth=0 --parseable")
+  printf '%s/lib\n' "$prefix"
+  for package in ${TEST_NPM_GLOBAL_PACKAGES:-}; do
+    printf '%s/lib/node_modules/%s\n' "$prefix" "$package"
+  done
+  ;;
+"prefix --global") printf '%s\n' "$prefix" ;;
+*)
+  printf 'strict npm fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+  ;;
+esac
+EOF_NPM_GLOBAL
+  chmod +x "$bin/npm"
+}
+
 test_stub_install() {
   local root="$1"
   local name="$2"

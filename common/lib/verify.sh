@@ -448,6 +448,108 @@ check_catppuccin_tmux() {
 # Shared mise ownership check. Callers that mutate PATH after sourcing should
 # set VERIFY_CALLER_PATH to the original PATH first. VERIFY_MISE_COMMAND may be
 # supplied by a verifier; otherwise the normal repository resolver is used.
+# check_login_environment <name> <expected>: the value a fresh Zsh login gives
+# the variable. Read from a login shell rather than from this process, because
+# an exported value in the verifier's own environment proves nothing about the
+# environment the next `claude` will start in. Deliberately `zsh -lc` rather
+# than the `zsh -lic` used elsewhere in this file: the setting has to survive a
+# login that is not interactive, which is what rules out an interactive-only
+# definition satisfying the check by accident.
+#
+# The probe prints its own marker and an explicit sentinel for an unset
+# variable, so the three outcomes stay distinguishable. The marker is matched
+# anywhere on the line because a login shell is free to write control sequences
+# before it. A shell that answers something else -- a stub, or a login that died
+# before the printf -- is a check this context could not make, not evidence that
+# the variable is missing.
+check_login_environment() {
+  local name="$1"
+  local expected="$2"
+  local answer
+
+  if ! command_exists zsh; then
+    not_observed "zsh is unavailable; cannot prove $name is set for a fresh login"
+    return
+  fi
+
+  answer="$(
+    zsh -lc "printf 'login-env:%s\n' \"\${$name-<unset>}\"" 2>/dev/null |
+      sed -n 's/.*login-env://p' | tail -n 1
+  )"
+
+  case "$answer" in
+  "$expected")
+    pass "$name=$expected in a fresh Zsh login"
+    ;;
+  "")
+    not_observed "the login shell did not answer the $name probe;" \
+      "cannot prove Claude Code's updater is disabled for a fresh login"
+    ;;
+  "<unset>")
+    fail "$name is unset in a fresh Zsh login; Claude Code would update itself" \
+      "outside mise. Restow the zsh package so ~/.zshenv exports it"
+    ;;
+  *)
+    fail "$name is '$answer' in a fresh Zsh login, not $expected;" \
+      "Claude Code would update itself outside mise"
+    ;;
+  esac
+}
+
+# check_no_global_npm_duplicate <package>...: an AI package installed into the
+# active Node prefix as well as its dedicated mise npm backend. The duplicate
+# shadows the backend installation, so mise no longer owns what actually runs.
+#
+# npm is reached through mise so the prefix inspected is the one the mise-managed
+# Node actually uses, rather than whatever npm happens to sit on the caller's
+# PATH. The diagnostic carries the recovery command but the installer does not
+# run it: a package this repository did not install is unproven external state,
+# and deleting it silently is the one thing the ownership model must not do.
+check_no_global_npm_duplicate() {
+  local global_npm prefix status duplicate="false" package mise_command
+
+  mise_command="${VERIFY_MISE_COMMAND:-}"
+  if [[ -z "$mise_command" ]] && declare -F resolve_mise_command >/dev/null 2>&1; then
+    mise_command="$(resolve_mise_command 2>/dev/null || true)"
+  fi
+  if [[ -z "$mise_command" ]]; then
+    not_observed "mise is unavailable; cannot inspect the active Node prefix" \
+      "for duplicate AI packages"
+    return
+  fi
+
+  if declare -F run_mise >/dev/null 2>&1; then
+    global_npm="$(run_mise "$mise_command" exec -- npm ls --global --depth=0 --parseable 2>/dev/null)"
+  else
+    global_npm="$("$mise_command" exec -- npm ls --global --depth=0 --parseable 2>/dev/null)"
+  fi
+  status=$?
+  if ((status != 0)); then
+    not_observed "npm is not runnable under mise; cannot rule out a duplicate" \
+      "AI package in the active Node prefix"
+    return
+  fi
+
+  if declare -F run_mise >/dev/null 2>&1; then
+    prefix="$(run_mise "$mise_command" exec -- npm prefix --global 2>/dev/null || true)"
+  else
+    prefix="$("$mise_command" exec -- npm prefix --global 2>/dev/null || true)"
+  fi
+  for package in "$@"; do
+    if [[ "$global_npm" == *"/node_modules/$package" ]] ||
+      [[ "$global_npm" == *"/node_modules/$package"$'\n'* ]]; then
+      fail "$package is also installed globally with npm under" \
+        "${prefix:-the active Node prefix}; the AI profile is mise-owned." \
+        "Remove only the duplicate and reshim:" \
+        "npm uninstall -g $package && mise reshim"
+      duplicate="true"
+    fi
+  done
+
+  [[ "$duplicate" == true ]] ||
+    pass "No AI package is duplicated in the active Node prefix"
+}
+
 check_mise_owned() {
   local name="$1"
   local resolved mise_resolved mise_shim configured_path configured_resolved mise_command

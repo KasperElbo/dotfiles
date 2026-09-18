@@ -15,6 +15,19 @@ test_install_cleanup_trap
 test_new_root
 root="$TEST_ROOT"
 
+# A counted check runs inside run_capture's command substitution, so its
+# counter increments never reach this shell. Probes that need the counts print
+# them from inside instead, and assert_probe_counts reads that line back.
+probe_counts() {
+  "$@"
+  printf 'counts %d %d %d %d\n' \
+    "$VERIFY_PASSES" "$VERIFY_FAILURES" "$VERIFY_WARNINGS" "$VERIFY_NOT_OBSERVED"
+}
+
+assert_probe_counts() {
+  assert_contains "$TEST_OUTPUT" "counts $1 $2 $3 $4"
+}
+
 assert_verifier_counts() {
   local passes="$1" failures="$2" warnings="$3" not_observed="${4:-0}"
   assert_eq "$passes" "$VERIFY_PASSES" "verifier pass count"
@@ -486,5 +499,128 @@ for library in common/lib/*.sh; do
   done
   printf 'PASS: sourcing %s preserves shell policy\n' "$library"
 done
+
+# --- Claude Code must not update itself outside mise (#281) ------------------
+
+# A `zsh` that models a login shell reading the repository's .zshenv. The value
+# it exports is chosen per case, and an unset TEST_LOGIN_DISABLE_UPDATES models
+# a login that never got the setting at all.
+update_root="$root/claude-updates"
+mkdir -p "$update_root/bin"
+cat >"$update_root/bin/zsh" <<'EOF_LOGIN_ZSH'
+#!/usr/bin/env bash
+set -u
+if [[ $# -eq 2 && "$1" == -lc ]]; then
+  if [[ -n "${TEST_LOGIN_DISABLE_UPDATES+x}" ]]; then
+    export DISABLE_UPDATES="$TEST_LOGIN_DISABLE_UPDATES"
+  else
+    unset DISABLE_UPDATES
+  fi
+  exec bash -c "$2"
+fi
+printf 'strict login-shell fixture rejected unsupported argv: %s\n' "$*" >&2
+exit 96
+EOF_LOGIN_ZSH
+chmod +x "$update_root/bin/zsh"
+
+# login_environment_case <expected-outcome> [value]: the check run against a
+# login shell that exports <value>, or nothing when <value> is omitted.
+login_environment_case() {
+  local expect="$1"
+  verify_reset
+  if (($# > 1)); then
+    TEST_LOGIN_DISABLE_UPDATES="$2" \
+      PATH="$update_root/bin:$PATH" \
+      run_capture probe_counts check_login_environment DISABLE_UPDATES 1
+  else
+    PATH="$update_root/bin:$PATH" \
+      run_capture probe_counts check_login_environment DISABLE_UPDATES 1
+  fi
+  assert_contains "$TEST_OUTPUT" "$expect"
+}
+
+login_environment_case 'DISABLE_UPDATES=1 in a fresh Zsh login' 1
+assert_probe_counts 1 0 0 0
+printf 'PASS: the setting is proved from a fresh non-interactive login\n'
+
+login_environment_case 'DISABLE_UPDATES is unset in a fresh Zsh login'
+assert_probe_counts 0 1 0 0
+assert_contains "$TEST_OUTPUT" 'Restow the zsh package'
+printf 'PASS: a login without the setting is a failure, with the recovery step\n'
+
+# A login carrying some other value is not a pass. DISABLE_AUTOUPDATER, the
+# variable usually reached for, stops only the background check and would leave
+# `claude update` able to replace the mise-owned package, so the check has to
+# insist on this variable and this value rather than on "something is set".
+verify_reset
+TEST_LOGIN_DISABLE_UPDATES=0 PATH="$update_root/bin:$PATH" \
+  run_capture probe_counts check_login_environment DISABLE_UPDATES 1
+assert_contains "$TEST_OUTPUT" "DISABLE_UPDATES is '0' in a fresh Zsh login, not 1"
+assert_probe_counts 0 1 0 0
+printf 'PASS: a login that sets the variable to something else is a failure\n'
+
+# A shell that answers something unrelated -- a stub, or a login that died
+# before the printf -- is a check this context could not make. Reporting it as
+# an unset variable would be a false accusation.
+mkdir -p "$update_root/mute"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$PATH"\n' >"$update_root/mute/zsh"
+chmod +x "$update_root/mute/zsh"
+verify_reset
+PATH="$update_root/mute:$PATH" run_capture probe_counts check_login_environment DISABLE_UPDATES 1
+assert_contains "$TEST_OUTPUT" 'the login shell did not answer'
+assert_probe_counts 0 0 0 1
+printf 'PASS: a shell that does not answer the probe is unobserved, not a failure\n'
+
+# --- A duplicate in the active Node prefix -----------------------------------
+
+# mise `exec -- …` runs the command with the fixture bin ahead of PATH, so the
+# prefix inspected is the one this fixture models rather than the host's.
+cat >"$update_root/bin/mise" <<'EOF_MISE'
+#!/usr/bin/env bash
+set -u
+[[ "${1:-}" == exec && "${2:-}" == -- ]] || {
+  printf 'strict mise fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+}
+shift 2
+exec "$@"
+EOF_MISE
+chmod +x "$update_root/bin/mise"
+test_stub_npm_global "$update_root/bin"
+
+duplicate_case() {
+  verify_reset
+  TEST_NPM_GLOBAL_PREFIX="$update_root/npm-prefix" \
+    TEST_NPM_GLOBAL_PACKAGES="$1" \
+    VERIFY_MISE_COMMAND="$update_root/bin/mise" \
+    PATH="$update_root/bin:$PATH" \
+    run_capture probe_counts check_no_global_npm_duplicate @anthropic-ai/claude-code @openai/codex
+}
+
+duplicate_case ""
+assert_contains "$TEST_OUTPUT" 'No AI package is duplicated in the active Node prefix'
+assert_probe_counts 1 0 0 0
+printf 'PASS: a clean Node prefix passes\n'
+
+duplicate_case "@anthropic-ai/claude-code"
+assert_contains "$TEST_OUTPUT" '@anthropic-ai/claude-code is also installed globally with npm'
+assert_contains "$TEST_OUTPUT" "$update_root/npm-prefix"
+assert_contains "$TEST_OUTPUT" 'npm uninstall -g @anthropic-ai/claude-code && mise reshim'
+assert_probe_counts 0 1 0 0
+printf 'PASS: a global npm duplicate fails, naming the prefix and the recovery command\n'
+
+# The dedicated mise npm-backend installation must not read as a duplicate of
+# itself: it lives under the mise install tree, not the global npm prefix.
+duplicate_case "some-unrelated-package"
+assert_contains "$TEST_OUTPUT" 'No AI package is duplicated in the active Node prefix'
+assert_probe_counts 1 0 0 0
+printf 'PASS: an unrelated global package is not mistaken for an AI duplicate\n'
+
+verify_reset
+VERIFY_MISE_COMMAND="" PATH="$root/no-such-bin" \
+  run_capture probe_counts check_no_global_npm_duplicate @anthropic-ai/claude-code
+assert_contains "$TEST_OUTPUT" 'mise is unavailable'
+assert_probe_counts 0 0 0 1
+printf 'PASS: without mise the prefix is unobserved, not silently clean\n'
 
 printf 'Shared verifier tests passed.\n'

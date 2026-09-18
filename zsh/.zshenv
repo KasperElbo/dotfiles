@@ -14,6 +14,22 @@ typeset -gU path PATH
 path=("$HOME/.local/bin" $path)
 export PATH
 
+# Claude Code is installed and updated by mise, as `npm:@anthropic-ai/claude-code`
+# in the optional AI profile. Left to itself it installs a second copy under the
+# mise-managed Node prefix, which then shadows the dedicated npm-backend
+# installation and makes the AI verifier fail on a duplicated provider.
+#
+# `DISABLE_UPDATES` blocks every update path. The more commonly cited
+# `DISABLE_AUTOUPDATER` stops only the background check and leaves `claude
+# update` and `claude install` able to do exactly the same thing, which is not
+# what "mise owns this package" means.
+#
+# Set here rather than behind the AI profile because this file is read by every
+# Zsh, interactive or not, which is what makes the setting effective in a fresh
+# login shell however Claude Code is started. On a machine that never selected
+# the AI profile the variable simply has no reader.
+export DISABLE_UPDATES=1
+
 # Platform environment policy must run before .zshrc executes any commands.
 # Fedora WSL uses this hook to remove inherited Windows PATH entries while
 # keeping interop available through explicit helpers.

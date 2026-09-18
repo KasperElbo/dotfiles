@@ -114,6 +114,39 @@ consistent, mise-owned update/uninstall path shared with Codex and Herdr, and
 avoids adding a second, Fedora-only package-management path (the `dnf` Claude
 Code repository) that would not carry over to Fedora WSL or macOS unchanged.
 
+### Claude Code does not update itself
+
+Choosing mise as the owner is not enough on its own. Left with its own updater,
+Claude Code reinstalls itself under the mise-managed Node prefix; that copy then
+shadows the dedicated npm-backend installation, and verification correctly
+reports a duplicated provider. `zsh/.zshenv` therefore exports
+`DISABLE_UPDATES=1`, which is the upstream setting that blocks every update
+path. The more commonly cited `DISABLE_AUTOUPDATER` stops only the background
+check and leaves `claude update` and `claude install` able to do exactly the
+same thing, which is not what mise ownership means.
+
+The export lives in `.zshenv` rather than behind the AI profile because that
+file is read by every Zsh, interactive or not, which is what makes the setting
+effective in a fresh login shell however Claude Code is started. On a machine
+that never selected the AI profile the variable simply has no reader.
+
+The division of responsibility is:
+
+```text
+mise         -> installs and updates Claude Code
+Claude Code  -> must not replace or update its own package
+```
+
+Verification proves all of it from a fresh, non-interactive login rather than
+from the verifier's own environment: that `DISABLE_UPDATES` is set, that
+`claude` still resolves to the dedicated mise installation or its shim, and that
+no AI package is duplicated in the active Node prefix. A duplicate is reported
+with the command that removes only it — `npm uninstall -g <package> && mise
+reshim` — and the installer does not run that command itself. A package this
+repository did not install is unproven external state, and deleting it silently
+is the one thing the ownership model must not do. See
+[Anthropic's documentation on disabling auto-updates](https://code.claude.com/docs/en/setup#disable-auto-updates).
+
 The generated AI mise configuration enables npm lifecycle scripts and includes
 optional dependencies only for the Claude Code tool installation
 (`--ignore-scripts=false --include=optional`). This is required because
