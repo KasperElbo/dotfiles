@@ -63,6 +63,7 @@ default_tests=(
   tests/test-path-resolution.sh
   tests/test-test-support.sh
   tests/test-test-runner.sh
+  tests/test-registry-schema.sh
   tests/test-capabilities.sh
   tests/test-tool-floors.sh
   tests/test-install-option-parsers.sh

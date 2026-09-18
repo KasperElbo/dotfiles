@@ -13,12 +13,11 @@ Usage:
 
 from __future__ import annotations
 
-import csv
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import platform_profiles, supported_platforms  # noqa: E402
+from manifests import platform_profiles, read_tsv, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "config" / "actions.tsv"
@@ -61,8 +60,7 @@ def escape(value: str) -> str:
 
 
 def render() -> str:
-    with REGISTRY.open(newline="", encoding="utf-8") as stream:
-        rows = list(csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE))
+    rows = read_tsv(REGISTRY)
 
     lines = [
         BEGIN,

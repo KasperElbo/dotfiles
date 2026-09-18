@@ -22,11 +22,12 @@ rejects its flags rather than accepting them; see REJECTED_FLAGS.
 
 from __future__ import annotations
 
-import csv
 import os
 import pathlib
 import re
 import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import ManifestSchemaError, read_tsv  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPTION_MANIFEST = pathlib.Path(
@@ -106,12 +107,12 @@ def parser_flags(installer: pathlib.Path) -> tuple[set[str], set[str]] | None:
 
 def main() -> int:
     errors = 0
-    with OPTION_MANIFEST.open(newline="", encoding="utf-8") as stream:
-        reader = csv.DictReader(stream, delimiter="\t")
-        if reader.fieldnames != OPTION_FIELDS:
-            fail(f"unexpected columns: {reader.fieldnames}")
-            return 1
-        options = list(reader)
+    try:
+        options = read_tsv(OPTION_MANIFEST, OPTION_FIELDS)
+    except ManifestSchemaError as error:
+        for message in error.messages:
+            fail(message)
+        return 1
 
     declared: dict[str, set[str]] = {}
     for option in options:

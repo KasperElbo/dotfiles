@@ -19,7 +19,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import pathlib
 import subprocess
 import sys
@@ -27,6 +26,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from manifests import SHELL_FILE_ROLES_MANIFEST as MANIFEST  # noqa: E402
 from manifests import role_pattern_matches as matches  # noqa: E402
+from manifests import ManifestSchemaError, read_tsv  # noqa: E402
 
 FIELDS = ["role", "mode", "pattern", "description"]
 
@@ -81,12 +81,12 @@ def main() -> int:
     arguments = parser.parse_args()
     root = arguments.root.resolve()
 
-    with (root / MANIFEST).open(newline="", encoding="utf-8") as stream:
-        reader = csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE)
-        if reader.fieldnames != FIELDS:
-            print(f"shell-file roles: unexpected columns: {reader.fieldnames}", file=sys.stderr)
-            return 1
-        rules = list(reader)
+    try:
+        rules = read_tsv(root / MANIFEST, FIELDS)
+    except ManifestSchemaError as error:
+        for message in error.messages:
+            print(f"shell-file roles: {message}", file=sys.stderr)
+        return 1
 
     problems: list[str] = []
     for rule in rules:

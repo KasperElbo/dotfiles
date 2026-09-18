@@ -10,13 +10,12 @@ list of verifiers that drifts the moment one is added.
 
 from __future__ import annotations
 
-import csv
 import os
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import supported_platforms  # noqa: E402
+from manifests import read_tsv, supported_platforms  # noqa: E402
 
 root = pathlib.Path(__file__).resolve().parents[1]
 manifest = pathlib.Path(
@@ -40,8 +39,7 @@ if missing_headings:
     print(f"No section heading for platform(s): {', '.join(missing_headings)}", file=sys.stderr)
     raise SystemExit(1)
 
-with manifest.open(newline="", encoding="utf-8") as stream:
-    rows = list(csv.DictReader(stream, delimiter="\t"))
+rows = read_tsv(manifest)
 
 lines = [
     "# Generated verifier reference",

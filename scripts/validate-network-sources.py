@@ -27,7 +27,6 @@ lines, so a single annotation can cover a short multi-line invocation.
 
 from __future__ import annotations
 
-import csv
 import os
 import pathlib
 import re
@@ -35,7 +34,12 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import role_pattern_matches, shell_file_role_patterns  # noqa: E402
+from manifests import (  # noqa: E402
+    ManifestSchemaError,
+    read_tsv,
+    role_pattern_matches,
+    shell_file_role_patterns,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REGISTRY = pathlib.Path(
@@ -169,12 +173,12 @@ def is_exempt(relative: str) -> bool:
 
 def load_registry() -> tuple[list[dict[str, str]], int]:
     errors = 0
-    with REGISTRY.open(newline="", encoding="utf-8") as stream:
-        reader = csv.DictReader(stream, delimiter="\t")
-        if reader.fieldnames != FIELDS:
-            fail(f"unexpected columns: {reader.fieldnames}")
-            return [], 1
-        rows = list(reader)
+    try:
+        rows = read_tsv(REGISTRY, FIELDS)
+    except ManifestSchemaError as error:
+        for message in error.messages:
+            fail(message)
+        return [], 1
 
     seen: set[str] = set()
     for line, row in enumerate(rows, 2):
