@@ -19,6 +19,7 @@ PLAN_PREFLIGHTS=()
 PLAN_APPLIES=()
 PLAN_VERIFIES=()
 PLAN_NOTES=()
+PLAN_SCRIPTS=()
 PLAN_COMPLETED=()
 PLAN_COUNT=0
 PLAN_COMPLETED_COUNT=0
@@ -33,12 +34,22 @@ plan_log() {
 
 plan_reset() {
   PLAN_IDS=(); PLAN_LABELS=(); PLAN_PHASES=(); PLAN_PREFLIGHTS=()
-  PLAN_APPLIES=(); PLAN_VERIFIES=(); PLAN_NOTES=(); PLAN_COMPLETED=()
+  PLAN_APPLIES=(); PLAN_VERIFIES=(); PLAN_NOTES=(); PLAN_SCRIPTS=()
+  PLAN_COMPLETED=()
   PLAN_COUNT=0; PLAN_COMPLETED_COUNT=0; PLAN_CURRENT_INDEX=-1
 }
 
+# The eighth field is the repository scripts the step runs, space-separated
+# and relative to the checkout, or the empty string for a step that runs none.
+#
+# It is what the network preflight derives its probe set from: a source in
+# config/network-sources.tsv is probed when a step that runs one of its
+# consumers is in the resolved plan. A step could declare this wrongly, so
+# scripts/validate-plan-network.py holds every declaration against the scripts
+# the step's apply path actually runs; the declaration is data the installer
+# reads, and the check is where being wrong about it is caught.
 plan_add() {
-  [[ $# -eq 7 ]] || die "plan_add requires id, label, phase, preflight, apply, verify and note"
+  [[ $# -eq 8 ]] || die "plan_add requires id, label, phase, preflight, apply, verify, note and scripts"
   local i existing
 
   # macOS still ships Bash 3.2. With nounset enabled, expanding an empty array
@@ -52,8 +63,25 @@ plan_add() {
   done
   PLAN_IDS+=("$1"); PLAN_LABELS+=("$2"); PLAN_PHASES+=("$3")
   PLAN_PREFLIGHTS+=("$4"); PLAN_APPLIES+=("$5"); PLAN_VERIFIES+=("$6")
-  PLAN_NOTES+=("$7")
+  PLAN_NOTES+=("$7"); PLAN_SCRIPTS+=("$8")
   PLAN_COUNT=$((PLAN_COUNT + 1))
+}
+
+# plan_scripts: every repository script the resolved plan will run, one per
+# line and without repetition. Only the steps that were actually added are
+# walked, so an optional capability nobody selected contributes nothing.
+plan_scripts() {
+  local i script seen=""
+  local -a declared
+  for ((i=0; i<PLAN_COUNT; i++)); do
+    [[ -n "${PLAN_SCRIPTS[i]}" ]] || continue
+    read -ra declared <<<"${PLAN_SCRIPTS[i]}"
+    for script in "${declared[@]}"; do
+      case " $seen " in *" $script "*) continue ;; esac
+      seen="${seen:+$seen }$script"
+      printf '%s\n' "$script"
+    done
+  done
 }
 
 # A step whose work is one repository script states that command once, in a

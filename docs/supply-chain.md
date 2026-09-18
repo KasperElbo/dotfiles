@@ -98,7 +98,7 @@ this library.
 
 The same library carries one operation that is not a transfer:
 `fetch_host_reachable`, the reachability probe a platform preflight runs before
-it changes anything. It asks for headers only and discards them, is never
+it changes anything, once per host the resolved plan downloads from. It asks for headers only and discards them, is never
 retried, and counts any HTTP answer as reachable, because only a failure to
 resolve, to connect, to establish a verified TLS session, or to finish within
 its own ceiling proves the network path unusable. It keeps the HTTPS and TLS

@@ -91,16 +91,16 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `npm-registry` | `https://registry.npmjs.org` | mise uninstall | `common/install-ai.sh` |
 | `opam-repository` | `https://opam.ocaml.org` | opam switch remove | `common/install-ocaml.sh` |
 | `parrot-os-repos` | `https://deb.parrot.sh` | sudo apt-get install --reinstall | `platforms/parrot-ctf/scripts/install-system.sh` |
-| `rpmfusion-free-release` | `https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-free-release | `platforms/fedora/lib/fedora.sh` |
-| `rpmfusion-nonfree-release` | `https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-nonfree-release | `platforms/fedora/lib/fedora.sh` |
+| `rpmfusion-free-release` | `https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-free-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
+| `rpmfusion-nonfree-release` | `https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-nonfree-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `scoop-installer` | `https://get.scoop.sh` | scoop uninstall | `platforms/windows/install.ps1` |
 | `scoop-noctty-bucket` | `https://github.com/amanthanvi/scoop-noctty` | scoop bucket rm noctty | `platforms/windows/install.ps1` |
 | `smoke-image-alpine` | `docker.io/library/alpine:latest` | podman rmi | `platforms/macos/scripts/install-containers.sh` `platforms/macos/scripts/verify.sh` |
 | `smoke-image-busybox` | `docker.io/library/busybox:stable` | podman rmi | `platforms/fedora/scripts/verify-containers.sh` |
 | `starship-installer` | `https://starship.rs/install.sh` | rm ~/.local/bin/starship and rerun | `platforms/fedora-wsl/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` |
-| `tailscale-repo` | `https://pkgs.tailscale.com/stable/fedora/tailscale.repo` | sudo rm /etc/yum.repos.d/tailscale.repo | `platforms/fedora/lib/tailscale.sh` |
-| `terra-repo` | `https://repos.fyralabs.com/terra$releasever` | sudo dnf remove terra-release | `platforms/fedora/install.sh` `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-terra.sh` |
-| `terra-signing-key` | `https://repos.fyralabs.com/terra$releasever/key.asc` | sudo rpm -e --allmatches gpg-pubkey-<id> | `config/terra-keys.tsv` `platforms/fedora/install.sh` `platforms/fedora/lib/fedora.sh` |
+| `tailscale-repo` | `https://pkgs.tailscale.com/stable/fedora/tailscale.repo` | sudo rm /etc/yum.repos.d/tailscale.repo | `platforms/fedora/lib/tailscale.sh` `platforms/fedora/scripts/install-tailscale.sh` |
+| `terra-repo` | `https://repos.fyralabs.com/terra$releasever` | sudo dnf remove terra-release | `platforms/fedora/install.sh` `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-terra.sh` `platforms/fedora/scripts/install-asus-hardware.sh` |
+| `terra-signing-key` | `https://repos.fyralabs.com/terra$releasever/key.asc` | sudo rpm -e --allmatches gpg-pubkey-<id> | `config/terra-keys.tsv` `platforms/fedora/install.sh` `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-terra.sh` `platforms/fedora/scripts/install-asus-hardware.sh` |
 | `treehouse-installer` | `https://kunchenguid.github.io/treehouse/install.sh` | ./scripts/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
 | `validation-image-fedora` | `docker.io/library/fedora:44` | pin the previous digest | `.github/workflows/validate.yml` `tests/integration/fedora-clean-install.sh` |
 | `wsl-distribution-catalog` | `https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json` | not-applicable | `platforms/windows/install.ps1` |

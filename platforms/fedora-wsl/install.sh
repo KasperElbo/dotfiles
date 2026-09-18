@@ -156,14 +156,6 @@ preflight_wsl() {
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
   preflight_disk_space /var/cache/dnf "$PREFLIGHT_SYSTEM_MIN_MB"
-  # Only for the upstream installers this run is certain to fetch: an account
-  # that already has both tools asks nothing of the network here.
-  # network-source: mise-installer
-  resolve_mise_command >/dev/null 2>&1 ||
-    preflight_network https://mise.run 'the mise installer'
-  # network-source: starship-installer
-  command_exists starship || [[ -x "$HOME/.local/bin/starship" ]] ||
-    preflight_network https://starship.rs/install.sh 'the Starship installer'
   local specs=() spec capability stow_specs
   local selected=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(wsl_selected_capabilities)
@@ -190,20 +182,20 @@ apply_ai() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interac
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
 verify_wsl() { plan_command_run wsl_verify_command; }
 
-plan_add system 'Install Fedora command-line prerequisites and Linux-native mise' apply preflight_wsl apply_system : "Set Zsh as the user's default login shell. $(plan_command_note wsl_system_command)"
-plan_add interop 'Preserve explicit Windows executable interop without Windows PATH entries' apply : apply_interop : "$(plan_command_note wsl_interop_command); enabled=true, appendWindowsPath=false"
-[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora OCaml build prerequisites' apply : apply_ocaml_native : "$(plan_command_note wsl_ocaml_native_command)"
-[[ "$install_latex" != true ]] || plan_add latex 'Install the optional Fedora-owned LaTeX toolchain' apply : apply_latex : "$(plan_command_note wsl_latex_command); latexmk, latexindent, Biber"
-plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "$(plan_command_note wsl_local_command)"
-plan_add stow 'Deploy portable and Fedora WSL configuration' apply : apply_stow : "$(plan_command_note wsl_stow_command)"
-plan_add mise 'Install mise-managed Linux runtimes and developer CLIs' apply : apply_mise : "$(plan_command_note wsl_mise_command)"
-plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim : "$(plan_command_note wsl_nvim_command)"
-[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch' apply : apply_ocaml : "$(plan_command_note wsl_ocaml_command)"
-[[ "$install_containers" != true ]] || plan_add containers 'Install the optional rootless Podman profile' apply : apply_containers : "$(plan_command_note wsl_containers_command)"
-plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : "$(plan_command_note wsl_tmux_command)"
-[[ "$install_ai" != true ]] || plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$(plan_command_note wsl_ai_command)"
-plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme"
-plan_add verify 'Verify WSL detection, Linux command ownership, and runtime startup' verify : verify_wsl : "$(plan_command_note wsl_verify_command)"
+plan_add system 'Install Fedora command-line prerequisites and Linux-native mise' apply preflight_wsl apply_system : "Set Zsh as the user's default login shell. $(plan_command_note wsl_system_command)" 'platforms/fedora-wsl/scripts/install-system.sh'
+plan_add interop 'Preserve explicit Windows executable interop without Windows PATH entries' apply : apply_interop : "$(plan_command_note wsl_interop_command); enabled=true, appendWindowsPath=false" 'platforms/fedora-wsl/scripts/configure-interop.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora OCaml build prerequisites' apply : apply_ocaml_native : "$(plan_command_note wsl_ocaml_native_command)" 'platforms/fedora/scripts/install-ocaml.sh'
+[[ "$install_latex" != true ]] || plan_add latex 'Install the optional Fedora-owned LaTeX toolchain' apply : apply_latex : "$(plan_command_note wsl_latex_command); latexmk, latexindent, Biber" 'platforms/fedora/scripts/install-latex.sh'
+plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "$(plan_command_note wsl_local_command)" 'common/setup-local.sh'
+plan_add stow 'Deploy portable and Fedora WSL configuration' apply : apply_stow : "$(plan_command_note wsl_stow_command)" 'platforms/fedora-wsl/scripts/stow.sh'
+plan_add mise 'Install mise-managed Linux runtimes and developer CLIs' apply : apply_mise : "$(plan_command_note wsl_mise_command)" 'common/install-mise.sh'
+plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim : "$(plan_command_note wsl_nvim_command)" 'common/install-neovim-tools.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch' apply : apply_ocaml : "$(plan_command_note wsl_ocaml_command)" 'common/install-ocaml.sh'
+[[ "$install_containers" != true ]] || plan_add containers 'Install the optional rootless Podman profile' apply : apply_containers : "$(plan_command_note wsl_containers_command)" 'platforms/fedora-wsl/scripts/install-containers.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : "$(plan_command_note wsl_tmux_command)" 'common/install-tmux-theme.sh'
+[[ "$install_ai" != true ]] || plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$(plan_command_note wsl_ai_command)" 'common/install-ai.sh'
+plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme" ''
+plan_add verify 'Verify WSL detection, Linux command ownership, and runtime startup' verify : verify_wsl : "$(plan_command_note wsl_verify_command)" 'platforms/fedora-wsl/scripts/verify.sh'
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
@@ -244,6 +236,12 @@ if [[ "$interactive" == true ]]; then
   fi
 fi
 plan_preflight
+# Then the network, because a local problem is worth reporting without waiting
+# for a probe. The hosts come from config/network-sources.tsv, selected by the
+# scripts this resolved plan will run, so a step added later cannot fetch from
+# a host nothing checked; scripts/validate-plan-network.py holds the two to
+# each other. Nothing has mutated yet at this point.
+plan_scripts | preflight_plan_network
 capabilities=''
 while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(wsl_selected_capabilities)
 DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command fedora-wsl "$install_selection")"

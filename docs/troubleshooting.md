@@ -32,7 +32,8 @@ Missing bootstrap-prerequisite command: sudo (provider: sudo)
 Missing supported-base command: awk (provider: gawk)
 Path is not writable: /home/you/.config
 Not enough free disk space for /home/you/.local/share: 812 MiB available, 3072 MiB required
-Cannot reach the Terra repository, which this installation downloads from: https://repos.fyralabs.com
+Cannot reach github.com, which this installation downloads from: Catppuccin tmux theme, Mason registry
+Nothing has been changed. Restore network access, or rerun without the steps that need it.
 ```
 
 Install the named command — the message names the package that provides it —
@@ -51,15 +52,25 @@ platform's package manager writes to (`/var/cache/dnf` on Fedora,
 separate `/var` is checked where the transaction actually lands. Free space on
 the named path, then rerun.
 
-The reachability check is connect-level and runs only for a download the run is
-certain to make: the Terra repository on a Fedora machine that does not have it
-yet, the mise, Starship or Homebrew installer on a machine missing that tool. A
-run that needs none of those downloads is never refused by this check, and a run
-that needs one is told in seconds instead of failing partway through the first
-mutating step. Nothing else is probed, so a package-manager transaction still
-reports its own network failure when it reaches it. The probe uses the same
+The reachability check is connect-level and covers the hosts the resolved plan
+will actually download from, every one of them, named in a single refusal
+rather than one per rerun. The set is derived rather than listed: each step
+declares the repository scripts it runs, `config/network-sources.tsv` says
+which sources each script downloads, and the preflight probes one host per
+matching source. So a run is told in seconds what it cannot reach, instead of
+failing partway through the first mutating step — including the
+package-manager transaction, which is both the largest download and the first
+thing to change the machine.
+
+A step that is not in your plan contributes nothing, so a machine whose plan
+needs nothing from the network still installs offline. The probe uses the same
 proxy settings as the download itself, so a proxy that works for `curl` works
 here.
+
+`scripts/validate-plan-network.py` keeps the derivation honest: it fails the
+build when a step's declaration does not match the scripts it runs, or when a
+script can reach a source whose registry row does not name it. A step cannot
+be added that downloads from a host nothing probes.
 
 ## Stow conflicts
 

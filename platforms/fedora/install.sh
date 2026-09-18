@@ -228,13 +228,6 @@ preflight_fedora() {
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
   preflight_disk_space /var/cache/dnf "$PREFLIGHT_SYSTEM_MIN_MB"
-  # Only for a download this run is certain to make: a machine that already has
-  # Terra asks nothing of the network here, and still installs offline.
-  # The host, not a release-specific path: any answer from it proves the
-  # network path the key fetch and dnf both use, so this needs no releasever.
-  # network-source: terra-signing-key,terra-repo
-  terra_release_installed ||
-    preflight_network "$TERRA_HOST_URL" 'the Terra repository'
   local specs=() spec capability stow_specs exemption
   local selected=() packages=() replaced=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(fedora_selected_capabilities)
@@ -274,29 +267,29 @@ apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" 
 verify_fedora() { plan_command_run fedora_verify_command; }
 apply_dev_workflows() { plan_command_run fedora_dev_workflows_command; }
 
-plan_add system 'Install Fedora system packages' apply preflight_fedora apply_system : "Set Zsh as the user's default login shell. $(plan_command_note fedora_system_command)"
-plan_add terra 'Enable Terra and install Terra-managed packages' apply : apply_terra : "$(plan_command_note fedora_terra_command)"
-[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora-owned OCaml prerequisites' apply : apply_ocaml_native : "$(plan_command_note fedora_ocaml_native_command)"
-[[ -z "$hardware_model" ]] || plan_add hardware "Install ASUS hardware support for $hardware_model" apply : apply_hardware : "$(plan_command_note fedora_hardware_command)"
-[[ "$install_sway" != true ]] || plan_add sway 'Install the optional Sway daily-driver session' apply : apply_sway : "$(plan_command_note fedora_sway_command)"
-[[ "$install_vm_host" != true ]] || plan_add vm-host 'Install the optional Fedora KVM/QEMU + libvirt VM-host profile' apply : apply_vm_host : "$(plan_command_note fedora_vm_host_command); adds you to the root-equivalent libvirt group"
-[[ "$install_vm_guest" != true ]] || plan_add vm-guest 'Install the explicit Fedora KVM/QEMU VM-guest profile' apply : apply_vm_guest : "$(plan_command_note fedora_vm_guest_command)"
-[[ "$install_hardening" != true ]] || plan_add hardening 'Install the optional conservative security-hardening profile' apply : apply_hardening : "$(plan_command_note fedora_hardening_command)"
-[[ "$install_desktop_tools" != true ]] || plan_add desktop-tools 'Install the optional day-to-day desktop application profile' apply : apply_desktop : "$(plan_command_note fedora_desktop_tools_command); GIMP, pdfarranger, mpv, Skanpage; reuses Gwenview, Okular, Ark"
-[[ "$install_containers" != true ]] || plan_add containers 'Install the optional rootless Podman profile' apply : apply_containers : "$(plan_command_note fedora_containers_command)"
-[[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale networking profile' apply : apply_tailscale : "$(plan_command_note fedora_tailscale_command)"
-plan_add local 'Initialize machine-local configuration' apply : apply_local : "$(plan_command_note fedora_local_command)"
-plan_add stow 'Deploy tracked configuration with GNU Stow' apply : apply_stow : "$(plan_command_note fedora_stow_command)"
-plan_add mise 'Install mise-managed runtimes and developer tools' apply : apply_mise : "$(plan_command_note fedora_mise_command)"
-plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim : "$(plan_command_note fedora_nvim_command)"
-plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : "$(plan_command_note fedora_tmux_command)"
-[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and Platform tools' apply : apply_ocaml : "OCaml ${OCAML_COMPILER_VERSION:-5.5.0}; $(plan_command_note fedora_ocaml_command)"
-[[ "$install_ai" != true ]] || plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$(plan_command_note fedora_ai_command)"
-[[ "$install_kde" != enabled ]] || plan_add kde 'Install all four Catppuccin KDE themes' apply : apply_kde : "$(plan_command_note fedora_kde_command)"
-[[ "$install_latex" != enabled ]] || plan_add latex 'Install LaTeX toolchain' apply : apply_latex : "$(plan_command_note fedora_latex_command)"
-plan_add theme "Apply Catppuccin $theme" apply : apply_theme : "theme $theme"
-[[ "$run_dev_workflows" != true ]] || plan_add dev-workflows 'Run the disposable development workflow smoke tests' verify : apply_dev_workflows : "$(plan_command_note fedora_dev_workflows_command)"
-plan_add verify 'Verify installation' verify : verify_fedora : "$(plan_command_note fedora_verify_command)"
+plan_add system 'Install Fedora system packages' apply preflight_fedora apply_system : "Set Zsh as the user's default login shell. $(plan_command_note fedora_system_command)" 'platforms/fedora/scripts/install-system.sh'
+plan_add terra 'Enable Terra and install Terra-managed packages' apply : apply_terra : "$(plan_command_note fedora_terra_command)" 'platforms/fedora/scripts/install-terra.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora-owned OCaml prerequisites' apply : apply_ocaml_native : "$(plan_command_note fedora_ocaml_native_command)" 'platforms/fedora/scripts/install-ocaml.sh'
+[[ -z "$hardware_model" ]] || plan_add hardware "Install ASUS hardware support for $hardware_model" apply : apply_hardware : "$(plan_command_note fedora_hardware_command)" 'platforms/fedora/scripts/install-asus-hardware.sh'
+[[ "$install_sway" != true ]] || plan_add sway 'Install the optional Sway daily-driver session' apply : apply_sway : "$(plan_command_note fedora_sway_command)" 'platforms/fedora/scripts/install-sway.sh'
+[[ "$install_vm_host" != true ]] || plan_add vm-host 'Install the optional Fedora KVM/QEMU + libvirt VM-host profile' apply : apply_vm_host : "$(plan_command_note fedora_vm_host_command); adds you to the root-equivalent libvirt group" 'platforms/fedora/scripts/install-vm-host.sh'
+[[ "$install_vm_guest" != true ]] || plan_add vm-guest 'Install the explicit Fedora KVM/QEMU VM-guest profile' apply : apply_vm_guest : "$(plan_command_note fedora_vm_guest_command)" 'platforms/fedora/scripts/install-vm-guest.sh'
+[[ "$install_hardening" != true ]] || plan_add hardening 'Install the optional conservative security-hardening profile' apply : apply_hardening : "$(plan_command_note fedora_hardening_command)" 'platforms/fedora/scripts/install-hardening.sh'
+[[ "$install_desktop_tools" != true ]] || plan_add desktop-tools 'Install the optional day-to-day desktop application profile' apply : apply_desktop : "$(plan_command_note fedora_desktop_tools_command); GIMP, pdfarranger, mpv, Skanpage; reuses Gwenview, Okular, Ark" 'platforms/fedora/scripts/install-desktop-tools.sh'
+[[ "$install_containers" != true ]] || plan_add containers 'Install the optional rootless Podman profile' apply : apply_containers : "$(plan_command_note fedora_containers_command)" 'platforms/fedora/scripts/install-containers.sh'
+[[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale networking profile' apply : apply_tailscale : "$(plan_command_note fedora_tailscale_command)" 'platforms/fedora/scripts/install-tailscale.sh'
+plan_add local 'Initialize machine-local configuration' apply : apply_local : "$(plan_command_note fedora_local_command)" 'platforms/fedora/scripts/setup-local.sh'
+plan_add stow 'Deploy tracked configuration with GNU Stow' apply : apply_stow : "$(plan_command_note fedora_stow_command)" 'platforms/fedora/scripts/stow.sh'
+plan_add mise 'Install mise-managed runtimes and developer tools' apply : apply_mise : "$(plan_command_note fedora_mise_command)" 'common/install-mise.sh'
+plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim : "$(plan_command_note fedora_nvim_command)" 'common/install-neovim-tools.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : "$(plan_command_note fedora_tmux_command)" 'common/install-tmux-theme.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and Platform tools' apply : apply_ocaml : "OCaml ${OCAML_COMPILER_VERSION:-5.5.0}; $(plan_command_note fedora_ocaml_command)" 'common/install-ocaml.sh'
+[[ "$install_ai" != true ]] || plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$(plan_command_note fedora_ai_command)" 'common/install-ai.sh'
+[[ "$install_kde" != enabled ]] || plan_add kde 'Install all four Catppuccin KDE themes' apply : apply_kde : "$(plan_command_note fedora_kde_command)" 'platforms/fedora/scripts/install-kde-theme.sh'
+[[ "$install_latex" != enabled ]] || plan_add latex 'Install LaTeX toolchain' apply : apply_latex : "$(plan_command_note fedora_latex_command)" 'platforms/fedora/scripts/install-latex.sh'
+plan_add theme "Apply Catppuccin $theme" apply : apply_theme : "theme $theme" ''
+[[ "$run_dev_workflows" != true ]] || plan_add dev-workflows 'Run the disposable development workflow smoke tests' verify : apply_dev_workflows : "$(plan_command_note fedora_dev_workflows_command)" 'scripts/test-dev-workflows.sh'
+plan_add verify 'Verify installation' verify : verify_fedora : "$(plan_command_note fedora_verify_command)" 'platforms/fedora/scripts/verify.sh'
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
@@ -349,6 +342,12 @@ if [[ "$interactive" == true ]]; then
   fi
 fi
 plan_preflight
+# Then the network, because a local problem is worth reporting without waiting
+# for a probe. The hosts come from config/network-sources.tsv, selected by the
+# scripts this resolved plan will run, so a step added later cannot fetch from
+# a host nothing checked; scripts/validate-plan-network.py holds the two to
+# each other. Nothing has mutated yet at this point.
+plan_scripts | preflight_plan_network
 capabilities=''
 while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(fedora_selected_capabilities)
 DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command fedora "$install_selection")"
