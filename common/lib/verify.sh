@@ -348,14 +348,30 @@ check_user_service_enabled_and_active() {
 check_mason_inventory() {
   local inventory="$1"
   local mason_root="${XDG_DATA_HOME:-$HOME/.local/share}/nvim/mason/packages"
-  local package package_dir listed status=0
+  local package package_dir listed filtered status=0
   local -a packages=()
 
   if [[ ! -r "$inventory" ]]; then
     fail "Mason package inventory missing: $inventory"
     return 1
   fi
-  mapfile -t packages < <(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$inventory")
+  # macOS's system Bash is 3.2 and has no mapfile, so this reads the inventory
+  # with a loop instead. Capturing sed's output first, rather than reading a
+  # process substitution, is what keeps sed's exit status: an inventory that
+  # cannot be read now says so, instead of arriving here empty and being
+  # reported as an empty inventory. The sed is unchanged, so the comment and
+  # blank-line filtering and the package order are exactly what they were, and
+  # the guard below is needed because a here-string of "" still yields one
+  # empty line.
+  filtered="$(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$inventory")" || {
+    fail "Mason package inventory could not be read: $inventory"
+    return 1
+  }
+  if [[ -n "$filtered" ]]; then
+    while IFS= read -r package; do
+      packages+=("$package")
+    done <<<"$filtered"
+  fi
   if ((${#packages[@]} == 0)); then
     fail "Mason package inventory is empty: $inventory"
     return 1

@@ -307,6 +307,69 @@ XDG_DATA_HOME="$root/mason-data" check_mason_inventory "$root/missing-inventory.
   >"$root/mason.out" 2>&1 || true
 assert_verifier_counts 0 1 0
 
+# The inventory read must not depend on a Bash 4 builtin. macOS's system Bash
+# is 3.2, where mapfile does not exist; `enable -n` reproduces exactly that,
+# down to the "mapfile: command not found" the macOS verifier printed, so these
+# cases cannot be rescued by the Bash the suite happens to run under. The whole
+# check runs in a child shell because `enable -n` would otherwise outlive it.
+mason_probe() {
+  mason_status=0
+  mason_output="$(
+    XDG_DATA_HOME="$root/mason-data" DOTFILES_ROOT="$repo_root" bash -c '
+      enable -n mapfile 2>/dev/null || true
+      enable -n readarray 2>/dev/null || true
+      set -uo pipefail
+      # shellcheck source=../common/lib/common.sh
+      source "$1/common/lib/common.sh"
+      # shellcheck source=../common/lib/verify.sh
+      source "$1/common/lib/verify.sh"
+      check_mason_inventory "$2"
+      probe_status=$?
+      printf "counts %s %s %s\n" \
+        "$VERIFY_PASSES" "$VERIFY_FAILURES" "$VERIFY_WARNINGS"
+      exit "$probe_status"
+    ' mason-probe "$repo_root" "$1" 2>&1
+  )" || mason_status=$?
+  assert_not_contains "$mason_output" 'mapfile: command not found' \
+    'the inventory read must not need a Bash 4 builtin'
+}
+
+# A populated inventory is read, its comment and blank lines are ignored, the
+# two listed packages pass, and the third package Mason holds is a warning.
+mason_probe "$root/mason-inventory.txt"
+assert_eq 0 "$mason_status" 'a populated inventory verifies without mapfile'
+assert_contains "$mason_output" 'counts 2 0 1' \
+  'two listed packages pass and the untracked one warns'
+assert_contains "$mason_output" 'Mason: lua-language-server'
+assert_contains "$mason_output" \
+  'Unexpected Mason package (review ownership): untracked-tool'
+
+# An inventory holding only comments and blank lines is still empty.
+printf '# nothing here\n\n   \n' >"$root/mason-comments-only.txt"
+mason_probe "$root/mason-comments-only.txt"
+assert_eq 1 "$mason_status" 'an inventory of comments alone fails'
+assert_contains "$mason_output" \
+  "Mason package inventory is empty: $root/mason-comments-only.txt"
+
+# A missing inventory keeps its own diagnostic rather than becoming an empty one.
+mason_probe "$root/mason-absent.txt"
+assert_eq 1 "$mason_status" 'a missing inventory fails'
+assert_contains "$mason_output" \
+  "Mason package inventory missing: $root/mason-absent.txt"
+
+# An inventory that exists and is readable but cannot be read — a directory in
+# its place is the reproducible case — is a read failure, not an empty
+# inventory. Reading a process substitution threw sed's exit status away and
+# reported this as "inventory is empty", which is the same misleading second
+# failure the missing mapfile produced.
+mkdir -p "$root/mason-inventory-directory"
+mason_probe "$root/mason-inventory-directory"
+assert_eq 1 "$mason_status" 'an unreadable inventory fails'
+assert_contains "$mason_output" \
+  "Mason package inventory could not be read: $root/mason-inventory-directory"
+assert_not_contains "$mason_output" 'inventory is empty' \
+  'a failed read must not be reported as an empty inventory'
+
 printf 'Pinned Catppuccin tmux\n'
 tmux_pin="$(verify_catppuccin_tmux_pin)"
 assert_eq \
