@@ -16,14 +16,19 @@ parsers are compared with `config/install-options.tsv` by
 
 from __future__ import annotations
 
-import csv
 import os
 import pathlib
 import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import mise_tool_package, mise_tools, stow_packages  # noqa: E402
+from manifests import (  # noqa: E402
+    ManifestSchemaError,
+    mise_tool_package,
+    mise_tools,
+    read_tsv,
+    stow_packages,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = pathlib.Path(os.environ.get("CAPABILITY_MANIFEST", ROOT / "config" / "capabilities.tsv"))
@@ -150,12 +155,12 @@ def markdown_anchors(path: pathlib.Path) -> set[str]:
 def check_option_manifest(rows: list[dict[str, str]]) -> int:
     """Every flagged capability must have an option row that agrees with it."""
     errors = 0
-    with OPTION_MANIFEST.open(newline="", encoding="utf-8") as stream:
-        reader = csv.DictReader(stream, delimiter="\t")
-        if reader.fieldnames != OPTION_FIELDS:
-            fail_options(f"unexpected columns: {reader.fieldnames}")
-            return 1
-        options = list(reader)
+    try:
+        options = read_tsv(OPTION_MANIFEST, OPTION_FIELDS)
+    except ManifestSchemaError as error:
+        for message in error.messages:
+            fail_options(message)
+        return 1
 
     implemented = {
         (row["platform"], row["capability"])
@@ -604,12 +609,12 @@ def check_verifier_ci(verifiers: dict[str, set[str]]) -> int:
 
 def main() -> int:
     errors = 0
-    with MANIFEST.open(newline="", encoding="utf-8") as stream:
-        reader = csv.DictReader(stream, delimiter="\t")
-        if reader.fieldnames != FIELDS:
-            fail(f"unexpected columns: {reader.fieldnames}")
-            return 1
-        rows = list(reader)
+    try:
+        rows = read_tsv(MANIFEST, FIELDS)
+    except ManifestSchemaError as error:
+        for message in error.messages:
+            fail(message)
+        return 1
 
     keys: set[tuple[str, str, str]] = set()
     rows_by_platform: dict[str, list[dict[str, str]]] = {}

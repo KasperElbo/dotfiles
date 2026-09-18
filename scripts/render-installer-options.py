@@ -17,12 +17,11 @@ Usage:
 
 from __future__ import annotations
 
-import csv
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import supported_platforms  # noqa: E402
+from manifests import read_tsv, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPTIONS = ROOT / "config" / "install-options.tsv"
@@ -86,10 +85,8 @@ def code(value: str) -> str:
 
 
 def render() -> str:
-    with OPTIONS.open(newline="", encoding="utf-8") as stream:
-        rows = list(csv.DictReader(stream, delimiter="\t"))
-    with CAPABILITIES.open(newline="", encoding="utf-8") as stream:
-        capability_rows = list(csv.DictReader(stream, delimiter="\t"))
+    rows = read_tsv(OPTIONS)
+    capability_rows = read_tsv(CAPABILITIES)
 
     capability_docs = {
         (row["capability"], row["platform"]): row["docs"]

@@ -38,7 +38,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import pathlib
 import re
@@ -47,8 +46,10 @@ import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from manifests import (  # noqa: E402
+    ManifestSchemaError,
     capability_names,
     platform_profiles,
+    read_tsv,
     supported_platforms,
 )
 
@@ -108,11 +109,12 @@ STOPWORDS = {
 
 
 def load(path: pathlib.Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as stream:
-        reader = csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE)
-        if reader.fieldnames != FIELDS:
-            raise SystemExit(f"action registry: unexpected columns: {reader.fieldnames}")
-        return list(reader)
+    try:
+        return read_tsv(path, FIELDS)
+    except ManifestSchemaError as error:
+        raise SystemExit(
+            "\n".join(f"action registry: {message}" for message in error.messages)
+        ) from error
 
 
 def expand_platform(platform: str) -> set[str]:

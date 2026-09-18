@@ -29,13 +29,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import os
 import pathlib
 import re
 import subprocess
 import sys
 import tomllib
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import ManifestSchemaError, read_tsv  # noqa: E402
 
 FIELDS = ["tool", "min_version", "requirement", "consumers"]
 VERSION = re.compile(r"^[0-9]+(\.[0-9]+)*$")
@@ -180,12 +182,12 @@ def main() -> int:
     )
 
     errors = 0
-    with manifest.open(newline="", encoding="utf-8") as stream:
-        reader = csv.DictReader(stream, delimiter="\t")
-        if reader.fieldnames != FIELDS:
-            fail(f"unexpected columns: {reader.fieldnames}")
-            return 1
-        rows = list(reader)
+    try:
+        rows = read_tsv(manifest, FIELDS)
+    except ManifestSchemaError as error:
+        for message in error.messages:
+            fail(message)
+        return 1
 
     if not rows:
         fail(f"{manifest} declares no floors")

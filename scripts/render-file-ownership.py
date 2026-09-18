@@ -20,12 +20,11 @@ Usage:
 
 from __future__ import annotations
 
-import csv
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import stow_packages, supported_platforms  # noqa: E402
+from manifests import read_tsv, stow_packages, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CAPABILITIES = ROOT / "config" / "capabilities.tsv"
@@ -116,8 +115,7 @@ def render_stow() -> str:
 
 
 def component_state() -> list[tuple[str, str]]:
-    with CAPABILITIES.open(newline="", encoding="utf-8") as stream:
-        rows = list(csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE))
+    rows = read_tsv(CAPABILITIES)
 
     owners: dict[str, set[str]] = {}
     for row in rows:

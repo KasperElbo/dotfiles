@@ -33,11 +33,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import pathlib
 import re
 import subprocess
 import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import read_tsv  # noqa: E402
 
 LINK = re.compile(r"(?<!\!)\[[^\]]*\]\(\s*(?P<target>[^)\s]+?)\s*\)")
 HEADING = re.compile(r"^(#{1,6})\s+(?P<title>.+?)\s*#*$")
@@ -230,8 +231,7 @@ def check_platform_options(root: pathlib.Path, documents: list[pathlib.Path], pr
     manifest = root / "config" / "install-options.tsv"
     if not manifest.exists():
         return
-    with manifest.open(newline="", encoding="utf-8") as stream:
-        rows = list(csv.DictReader(stream, delimiter="\t"))
+    rows = read_tsv(manifest)
     declared: dict[str, set[str]] = {}
     for row in rows:
         flags = declared.setdefault(row["platform"], set())

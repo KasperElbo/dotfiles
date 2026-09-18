@@ -19,12 +19,11 @@ Usage:
 
 from __future__ import annotations
 
-import csv
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import mise_tools, supported_platforms  # noqa: E402
+from manifests import mise_tools, read_tsv, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CAPABILITIES = ROOT / "config" / "capabilities.tsv"
@@ -72,8 +71,7 @@ PROVENANCE = (
 
 
 def capability_rows() -> list[dict[str, str]]:
-    with CAPABILITIES.open(newline="", encoding="utf-8") as stream:
-        return list(csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE))
+    return read_tsv(CAPABILITIES)
 
 
 def packages(row: dict[str, str]) -> list[str]:
