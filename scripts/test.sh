@@ -136,6 +136,7 @@ default_tests=(
   tests/test-macos-verification.sh
   tests/test-macos-ai.sh
   tests/test-macos-login-shell.sh
+  tests/test-macos-command-surface.sh
 )
 
 if ((${#selected_tests[@]} > 0)); then

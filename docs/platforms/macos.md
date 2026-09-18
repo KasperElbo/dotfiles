@@ -61,9 +61,28 @@ mutation; without modern Bash, dry-run reports the prerequisite bootstrap plan
 and explains that rerunning it after the interpreter exists will show the full
 resolved plan.
 
-Apple's Bash 3.2 is supported only for `install.sh` and
+Apple's Bash 3.2 is supported for `install.sh` and
 `scripts/bootstrap-macos.sh`. The real installer and direct platform entry
 point continue to require Bash 4.4 or newer.
+
+The stowed commands are a second execution surface with the same boundary, and
+a different one from the installer's: they are launched from a login shell, a
+key binding or automation, with whatever PATH that environment has, so `env
+bash` may well resolve to Apple's. Each command macOS puts on `PATH` is
+therefore one of two things, and `tests/test-macos-command-surface.sh` enforces
+which:
+
+- **Safe under Apple's Bash as it stands** — it loads no shared library and
+  stays inside the 3.2 dialect. `aerospace-workspace-grid` is this.
+- **Modern-Bash-only, behind the boundary** — it sources
+  `common/lib/modern-bash.sh` and re-executes under a supported Bash before
+  loading anything that needs one. `theme` is this, because it reaches
+  `install-selection.sh`, whose `declare -A` fails at source time under 3.2.
+
+The command list comes from the macOS stow packages in
+`config/capabilities.tsv`, so a new package is audited as soon as it is
+declared. Making every shared script 3.2-compatible is not the goal; the
+repository's Bash 4.4+ baseline is unchanged.
 
 **Automated:** Preview the exact plan without changing the machine:
 
