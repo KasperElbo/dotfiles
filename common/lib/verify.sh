@@ -348,14 +348,40 @@ check_user_service_enabled_and_active() {
 check_mason_inventory() {
   local inventory="$1"
   local mason_root="${XDG_DATA_HOME:-$HOME/.local/share}/nvim/mason/packages"
-  local package package_dir listed status=0
+  local package package_dir listed filtered status=0
   local -a packages=()
 
-  if [[ ! -r "$inventory" ]]; then
+  if [[ ! -e "$inventory" ]]; then
     fail "Mason package inventory missing: $inventory"
     return 1
   fi
-  mapfile -t packages < <(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$inventory")
+  # Something that is not a readable regular file is a read failure, not an
+  # empty inventory, and the distinction is made here rather than left to sed:
+  # GNU sed exits non-zero on a directory, but BSD sed on macOS exits 0 having
+  # printed nothing, which would arrive below as an empty list and be reported
+  # as an empty inventory on exactly the platform this function was fixed for.
+  if [[ ! -f "$inventory" || ! -r "$inventory" ]]; then
+    fail "Mason package inventory could not be read: $inventory"
+    return 1
+  fi
+  # macOS's system Bash is 3.2 and has no mapfile, so this reads the inventory
+  # with a loop instead. The sed is unchanged, so the comment and blank-line
+  # filtering and the package order are exactly what they were. Its output is
+  # captured rather than read through a process substitution so its status
+  # survives: the guards above cover every read failure that can be produced on
+  # demand, and this covers the residual one, an I/O error part-way through a
+  # file that was a readable regular file when it was tested. The empty-string
+  # guard below is needed because a here-string of "" still yields one empty
+  # line.
+  filtered="$(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$inventory")" || {
+    fail "Mason package inventory could not be read: $inventory"
+    return 1
+  }
+  if [[ -n "$filtered" ]]; then
+    while IFS= read -r package; do
+      packages+=("$package")
+    done <<<"$filtered"
+  fi
   if ((${#packages[@]} == 0)); then
     fail "Mason package inventory is empty: $inventory"
     return 1
