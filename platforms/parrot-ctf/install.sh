@@ -98,11 +98,6 @@ preflight_parrot() {
   preflight_writable_path "$(profile_state_dir)"
   preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
   preflight_disk_space /var/cache/apt "$PREFLIGHT_SYSTEM_MIN_MB"
-  # Only for the upstream installer this run is certain to fetch: a guest that
-  # already has mise asks nothing of the network here.
-  # network-source: mise-installer
-  resolve_mise_command >/dev/null 2>&1 ||
-    preflight_network https://mise.run 'the mise installer'
   local specs=() spec capability stow_specs
   local selected=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(parrot_selected_capabilities)
@@ -125,16 +120,16 @@ apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
 verify_parrot() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/verify.sh"; }
 
-plan_add system 'Install Parrot-owned working-environment prerequisites' apply preflight_parrot apply_system : 'platforms/parrot-ctf/scripts/install-system.sh; security catalogue unchanged'
-plan_add guest 'Install and activate KVM/QEMU guest integration' apply : apply_guest : 'qemu-guest-agent and SPICE; host secrets and shared folders remain disabled'
-plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh parrot-ctf $theme"
-plan_add stow 'Deploy the reduced portable and narrow Parrot configuration' apply : apply_stow : 'platforms/parrot-ctf/scripts/stow.sh'
-plan_add terminal 'Install the pinned Nerd Font, bat themes, and Konsole profile' apply : apply_terminal : 'platforms/parrot-ctf/scripts/install-terminal.sh'
-plan_add mise 'Install the narrow mise-managed uv and Neovim runtimes' apply : apply_mise : 'common/install-mise.sh'
-plan_add nvim 'Restore the reduced LazyVim/Mason inventory for Parrot' apply : apply_nvim : 'common/install-neovim-tools.sh --profile parrot-ctf'
-plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
-plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme"
-plan_add verify 'Verify the complete Parrot guest' verify : verify_parrot : 'platforms/parrot-ctf/scripts/verify.sh'
+plan_add system 'Install Parrot-owned working-environment prerequisites' apply preflight_parrot apply_system : 'platforms/parrot-ctf/scripts/install-system.sh; security catalogue unchanged' 'platforms/parrot-ctf/scripts/install-system.sh'
+plan_add guest 'Install and activate KVM/QEMU guest integration' apply : apply_guest : 'qemu-guest-agent and SPICE; host secrets and shared folders remain disabled' 'platforms/parrot-ctf/scripts/install-guest-integration.sh'
+plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh parrot-ctf $theme" 'common/setup-local.sh'
+plan_add stow 'Deploy the reduced portable and narrow Parrot configuration' apply : apply_stow : 'platforms/parrot-ctf/scripts/stow.sh' 'platforms/parrot-ctf/scripts/stow.sh'
+plan_add terminal 'Install the pinned Nerd Font, bat themes, and Konsole profile' apply : apply_terminal : 'platforms/parrot-ctf/scripts/install-terminal.sh' 'platforms/parrot-ctf/scripts/install-terminal.sh'
+plan_add mise 'Install the narrow mise-managed uv and Neovim runtimes' apply : apply_mise : 'common/install-mise.sh' 'common/install-mise.sh'
+plan_add nvim 'Restore the reduced LazyVim/Mason inventory for Parrot' apply : apply_nvim : 'common/install-neovim-tools.sh --profile parrot-ctf' 'common/install-neovim-tools.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh' 'common/install-tmux-theme.sh'
+plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme" ''
+plan_add verify 'Verify the complete Parrot guest' verify : verify_parrot : 'platforms/parrot-ctf/scripts/verify.sh' 'platforms/parrot-ctf/scripts/verify.sh'
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
@@ -175,6 +170,12 @@ if [[ "$interactive" == true ]]; then
 fi
 
 plan_preflight
+# Then the network, because a local problem is worth reporting without waiting
+# for a probe. The hosts come from config/network-sources.tsv, selected by the
+# scripts this resolved plan will run, so a step added later cannot fetch from
+# a host nothing checked; scripts/validate-plan-network.py holds the two to
+# each other. Nothing has mutated yet at this point.
+plan_scripts | preflight_plan_network
 DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command parrot-ctf "$install_selection")"
 capabilities=''
 while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(parrot_selected_capabilities)

@@ -389,7 +389,7 @@ path = pathlib.Path(sys.argv[1])
 lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
 for index, line in enumerate(lines):
     if line.startswith("plan_add verify "):
-        lines.insert(index, "plan_add invented 'An unplanned step' apply : apply_invented : ''\n")
+        lines.insert(index, "plan_add invented 'An unplanned step' apply : apply_invented : '' ''\n")
         break
 else:
     raise SystemExit("no verify step in the Parrot installer")

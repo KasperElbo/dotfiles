@@ -17,6 +17,8 @@ fi
 source "$(dirname "${BASH_SOURCE[0]}")/capabilities.sh"
 # shellcheck source=fetch.sh
 source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
+# shellcheck source=network-sources.sh
+source "$(dirname "${BASH_SOURCE[0]}")/network-sources.sh"
 
 preflight_writable_path() {
   local path="$1"
@@ -79,6 +81,46 @@ preflight_network() {
       "$label" "$url" >&2
     return 1
   }
+}
+
+# preflight_plan_network
+#
+# Refuse when a host the resolved plan will certainly download from cannot be
+# reached. The repository scripts the plan runs are read from stdin, one per
+# line, which is what `plan_scripts | preflight_plan_network` supplies; the
+# hosts come from config/network-sources.tsv. Taking them on stdin is what
+# keeps this library independent of the execution plan.
+#
+# The scoping RA-33 established still holds, and is now derived rather than
+# hand-written: a plan with no networked step contributes no scripts, matches
+# no registry row and probes nothing, so a machine whose plan needs nothing
+# from the network still installs offline.
+#
+# Every unreachable host is named, not just the first: a machine with no route
+# at all should be told once what it cannot reach, rather than one host per run.
+preflight_plan_network() {
+  local specs host components failed=0 probed=0
+
+  # A checked substitution, not `< <(...)`: a registry that cannot be read
+  # must stop the run, not silently probe nothing and report success.
+  specs="$(network_sources_hosts)" || return 1
+  [[ -n "$specs" ]] || return 0
+
+  while IFS=$'\t' read -r host components; do
+    [[ -n "$host" ]] || continue
+    probed=$((probed + 1))
+    fetch_host_reachable "https://$host" || {
+      printf 'Cannot reach %s, which this installation downloads from: %s\n' \
+        "$host" "$components" >&2
+      failed=1
+    }
+  done <<<"$specs"
+
+  ((failed == 0)) || {
+    printf 'Nothing has been changed. Restore network access, or rerun without the steps that need it.\n' >&2
+    return 1
+  }
+  info "Reachable: every host this run downloads from ($probed)."
 }
 
 preflight_platform_command_providers() {

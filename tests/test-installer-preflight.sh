@@ -483,13 +483,18 @@ assert_file_empty "$test_root/logs/dnf.log"
 stub_roomy_df
 printf 'System disk floor is measured on the package-manager filesystem.\n'
 
-# The network half refuses the same way. This machine has no Terra repository,
-# so the run is certain to download from one; an unreachable host must stop the
+# The network half refuses the same way, and it refuses for every host the
+# resolved plan will download from rather than only for the bootstrap
+# installer this platform happens to fetch. An unreachable host must stop the
 # run ahead of install_lifecycle_begin and the first DNF transaction rather
 # than partway through it.
+#
+# `rpm -q terra-release` succeeds here on purpose. Before this, every probe was
+# guarded by a "do I already have this tool" test, so a machine that was
+# bootstrapped already probed nothing at all and passed preflight with no
+# network route; that is the case this asserts.
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
-case "$*" in '-q terra-release') exit 1 ;; esac
 exit 0
 EOF
 cat >"$mock_bin/curl" <<'EOF'
@@ -497,14 +502,78 @@ cat >"$mock_bin/curl" <<'EOF'
 exit 7
 EOF
 chmod +x "$mock_bin/rpm" "$mock_bin/curl"
-if HOME="$integration_home" XDG_CONFIG_HOME="$integration_config" \
+# Its own HOME, because $integration_home deliberately carries the user-owned
+# file the late-conflict cases above assert survives. The network probe runs
+# after the local checks -- a full disk is worth reporting without waiting on
+# a probe -- so a HOME with a planted Stow conflict never reaches it.
+offline_home="$test_root/offline-home"
+mkdir -p "$offline_home/.config"
+if HOME="$offline_home" XDG_CONFIG_HOME="$offline_home/.config" \
+  XDG_DATA_HOME="$offline_home/.local/share" \
   XDG_STATE_HOME="$test_root/offline-state" PATH="$mock_bin:$PATH" \
   OS_RELEASE_FILE="$test_root/os-release" \
   "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
   >"$test_root/offline" 2>&1; then
-  printf 'An unreachable Terra repository unexpectedly passed preflight.\n' >&2; exit 1
+  printf 'An unreachable network unexpectedly passed preflight.\n' >&2; exit 1
 fi
-grep -Fq 'Cannot reach the Terra repository' "$test_root/offline"
+
+# The package-manager transaction is the first mutating step and the largest
+# download, and nothing probed it before: the Terra probe was skipped on this
+# already-bootstrapped machine and the run reached `dnf install`.
+grep -Fq 'Cannot reach mirrors.fedoraproject.org' "$test_root/offline"
+
+# github.com is the host every run certainly downloads from -- the tmux step
+# clones or fetches the pinned Catppuccin theme on every invocation -- and no
+# preflight probed it at all.
+grep -Fq 'Cannot reach github.com' "$test_root/offline"
+grep -Fq 'Catppuccin tmux theme' "$test_root/offline"
+
+# Terra is still covered, now because the terra step runs a script the registry
+# names as a consumer rather than because this platform hand-wrote the probe.
+grep -Fq 'Cannot reach repos.fyralabs.com' "$test_root/offline"
+
+# Every unreachable host at once, not one per run: a machine with no route
+# should be told what it cannot reach in a single refusal.
+[[ "$(grep -c 'Cannot reach ' "$test_root/offline")" -ge 3 ]] || {
+  printf 'Only one host was named; the refusal should list them all:\n' >&2
+  grep 'Cannot reach ' "$test_root/offline" >&2
+  exit 1
+}
+grep -Fq 'Nothing has been changed.' "$test_root/offline"
 assert_file_empty "$test_root/logs/dnf.log"
 [[ ! -e "$test_root/offline-state/dotfiles/install.conf" ]]
-printf 'An unreachable download host refuses before anything is changed.\n'
+printf 'Every host the resolved plan downloads from refuses before anything changes.\n'
+
+# A plan that asks nothing of the network still installs offline. The probe set
+# is derived, so this needs no exemption: a plan contributing no script matches
+# no registry row and probes nothing.
+probe_plan_hosts() {
+  env -u NETWORK_SOURCE_MANIFEST DOTFILES_ROOT="$repo_root" bash -c '
+    source "$1/common/lib/network-sources.sh"
+    printf "%s\n" "${@:2}" | network_sources_hosts
+  ' _ "$repo_root" "$@"
+}
+[[ -z "$(probe_plan_hosts)" ]] || {
+  printf 'A plan with no scripts probed something:\n%s\n' "$(probe_plan_hosts)" >&2
+  exit 1
+}
+[[ -z "$(probe_plan_hosts common/setup-local.sh platforms/macos/scripts/stow.sh)" ]] || {
+  printf 'A plan of purely local steps probed something.\n' >&2
+  exit 1
+}
+printf 'A plan that downloads nothing probes nothing.\n'
+
+# The tmux step is in every platform's plan, so github.com is in every
+# platform's probe set. This is the claim the issue was filed about.
+for platform in fedora fedora-wsl macos parrot-ctf; do
+  scripts="$(
+    sed -n "s/^.*plan_add tmux .*'\([^']*\)'$/\1/p" \
+      "$repo_root/platforms/$platform/install.sh"
+  )"
+  [[ -n "$scripts" ]] || { printf 'No tmux step declared on %s\n' "$platform" >&2; exit 1; }
+  probe_plan_hosts $scripts | grep -Fq 'github.com' || {
+    printf 'The %s tmux step does not probe github.com\n' "$platform" >&2
+    exit 1
+  }
+done
+printf 'Every platform probes github.com for its tmux step.\n'
