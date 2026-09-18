@@ -438,6 +438,52 @@ path, that `--preserve-wallpaper` invokes it not at all, and that a refused
 call is reported. The stub proves the hook's selection and invocation, not
 that macOS accepted the change.
 
+## Lock screen
+
+**macOS does not get a flavour-matched lock screen, and that is a decision
+rather than an omission.** What it gets instead is the desktop wallpaper,
+because that is what the lock screen shows.
+
+**What macOS actually does.** Locking a logged-in session, with Control +
+Command + Q or the Apple menu's Lock Screen, displays the current desktop
+wallpaper. There is no System Settings control that separates the two, and no
+documented user-level interface that sets one without the other. So `theme
+<flavour>` already changes the lock screen: it is the same image, applied by
+the same call described under "Desktop wallpaper" above. Nothing further is
+implemented, because there is nothing further to call.
+
+**What was rejected.** A login window background distinct from the desktop is
+reachable only by writing `lockscreen.png` into
+`/Library/Caches/Desktop Pictures/<user UUID>/`. That is a root-owned system
+cache, its layout is a private implementation detail rather than a documented
+interface, and making it writable means loosening permissions on a directory
+macOS maintains. It is also fragile in ways that matter on a real machine:
+reports have it failing outright with FileVault enabled and with more than one
+account on the Mac. This repository keeps SIP and Gatekeeper on as a stated
+position, and the AeroSpace decision below was taken on the same grounds, so
+buying visual parity with Fedora by editing a system cache would contradict a
+choice already made deliberately. The FileVault pre-boot screen and the
+firmware startup screen are not user-configurable at all.
+
+**Why the `-lock.webp` assets exist anyway.** The shared `theme-assets`
+package tracks a blurred, darkened `-lock` derivative of each flavour. Those
+are Swaylock's, on Fedora, where the lock screen is a separate program with
+its own configuration. macOS has no consumer for them and will not grow one
+while the above holds. `tests/test-macos.sh` fails if the macOS tree starts
+referring to them or to the login-window caches, so the decision is enforced
+rather than merely recorded.
+
+**Manual acceptance check**, which no CI runner can perform:
+
+1. Run `theme mocha`, and confirm the desktop changes.
+2. Press Control + Command + Q.
+3. Confirm the lock screen shows the Mocha wallpaper, not the previous one.
+4. Log back in, run `theme latte`, and lock again to confirm it follows.
+
+If a future macOS separates the two, this section is the place to revisit:
+the test named above will still pass, because it forbids the unsupported
+route rather than requiring the absence of a supported one.
+
 ## 5. AeroSpace decision record
 
 The mandatory comparison was completed before implementation, and AeroSpace

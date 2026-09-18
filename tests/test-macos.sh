@@ -360,4 +360,42 @@ while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ ve
 done <<<"$manifest_rows"
 printf 'macOS manifest, help, parser and dry run advertise one capability set.\n'
 
+# --- The lock screen is the desktop wallpaper, and stays that way ---------
+#
+# macOS shows the desktop wallpaper when a logged-in session locks, and offers
+# no documented user-level way to set the two separately. The only route to a
+# distinct login-window image is writing into /Library/Caches/Desktop Pictures,
+# a root-owned system cache whose layout is private; taking it would mean
+# loosening permissions macOS maintains, which contradicts this platform's
+# stated position on SIP and Gatekeeper. docs/platforms/macos.md records that
+# under "Lock screen".
+#
+# A decision recorded only in prose is a decision the next change can walk
+# past, so this is the guard. It forbids the rejected route rather than
+# requiring that no lock-screen support ever exist: if a future macOS grows a
+# supported interface, taking it will not trip this.
+lock_screen_reach="$(
+  grep -rInE 'Desktop Pictures|lockscreen\.png|-lock\.webp' \
+    "$macos_root" || true
+)"
+[[ -z "$lock_screen_reach" ]] || {
+  printf 'The macOS tree reaches for the login-window cache or the Swaylock\n' >&2
+  printf 'assets. Both were rejected; see the "Lock screen" section of\n' >&2
+  printf 'docs/platforms/macos.md before changing this.\n%s\n' \
+    "$lock_screen_reach" >&2
+  exit 1
+}
+
+# The rejection is only meaningful while the reasoning is on file, and while
+# the assets it talks about still exist to be reached for.
+grep -Fq '## Lock screen' "$repo_root/docs/platforms/macos.md" ||
+  { printf 'docs/platforms/macos.md no longer records the lock-screen policy.\n' >&2
+    exit 1; }
+for flavour in latte frappe macchiato mocha; do
+  [[ -f "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-$flavour-lock.webp" ]] ||
+    { printf 'The %s lock asset is gone, so the macOS policy describes\n' "$flavour" >&2
+      printf 'files that no longer exist.\n' >&2; exit 1; }
+done
+printf 'macOS leaves the lock screen to the desktop wallpaper.\n'
+
 printf 'macOS profile configuration checks passed.\n'
