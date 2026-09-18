@@ -210,28 +210,33 @@ if [[ "$system_bash_is_old" == true ]]; then
   }
   printf 'PASS: theme mocha --preserve-wallpaper keeps its argv across the re-exec\n'
 
-  # With no supported Bash anywhere on PATH, the user gets the cause and the
-  # fix. Homebrew is dropped from PATH and the two Homebrew prefixes the library
-  # probes are redirected, which is why this case needs its own PATH rather than
-  # the one above.
+  # PATH is not the only way to a supported Bash, and it must not be: a
+  # launcher, a cron entry or an automation environment can hand the command a
+  # PATH with no Homebrew on it at all. The absolute prefixes the library probes
+  # are what make that case work, so this drops Homebrew from PATH entirely and
+  # asserts the command still runs. DOTFILES_MODERN_BASH is deliberately pointed
+  # at Apple's 3.2 as well, so nothing but those prefixes can supply the answer.
+  #
+  # The refusal when no supported Bash exists anywhere cannot be staged here,
+  # because /opt/homebrew/bin/bash is a real file on this machine and the probe
+  # is an absolute path; tests/test-theme.sh drives the library directly with
+  # the prefixes pointed at a 3.2 tree and covers it there.
   output="$(
     env PATH="/bin:/usr/bin" \
       HOME="$root/home" XDG_CONFIG_HOME="$root/xdg" \
       XDG_STATE_HOME="$root/state" XDG_DATA_HOME="$root/home/.local/share" \
       DOTFILES_MODERN_BASH="$system_bash" \
-      "$stowed_bin/theme" mocha 2>&1 || true
+      "$stowed_bin/theme" --help 2>&1 || true
   )"
-  if ! grep -Fq 'requires Bash 4.4 or newer' <<<"$output" &&
-    ! grep -Fq 'Usage: theme' <<<"$output"; then
-    printf 'Removing Homebrew from PATH produced neither a run nor a diagnostic:\n%s\n' \
-      "$output" >&2
+  grep -Fq 'Usage: theme' <<<"$output" || {
+    printf 'theme did not run with Homebrew off PATH:\n%s\n' "$output" >&2
     exit 1
-  fi
+  }
   ! grep -Fq 'declare' <<<"$output" || {
     printf 'A declare error reached the user:\n%s\n' "$output" >&2
     exit 1
   }
-  printf 'PASS: no declare error reaches the user when Homebrew Bash is off PATH\n'
+  printf 'PASS: theme reaches a supported Bash with Homebrew off PATH\n'
 else
   # What this run does and does not prove: the audit above is complete and
   # exact, and tests/test-theme.sh drives the selection library itself. The
