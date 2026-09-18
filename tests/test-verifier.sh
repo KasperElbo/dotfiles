@@ -312,10 +312,12 @@ assert_verifier_counts 0 1 0
 # down to the "mapfile: command not found" the macOS verifier printed, so these
 # cases cannot be rescued by the Bash the suite happens to run under. The whole
 # check runs in a child shell because `enable -n` would otherwise outlive it.
+mason_probe_path=""
 mason_probe() {
   mason_status=0
   mason_output="$(
-    XDG_DATA_HOME="$root/mason-data" DOTFILES_ROOT="$repo_root" bash -c '
+    XDG_DATA_HOME="$root/mason-data" DOTFILES_ROOT="$repo_root" \
+      PATH="${mason_probe_path:+$mason_probe_path:}$PATH" bash -c '
       enable -n mapfile 2>/dev/null || true
       enable -n readarray 2>/dev/null || true
       set -uo pipefail
@@ -369,6 +371,30 @@ assert_contains "$mason_output" \
   "Mason package inventory could not be read: $root/mason-inventory-directory"
 assert_not_contains "$mason_output" 'inventory is empty' \
   'a failed read must not be reported as an empty inventory'
+
+# ...and it must not depend on sed's exit status to say so. GNU sed exits
+# non-zero reading a directory; BSD sed on macOS prints nothing and exits 0, so
+# a check that leaned on that status reported "inventory is empty" on exactly
+# the platform this function exists to support. This stands a BSD-shaped sed in
+# front of the real one and asserts the diagnostic is unchanged.
+mkdir -p "$root/bsd-sed"
+cat >"$root/bsd-sed/sed" <<'EOF_BSD_SED'
+#!/usr/bin/env bash
+# Reading a directory prints nothing and exits 0, as BSD sed does.
+for argument in "$@"; do
+  [[ ! -d "$argument" ]] || exit 0
+done
+exec sed "$@"
+EOF_BSD_SED
+chmod +x "$root/bsd-sed/sed"
+mason_probe_path="$root/bsd-sed"
+mason_probe "$root/mason-inventory-directory"
+mason_probe_path=""
+assert_eq 1 "$mason_status" 'an unreadable inventory fails under a BSD-shaped sed'
+assert_contains "$mason_output" \
+  "Mason package inventory could not be read: $root/mason-inventory-directory"
+assert_not_contains "$mason_output" 'inventory is empty' \
+  'the read failure must not depend on sed exiting non-zero'
 
 printf 'Pinned Catppuccin tmux\n'
 tmux_pin="$(verify_catppuccin_tmux_pin)"

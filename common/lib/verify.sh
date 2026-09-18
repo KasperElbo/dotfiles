@@ -351,18 +351,28 @@ check_mason_inventory() {
   local package package_dir listed filtered status=0
   local -a packages=()
 
-  if [[ ! -r "$inventory" ]]; then
+  if [[ ! -e "$inventory" ]]; then
     fail "Mason package inventory missing: $inventory"
     return 1
   fi
+  # Something that is not a readable regular file is a read failure, not an
+  # empty inventory, and the distinction is made here rather than left to sed:
+  # GNU sed exits non-zero on a directory, but BSD sed on macOS exits 0 having
+  # printed nothing, which would arrive below as an empty list and be reported
+  # as an empty inventory on exactly the platform this function was fixed for.
+  if [[ ! -f "$inventory" || ! -r "$inventory" ]]; then
+    fail "Mason package inventory could not be read: $inventory"
+    return 1
+  fi
   # macOS's system Bash is 3.2 and has no mapfile, so this reads the inventory
-  # with a loop instead. Capturing sed's output first, rather than reading a
-  # process substitution, is what keeps sed's exit status: an inventory that
-  # cannot be read now says so, instead of arriving here empty and being
-  # reported as an empty inventory. The sed is unchanged, so the comment and
-  # blank-line filtering and the package order are exactly what they were, and
-  # the guard below is needed because a here-string of "" still yields one
-  # empty line.
+  # with a loop instead. The sed is unchanged, so the comment and blank-line
+  # filtering and the package order are exactly what they were. Its output is
+  # captured rather than read through a process substitution so its status
+  # survives: the guards above cover every read failure that can be produced on
+  # demand, and this covers the residual one, an I/O error part-way through a
+  # file that was a readable regular file when it was tested. The empty-string
+  # guard below is needed because a here-string of "" still yields one empty
+  # line.
   filtered="$(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$inventory")" || {
     fail "Mason package inventory could not be read: $inventory"
     return 1
