@@ -362,4 +362,141 @@ assert_failure
 assert_contains "$TEST_OUTPUT" \
   'README.md is named as enforcing the nvim floor but never reads it'
 
+# --- Enforcement is read as shell, not matched as text ----------------------
+
+# The check this replaces matched the reader's name with a regex, which a
+# comment naming the function satisfied on its own. Deleting the real call
+# from a consumer and leaving the comment beside it kept the build green with
+# no floor enforced anywhere, so each way a name can appear without being run
+# gets its own case here.
+reading="$root/reading-as-shell"
+mkdir -p "$reading/config" "$reading/docs"
+{
+  printf 'tool\tmin_version\trequirement\tconsumers\n'
+  printf 'nvim\t0.12\tThe tracked configuration requires it\tenforce.sh\n'
+} >"$reading/config/tool-floors.tsv"
+{
+  printf '| Tool | Minimum version | Used by |\n'
+  printf '| --- | --- | --- |\n'
+  printf '| Neovim (`nvim`) | >= 0.12 | the editor suites |\n'
+} >"$reading/docs/testing.md"
+git init -q "$reading"
+
+# Each case writes one consumer and says whether the floor is enforced by it.
+write_consumer() {
+  printf '#!/usr/bin/env bash\n%s\n' "$1" >"$reading/enforce.sh"
+  git -C "$reading" add -A
+  run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$reading"
+}
+unenforced_message='enforce.sh is named as enforcing the nvim floor but never reads it'
+
+write_consumer 'tool_floor_check nvim'
+assert_success
+
+# The exact shape the old check could not tell apart: the call is gone and only
+# the comment that described it remains.
+write_consumer '# The reason is tool_floor_check'"'"'s to state -- below the floor or older
+: no floor is enforced here'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+write_consumer '# tool_floor_check nvim'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+write_consumer 'printf "run tool_floor_check nvim to check"'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+# A reader in a function nothing calls enforces as little as one in a comment.
+write_consumer 'never_called() {
+  tool_floor_check nvim
+}
+: done'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+# ...and the same function, once something calls it, does enforce it.
+write_consumer 'called() {
+  tool_floor_check nvim
+}
+called'
+assert_success
+
+# Command substitution inside double quotes runs, which is how all four
+# platform verifiers read the floor. Blanking quoted text wholesale would
+# report every one of them as enforcing nothing.
+write_consumer 'check_version_at_least "Neovim" "$(tool_version nvim)" "$(tool_floor nvim)"'
+assert_success
+
+# A consumer the check cannot parse is unknown, not enforced. An unterminated
+# function used to swallow the rest of the file, hiding the real call below it.
+write_consumer 'broken() {
+  tool_floor_check nvim
+: never closed'
+assert_failure
+assert_contains "$TEST_OUTPUT" 'enforce.sh cannot be read as shell'
+
+# The reader names come from the library, so renaming one is tracked rather
+# than leaving this check looking for a name that no longer exists.
+renamed="$root/renamed-reader"
+mkdir -p "$renamed/common/lib"
+sed 's/\btool_floor_check\b/require_tool_floor/g' \
+  "$repo_root/common/lib/tool-floors.sh" >"$renamed/common/lib/tool-floors.sh"
+run_capture python3 - "$repo_root" "$renamed/common/lib/tool-floors.sh" <<'PY'
+import importlib.util, pathlib, sys
+
+repo, library = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location(
+    "validator", pathlib.Path(repo) / "scripts" / "validate-tool-floors.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print(" ".join(sorted(module.readers(pathlib.Path(library)))))
+PY
+assert_success
+assert_contains "$TEST_OUTPUT" 'require_tool_floor tool_floor'
+assert_not_contains "$TEST_OUTPUT" 'tool_floor_check'
+
+# tool_version asks a tool its version without comparing it to anything, so it
+# is not a reader. Counting it would let a consumer that enforces no floor pass.
+run_capture python3 - "$repo_root" "$repo_root/common/lib/tool-floors.sh" <<'PY'
+import importlib.util, pathlib, sys
+
+repo, library = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location(
+    "validator", pathlib.Path(repo) / "scripts" / "validate-tool-floors.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print(" ".join(sorted(module.readers(pathlib.Path(library)))))
+PY
+assert_success
+assert_eq 'tool_floor tool_floor_check' "$TEST_OUTPUT" \
+  'the readers are the two functions that resolve the registry'
+
+# A library that names no reader leaves every consumer unclassifiable, which
+# must fail rather than pass every consumer by default.
+mkdir -p "$root/no-reader/common/lib"
+printf 'tool_version() {\n  printf 0\n}\n' \
+  >"$root/no-reader/common/lib/tool-floors.sh"
+run_capture python3 - "$repo_root" "$root/no-reader/common/lib/tool-floors.sh" <<'PY'
+import importlib.util, pathlib, sys
+
+repo, library = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location(
+    "validator", pathlib.Path(repo) / "scripts" / "validate-tool-floors.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+try:
+    module.readers(pathlib.Path(library))
+except module.UnreadableLibrary as unreadable:
+    print(f"refused: {unreadable}")
+else:
+    print("accepted a library with no reader")
+PY
+assert_success
+assert_contains "$TEST_OUTPUT" 'refused: no function in tool-floors.sh mentions'
+
 printf 'Tool version-floor registry, reader and enforcement tests passed.\n'

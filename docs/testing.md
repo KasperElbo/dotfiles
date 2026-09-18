@@ -37,7 +37,13 @@ machine, so a tool below its floor is named here rather than failing later
 inside a suite or a Mason build. `./scripts/validate-tool-floors.py` fails the
 build if this table and that registry disagree, if a consumer stops reading it,
 or if a mise configuration this repository provisions pins a tool below its own
-floor. A mise pin is read the way mise reads it: the key may be
+floor. "Stops reading it" is decided by reading the consumer as shell: the
+reader has to be the word that starts a command, in a code path the file
+reaches, so a mention in a comment, inside a string, or in a function nothing
+calls does not count. The reader names are derived from
+[`common/lib/tool-floors.sh`](../common/lib/tool-floors.sh) rather than written
+into the validator, so renaming one cannot leave the check hunting for a name
+that no longer exists. A mise pin is read the way mise reads it: the key may be
 backend-qualified, and the version is a prefix rather than an exact number, so
 a pin of `3` provisions the newest 3.x and satisfies the floor above. A pin the
 check cannot interpret fails the build rather than being skipped.
