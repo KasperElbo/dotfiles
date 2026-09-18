@@ -98,13 +98,16 @@ done
 run_stow "$repo_root/platforms/macos/scripts/stow.sh"
 
 for package in \
-  "${portable_packages[@]}" zsh-platform aerospace nvim-macos ghostty-macos theme-hooks; do
+  "${portable_packages[@]}" zsh-platform aerospace nvim-macos ghostty-macos \
+  theme-hooks theme-assets; do
   grep -Fqx "$package" "$stow_log"
 done
 # theme-hooks is a package name each platform fills with its own file, not a
 # shared one, so macOS deploying it is not a boundary crossing. What would be
 # is the file inside: platforms/macos/stow/theme-hooks holds macos.sh alone.
-if grep -Eq '^(sway|waybar|theme-assets|nvim-wsl|interop)$' "$stow_log"; then
+# theme-assets is genuinely shared and deployed from the repository root,
+# which is the point of moving it there.
+if grep -Eq '^(sway|waybar|nvim-wsl|interop)$' "$stow_log"; then
   printf 'macOS Stow entry point deployed a Fedora or WSL package.\n' >&2
   exit 1
 fi
@@ -116,6 +119,55 @@ macos_hooks="$(
     "$macos_hooks" >&2
   exit 1
 }
+
+# --- A shared asset has one copy, and one place it lives -------------------
+
+# The wallpapers were a Fedora-owned package, which is why a second platform
+# wanting flavour-matched wallpapers would have grown a second set. They are
+# shared now, and the thing that must not come back is the duplicate: a copy
+# cropped or re-encoded for another platform would lose the pinned provenance
+# the collection's README records.
+for flavour in latte frappe macchiato mocha; do
+  for variant in "" -lock; do
+    copies="$(
+      git -C "$repo_root" ls-files -- "*catppuccin-${flavour}${variant}.webp" | wc -l
+    )"
+    [[ "$copies" -eq 1 ]] || {
+      printf 'Expected exactly one catppuccin-%s%s.webp, found %s:\n' \
+        "$flavour" "$variant" "$copies" >&2
+      git -C "$repo_root" ls-files -- "*catppuccin-${flavour}${variant}.webp" >&2
+      exit 1
+    }
+  done
+done
+tracked_outside="$(
+  git -C "$repo_root" ls-files -- '*wallpapers/*.webp' | grep -v '^theme-assets/' || true
+)"
+[[ -z "$tracked_outside" ]] || {
+  printf 'Wallpapers live outside the shared package:\n%s\n' "$tracked_outside" >&2
+  exit 1
+}
+printf 'PASS: one copy of each wallpaper, all in the shared package\n'
+
+# Where a package lives is one rule, resolved rather than assumed, because the
+# installer's preflight and the platform Stow script must agree about which
+# copy a machine gets. A disagreement is a conflict reported against a
+# directory nothing stows from.
+resolve_root() {
+  DOTFILES_ROOT="$repo_root" bash -c '
+    source "$1/common/lib/capabilities.sh"
+    capability_stow_package_root "$2" "$3"
+  ' _ "$repo_root" "$@"
+}
+[[ "$(resolve_root fedora theme-assets)" == "$repo_root" ]] || {
+  printf 'The shared package does not resolve to the repository root.\n' >&2
+  exit 1
+}
+[[ "$(resolve_root fedora theme-hooks)" == "$repo_root/platforms/fedora/stow" ]] || {
+  printf 'A Fedora-owned package no longer resolves to the Fedora tree.\n' >&2
+  exit 1
+}
+printf 'PASS: shared and platform packages resolve to the tree that holds them\n'
 
 # --- A shared asset has one copy, and one place it lives -------------------
 

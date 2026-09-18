@@ -107,6 +107,25 @@ run_theme() {
     "$theme_command" mocha
 }
 
+# run_theme with a flavour and extra arguments of its own, for the cases that
+# are about the flavour rather than about the machine.
+run_theme_flavour() {
+  local flavour="$1"
+  shift
+  run_capture env \
+    HOME="$machine/home" \
+    XDG_CONFIG_HOME="$machine/config" \
+    XDG_DATA_HOME="$machine/data" \
+    XDG_STATE_HOME="$machine/state" \
+    PATH="$mock_bin:/usr/bin:/bin" \
+    MOCK_LOG="$mock_log" \
+    "$theme_command" "$flavour" "$@"
+}
+
+run_theme_with() {
+  run_theme_flavour "$@"
+}
+
 kde_was_applied() {
   grep -q '^lookandfeeltool ' "$mock_log"
 }
@@ -398,62 +417,125 @@ macos_stow="$(awk -F '\t' '$1 == "base" && $2 == "macos" { print $10 }' \
 [[ -n "$macos_stow" ]] || _test_die 'no macOS base capability row with Stow packages'
 assert_contains ",$macos_stow," ',theme-hooks,'
 
+# What the osascript stub proves, and what it does not. It proves the hook
+# selects the asset for the flavour it was given and invokes the interface
+# once with that path, and that --preserve-wallpaper invokes it not at all.
+# It cannot prove macOS accepted the change: no CI runner here has a desktop
+# session, and the real acceptance check is the manual one in
+# docs/platforms/macos.md.
 new_macos_machine() {
   new_machine 'base'
   rm "$machine/config/dotfiles/theme-hooks.d/fedora.sh"
   ln -s "$macos_hook" "$machine/config/dotfiles/theme-hooks.d/macos.sh"
+
+  mkdir -p "$machine/data/wallpapers"
+  for flavour in latte frappe macchiato mocha; do
+    printf 'fake webp\n' >"$machine/data/wallpapers/catppuccin-$flavour.webp"
+  done
+
+  cat >"$mock_bin/osascript" <<'STUB'
+#!/usr/bin/env bash
+printf 'osascript %s\n' "$*" >>"$MOCK_LOG"
+exit ${MOCK_OSASCRIPT_EXIT:-0}
+STUB
+  chmod +x "$mock_bin/osascript"
+}
+
+# The hook reads $HOME for the stowed asset, and run_theme gives the machine
+# its own HOME, so the wallpapers have to be where a stowed package would put
+# them: $XDG_DATA_HOME is $machine/data, and $HOME/.local/share is not.
+link_stowed_wallpapers() {
+  mkdir -p "$machine/home/.local/share"
+  ln -sfn "$machine/data/wallpapers" "$machine/home/.local/share/wallpapers"
 }
 
 # The intended action is reported as skipped with its reason. A hook that said
 # nothing would let the command report a complete application on a Mac whose
 # desktop did not change, which is the failure the named-action boundary
 # exists to prevent.
+# Each flavour applies its own asset, through one call to the interface.
+for flavour in latte frappe macchiato mocha; do
+  new_macos_machine
+  link_stowed_wallpapers
+  run_theme_flavour "$flavour"
+  assert_success
+  assert_contains "$TEST_OUTPUT" "Catppuccin $flavour selected."
+  assert_file_line "$machine/config/dotfiles/theme" "$flavour"
+  calls="$(grep -c '^osascript ' "$mock_log")"
+  [[ "$calls" -eq 1 ]] ||
+    _test_die "expected one osascript call for $flavour, got $calls"
+  assert_file_contains "$mock_log" \
+    "$machine/home/.local/share/wallpapers/catppuccin-$flavour.webp"
+  assert_file_contains "$mock_log" 'picture of every desktop'
+done
+printf 'PASS: each flavour applies its own wallpaper, once\n'
+
+# Rerunning applies the same asset again and changes nothing else. The
+# wallpaper call is not conditional on the previous flavour: macOS is the only
+# thing that knows what is currently on the desktop.
 new_macos_machine
+link_stowed_wallpapers
 run_theme
 assert_success
-assert_contains "$TEST_OUTPUT" 'macos:wallpaper'
-assert_contains "$TEST_OUTPUT" 'Not applicable on this machine'
-assert_contains "$TEST_OUTPUT" 'not implemented yet'
-assert_contains "$TEST_OUTPUT" 'Catppuccin mocha selected.'
-assert_file_line "$machine/config/dotfiles/theme" mocha
-printf 'PASS: the macOS hook reports its wallpaper action as skipped, not applied\n'
-
-# Rerunning changes nothing: the hook reads state and writes none.
 first="$TEST_OUTPUT"
 run_theme
 assert_success
 [[ "$TEST_OUTPUT" == "$first" ]] ||
   _test_die 'a second theme run through the macOS hook did not repeat itself'
+[[ "$(grep -c '^osascript ' "$mock_log")" -eq 2 ]] ||
+  _test_die 'the second run did not reapply the same wallpaper'
 assert_file_line "$machine/config/dotfiles/theme" mocha
 printf 'PASS: rerunning theme through the macOS hook is idempotent\n'
+
+# A wallpaper that will not apply is a named failed action and a partial
+# application, not a crash and not a silent success. A Mac that refused the
+# Apple Events permission is the case this stands in for.
+new_macos_machine
+link_stowed_wallpapers
+run_theme MOCK_OSASCRIPT_EXIT=1
+assert_status 3
+assert_contains "$TEST_OUTPUT" 'macos:wallpaper'
+assert_contains "$TEST_OUTPUT" 'was applied only partially'
+assert_file_line "$machine/config/dotfiles/theme" mocha
+printf 'PASS: a wallpaper that will not apply is reported, not swallowed\n'
+
+# A missing asset is refused before the interface is invoked, so a machine
+# that never stowed the wallpapers does not get an osascript error instead of
+# an answer.
+new_macos_machine
+run_theme
+assert_status 3
+assert_contains "$TEST_OUTPUT" 'Wallpaper is missing or unreadable'
+[[ ! -s "$mock_log" ]] ||
+  _test_die 'osascript was invoked although the asset was missing'
+printf 'PASS: a missing wallpaper is refused before the interface is invoked\n'
 
 # --preserve-wallpaper is a different outcome from "not implemented", because
 # a run that deliberately left the desktop alone is not the same thing as one
 # that could not change it.
 new_macos_machine
-run_theme_with() {
-  run_capture env -i \
-    HOME="$machine/home" \
-    XDG_CONFIG_HOME="$machine/config" \
-    XDG_DATA_HOME="$machine/data" \
-    XDG_STATE_HOME="$machine/state" \
-    PATH="$mock_bin:/usr/bin:/bin" \
-    MOCK_LOG="$mock_log" \
-    "$theme_command" "$@"
-}
+link_stowed_wallpapers
 run_theme_with mocha --preserve-wallpaper
 assert_success
 assert_contains "$TEST_OUTPUT" '--preserve-wallpaper was requested'
-assert_not_contains "$TEST_OUTPUT" 'not implemented yet'
-printf 'PASS: --preserve-wallpaper is reported as its own reason\n'
+assert_contains "$TEST_OUTPUT" 'Not applicable on this machine'
+assert_contains "$TEST_OUTPUT" 'Catppuccin mocha selected.'
+# No mutation at all, rather than a snapshot and a restore.
+[[ ! -s "$mock_log" ]] ||
+  _test_die '--preserve-wallpaper still touched the desktop wallpaper'
+# The rest of the theming still happened.
+assert_file_line "$machine/config/dotfiles/theme" mocha
+printf 'PASS: --preserve-wallpaper changes no wallpaper and themes everything else\n'
 
 # The hook refuses a flavour it does not know rather than acting on it. The
 # portable command validates the flavour first, so this arm is unreachable
 # through `theme` itself; sourcing the hook the way the command does is what
 # proves the guard is there, and that it returns rather than exiting.
 refusal="$(
-  bash -c '
+  DOTFILES_ROOT="$repo_root" bash -c '
     theme_action_skipped() { :; }
+    theme_action() { :; }
+    command_exists() { command -v "$1" >/dev/null 2>&1; }
     flavour="not-a-flavour"
     preserve_wallpaper=false
     run() { source "$1"; }
@@ -465,6 +547,9 @@ refusal="$(
 )"
 assert_contains "$refusal" 'refusing invalid Catppuccin flavour: not-a-flavour'
 assert_not_contains "$refusal" 'returned-zero'
+# The hook really loaded its library: a silently failed source would reach the
+# same refusal for the wrong reason.
+assert_not_contains "$refusal" 'No such file or directory'
 printf 'PASS: the macOS hook refuses a flavour it does not know\n'
 
 # And a hook that fails is a partial application rather than a crash: the

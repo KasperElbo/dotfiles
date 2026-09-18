@@ -6,10 +6,11 @@
 # docs/workflows/theming.md, "Writing a theme hook", for the contract this
 # file is written against.
 #
-# It applies nothing yet. The wallpaper mutation is issue #278, and until that
-# lands this reports the wallpaper as skipped with the reason, because a hook
-# that stayed silent would let `theme` claim a complete application on a Mac
-# whose desktop did not change.
+# The wallpaper primitive, the interface it uses and what that interface
+# depends on are in platforms/macos/lib/macos.sh, next to the AppleScript.
+
+# shellcheck source=/dev/null
+source "$DOTFILES_ROOT/platforms/macos/lib/macos.sh"
 
 # shellcheck disable=SC2154 # $flavour is set by the sourcing theme command.
 case "$flavour" in
@@ -22,12 +23,14 @@ esac
 
 # --preserve-wallpaper is a first-class outcome rather than an absence: a run
 # that deliberately left the desktop alone should say so, and must not read as
-# the same thing as a Mac where the wallpaper failed to apply.
+# the same thing as a Mac where the wallpaper failed to apply. Nothing is
+# snapshotted and nothing is restored; the mutation simply does not happen.
 # shellcheck disable=SC2154 # $preserve_wallpaper is set by the theme command.
 if [[ "$preserve_wallpaper" == true ]]; then
-  theme_action_skipped macos:wallpaper \
-    '--preserve-wallpaper was requested'
+  theme_action_skipped macos:wallpaper '--preserve-wallpaper was requested'
 else
-  theme_action_skipped macos:wallpaper \
-    "setting the desktop wallpaper on macOS is not implemented yet (issue #278)"
+  apply_macos_wallpaper() {
+    macos_set_wallpaper "$(macos_wallpaper_for_flavour "$flavour")"
+  }
+  theme_action macos:wallpaper apply_macos_wallpaper
 fi

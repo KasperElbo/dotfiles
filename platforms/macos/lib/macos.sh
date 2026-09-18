@@ -132,3 +132,72 @@ require_native_homebrew() {
   [[ "$prefix" == /opt/homebrew ]] ||
     die "Expected Apple Silicon Homebrew prefix /opt/homebrew, got: $prefix"
 }
+
+# ---------------------------------------------------------------------------
+# Desktop wallpaper
+#
+# The interface is `osascript` telling System Events to set the picture of
+# every desktop, which is the one documented automation surface Apple offers
+# for this. The alternatives were rejected deliberately: writing
+# ~/Library/Application Support/com.apple.wallpaper/Store/Index.plist or the
+# older desktoppicture.db is undocumented manipulation of a system database
+# that a macOS release may change without notice, and it is the kind of thing
+# that fails silently rather than loudly.
+#
+# What it depends on, so that a future macOS breaking it is diagnosable:
+#
+#   - Apple Events automation permission. The process running `theme` must be
+#     allowed to control System Events (System Settings > Privacy & Security >
+#     Automation). The first run prompts; a denied or unapproved caller gets
+#     osascript error -1743, which macos_set_wallpaper reports as itself
+#     rather than as a generic failure.
+#   - System Events itself, and the `picture` property of its `desktop`
+#     objects. That property is what a macOS release would remove.
+#   - The image existing at the path given, readable by the user.
+#
+# Multi-display and Spaces, decided rather than left to be discovered:
+# `every desktop` is every attached display, so all displays change together.
+# AppleScript exposes one desktop object per display and none per Space, so
+# the change lands on each display's current Space. A Space that carries its
+# own wallpaper keeps it, and a Space created afterwards takes whatever macOS
+# gives a new Space. Per-display wallpapers are not offered; this repository
+# applies one flavour to the whole desktop.
+# ---------------------------------------------------------------------------
+
+# macos_wallpaper_for_flavour <flavour>: the stowed asset for that flavour.
+# One copy of each image, from the shared theme-assets package.
+macos_wallpaper_for_flavour() {
+  printf '%s/.local/share/wallpapers/catppuccin-%s.webp\n' "$HOME" "$1"
+}
+
+# macos_set_wallpaper <path>: point every display at that image.
+macos_set_wallpaper() {
+  local path="$1" output status=0
+
+  [[ -r "$path" ]] || {
+    printf 'Wallpaper is missing or unreadable: %s\n' "$path" >&2
+    return 1
+  }
+  command_exists osascript || {
+    printf 'osascript is unavailable; cannot set the desktop wallpaper.\n' >&2
+    return 1
+  }
+
+  output="$(
+    osascript -e 'on run argv
+  tell application "System Events" to set picture of every desktop to (item 1 of argv)
+end run' -- "$path" 2>&1
+  )" || status=$?
+
+  ((status == 0)) || {
+    # -1743 is "not authorised to send Apple events", which is a permission to
+    # grant rather than a bug to report, so it is named.
+    if [[ "$output" == *-1743* ]]; then
+      printf 'Not permitted to control System Events, so the wallpaper was not changed.\n' >&2
+      printf 'Allow it in System Settings > Privacy & Security > Automation for the program running "theme", then run "theme" again.\n' >&2
+    else
+      printf 'Setting the desktop wallpaper failed: %s\n' "${output:-no output}" >&2
+    fi
+    return "$status"
+  }
+}
