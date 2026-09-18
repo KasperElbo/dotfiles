@@ -27,7 +27,7 @@ repository fetches, with its pinning tier, is
 
 | Material | Path in this repository | Upstream | Revision / version | Licence | Licence text |
 |---|---|---|---|---|---|
-| Catppuccin wallpapers (converted to WebP, lock variants blurred/darkened) | `platforms/fedora/stow/theme-assets/.local/share/wallpapers/` | [zhichaoh/catppuccin-wallpapers](https://github.com/zhichaoh/catppuccin-wallpapers) | `1023077979591cdeca76aae94e0359da1707a60e` | MIT | [`LICENSES/Catppuccin.txt`](../../LICENSES/Catppuccin.txt) |
+| Catppuccin wallpapers (converted to WebP, lock variants blurred/darkened) | `theme-assets/.local/share/wallpapers/` | [zhichaoh/catppuccin-wallpapers](https://github.com/zhichaoh/catppuccin-wallpapers) | `1023077979591cdeca76aae94e0359da1707a60e` | MIT | [`LICENSES/Catppuccin.txt`](../../LICENSES/Catppuccin.txt) |
 | Catppuccin palette values used by the tracked Ghostty, fzf, Lazygit, delta and Starship theme files | `ghostty/.config/ghostty/themes/`, `fzf/.config/fzf/themes/`, `lazygit/.config/lazygit/themes/`, `git/.config/git/themes/`, `config/starship/palettes/`, `starship/.config/starship/` | [catppuccin/catppuccin](https://github.com/catppuccin/catppuccin) | palette values, per-port | MIT | [`LICENSES/Catppuccin.txt`](../../LICENSES/Catppuccin.txt) |
 | LazyVim starter template, modified | `nvim-lazyvim/.config/nvim/` | [LazyVim/starter](https://github.com/LazyVim/starter) | starter template | Apache-2.0 | [`nvim-lazyvim/.config/nvim/LICENSE`](../../nvim-lazyvim/.config/nvim/LICENSE) |
 

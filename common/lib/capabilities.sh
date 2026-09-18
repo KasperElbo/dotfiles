@@ -73,6 +73,22 @@ capability_validate_selection() {
   done
 }
 
+# capability_stow_package_root <platform> <package>: the directory the package
+# is stowed from. A package at the top of the checkout is shared by every
+# platform that names it; anything else belongs to the platform naming it.
+# This is where that rule lives: the installer's preflight and each platform's
+# Stow script both resolve through it, so they cannot disagree about which
+# copy of a package a machine gets.
+capability_stow_package_root() {
+  local platform="$1" package="$2"
+
+  if [[ -d "$DOTFILES_ROOT/$package" ]]; then
+    printf '%s\n' "$DOTFILES_ROOT"
+  else
+    printf '%s\n' "$DOTFILES_ROOT/platforms/$platform/stow"
+  fi
+}
+
 capability_stow_specs() {
   local platform="$1" capability packages package package_root
   local -a stow_packages=()
@@ -82,11 +98,7 @@ capability_stow_specs() {
     [[ "$packages" != - ]] || continue
     IFS=, read -r -a stow_packages <<<"$packages"
     for package in "${stow_packages[@]}"; do
-      if [[ -d "$DOTFILES_ROOT/$package" ]]; then
-        package_root="$DOTFILES_ROOT"
-      else
-        package_root="$DOTFILES_ROOT/platforms/$platform/stow"
-      fi
+      package_root="$(capability_stow_package_root "$platform" "$package")"
       printf '%s::%s\n' "$package_root" "$package"
     done
   done

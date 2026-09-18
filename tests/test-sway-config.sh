@@ -10,7 +10,7 @@ cycle="$fedora_stow/sway/.local/bin/sway-output-cycle"
 session_start="$fedora_stow/sway/.local/bin/sway-session-start"
 portal_config="$fedora_stow/sway/.config/xdg-desktop-portal/sway-portals.conf"
 theme_hook="$fedora_stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh"
-wallpaper_package="$fedora_stow/theme-assets/.local/share/wallpapers"
+wallpaper_package="$repo_root/theme-assets/.local/share/wallpapers"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 

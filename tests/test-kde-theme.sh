@@ -133,10 +133,10 @@ if [[ -s "$side_effect_log" ]]; then
 fi
 
 ln -s \
-  "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp" \
+  "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp" \
   "$home/.local/share/wallpapers/catppuccin-macchiato.webp"
 ln -s \
-  "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-macchiato-lock.webp" \
+  "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-macchiato-lock.webp" \
   "$home/.local/share/wallpapers/catppuccin-macchiato-lock.webp"
 
 HOME="$home" \

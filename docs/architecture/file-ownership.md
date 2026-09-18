@@ -18,10 +18,15 @@ manifest for the first; each platform's `stow.sh` is for the second.
 | Tree | Packages |
 |---|---|
 | Portable (`common/stow.sh`) | `bat` `bin` `fzf` `ghostty` `git` `lazygit` `mise` `nvim-lazyvim` `starship` `tmux` `zsh` |
-| Fedora workstation (`platforms/fedora/stow/`) | `sway` `theme-assets` `theme-hooks` `waybar` `zsh-platform` |
+| Fedora workstation (`platforms/fedora/stow/`) | `sway` `theme-hooks` `waybar` `zsh-platform` |
 | Fedora on WSL (`platforms/fedora-wsl/stow/`) | `interop` `nvim-wsl` `theme-hooks` `zsh-platform` |
 | Apple Silicon macOS (`platforms/macos/stow/`) | `aerospace` `ghostty-macos` `nvim-macos` `zsh-platform` |
 | Parrot Security Edition CTF guest (`platforms/parrot-ctf/stow/`) | `command-shims` `mise-ctf` `neovim-profile` `zsh-platform` |
+| Shared (repository root, deployed by Fedora workstation) | `theme-assets` |
+
+A shared row is a package at the repository root that `common/stow.sh`
+does not deploy: the platforms named there link it, and there is one
+copy of its contents rather than one per platform.
 
 Not every package in a row is deployed on every run: `common/stow.sh
 --headless` omits the GUI terminal package for the WSL composition,

@@ -92,15 +92,35 @@ def render_stow() -> str:
     names = " ".join(f"`{name}`" for name in sorted(portable))
     lines.append(f"| Portable (`common/stow.sh`) | {names} |")
 
+    # A package a platform names may still live at the top of the checkout,
+    # because its contents are not that platform's: theme-assets is one set of
+    # images every platform that wants them links. Resolving the root here is
+    # the same rule capability_stow_package_root applies at install time, so
+    # this table cannot claim a package sits somewhere it does not.
+    shared: dict[str, list[str]] = {}
     for platform in supported_platforms():
         script = ROOT / "platforms" / platform / "scripts" / "stow.sh"
-        names = " ".join(f"`{name}`" for name in sorted(stow_packages(script)))
+        owned = []
+        for name in sorted(stow_packages(script)):
+            if name in portable or not (ROOT / name).is_dir():
+                owned.append(name)
+                continue
+            shared.setdefault(name, []).append(platform)
+        names = " ".join(f"`{name}`" for name in owned)
         lines.append(
             f"| {PLATFORM_TITLES[platform]} (`platforms/{platform}/stow/`) | {names} |"
         )
 
+    for name in sorted(shared):
+        deployed = ", ".join(PLATFORM_TITLES[platform] for platform in shared[name])
+        lines.append(f"| Shared (repository root, deployed by {deployed}) | `{name}` |")
+
     lines.extend(
         [
+            "",
+            "A shared row is a package at the repository root that `common/stow.sh`",
+            "does not deploy: the platforms named there link it, and there is one",
+            "copy of its contents rather than one per platform.",
             "",
             "Not every package in a row is deployed on every run: `common/stow.sh",
             "--headless` omits the GUI terminal package for the WSL composition,",

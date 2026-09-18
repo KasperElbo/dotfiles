@@ -92,10 +92,10 @@ chmod +x "$mock_bin"/*
 
 for flavour in latte frappe macchiato mocha; do
   ln -s \
-    "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-$flavour.webp" \
+    "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-$flavour.webp" \
     "$test_root/home/.local/share/wallpapers/catppuccin-$flavour.webp"
   ln -s \
-    "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-$flavour-lock.webp" \
+    "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-$flavour-lock.webp" \
     "$test_root/home/.local/share/wallpapers/catppuccin-$flavour-lock.webp"
 done
 
