@@ -30,7 +30,7 @@ stowed-command	755	platforms/*/stow/*/.local/bin/*	Stowed onto PATH by a platfor
 stowed-config	644	zsh/.zshenv	Sourced by every Zsh
 stowed-config	644	zsh/.config/zsh/*	Sourced by every interactive Zsh
 stowed-config	644	platforms/*/stow/zsh-platform/.config/zsh/*.zsh	Sourced by one platform's Zsh
-stowed-config	644	platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.sh	Sourced by the theme command
+stowed-config	644	platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.sh	Sourced by the theme command; docs/workflows/theming.md states the hook contract
 stowed-data	644	fzf/.config/fzf/themes/*.sh	Sourced fzf colour snippet
 test-entrypoint	755	tests/test-*.sh	Test suite, run by ./scripts/test.sh
 test-entrypoint	755	tests/integration/*.sh	Integration suite, run explicitly

@@ -131,6 +131,80 @@ The Parrot CTF guest deliberately installs no desktop theme hooks: it is a
 reduced lab profile, not a workstation, and parity is not a reason to give it
 desktop theming it has no use for.
 
+## Writing a theme hook
+
+A platform hook is the supported way to add a desktop effect without putting a
+platform check in the portable command. Everything below is the contract the
+command actually implements, in `bin/.local/bin/theme` and
+`common/lib/theme-hooks.sh`.
+
+**Where it goes.** `~/.config/dotfiles/theme-hooks.d/<name>.sh`, stowed from
+`platforms/<platform>/stow/theme-hooks/.config/dotfiles/theme-hooks.d/`. The
+file is mode 644 and needs no shebang, because it is sourced rather than
+executed. `config/shell-file-roles.tsv` carries the role and the mode, so a new
+hook is added there in the same change.
+
+**When it runs.** After the shared state files are written and the tmux reload
+has been attempted, and before the generic Ghostty guidance. Every readable
+`*.sh` in the directory runs, in filename order; an unreadable file is skipped
+silently. Do not rely on the order between two hooks — no supported platform
+installs more than one.
+
+**How it runs.** The command sources the file inside a subshell of its own, so
+the boundary is around the whole hook:
+
+- `return` ends the hook. So does `exit`: it leaves the subshell, not the
+  `theme` command.
+- `cd`, variables, functions, traps and `set` options do not escape. The
+  Fedora WSL hook still unsets its two helpers, which is habit rather than
+  necessity.
+- **The hook runs under `errexit`.** The command sets `-euo pipefail` and the
+  boundary turns errexit back on inside the subshell, so an unchecked statement
+  that fails ends the hook there. Write `|| true` or `|| return 0` where a
+  failure is expected and the rest of the hook should still run.
+- A hook that ends nonzero is reported as `hook:<name>` and the command
+  continues with the remaining hooks, finishing with exit status 3.
+
+**What is in scope.** The command has already sourced `common/lib/common.sh`,
+`common/lib/theme-shared-state.sh`, `common/lib/install-lifecycle.sh` and
+`common/lib/theme-hooks.sh`, so their functions are available without sourcing
+anything. It also sets:
+
+| Variable | Value |
+|---|---|
+| `flavour` | the chosen flavour, already validated: `latte`, `frappe`, `macchiato` or `mocha` |
+| `preserve_wallpaper` | `true` when `--preserve-wallpaper` was passed, `false` otherwise |
+| `DOTFILES_ROOT` | this repository's checkout, for sourcing a platform library of your own |
+
+ShellCheck cannot see where those come from, so a hook needs a
+`# shellcheck disable=SC2154` above its first use, as both existing hooks have.
+
+**The boundary functions.** Put each effect a user can see in its own named
+action, so the summary can name it:
+
+| Function | Use it for |
+|---|---|
+| `theme_action <name> <command> [args...]` | one independent effect; a failure is reported and the hook continues |
+| `theme_action_required <name> <command> [args...]` | nothing in a hook. It is the shared-state write's boundary, and a hook that must stop should `return 1` |
+| `theme_action_skipped <name> <reason>` | an effect deliberately not run, so "not installed here" stays distinct from "failed" |
+| `theme_capability_permits <capability>` | true unless the install state positively records the capability as absent — the question to ask before applying an identifier |
+| `theme_capability_known_absent <capability>` | true only when the state records it as absent, for wording the skip reason |
+| `theme_note_ghostty_handled` | when the hook owns the terminal's theme, suppressing the command's generic Ghostty guidance |
+
+Name an action `<platform>:<effect>` — `fedora:kde`, `fedora:generated-state` —
+so the summary reads sensibly next to the portable actions.
+
+**What a hook must not do.** It must not apply an identifier for assets that
+were never installed; see the section above. It must not write the shared
+state files, which are the portable command's own required action. And it must
+not assume a large `PATH`: `theme` is run from desktop keybindings and from the
+Zsh wrapper alike.
+
+`platforms/fedora/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh`
+is the full example, with the capability questions and several named actions;
+`platforms/fedora-wsl/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora-wsl.sh`
+is the minimal one.
+
 ## Terminal restart requirements
 
 Ghostty applies a changed `theme` only on a **full restart**; a configuration
