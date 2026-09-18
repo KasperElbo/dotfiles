@@ -90,6 +90,53 @@ PYTHON
 printf 'PASS: %d registered Sway/AeroSpace bindings match both the config and the sheet\n' \
   "$checked"
 
+# --- Both window managers offer the same three display operations -----------
+#
+# The registry sweep above proves each display binding is printed on its own
+# sheet. It cannot prove the two platforms still offer the *same* operations: a
+# display action added to one window manager and forgotten on the other passes
+# it, and the sheets then quietly disagree about what a multi-monitor setup can
+# do. Compare the sway.display.* and aerospace.display.* rows as sets, by the
+# sentence the registry uses for each, which is also the sentence the reference
+# prints. The key text is deliberately not compared — the modifiers differ by
+# platform on purpose.
+python3 - "$repo_root" <<'PYTHON' || fail "the Sway and AeroSpace display actions have drifted apart"
+import csv, pathlib, sys
+
+root = pathlib.Path(sys.argv[1])
+actions = {"sway": {}, "aerospace": {}}
+with (root / "config" / "actions.tsv").open(newline="", encoding="utf-8") as stream:
+    for row in csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE):
+        component, _, rest = row["id"].partition(".display.")
+        if rest and component in actions:
+            actions[component][rest] = row["action"]
+
+if not actions["sway"]:
+    sys.exit("no sway.display.* rows in config/actions.tsv")
+if actions["sway"] != actions["aerospace"]:
+    for operation in sorted(set(actions["sway"]) | set(actions["aerospace"])):
+        sway = actions["sway"].get(operation)
+        aerospace = actions["aerospace"].get(operation)
+        if sway != aerospace:
+            print(
+                f"display.{operation}: sway says {sway!r}, aerospace says {aerospace!r}",
+                file=sys.stderr,
+            )
+    sys.exit(1)
+print(
+    "PASS: %d display operations are described identically on Sway and AeroSpace"
+    % len(actions["sway"])
+)
+PYTHON
+
+# Each sheet prints them under a section a reader scanning for monitors finds.
+require_in "$sway_tex" '\cssection{Displays}' "Sway cheat sheet"
+require_in "$macos_tex" '\cssection{Displays}' "macOS cheat sheet"
+# Directional focus and move cross display boundaries on both, which is the
+# part a reader would otherwise have to discover by trying it.
+require_in "$sway_tex" 'across displays' "Sway cheat sheet"
+require_in "$macos_tex" 'across displays' "macOS cheat sheet"
+
 # --- Waybar's keyboard-layout indicator matches what the Sway sheet claims ---
 require_in "$waybar_config" '"sway/language"' "Waybar config"
 require_in "$waybar_config" '"format": "{short}"' "Waybar config"

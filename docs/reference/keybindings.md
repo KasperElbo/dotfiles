@@ -306,7 +306,7 @@ The shell re-exec belongs to the Zsh wrapper, not to the command; see
 
 ## Complete action reference
 
-Every action this repository defines or deliberately puts in front of you: 234 entries, grouped by the platform they exist on.
+Every action this repository defines or deliberately puts in front of you: 237 entries, grouped by the platform they exist on.
 
 **Origin** is the distinction that matters when something behaves unexpectedly.
 `repository` means this repository binds it, and the `Source` column says where.
@@ -520,7 +520,10 @@ choice with a recorded reason, never an omission.
 | Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
 |---|---|---|---|---|---|---|---|
 | `Super+Shift+V` | Clipboard history picker (cliphist + Fuzzel) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
-| `Super+H/J/K/L` | Focus left/down/up/right | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Tab` | Focus the next display | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Shift+Tab` | Move the focused window to the next display | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Ctrl+Tab` | Move the whole workspace to the next display | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+H/J/K/L` | Focus left/down/up/right, across displays | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Space` | Toggle focus between tiling and floating | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+A` | Focus the parent container | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Alt+K` | Switch between the US and Danish keyboard layouts | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
@@ -535,7 +538,7 @@ choice with a recorded reason, never an omission.
 | `Play/Next/Prev` | Media control (playerctl) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Vol Up/Down/Mute` | Adjust or mute the default sink (wpctl) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+R` | Enter resize mode | mode | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
-| `Super+Shift+H/J/K/L` | Move the focused container left/down/up/right | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+Shift+H/J/K/L` | Move the focused container left/down/up/right, across displays | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+N` | Dismiss the current notification (Mako) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Shift+N` | Restore the last dismissed notification | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `H/J/K/L` | Resize mode: shrink width / grow height / shrink height / grow width | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
@@ -712,7 +715,7 @@ choice with a recorded reason, never an omission.
 
 ### Why an action is not on a printable sheet
 
-44 of the 234 registered actions are deliberately kept off every sheet:
+44 of the 237 registered actions are deliberately kept off every sheet:
 
 | Action | Reason |
 |---|---|

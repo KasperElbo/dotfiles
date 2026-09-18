@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf 'Usage: sway-output-cycle {focus|move-window|move-workspace} [next|prev]\n' >&2
+}
+
+operation="${1:-}"
+direction="${2:-next}"
+
+case "$operation" in
+focus | move-window | move-workspace) ;;
+*)
+  usage
+  exit 2
+  ;;
+esac
+
+case "$direction" in
+next | prev) ;;
+*)
+  usage
+  exit 2
+  ;;
+esac
+
+# Sway has no "next output". Its three output commands — focus output, move
+# container to output and move workspace to output — take a direction, and each
+# falls back to the farthest output on the opposite side when nothing is
+# adjacent, so they do wrap. They wrap along the named axis only: on a
+# vertically stacked pair, "right" reaches nothing at all. AeroSpace's
+# --wrap-around next cycles the monitor list itself, which is geometry
+# independent. Cycling the output list here is what lets config/actions.tsv
+# describe the Sway and AeroSpace display actions with the same sentence.
+#
+# One query, so the list and the focused member cannot disagree under a
+# hot-plug between two calls. Sorting by position makes "next" mean the next
+# display to the right, then down, which is the order the user sees.
+outputs_json="$(swaymsg -t get_outputs -r)"
+mapfile -t outputs < <(
+  jq -r 'map(select(.active)) | sort_by(.rect.x, .rect.y) | .[].name' <<<"$outputs_json"
+)
+current="$(jq -r 'map(select(.active and .focused)) | .[0].name // empty' <<<"$outputs_json")"
+
+((${#outputs[@]} > 0)) || {
+  printf 'Sway reports no active output to cycle between.\n' >&2
+  exit 1
+}
+
+index=""
+for position in "${!outputs[@]}"; do
+  if [[ "${outputs[position]}" == "$current" ]]; then
+    index="$position"
+    break
+  fi
+done
+
+[[ -n "$index" ]] || {
+  printf 'No focused output among the active ones: %s\n' "${outputs[*]}" >&2
+  exit 1
+}
+
+# A single output makes every operation a no-op rather than an error, which is
+# what --wrap-around does on one monitor.
+count=${#outputs[@]}
+case "$direction" in
+next) target="${outputs[(index + 1) % count]}" ;;
+prev) target="${outputs[(index + count - 1) % count]}" ;;
+esac
+
+case "$operation" in
+focus)
+  exec swaymsg "focus output \"$target\""
+  ;;
+move-window)
+  # AeroSpace moves the window and takes the focus with it
+  # (--focus-follows-window); on Sway the focus has to be said out loud.
+  exec swaymsg "move container to output \"$target\"; focus output \"$target\""
+  ;;
+move-workspace)
+  # The workspace carries its own focus to the new output, which is what
+  # move-workspace-to-monitor does on macOS.
+  exec swaymsg "move workspace to output \"$target\""
+  ;;
+esac

@@ -6,6 +6,7 @@ fedora_stow="$repo_root/platforms/fedora/stow"
 config="$fedora_stow/sway/.config/sway/config"
 waybar="$fedora_stow/waybar/.config/waybar/config.jsonc"
 grid="$fedora_stow/sway/.local/bin/sway-workspace-grid"
+cycle="$fedora_stow/sway/.local/bin/sway-output-cycle"
 session_start="$fedora_stow/sway/.local/bin/sway-session-start"
 portal_config="$fedora_stow/sway/.config/xdg-desktop-portal/sway-portals.conf"
 theme_hook="$fedora_stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh"
@@ -29,7 +30,10 @@ for shortcut in \
   'bindsym $mod+f fullscreen toggle' \
   'bindsym $mod+$alt+k input type:keyboard xkb_switch_layout next' \
   'bindsym $mod+Shift+s exec sway-screenshot region' \
-  'bindsym $mod+Ctrl+$left exec sway-workspace-grid left'; do
+  'bindsym $mod+Ctrl+$left exec sway-workspace-grid left' \
+  'bindsym $mod+Tab exec sway-output-cycle focus next' \
+  'bindsym $mod+Shift+Tab exec sway-output-cycle move-window next' \
+  'bindsym $mod+Ctrl+Tab exec sway-output-cycle move-workspace next'; do
   grep -Fq "$shortcut" "$config"
 done
 
@@ -106,6 +110,7 @@ HOME="$stow_home" \
 [[ -L "$stow_home/.config/xdg-desktop-portal/sway-portals.conf" ]]
 [[ -L "$stow_home/.config/waybar/config.jsonc" ]]
 [[ -L "$stow_home/.local/bin/sway-workspace-grid" ]]
+[[ -L "$stow_home/.local/bin/sway-output-cycle" ]]
 [[ -L "$stow_home/.local/bin/sway-session-start" ]]
 [[ -L "$stow_home/.local/share/wallpapers/catppuccin-macchiato.webp" ]]
 [[ "$(readlink -f "$stow_home/.config/sway/config")" == "$config" ]]
@@ -195,6 +200,128 @@ CURRENT_WORKSPACE=08 \
   exit 1
 }
 
+# --- sway-output-cycle: the display operations, proved against a stub Sway ---
+#
+# Sway's own focus/move output commands take a direction and wrap along that
+# axis only, so a vertically stacked pair is unreachable with "right". The
+# script walks the sorted output list instead, which is what lets
+# config/actions.tsv describe the Sway and AeroSpace display actions with the
+# same three sentences. Its own bin directory keeps the real jq — a runner
+# requirement in scripts/test.sh — ahead of the grid's stub above.
+mkdir -p "$test_root/cycle-bin"
+cat >"$test_root/cycle-bin/swaymsg" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == '-t get_outputs -r' ]]; then
+  printf '%s\n' "$OUTPUTS_JSON"
+else
+  printf '%s\n' "$*" >"$CYCLE_RESULT"
+fi
+EOF
+chmod +x "$test_root/cycle-bin/swaymsg"
+
+cycle_result="$test_root/state/cycle-result"
+cycle_error="$test_root/state/cycle-error"
+
+run_cycle() {
+  local outputs="$1"
+  shift
+  : >"$cycle_result"
+  : >"$cycle_error"
+  cycle_status=0
+  OUTPUTS_JSON="$outputs" \
+    CYCLE_RESULT="$cycle_result" \
+    PATH="$test_root/cycle-bin:$PATH" \
+    "$cycle" "$@" 2>"$cycle_error" || cycle_status=$?
+}
+
+assert_cycle() {
+  local outputs="$1"
+  local expected="$2"
+  shift 2
+
+  run_cycle "$outputs" "$@"
+  ((cycle_status == 0)) || {
+    printf 'sway-output-cycle %s exited %s: %s\n' \
+      "$*" "$cycle_status" "$(cat "$cycle_error")" >&2
+    exit 1
+  }
+  grep -Fqx "$expected" "$cycle_result" || {
+    printf 'sway-output-cycle %s ran %s, expected %s\n' \
+      "$*" "$(cat "$cycle_result")" "$expected" >&2
+    exit 1
+  }
+}
+
+# Three side-by-side outputs with the middle one focused.
+three_outputs='[
+  {"name":"DP-1","active":true,"focused":false,"rect":{"x":0,"y":0}},
+  {"name":"eDP-1","active":true,"focused":true,"rect":{"x":1920,"y":0}},
+  {"name":"HDMI-A-1","active":true,"focused":false,"rect":{"x":3840,"y":0}}
+]'
+assert_cycle "$three_outputs" 'focus output "HDMI-A-1"' focus next
+assert_cycle "$three_outputs" 'focus output "DP-1"' focus prev
+# AeroSpace moves the window with --focus-follows-window; Sway has to say so.
+assert_cycle "$three_outputs" \
+  'move container to output "HDMI-A-1"; focus output "HDMI-A-1"' move-window next
+assert_cycle "$three_outputs" 'move workspace to output "HDMI-A-1"' move-workspace next
+# next is the default, matching the three bindings in the Sway config.
+assert_cycle "$three_outputs" 'focus output "HDMI-A-1"' focus
+
+# The cycle wraps at the last output, as --wrap-around does.
+assert_cycle '[
+  {"name":"DP-1","active":true,"focused":false,"rect":{"x":0,"y":0}},
+  {"name":"eDP-1","active":true,"focused":true,"rect":{"x":1920,"y":0}}
+]' 'focus output "DP-1"' focus next
+
+# The case Sway'"'"'s own "focus output right" cannot reach: a vertical stack.
+assert_cycle '[
+  {"name":"TOP","active":true,"focused":true,"rect":{"x":0,"y":0}},
+  {"name":"BOTTOM","active":true,"focused":false,"rect":{"x":0,"y":1080}}
+]' 'focus output "BOTTOM"' focus next
+
+# A disconnected output is not a place to send a window to. It sits after the
+# focused one, so leaving the filter out would land on it instead of wrapping.
+assert_cycle '[
+  {"name":"DP-1","active":true,"focused":false,"rect":{"x":0,"y":0}},
+  {"name":"eDP-1","active":true,"focused":true,"rect":{"x":1920,"y":0}},
+  {"name":"HDMI-A-1","active":false,"focused":false,"rect":{"x":3840,"y":0}}
+]' 'focus output "DP-1"' focus next
+
+# One output makes every operation a no-op rather than an error.
+assert_cycle '[
+  {"name":"eDP-1","active":true,"focused":true,"rect":{"x":0,"y":0}}
+]' 'focus output "eDP-1"' focus next
+
+# An unknown operation or direction is a usage error, and nothing runs.
+for bogus in "sideways next" "focus sideways"; do
+  # shellcheck disable=SC2086
+  run_cycle "$three_outputs" $bogus
+  ((cycle_status == 2)) || {
+    printf 'sway-output-cycle %s exited %s, expected 2.\n' "$bogus" "$cycle_status" >&2
+    exit 1
+  }
+  [[ ! -s "$cycle_result" ]] || {
+    printf 'sway-output-cycle %s ran a command despite refusing.\n' "$bogus" >&2
+    exit 1
+  }
+done
+
+# Sway answering with no focused output is a refusal, not a guess at one.
+run_cycle '[
+  {"name":"DP-1","active":true,"focused":false,"rect":{"x":0,"y":0}},
+  {"name":"eDP-1","active":true,"focused":false,"rect":{"x":1920,"y":0}}
+]' focus next
+((cycle_status == 1)) || {
+  printf 'sway-output-cycle exited %s with no focused output, expected 1.\n' \
+    "$cycle_status" >&2
+  exit 1
+}
+grep -Fqx 'No focused output among the active ones: DP-1 eDP-1' "$cycle_error"
+[[ ! -s "$cycle_result" ]] || {
+  printf 'sway-output-cycle moved focus despite refusing.\n' >&2
+  exit 1
+}
+
 for flavour in latte frappe macchiato mocha; do
   wallpaper="$wallpaper_package/catppuccin-$flavour.webp"
   lock_wallpaper="$wallpaper_package/catppuccin-$flavour-lock.webp"
@@ -203,6 +330,7 @@ for flavour in latte frappe macchiato mocha; do
 done
 
 bash -n "$grid"
+bash -n "$cycle"
 bash -n "$fedora_stow/sway/.local/bin/sway-screenshot"
 bash -n "$fedora_stow/sway/.local/bin/power-profile-status"
 bash -n "$session_start"
@@ -238,4 +366,4 @@ if [[ -z "$waybar_reload_line" || -z "$sway_reload_line" ]] ||
   exit 1
 fi
 
-printf 'Sway configuration and 3x3 workspace navigation tests passed.\n'
+printf 'Sway configuration, 3x3 workspace navigation and display cycling tests passed.\n'

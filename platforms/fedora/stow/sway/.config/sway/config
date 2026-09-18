@@ -98,6 +98,15 @@ bindsym $mod+Ctrl+$down exec sway-workspace-grid down
 bindsym $mod+Ctrl+$up exec sway-workspace-grid up
 bindsym $mod+Ctrl+$right exec sway-workspace-grid right
 
+# Displays. Sway's own directional output commands wrap along one axis only, so
+# on a vertically stacked pair "right" reaches nothing. sway-output-cycle walks
+# the output list instead, which is what makes these mean the same thing as the
+# AeroSpace Tab bindings on macOS. Super+Shift is the window tier and Super+Ctrl
+# the workspace tier here, exactly as they are for the numbered workspaces.
+bindsym $mod+Tab exec sway-output-cycle focus next
+bindsym $mod+Shift+Tab exec sway-output-cycle move-window next
+bindsym $mod+Ctrl+Tab exec sway-output-cycle move-workspace next
+
 # Hardware, screenshots, and clipboard history
 bindsym XF86AudioRaiseVolume exec wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+
 bindsym XF86AudioLowerVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
