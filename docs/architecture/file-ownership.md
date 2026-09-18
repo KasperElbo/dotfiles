@@ -20,7 +20,7 @@ manifest for the first; each platform's `stow.sh` is for the second.
 | Portable (`common/stow.sh`) | `bat` `bin` `fzf` `ghostty` `git` `lazygit` `mise` `nvim-lazyvim` `starship` `tmux` `zsh` |
 | Fedora workstation (`platforms/fedora/stow/`) | `sway` `theme-hooks` `waybar` `zsh-platform` |
 | Fedora on WSL (`platforms/fedora-wsl/stow/`) | `interop` `nvim-wsl` `theme-hooks` `zsh-platform` |
-| Apple Silicon macOS (`platforms/macos/stow/`) | `aerospace` `ghostty-macos` `nvim-macos` `zsh-platform` |
+| Apple Silicon macOS (`platforms/macos/stow/`) | `aerospace` `ghostty-macos` `nvim-macos` `theme-hooks` `zsh-platform` |
 | Parrot Security Edition CTF guest (`platforms/parrot-ctf/stow/`) | `command-shims` `mise-ctf` `neovim-profile` `zsh-platform` |
 | Shared (repository root, deployed by Fedora workstation) | `theme-assets` |
 

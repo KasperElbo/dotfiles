@@ -386,16 +386,102 @@ assert_file_not_contains "$repo_root/config/capabilities.tsv" \
   'parrot-ctf	ctf-guest	-	enabled	-	-	apt+upstream	-	-	theme-hooks'
 printf 'PASS: the Parrot profile installs no desktop theme hooks\n'
 
-# --- macOS owns no theme hooks either ----------------------------------------
+# --- The macOS hook ---------------------------------------------------------
 
-# docs/workflows/theming.md makes the same claim for macOS as for Parrot.
-macos_hooks="$repo_root/platforms/macos/stow/theme-hooks"
-[[ ! -e "$macos_hooks" ]] ||
-  _test_die 'macOS must not gain theme hooks; docs/workflows/theming.md says it installs none'
+# macOS now owns a hook, through the same capability and Stow model as the
+# others, so it can gain desktop behaviour without the portable command
+# growing a `case $(uname)`. It applies nothing yet.
+macos_hook="$repo_root/platforms/macos/stow/theme-hooks/.config/dotfiles/theme-hooks.d/macos.sh"
+[[ -f "$macos_hook" ]] || _test_die 'the macOS theme hook is missing'
 macos_stow="$(awk -F '\t' '$1 == "base" && $2 == "macos" { print $10 }' \
   "$repo_root/config/capabilities.tsv")"
 [[ -n "$macos_stow" ]] || _test_die 'no macOS base capability row with Stow packages'
-assert_not_contains ",$macos_stow," ',theme-hooks,'
-printf 'PASS: the macOS profile installs no theme hooks\n'
+assert_contains ",$macos_stow," ',theme-hooks,'
+
+new_macos_machine() {
+  new_machine 'base'
+  rm "$machine/config/dotfiles/theme-hooks.d/fedora.sh"
+  ln -s "$macos_hook" "$machine/config/dotfiles/theme-hooks.d/macos.sh"
+}
+
+# The intended action is reported as skipped with its reason. A hook that said
+# nothing would let the command report a complete application on a Mac whose
+# desktop did not change, which is the failure the named-action boundary
+# exists to prevent.
+new_macos_machine
+run_theme
+assert_success
+assert_contains "$TEST_OUTPUT" 'macos:wallpaper'
+assert_contains "$TEST_OUTPUT" 'Not applicable on this machine'
+assert_contains "$TEST_OUTPUT" 'not implemented yet'
+assert_contains "$TEST_OUTPUT" 'Catppuccin mocha selected.'
+assert_file_line "$machine/config/dotfiles/theme" mocha
+printf 'PASS: the macOS hook reports its wallpaper action as skipped, not applied\n'
+
+# Rerunning changes nothing: the hook reads state and writes none.
+first="$TEST_OUTPUT"
+run_theme
+assert_success
+[[ "$TEST_OUTPUT" == "$first" ]] ||
+  _test_die 'a second theme run through the macOS hook did not repeat itself'
+assert_file_line "$machine/config/dotfiles/theme" mocha
+printf 'PASS: rerunning theme through the macOS hook is idempotent\n'
+
+# --preserve-wallpaper is a different outcome from "not implemented", because
+# a run that deliberately left the desktop alone is not the same thing as one
+# that could not change it.
+new_macos_machine
+run_theme_with() {
+  run_capture env -i \
+    HOME="$machine/home" \
+    XDG_CONFIG_HOME="$machine/config" \
+    XDG_DATA_HOME="$machine/data" \
+    XDG_STATE_HOME="$machine/state" \
+    PATH="$mock_bin:/usr/bin:/bin" \
+    MOCK_LOG="$mock_log" \
+    "$theme_command" "$@"
+}
+run_theme_with mocha --preserve-wallpaper
+assert_success
+assert_contains "$TEST_OUTPUT" '--preserve-wallpaper was requested'
+assert_not_contains "$TEST_OUTPUT" 'not implemented yet'
+printf 'PASS: --preserve-wallpaper is reported as its own reason\n'
+
+# The hook refuses a flavour it does not know rather than acting on it. The
+# portable command validates the flavour first, so this arm is unreachable
+# through `theme` itself; sourcing the hook the way the command does is what
+# proves the guard is there, and that it returns rather than exiting.
+refusal="$(
+  bash -c '
+    theme_action_skipped() { :; }
+    flavour="not-a-flavour"
+    preserve_wallpaper=false
+    run() { source "$1"; }
+    run "$1" && printf "returned-zero\n"
+    # A deterministic status: the refusal itself is what the assertions read,
+    # and an errexit caller must not be killed by the hook doing its job.
+    exit 0
+  ' _ "$macos_hook" 2>&1
+)"
+assert_contains "$refusal" 'refusing invalid Catppuccin flavour: not-a-flavour'
+assert_not_contains "$refusal" 'returned-zero'
+printf 'PASS: the macOS hook refuses a flavour it does not know\n'
+
+# And a hook that fails is a partial application rather than a crash: the
+# shared state is still written and the command reports what did not apply.
+new_macos_machine
+# Replacing the link, not writing through it: the installed hook is a symlink
+# into this checkout, and `cat >` on it would rewrite the repository's file.
+rm "$machine/config/dotfiles/theme-hooks.d/macos.sh"
+cat >"$machine/config/dotfiles/theme-hooks.d/macos.sh" <<'HOOK'
+theme_action_skipped macos:wallpaper 'stand-in for a failing macOS hook'
+false
+HOOK
+run_theme
+assert_status 3
+assert_contains "$TEST_OUTPUT" 'was applied only partially'
+assert_contains "$TEST_OUTPUT" 'hook:macos'
+assert_file_line "$machine/config/dotfiles/theme" mocha
+printf 'PASS: a failing macOS hook is a partial application, not a crash\n'
 
 printf 'Theme hook capability and failure-isolation tests passed.\n'

@@ -260,6 +260,12 @@ fi
 
 section "Theme"
 
+# The hook the portable theme command sources on this platform. It is checked
+# here rather than with the other Stow links because it is theme integration:
+# a Mac missing it is one where `theme` silently does no desktop work.
+check_symlink "$XDG_CONFIG_HOME/dotfiles/theme-hooks.d/macos.sh" \
+  "$DOTFILES_ROOT/platforms/macos/stow/theme-hooks/"
+
 theme_file="$XDG_CONFIG_HOME/dotfiles/theme"
 current_theme=""
 [[ ! -r "$theme_file" ]] || current_theme="$(tr -d '[:space:]' <"$theme_file")"

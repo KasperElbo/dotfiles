@@ -97,13 +97,25 @@ done
 : >"$stow_log"
 run_stow "$repo_root/platforms/macos/scripts/stow.sh"
 
-for package in "${portable_packages[@]}" zsh-platform aerospace nvim-macos ghostty-macos; do
+for package in \
+  "${portable_packages[@]}" zsh-platform aerospace nvim-macos ghostty-macos theme-hooks; do
   grep -Fqx "$package" "$stow_log"
 done
-if grep -Eq '^(sway|waybar|theme-hooks|theme-assets|nvim-wsl|interop)$' "$stow_log"; then
+# theme-hooks is a package name each platform fills with its own file, not a
+# shared one, so macOS deploying it is not a boundary crossing. What would be
+# is the file inside: platforms/macos/stow/theme-hooks holds macos.sh alone.
+if grep -Eq '^(sway|waybar|theme-assets|nvim-wsl|interop)$' "$stow_log"; then
   printf 'macOS Stow entry point deployed a Fedora or WSL package.\n' >&2
   exit 1
 fi
+macos_hooks="$(
+  find "$repo_root/platforms/macos/stow/theme-hooks" -name '*.sh' -printf '%f\n' | sort
+)"
+[[ "$macos_hooks" == "macos.sh" ]] || {
+  printf 'The macOS theme-hooks package holds more than its own hook:\n%s\n' \
+    "$macos_hooks" >&2
+  exit 1
+}
 
 # --- A shared asset has one copy, and one place it lives -------------------
 

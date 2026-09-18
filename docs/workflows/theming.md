@@ -98,7 +98,7 @@ The last run's records stay in `~/.local/state/dotfiles/theme-actions.log`.
 | Layer | What it is | What it does |
 |---|---|---|
 | `theme` command | `bin/.local/bin/theme`, on `PATH` as `~/.local/bin/theme` | Writes the shared state files, runs the installed platform hooks, and reports what applied |
-| Platform theme hook | `~/.config/dotfiles/theme-hooks.d/*.sh`, stowed per platform | Applies the desktop half: KDE/Sway/Waybar/Fuzzel/Mako/swaylock and the wallpaper on Fedora, the Noctty bridge on Fedora WSL. macOS and the Parrot guest install no hook |
+| Platform theme hook | `~/.config/dotfiles/theme-hooks.d/*.sh`, stowed per platform | Applies the desktop half: KDE/Sway/Waybar/Fuzzel/Mako/swaylock and the wallpaper on Fedora, the Noctty bridge on Fedora WSL. macOS installs one that applies nothing yet and reports its wallpaper action as skipped. The Parrot guest installs none |
 | Zsh `theme` function | `zsh/.config/zsh/.zshrc` | **Re-execs the shell** (`exec zsh`) after a successful or partially successful run, so this shell picks up the new `DOTFILES_THEME` and its fzf/bat/Lazygit/Starship selections |
 
 The re-exec is the shell wrapper's doing, not the command's. Running
@@ -130,6 +130,13 @@ leftover KDE assets are present.
 The Parrot CTF guest deliberately installs no desktop theme hooks: it is a
 reduced lab profile, not a workstation, and parity is not a reason to give it
 desktop theming it has no use for.
+
+macOS installs a hook that applies nothing yet. Setting the desktop wallpaper
+is a separate change, so until it lands the hook reports `macos:wallpaper` as
+skipped and says why, which keeps `theme` from claiming a complete application
+on a Mac whose desktop did not change. A run that passed
+`--preserve-wallpaper` is reported as skipped for that reason instead, so
+"deliberately left alone" and "not implemented" do not read the same.
 
 ## Writing a theme hook
 
@@ -210,8 +217,8 @@ is the minimal one.
 Ghostty applies a changed `theme` only on a **full restart**; a configuration
 reload does not change an already-set theme. Nothing in this repository claims
 otherwise. On Fedora the hook still requests a reload (it is worth doing for
-the rest of the configuration) and then says a restart is required; on a
-profile with no hook of its own — macOS — the portable command prints the same
+the rest of the configuration) and then says a restart is required; on macOS
+the hook does not claim the terminal, so the portable command prints the same
 guidance. On Fedora WSL, Windows owns the terminal, so the Noctty bridge is
 what changes the theme and no Ghostty guidance is printed at all.
 
