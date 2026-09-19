@@ -437,7 +437,7 @@ MOCKED_VERIFIERS = {
     "platforms/fedora/scripts/verify-asus-hardware.sh": "tests/test-asus-verification.sh",
     "platforms/fedora/scripts/verify-containers.sh": "tests/test-containers.sh",
     "platforms/fedora/scripts/verify-desktop-tools.sh": "tests/test-desktop-tools.sh",
-    "platforms/fedora/scripts/verify-dictation.sh": "tests/test-dictation.sh",
+    "platforms/fedora/scripts/verify-dictation.sh": "tests/test-dictation-fedora.sh",
     "platforms/fedora/scripts/verify-hardening.sh": "tests/test-hardening.sh",
     "platforms/fedora/scripts/verify-tailscale.sh": "tests/test-tailscale.sh",
     "platforms/fedora/scripts/verify-vm-guest.sh": "tests/test-vm-guest.sh",

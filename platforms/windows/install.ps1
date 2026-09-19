@@ -17,6 +17,11 @@ Installs or validates Fedora WSL without installing or configuring Noctty.
 .PARAMETER SkipNocttyConfiguration
 Installs Noctty without synchronizing Ghostty settings or changing its command.
 
+.PARAMETER Handy
+Additionally installs the Handy offline voice-dictation application from the
+official Scoop extras bucket. Opt-in: dictation is desktop tooling and is never
+a prerequisite for the WSL or terminal bootstrap.
+
 .PARAMETER DryRun
 Prints the planned changes without installing or writing configuration.
 #>
@@ -27,6 +32,7 @@ param(
 
     [switch]$SkipNoctty,
     [switch]$SkipNocttyConfiguration,
+    [switch]$Handy,
     [switch]$DryRun,
 
     [Parameter(DontShow = $true)]
@@ -45,6 +51,7 @@ $ErrorActionPreference = 'Stop'
 $WindowsManifest = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'manifest.psd1')
 $MinimumProvenWslVersion = [version]$WindowsManifest.MinimumProvenWslVersion
 $NocttyBucketUrl = $WindowsManifest.Scoop.NocttyBucket.Url
+$ExtrasBucketUrl = $WindowsManifest.Scoop.ExtrasBucket.Url
 $WslDistributionCatalogUrl = 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json'
 $ManagedBlockStart = '# BEGIN dotfiles Fedora WSL'
 $ManagedBlockEnd = '# END dotfiles Fedora WSL'
@@ -487,14 +494,75 @@ function Install-Scoop {
     return $scoop
 }
 
+function Get-ScoopBucketList {
+    param([Parameter(Mandatory = $true)][string]$Scoop)
+
+    # Listing buckets reads Scoop's own per-user state; it is safe in a dry
+    # run, and it is what keeps `bucket add` idempotent.
+    $bucketList = & $Scoop bucket list 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to list Scoop buckets: $($bucketList -join ' ')"
+    }
+    return $bucketList
+}
+
+function Add-ScoopBucket {
+    param(
+        [Parameter(Mandatory = $true)][string]$Scoop,
+        [AllowEmptyCollection()][object[]]$BucketList = @(),
+        [Parameter(Mandatory = $true)][hashtable]$Bucket,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ($BucketList -match "(?m)^$([regex]::Escape($Bucket.Name))\s") {
+        return
+    }
+
+    if ($DryRun) {
+        Write-Step "Would add the $Label Scoop bucket: $($Bucket.Url)"
+        return
+    }
+
+    Write-Step "Adding the official $Label Scoop bucket"
+    Invoke-NativeCommand -FilePath $Scoop -Arguments @(
+        'bucket', 'add', $Bucket.Name, $Bucket.Url
+    )
+}
+
+function Install-ScoopPackage {
+    param(
+        [Parameter(Mandatory = $true)][string]$Scoop,
+        [Parameter(Mandatory = $true)][hashtable]$Package,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ($DryRun) {
+        Write-Step "Would install $($Package.QualifiedName) for the current Windows user"
+        return
+    }
+
+    Write-Step "Installing $Label"
+    Invoke-NativeCommand -FilePath $Scoop -Arguments @(
+        'install', $Package.QualifiedName
+    )
+}
+
+function Test-ScoopPackageInstalled {
+    param([Parameter(Mandatory = $true)][hashtable]$Package)
+
+    $current = Join-Path $env:USERPROFILE (
+        'scoop\apps\{0}\current\{1}' -f $Package.Name, $Package.Executable
+    )
+    return (
+        ($null -ne (Get-Command $Package.Name -ErrorAction SilentlyContinue)) -or
+        (Test-Path -LiteralPath $current)
+    )
+}
+
 function Install-Noctty {
     $nocttyPackage = $WindowsManifest.Scoop.NocttyPackage
     $nocttyBucket = $WindowsManifest.Scoop.NocttyBucket
-    $nocttyCurrent = Join-Path $env:USERPROFILE (
-        'scoop\apps\{0}\current\{1}' -f $nocttyPackage.Name, $nocttyPackage.Executable
-    )
-    if ((Get-Command noctty -ErrorAction SilentlyContinue) -or
-        (Test-Path -LiteralPath $nocttyCurrent)) {
+    if (Test-ScoopPackageInstalled -Package $nocttyPackage) {
         Write-Step 'Noctty is already installed'
         return
     }
@@ -510,32 +578,37 @@ function Install-Noctty {
         return
     }
 
-    $bucketList = & $scoop bucket list 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to list Scoop buckets: $($bucketList -join ' ')"
+    $bucketList = @(Get-ScoopBucketList -Scoop $scoop)
+    Add-ScoopBucket -Scoop $scoop -BucketList $bucketList -Bucket $nocttyBucket -Label 'Noctty'
+    Install-ScoopPackage -Scoop $scoop -Package $nocttyPackage -Label 'Noctty'
+}
+
+function Install-Handy {
+    # Handy is the offline voice-dictation application. Its manifest lives in
+    # Scoop's official `extras` bucket and is sha256-pinned there, so this
+    # installs per-user through exactly the same Scoop path as Noctty and adds
+    # no second package manager. See docs/profiles/dictation.md.
+    $handyPackage = $WindowsManifest.Scoop.HandyPackage
+    $extrasBucket = $WindowsManifest.Scoop.ExtrasBucket
+    if (Test-ScoopPackageInstalled -Package $handyPackage) {
+        Write-Step 'Handy is already installed'
+        return
     }
 
-    if (-not ($bucketList -match "(?m)^$([regex]::Escape($nocttyBucket.Name))\s")) {
-        if ($DryRun) {
-            Write-Step "Would add the Noctty Scoop bucket: $NocttyBucketUrl"
-        }
-        else {
-            Write-Step 'Adding the official Noctty Scoop bucket'
-            Invoke-NativeCommand -FilePath $scoop -Arguments @(
-                'bucket', 'add', $nocttyBucket.Name, $NocttyBucketUrl
-            )
-        }
+    $scoop = Resolve-ScoopCommand
+    if (-not $scoop) {
+        $scoop = Install-Scoop
     }
 
-    if ($DryRun) {
-        Write-Step "Would install $($nocttyPackage.QualifiedName) for the current Windows user"
+    if ($DryRun -and -not $scoop) {
+        Write-Step "Would add the extras Scoop bucket: $ExtrasBucketUrl"
+        Write-Step "Would install $($handyPackage.QualifiedName) for the current Windows user"
+        return
     }
-    else {
-        Write-Step 'Installing Noctty'
-        Invoke-NativeCommand -FilePath $scoop -Arguments @(
-            'install', $nocttyPackage.QualifiedName
-        )
-    }
+
+    $bucketList = @(Get-ScoopBucketList -Scoop $scoop)
+    Add-ScoopBucket -Scoop $scoop -BucketList $bucketList -Bucket $extrasBucket -Label 'extras'
+    Install-ScoopPackage -Scoop $scoop -Package $handyPackage -Label 'Handy'
 }
 
 function Copy-FileIfChanged {
@@ -672,6 +745,7 @@ function Write-WindowsSelectionState {
             -not $SkipNoctty.IsPresent -and
             -not $SkipNocttyConfiguration.IsPresent
         )
+        HandySelected = $Handy.IsPresent
     }
     $temporaryPath = Join-Path $stateDirectory (
         'windows-selection-{0}.tmp' -f [guid]::NewGuid().ToString('N')
@@ -740,7 +814,7 @@ if ($ElevatedWslPhase) {
 }
 
 if (Test-Administrator) {
-    throw 'Run this script from a normal, non-administrator PowerShell session. It elevates only the WSL installation phase; Scoop and Noctty stay per-user.'
+    throw 'Run this script from a normal, non-administrator PowerShell session. It elevates only the WSL installation phase; Scoop, Noctty and Handy stay per-user.'
 }
 
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
@@ -782,6 +856,10 @@ if (-not $SkipNoctty) {
     if (-not $SkipNocttyConfiguration) {
         Set-NocttyConfiguration -Distribution $selectedFedora
     }
+}
+
+if ($Handy) {
+    Install-Handy
 }
 
 if ($DryRun) {

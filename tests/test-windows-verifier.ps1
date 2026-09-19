@@ -73,7 +73,7 @@ try {
 
     Assert-Success -Name 'healthy baseline' `
         -Result (Invoke-Verifier -Fixture $healthyFixture -TopLevel)
-    Assert-Success -Name 'Noctty selected and present' `
+    Assert-Success -Name 'Noctty and Handy selected and present' `
         -Result (Invoke-Verifier -Fixture $nocttyFixture)
 
     $case = New-CaseFixture -Name 'selected-missing' -Change {
@@ -99,6 +99,54 @@ try {
     Assert-FailureContains -Name 'wrong command owner' `
         -Result (Invoke-Verifier -Fixture $case) `
         -Expected 'Noctty resolves outside Scoop shims'
+
+    # Dictation (Handy) is optional and Scoop-owned. Unselected absence is
+    # clean, selection is verified exactly like Noctty, and neither selection
+    # depends on the other.
+    $case = New-CaseFixture -Name 'handy-unselected' -Change {
+        param($item)
+        $item.State.HandySelected = $false
+        $item.Scoop.ExtrasBucket.Exists = $false
+        $item.Scoop.HandyPackage.Exists = $false
+        $item.Scoop.HandyPackage.CommandPath = $null
+    }
+    Assert-Success -Name 'Handy unselected and absent' `
+        -Result (Invoke-Verifier -Fixture $case)
+
+    $case = New-CaseFixture -Name 'handy-only' -Change {
+        param($item)
+        $item.State.NocttySelected = $false
+        $item.State.NocttyConfigurationSelected = $false
+        $item.Configuration.Files = @()
+    }
+    Assert-Success -Name 'Handy selected without Noctty' `
+        -Result (Invoke-Verifier -Fixture $case)
+
+    $case = New-CaseFixture -Name 'handy-package-missing' -Change {
+        param($item)
+        $item.Scoop.HandyPackage.Exists = $false
+    }
+    Assert-FailureContains -Name 'missing Handy package' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'Declared Scoop package is missing: handy'
+
+    $case = New-CaseFixture -Name 'extras-bucket-missing' -Change {
+        param($item)
+        $item.Scoop.ExtrasBucket.Exists = $false
+    }
+    Assert-FailureContains -Name 'missing Scoop extras bucket' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'Declared Scoop bucket is missing: extras'
+
+    # A Handy installed by any other provider resolves outside Scoop's shims,
+    # which is how duplicate or non-Scoop ownership is caught.
+    $case = New-CaseFixture -Name 'handy-outside-scoop' -Change {
+        param($item)
+        $item.Scoop.HandyPackage.CommandPath = 'C:\Program Files\Handy\handy.exe'
+    }
+    Assert-FailureContains -Name 'Handy owned outside Scoop' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'Handy resolves outside Scoop shims'
 
     $case = New-CaseFixture -Name 'broken-config' -Change {
         param($item)
@@ -147,6 +195,11 @@ try {
         if ($source.Contains($forbidden)) {
             throw "Read-only verifier contains forbidden mutation primitive: $forbidden"
         }
+    }
+
+    # Every application this verifier proves is Scoop-owned, Handy included.
+    if ($source -match '(?i)winget') {
+        throw 'Windows verification must prove Scoop ownership, never WinGet ownership.'
     }
 }
 finally {

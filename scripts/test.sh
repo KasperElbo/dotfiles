@@ -120,10 +120,11 @@ default_tests=(
   tests/test-vm-guest.sh
   tests/test-hardening.sh
   tests/test-desktop-tools.sh
-  tests/test-dictation.sh
+  tests/test-dictation-fedora.sh
   tests/test-containers.sh
   tests/test-containers-wsl.sh
   tests/test-tailscale.sh
+  tests/test-dictation-macos.sh
   tests/test-wsl-interop.sh
   tests/test-wsl-open.sh
   tests/test-fedora-wsl.sh

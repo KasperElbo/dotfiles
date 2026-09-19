@@ -114,7 +114,7 @@ follows, and component scripts stay individually callable and safe to rerun.
 
 ### Apple Silicon macOS
 
-`platforms/macos/install.sh`, 16 steps:
+`platforms/macos/install.sh`, 17 steps:
 
 | # | Step | Phase | When | What it does |
 |---|---|---|---|---|
@@ -122,18 +122,19 @@ follows, and component scripts stay individually callable and safe to rerun.
 | 2 | `ocaml-native` | `apply` | conditional | Install Homebrew OCaml prerequisites |
 | 3 | `containers` | `apply` | conditional | Install and start a rootless Podman machine |
 | 4 | `tailscale` | `apply` | conditional | Install the optional Tailscale profile (Homebrew cask, interactive login). |
-| 5 | `local` | `apply` | always | Initialize local Git and theme state |
-| 6 | `stow` | `apply` | always | Deploy shared and macOS configuration |
-| 7 | `mise` | `apply` | always | Install mise-managed runtimes |
-| 8 | `nvim` | `apply` | always | Restore LazyVim and Mason tools |
-| 9 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
-| 10 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch and platform tools |
-| 11 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
-| 12 | `defaults` | `apply` | conditional | Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults |
-| 13 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
-| 14 | `theme` | `apply` | always | Apply the selected theme |
-| 15 | `aerospace` | `apply` | always | Launch AeroSpace |
-| 16 | `verify` | `verify` | always | Verify installation and native architecture |
+| 5 | `dictation` | `apply` | conditional | Install the optional dictation profile (pinned Ghost Pepper disk image). |
+| 6 | `local` | `apply` | always | Initialize local Git and theme state |
+| 7 | `stow` | `apply` | always | Deploy shared and macOS configuration |
+| 8 | `mise` | `apply` | always | Install mise-managed runtimes |
+| 9 | `nvim` | `apply` | always | Restore LazyVim and Mason tools |
+| 10 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
+| 11 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch and platform tools |
+| 12 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
+| 13 | `defaults` | `apply` | conditional | Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults |
+| 14 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
+| 15 | `theme` | `apply` | always | Apply the selected theme |
+| 16 | `aerospace` | `apply` | always | Launch AeroSpace |
+| 17 | `verify` | `verify` | always | Verify installation and native architecture |
 
 ### Parrot Security Edition CTF guest
 

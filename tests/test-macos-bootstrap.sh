@@ -111,12 +111,16 @@ activate_homebrew_path() { :; }
 source "$repo_root/platforms/macos/lib/install-actions.sh"
 macos_run_system_installer true
 macos_run_system_installer false
-macos_run_verifier false false false
-macos_run_verifier true true true
+macos_run_verifier false false false false
+macos_run_verifier true true true true
+# The optional-profile arguments are independent, and an omitted fourth one
+# still means "not selected" rather than an unbound variable.
+macos_run_verifier true false true
 grep -Fxq 'system:0' "$action_log"
 grep -Fxq 'system:1:--non-interactive' "$action_log"
 grep -Fxq 'verify:0' "$action_log"
-grep -Fxq 'verify:3:--defaults:--containers:--tailscale' "$action_log"
+grep -Fxq 'verify:4:--defaults:--containers:--tailscale:--dictation' "$action_log"
+grep -Fxq 'verify:2:--defaults:--tailscale' "$action_log"
 
 if [[ "$(uname -s)" == Darwin ]]; then
   # Force explicit Homebrew discovery while ordinary PATH lookup can see only

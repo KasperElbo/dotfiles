@@ -25,7 +25,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/macos.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/install-actions.sh"
 
 theme="$THEME_DEFAULT_FLAVOUR"; theme_explicit=false; install_ocaml=false; install_containers=false
-install_tailscale=false; apply_defaults=true; run_dev_workflows=false
+install_tailscale=false; install_dictation=false
+apply_defaults=true; run_dev_workflows=false
 install_ai=false
 # Empty means the sub-flag was omitted. common/install-ai.sh treats that as
 # additive -- keep whatever is already installed -- so it must stay
@@ -44,6 +45,7 @@ while (($#)); do
   --ocaml) install_ocaml=true; shift ;; --no-ocaml) install_ocaml=false; shift ;;
   --containers) install_containers=true; shift ;; --no-containers) install_containers=false; shift ;;
   --tailscale) install_tailscale=true; shift ;; --no-tailscale) install_tailscale=false; shift ;;
+  --dictation) install_dictation=true; shift ;; --no-dictation) install_dictation=false; shift ;;
   --defaults) apply_defaults=true; shift ;; --no-defaults) apply_defaults=false; shift ;;
   --dev-workflows) run_dev_workflows=true; shift ;; --no-dev-workflows) run_dev_workflows=false; shift ;;
   --ai) install_ai=true; shift ;; --no-ai) install_ai=false; shift ;;
@@ -107,7 +109,8 @@ macos_selected_capabilities() {
   local selection
   printf '%s\n' base dotnet-debug
   for selection in "$install_ocaml:ocaml" "$install_containers:containers" \
-    "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" \
+    "$install_tailscale:tailscale" "$install_dictation:dictation" \
+    "$install_ai:ai" "$ai_codex:codex" \
     "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
     [[ "${selection%%:*}" != true ]] || printf '%s\n' "${selection#*:}"
   done
@@ -137,6 +140,7 @@ install_selection_set theme "$theme"
 install_selection_set ocaml "$install_ocaml"
 install_selection_set containers "$install_containers"
 install_selection_set tailscale "$install_tailscale"
+install_selection_set dictation "$install_dictation"
 install_selection_set defaults "$apply_defaults"
 install_selection_set ai "$install_ai"
 # Tristates: an omitted AI sub-flag is remembered as "inherit", so a rerun
@@ -186,6 +190,7 @@ apply_system() {
 apply_ocaml_native() { "$DOTFILES_ROOT/platforms/macos/scripts/install-ocaml.sh"; }
 apply_containers() { "$DOTFILES_ROOT/platforms/macos/scripts/install-containers.sh"; }
 apply_tailscale() { "$DOTFILES_ROOT/platforms/macos/scripts/install-tailscale.sh"; }
+apply_dictation() { "$DOTFILES_ROOT/platforms/macos/scripts/install-dictation.sh"; }
 apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" macos "$theme"; }
 apply_stow() { "$DOTFILES_ROOT/platforms/macos/scripts/stow.sh"; }
 apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
@@ -203,13 +208,15 @@ apply_dev_workflows() { local args=(--all); [[ "$install_ocaml" != true ]] || ar
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
 apply_aerospace() { open -a AeroSpace || warn 'Open AeroSpace manually from /Applications'; }
 verify_macos() {
-  macos_run_verifier "$apply_defaults" "$install_containers" "$install_tailscale"
+  macos_run_verifier "$apply_defaults" "$install_containers" "$install_tailscale" \
+    "$install_dictation"
 }
 
 plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' apply preflight_macos apply_system : 'Install native Homebrew at /opt/homebrew, Brewfile machine tools, Ghostty, and AeroSpace. Sets a registered Zsh as the login shell when the account does not already use one.' 'platforms/macos/scripts/install-system.sh'
 [[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Homebrew OCaml prerequisites' apply : apply_ocaml_native : 'platforms/macos/scripts/install-ocaml.sh' 'platforms/macos/scripts/install-ocaml.sh'
 [[ "$install_containers" != true ]] || plan_add containers 'Install and start a rootless Podman machine' apply : apply_containers : 'Run an ARM64 smoke test with the Podman machine.' 'platforms/macos/scripts/install-containers.sh'
 [[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale profile (Homebrew cask, interactive login).' apply : apply_tailscale : 'Authentication and Network Extension approval remain interactive.' 'platforms/macos/scripts/install-tailscale.sh'
+[[ "$install_dictation" != true ]] || plan_add dictation 'Install the optional dictation profile (pinned Ghost Pepper disk image).' apply : apply_dictation : 'Microphone and Accessibility approval remain interactive.' 'platforms/macos/scripts/install-dictation.sh'
 plan_add local 'Initialize local Git and theme state' apply : apply_local : "common/setup-local.sh macos $theme" 'common/setup-local.sh'
 plan_add stow 'Deploy shared and macOS configuration' apply : apply_stow : 'platforms/macos/scripts/stow.sh' 'platforms/macos/scripts/stow.sh'
 plan_add mise 'Install mise-managed runtimes' apply : apply_mise : 'common/install-mise.sh' 'common/install-mise.sh'
@@ -244,6 +251,7 @@ macOS defaults:     $apply_defaults
 OCaml profile:      $install_ocaml
 Containers profile: $install_containers
 Tailscale profile:  $install_tailscale
+Dictation profile:  $install_dictation
 Development workflow smoke tests: $run_dev_workflows  (this run only)
 AI tooling profile: $install_ai
 AI Codex subcomponent:     ${ai_codex:-inherit}

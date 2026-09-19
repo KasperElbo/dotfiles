@@ -5,8 +5,12 @@ set -u
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 # shellcheck source=../../../common/lib/verify.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/macos.sh"
+# shellcheck source=../lib/dictation.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/dictation.sh"
 # shellcheck source=../../../common/lib/tool-floors.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/tool-floors.sh"
 
@@ -14,12 +18,14 @@ verify_reset
 verify_defaults="false"
 verify_containers="false"
 verify_tailscale="false"
+verify_dictation="false"
 
 while (($#)); do
   case "$1" in
   --defaults) verify_defaults="true" ;;
   --containers) verify_containers="true" ;;
   --tailscale) verify_tailscale="true" ;;
+  --dictation) verify_dictation="true" ;;
   *) die "Unknown option: $1" ;;
   esac
   shift
@@ -557,6 +563,111 @@ if [[ "$verify_tailscale" == true ]]; then
   else
     warning "Tailscale CLI is not installed; enable it from the app's Settings if you want the 'tailscale' command"
   fi
+fi
+
+# ---------------------------------------------------------------------------
+# Optional dictation profile
+#
+# Ghost Pepper is the one macOS application this repository installs itself,
+# from a pinned upstream disk image, because no Homebrew cask exists for it.
+# That makes three things this verifier's business that Homebrew would
+# otherwise answer: the installed build is the pinned one, it is the
+# Developer-ID-signed and notarized build Gatekeeper accepts, and no second
+# copy arrived through another provider.
+#
+# Selection is read from the recorded profile state as well as the flag, so a
+# standalone run reaches the same verdict as one inside the installer, and an
+# unselected machine is never failed for not having the application.
+#
+# The two privacy permissions this profile needs -- Microphone and
+# Accessibility -- are deliberately interactive, and macOS keeps their grants
+# in a SIP-protected TCC database no user process may read. There is no safe
+# observable check, so they are reported as not observed rather than guessed
+# at in either direction.
+# ---------------------------------------------------------------------------
+
+section "Optional dictation profile"
+
+dictation_state="$(dictation_state_file)"
+dictation_app="$(dictation_installed_app)"
+
+if [[ "$verify_dictation" == true || -f "$dictation_state" ]]; then
+  if [[ -d "$dictation_app" ]]; then
+    pass "Ghost Pepper is installed: $dictation_app"
+  else
+    fail "Ghost Pepper is missing: $dictation_app"
+  fi
+
+  dictation_version="$(dictation_installed_version "$dictation_app" 2>/dev/null || true)"
+  if [[ "$dictation_version" == "$DICTATION_GHOST_PEPPER_VERSION" ]]; then
+    pass "Ghost Pepper is at the pinned $DICTATION_GHOST_PEPPER_VERSION"
+  else
+    fail "Ghost Pepper reports ${dictation_version:-no version}, not the pinned" \
+      "$DICTATION_GHOST_PEPPER_VERSION; rerun" \
+      "platforms/macos/scripts/install-dictation.sh"
+  fi
+
+  check_arm64_file "Ghost Pepper" \
+    "$dictation_app/Contents/MacOS/${DICTATION_GHOST_PEPPER_APP%.app}"
+
+  # The pinned disk image is the declared provider. Homebrew publishes no
+  # Ghost Pepper cask today; if one appears, a machine must not end up with
+  # both, so the duplicate is named here rather than discovered later.
+  dictation_casks="$("$(homebrew_path)" list --cask 2>/dev/null || true)"
+  if grep -Fqi ghost-pepper <<<"$dictation_casks"; then
+    fail "A Homebrew cask also provides Ghost Pepper; this profile owns the" \
+      "pinned disk image, so remove one of the two copies"
+  else
+    pass "Ghost Pepper has no competing Homebrew cask"
+  fi
+
+  # Signature and notarization. This is the check that lets the profile coexist
+  # with the repository's position that Gatekeeper and SIP stay enabled: the
+  # application is accepted as it ships, with nothing removed or disabled to
+  # make it run.
+  if codesign --verify --strict "$dictation_app" >/dev/null 2>&1; then
+    pass "Ghost Pepper's code signature is intact"
+  else
+    fail "Ghost Pepper's code signature does not verify: $dictation_app"
+  fi
+
+  dictation_signature="$(codesign --display --verbose=4 "$dictation_app" 2>&1 || true)"
+  dictation_team="$(sed -n 's/^TeamIdentifier=//p' <<<"$dictation_signature" | head -n 1)"
+  if [[ "$dictation_team" == "$DICTATION_GHOST_PEPPER_TEAM_ID" ]]; then
+    pass "Ghost Pepper is signed by the pinned Developer ID team $dictation_team"
+  else
+    fail "Ghost Pepper is signed by team ${dictation_team:-unknown}, not the" \
+      "pinned $DICTATION_GHOST_PEPPER_TEAM_ID"
+  fi
+
+  if spctl --assess --type execute "$dictation_app" >/dev/null 2>&1; then
+    pass "Gatekeeper accepts Ghost Pepper (Developer ID signed and notarized)"
+  else
+    fail "Gatekeeper does not accept Ghost Pepper; do not work around this by" \
+      "disabling Gatekeeper or stripping the quarantine attribute"
+  fi
+
+  if [[ -f "$dictation_state" ]]; then
+    dictation_recorded="$(profile_state_read "$dictation_state" version dictation 2>/dev/null || true)"
+    if [[ "$dictation_recorded" == "$DICTATION_GHOST_PEPPER_VERSION" ]]; then
+      pass "Recorded dictation state names the pinned $DICTATION_GHOST_PEPPER_VERSION"
+    else
+      fail "Recorded dictation state names ${dictation_recorded:-no version}," \
+        "not the pinned $DICTATION_GHOST_PEPPER_VERSION: $dictation_state"
+    fi
+  else
+    fail "Dictation profile state is missing: $dictation_state"
+  fi
+
+  not_observed "Microphone and Accessibility consent is interactive and kept in" \
+    "a SIP-protected TCC database; confirm both for Ghost Pepper in System" \
+    "Settings -> Privacy & Security"
+elif [[ -e "$dictation_app" || -e "$dictation_state" ]]; then
+  fail "The dictation profile is not selected, but dictation-owned files" \
+    "remain ($dictation_app or $dictation_state); install it with --dictation," \
+    "or remove them by hand"
+else
+  pass "Dictation profile is not installed (not selected)"
 fi
 
 finish_verification "macOS verification"

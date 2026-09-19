@@ -87,6 +87,7 @@ for a flag again. The manifest's `state` column is what names them:
 | `~/.config/dotfiles/hardening.conf` | `hardening` |
 | `~/.config/dotfiles/hardware.conf` | `hardware` |
 | `~/.config/dotfiles/macos-containers.conf` | `containers` |
+| `~/.config/dotfiles/macos-dictation.conf` | `dictation` |
 | `~/.config/dotfiles/macos-tailscale.conf` | `tailscale` |
 | `~/.config/dotfiles/ocaml.conf` | `ocaml` |
 | `~/.config/dotfiles/parrot-ctf.conf` | `vm-guest` |

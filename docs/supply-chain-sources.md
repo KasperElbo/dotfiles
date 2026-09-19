@@ -11,6 +11,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
 |---|---|---|---|---|---|---|---|---|
 | `catppuccin-bat-themes` | Catppuccin bat/delta syntax themes | Catppuccin | `file` | `user` | `6810349b28055dce54076712fc05fc68da4b8ec0` | commit+sha256 | `sha256-pinned` | manual-bump |
+| `ghost-pepper-release` | Ghost Pepper dictation application disk image | matthartman | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `hack-nerd-font` | Hack Nerd Font release archive | Nerd Fonts | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `handy-release` | Handy dictation application release RPM | cjpais | `rpm-package` | `root` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `terra-signing-key` | Terra repository signing key | Fyra Labs | `gpg-key` | `root` | `per-releasever` | gpg-fingerprint | `gpg-fingerprint-pinned` | per-fedora-release |
@@ -42,6 +43,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `mason-registry` | Neovim LSP/DAP tooling | Mason registry | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | rolling |
 | `mise-tool-registry` | mise tool registry and backends | mise | `package-registry` | `user` | `config.toml` | mise ls | `registry-tls` | rolling |
 | `npm-registry` | npm packages installed through mise | npm | `package-registry` | `user` | `latest` | mise ls | `registry-tls` | rolling |
+| `scoop-extras-bucket` | Official Scoop extras bucket (Handy dictation) | ScoopInstaller | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | rolling |
 | `scoop-noctty-bucket` | noctty terminal Scoop bucket | amanthanvi | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | rolling |
 | `smoke-image-alpine` | Podman machine architecture smoke image | Docker Official Images | `container-image` | `user` | `latest` | podman image inspect | `registry-tls` | rolling |
 | `smoke-image-busybox` | Podman rootless smoke-test image | Docker Official Images | `container-image` | `user` | `stable` | podman image inspect | `registry-tls` | rolling |
@@ -79,6 +81,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `dotfiles-repository` | `https://github.com/KasperElbo/dotfiles.git` | git checkout the previous commit | `.github/workflows/real-install.yml` |
 | `fedora-os-repos` | `https://mirrors.fedoraproject.org` | sudo dnf history undo | `platforms/fedora/scripts/install-system.sh` `platforms/fedora-wsl/scripts/install-system.sh` |
 | `firstmate-repo` | `https://github.com/kunchenguid/firstmate.git` | git -C ~/.local/share/firstmate checkout <commit> | `common/install-ai.sh` |
+| `ghost-pepper-release` | `https://github.com/matthartman/ghost-pepper/releases/download/v${ghost_pepper_version}/GhostPepper.dmg` | pin the previous release tag and sha256 in platforms/macos/lib/dictation.sh, then rerun with --dictation | `platforms/macos/scripts/install-dictation.sh` `platforms/macos/lib/dictation.sh` |
 | `hack-nerd-font` | `https://github.com/ryanoasis/nerd-fonts/releases/download/v${font_version}/Hack.tar.xz` | reinstall the previous version directory | `platforms/parrot-ctf/scripts/install-terminal.sh` |
 | `handy-release` | `https://github.com/cjpais/Handy/releases/download/v${handy_version}/${handy_rpm}` | reinstall the previously pinned release rpm and restore its digest | `platforms/fedora/scripts/install-dictation.sh` |
 | `homebrew-formulae` | `https://formulae.brew.sh` | brew uninstall | `platforms/macos/Brewfile` `platforms/macos/scripts/install-system.sh` |
@@ -95,6 +98,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `parrot-os-repos` | `https://deb.parrot.sh` | sudo apt-get install --reinstall | `platforms/parrot-ctf/scripts/install-system.sh` |
 | `rpmfusion-free-release` | `https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-free-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `rpmfusion-nonfree-release` | `https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-nonfree-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
+| `scoop-extras-bucket` | `https://github.com/ScoopInstaller/Extras` | scoop bucket rm extras | `platforms/windows/install.ps1` |
 | `scoop-installer` | `https://get.scoop.sh` | scoop uninstall | `platforms/windows/install.ps1` |
 | `scoop-noctty-bucket` | `https://github.com/amanthanvi/scoop-noctty` | scoop bucket rm noctty | `platforms/windows/install.ps1` |
 | `smoke-image-alpine` | `docker.io/library/alpine:latest` | podman rmi | `platforms/macos/scripts/install-containers.sh` `platforms/macos/scripts/verify.sh` |

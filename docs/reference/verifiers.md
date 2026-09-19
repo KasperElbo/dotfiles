@@ -46,7 +46,7 @@ platforms support what, and who owns each deliberate absence.
 |---|---|---|
 | `common/verify-ai.sh` | `ai`, `backpass`, `codex`, `firstmate`, `gnhf` | `--ai`, `--backpass`, `--codex`, `--firstmate`, `--gnhf` |
 | `common/verify-ocaml.sh` | `ocaml` | `--ocaml` |
-| `platforms/macos/scripts/verify.sh` | `base`, `containers`, `dotnet-debug`, `tailscale`, `terminal` | `--containers`, `--tailscale` |
+| `platforms/macos/scripts/verify.sh` | `base`, `containers`, `dictation`, `dotnet-debug`, `tailscale`, `terminal` | `--containers`, `--dictation`, `--tailscale` |
 | `scripts/test-dev-workflows.sh` | `dev-workflows` | `--dev-workflows` |
 
 ## Parrot CTF
