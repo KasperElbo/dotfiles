@@ -109,6 +109,12 @@ user-locally, selects it in the managed `Dotfiles-Parrot-CTF.profile`, and
 installs the pinned Catppuccin bat themes. Ghostty is deliberately not
 installed here, and no general KDE theming is applied.
 
+The managed profile sets the font and nothing else. It declares no
+`ColorScheme=`, and this guest has no theme hook, so the terminal's palette
+stays whatever Parrot ships and the selected Catppuccin flavour does not reach
+it — which is why `config/capabilities.tsv` records this capability's provider
+as `repository+upstream-font-only` rather than as a themed terminal.
+
 The final rerun is the idempotency check. Without `--theme`, it preserves an
 existing valid flavour; an explicit `--theme FLAVOUR` changes it. The guest
 verifier checks observable guest state: Parrot and KVM/QEMU detection, both

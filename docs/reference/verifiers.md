@@ -3,15 +3,18 @@
 Generated from `config/capabilities.tsv`; do not edit these tables by hand.
 
 Each row is one verifier script, the capabilities it proves on that
-platform, and the installer flags that select those capabilities. The flags
-are what an install asks for — not arguments to the verifier: most verifiers
-read the recorded lifecycle state instead of taking options. See
+platform, and the installer flags that select those capabilities — a
+PowerShell switch of `platforms/windows/install.ps1` on the Windows host,
+whose installer and verifier are both PowerShell. The flags are what an
+install asks for — not arguments to the verifier: most verifiers read the
+recorded lifecycle state instead of taking options. See
 [the verification workflow](../workflows/verification.md) for the few that do
 take arguments, and for what a failure versus a warning means.
 
-A capability with no row here is not verified on that platform because it is
-not supported there; [the capability matrix](capability-matrix.md) says which
-platforms support what, and who owns each deliberate absence.
+A capability with no row here is not verified on that platform, for one of two
+reasons: the manifest records it as deliberately absent there, or the manifest
+has no row for that pair at all. [The capability matrix](capability-matrix.md)
+tells those apart and names who owns each deliberate absence.
 
 ## Fedora
 
@@ -54,3 +57,9 @@ platforms support what, and who owns each deliberate absence.
 | Verifier | Capabilities it proves | Selected by |
 |---|---|---|
 | `platforms/parrot-ctf/scripts/verify.sh` | `base`, `terminal`, `vm-guest` | always installed |
+
+## Windows
+
+| Verifier | Capabilities it proves | Selected by |
+|---|---|---|
+| `platforms/windows/verify.ps1` | `base`, `dictation`, `terminal` | `-Handy` |

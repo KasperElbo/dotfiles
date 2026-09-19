@@ -154,9 +154,15 @@ if [[ "$rerun" == true && "$help_requested" != true ]]; then
   forwarded_args=("${remembered_args[@]}" "${transient_args[@]}")
 fi
 
-# The supported names are config/capabilities.tsv's implemented base rows,
-# read by column name (see common/lib/manifest.sh). A header that lacks a
-# column stops here, naming it, instead of reporting no supported platforms.
+# The supported names are config/capabilities.tsv's implemented base rows that
+# this entry point can actually run, read by column name (see
+# common/lib/manifest.sh). A header that lacks a column stops here, naming it,
+# instead of reporting no supported platforms. The manifest registers one
+# platform more than this list: the Windows host has a base row, a provider and
+# a verifier, but its installer is platforms/windows/install.ps1, so the exec
+# below would name a script that does not exist. Requiring that script here is
+# what keeps "supported" meaning "runnable from here" (scripts/lib/manifests.py
+# draws the same line for the generators).
 # shellcheck source=../common/lib/manifest.sh
 source "$repo_root/common/lib/manifest.sh"
 supported_platform_rows="$(manifest_values \
@@ -164,6 +170,7 @@ supported_platform_rows="$(manifest_values \
   capability base status implemented)" || exit 1
 supported_platform_names=()
 while IFS= read -r supported_platform_name; do
+  [[ -f "$repo_root/platforms/$supported_platform_name/install.sh" ]] || continue
   supported_platform_names+=("$supported_platform_name")
 done < <(printf '%s\n' "$supported_platform_rows" | sed '/^$/d' | sort -u)
 supported_platforms="$(

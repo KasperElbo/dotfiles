@@ -18,14 +18,14 @@ platform and profile:
 | Column | Meaning | Accepted values |
 |---|---|---|
 | `capability` | The capability's name, unique per platform and profile | any |
-| `platform` | Which platform the row is about | `fedora`, `fedora-wsl`, `macos`, `parrot-ctf` |
+| `platform` | Which platform the row is about | `fedora`, `fedora-wsl`, `macos`, `parrot-ctf`, `windows` |
 | `profile` | The profile within that platform | any |
 | `cli_flag` | The flag that selects it, if it has one | a flag, or `-` |
 | `default` | What it does when the flag is absent | `enabled`, `disabled`, `auto` |
 | `dependencies` | Capabilities that must also be selected | names, or `-` |
 | `conflicts` | Capabilities it cannot be selected with | names, or `-` |
 | `provider` | Who installs it | any; an `unsupported` row must use `unsupported`, `windows-host` or `user-managed` |
-| `packages` | The packages this capability owns on that platform | names, or `-` |
+| `packages` | The packages this capability owns on that platform, in that platform's own package manager | names, or `-` |
 | `stow` | The Stow packages it deploys | names, or `-` |
 | `verifier` | The script that checks it | a path, or `none` on an unsupported row |
 | `state` | Its machine-local state file | a name, or `-` |
@@ -39,6 +39,38 @@ provenance; an `unsupported` row must name who owns that absence. Deliberate
 absence is recorded rather than left out, so the generated
 [capability matrix](reference/capability-matrix.md) can distinguish "we do not
 do this here" from "nobody has considered it".
+
+`-` is this file's only spelling of "none", in every column that can be empty.
+It is a decision, not a blank: `packages` is `-` when the capability installs
+no package at all, and `stow` is `-` when it deploys no Stow package at all.
+Two columns therefore read the same way on a platform that has no Stow tree:
+
+- **`packages` is that platform's package manager, whichever one it is.** The
+  `windows` rows record Scoop package names (`noctty`, `handy`) exactly as the
+  Fedora rows record DNF names and the macOS rows record Homebrew formulae. The
+  `provider` column is what says which manager a name belongs to, and
+  `installers` names the files that request them — for Windows,
+  `platforms/windows/install.ps1` and the `platforms/windows/manifest.psd1` it
+  reads the package and bucket names from.
+- **`stow` is `-` on every `windows` row, and that is the whole story.** The
+  Windows host has no Stow tree and no Stow script under `platforms/windows/`:
+  `install.ps1` writes *copies* into `%LOCALAPPDATA%\noctty\`, compared by
+  hash and rewritten when they differ, rather than symlinking into a checkout.
+  The Stow ownership check skips a platform that declares no Stow package and
+  has no Stow script; declaring one there fails, and adding a `stow.sh` puts
+  the platform straight back under the check.
+
+The Windows host differs from the other four platforms in two further ways,
+both recorded rather than implied. Its `cli_flag` values are PowerShell
+switches of `platforms\windows\install.ps1` (`-Handy`), not `--flags` of a
+Bash parser, and they have no `config/install-options.tsv` row: that manifest
+is the contract of the `platforms/<platform>/install.sh` parsers and of what
+`./install.sh --rerun` remembers, while the Windows installer records its own
+selection in `%LOCALAPPDATA%\dotfiles\windows-selection.json` for its verifier
+to read. And `--platform windows` is deliberately rejected by `./install.sh`:
+that entry point runs `platforms/<name>/install.sh`, so its list of supported
+names is the manifest's implemented `base` rows that have one. See
+[the Windows host guide](platforms/windows.md).
 
 ## `config/install-options.tsv`
 
@@ -74,7 +106,9 @@ replay them.
   `disabled` is `false` (`inherit` for a tristate, `-` for a value option),
   and `auto` is `auto`. Changing a default in one manifest alone fails lint.
 - `--dev-workflows` is the one flag with no option row, carried as an explicit
-  exception because it is a transient control.
+  exception because it is a transient control. The `windows` rows are exempt
+  from this check as a whole: their flags are PowerShell switches, and that
+  manifest has no rows for a platform without an `install.sh`.
 - An option that selects a capability needs an `implemented` row for that
   capability on its platform, so deleting a row cannot quietly drop an option.
 - Packages are compared with the files that install them, in both directions:
@@ -87,7 +121,9 @@ replay them.
 - The `stow` column, which preflight uses to find conflicting dotfiles before
   anything is installed, must name exactly the Stow packages
   `common/stow.sh` and `platforms/<platform>/scripts/stow.sh` can deploy on
-  that platform, conditional branches included.
+  that platform, conditional branches included. A platform that deploys no
+  Stow package and has no Stow script is skipped rather than reported as
+  missing one.
 - Conflicts must be declared on both rows of a pair.
 
 `./scripts/validate-install-options.py` closes the loop with the code that
@@ -151,9 +187,10 @@ component installers.
 
 A row that names a verifier promises a check. `./scripts/validate-capabilities.py`
 therefore requires every `implemented` row whose verifier is a platform
-`platforms/<platform>/scripts/verify.sh` to mention that capability in the
-file; `base` is exempt, because a platform verifier is about the baseline from
-its first line. Where the section that performs the check does not name the
+verifier — `platforms/<platform>/scripts/verify.sh`, or
+`platforms/<platform>/verify.ps1` on the Windows host — to mention that
+capability in the file; `base` is exempt, because a platform verifier is about
+the baseline from its first line. Where the section that performs the check does not name the
 capability in its own code, mark it with a one-line `# verifies: <capability>`
 comment in the section header. Separators are normalized when the file is
 searched, so `dotnet-debug` is also satisfied by `check_easy_dotnet_debugger`.
@@ -179,14 +216,19 @@ the repository once per rule, proving each one can fail:
   `packages=(...)` array. It reads the row with `capability_packages` from
   `common/lib/capabilities.sh`, so the list it checks cannot drift from the one
   the installers are validated against.
-- **One reporting contract.** Every declared verifier, and every verifier it
-  runs, sources `common/lib/verify.sh` instead of defining its own `pass`,
-  `fail` and `warning`. Every summary then counts failures and warnings the
+- **One reporting contract.** Every declared Bash verifier, and every verifier
+  it runs, sources `common/lib/verify.sh` instead of defining its own `pass`,
+  `fail` and `warning`. `platforms/windows/verify.ps1` cannot source a Bash
+  library, so this rule has nothing to say about it; it carries the same
+  contract in PowerShell — `[PASS]`/`[FAIL]` lines, a counted summary and a
+  non-zero exit — and `tests/test-windows-verifier.ps1` holds it to that. Every summary then counts failures and warnings the
   same way, and every verifier can use the shared ownership checks.
   `scripts/doctor.sh` is not a verifier and documents why it keeps its own.
 - **Run by CI.** Every declared verifier must be run against a real
   installation by `.github/workflows/real-install.yml`, directly or through a
-  `tests/integration/` sequence one of its steps runs. The verifiers of
+  `tests/integration/` sequence or a `tests/*.ps1` suite one of its steps runs.
+  A PowerShell suite spells repository paths with backslashes, which the check
+  normalizes before looking for the verifier it is evidence for. The verifiers of
   profiles no real-install job installs are listed in `MOCKED_VERIFIERS` with
   the default fast suite that runs them against a mocked machine instead, and
   that suite must be in `scripts/test.sh`'s default tests and run the verifier.

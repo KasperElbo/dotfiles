@@ -263,16 +263,37 @@ hardware_dry_run="$(
 
 grep -Fq 'config/capabilities.tsv' "$repo_root/docs/capabilities.md"
 
-# The supported platform list is derived from this manifest, not repeated in
-# each generator. Adding a base row must reach the generated pages, and a
-# platform without a human-authored title must stop the render rather than
-# produce an unlabelled column.
-manifest_platforms="$(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
-  "$repo_root/config/capabilities.tsv")"
+# The platform lists are derived from this manifest, not repeated in each
+# generator. Adding a base row must reach the generated pages, and a platform
+# without a human-authored title must stop the render rather than produce an
+# unlabelled column. Two lists come out of the manifest and they are not the
+# same one: every platform it models, and the subset ./install.sh can run.
+manifest_platforms="$(awk -F '\t' 'NR > 1 {print $2}' \
+  "$repo_root/config/capabilities.tsv" | awk '!seen[$0]++')"
+registered_platforms="$(PYTHONPATH="$repo_root/scripts/lib" python3 -c \
+  'import manifests; print("\n".join(manifests.registered_platforms()))')"
+[[ "$manifest_platforms" == "$registered_platforms" ]] || {
+  printf 'The shared platform helper disagrees with the manifest.\n' >&2
+  exit 1
+}
+
+# The installer's own list is the implemented base rows it has a script for: a
+# platform installed by something other than platforms/<name>/install.sh is
+# registered without being a --platform name.
+installer_platforms=""
+while IFS= read -r candidate; do
+  [[ -f "$repo_root/platforms/$candidate/install.sh" ]] || continue
+  installer_platforms+="${installer_platforms:+$'\n'}$candidate"
+done < <(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
+  "$repo_root/config/capabilities.tsv")
 helper_platforms="$(PYTHONPATH="$repo_root/scripts/lib" python3 -c \
   'import manifests; print("\n".join(manifests.supported_platforms()))')"
-[[ "$manifest_platforms" == "$helper_platforms" ]] || {
-  printf 'The shared platform helper disagrees with the manifest.\n' >&2
+[[ "$installer_platforms" == "$helper_platforms" ]] || {
+  printf 'The shared platform helper disagrees with the installers on disk.\n' >&2
+  exit 1
+}
+[[ "$installer_platforms" != *windows* ]] || {
+  printf 'The Windows host has no install.sh under platforms/windows/ to run.\n' >&2
   exit 1
 }
 
@@ -456,5 +477,123 @@ swap_columns() {
     'A provider manifest without classification' 'has no column: classification' \
     capability_preflight_command_specs fedora
 )
+
+# ---------------------------------------------------------------------------
+# Every platform in the tree is a registered platform
+#
+# The registry is what makes the platforms answerable to one another, so which
+# platforms exist has to come from the tree rather than from a constant in a
+# Python file that can be forgotten. These checks derive the list from the
+# directories under platforms/ and hold the manifest and the validator to it:
+# a new platform fails the build until it is registered, whether or not it is
+# one ./install.sh can run.
+# ---------------------------------------------------------------------------
+
+platform_constant() {
+  python3 - "$1" <<'PY'
+import importlib.util
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location(
+    "validate_capabilities", root / "scripts" / "validate-capabilities.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print("\n".join(sorted(module.PLATFORMS)))
+PY
+}
+
+# Every problem with one checkout's platform registration, one per line.
+platform_registration_problems() {
+  local root="$1" manifest directory platform script named
+  local -a scripts=()
+  manifest="$root/config/capabilities.tsv"
+  for directory in "$root"/platforms/*/; do
+    platform="${directory%/}"
+    platform="${platform##*/}"
+    if ! awk -F '\t' -v p="$platform" \
+      'NR > 1 && $2 == p { found = 1 } END { exit !found }' "$manifest"; then
+      printf '%s: a directory under platforms/ with no row in config/capabilities.tsv\n' \
+        "$platform"
+      continue
+    fi
+    # A platform verifier is the one script a row can declare for the platform
+    # as a whole; the optional profiles' verifiers are declared by their own
+    # rows and are checked by the rules above.
+    scripts=()
+    for script in "${directory}scripts/verify.sh" "${directory}verify.ps1"; do
+      [[ -f "$script" ]] || continue
+      scripts+=("${script#"$root/"}")
+    done
+    ((${#scripts[@]} > 0)) || continue
+    named=false
+    for script in "${scripts[@]}"; do
+      if awk -F '\t' -v p="$platform" -v v="$script" \
+        'NR > 1 && $2 == p && $11 == v && $15 == "implemented" { found = 1 }
+         END { exit !found }' "$manifest"; then
+        named=true
+      fi
+    done
+    [[ "$named" == true ]] || printf \
+      '%s: has a verifier (%s) that no implemented row declares\n' \
+      "$platform" "${scripts[*]}"
+  done
+
+  local directories constant
+  directories="$(for directory in "$root"/platforms/*/; do
+    directory="${directory%/}"
+    printf '%s\n' "${directory##*/}"
+  done | sort)"
+  constant="$(platform_constant "$root")"
+  [[ "$directories" == "$constant" ]] || printf \
+    'scripts/validate-capabilities.py PLATFORMS is %s, but platforms/ holds %s\n' \
+    "$(printf '%s' "$constant" | tr '\n' ' ')" \
+    "$(printf '%s' "$directories" | tr '\n' ' ')"
+}
+
+registration_problems="$(platform_registration_problems "$repo_root")"
+[[ -z "$registration_problems" ]] || {
+  printf 'Platform registration is incomplete:\n%s\n' "$registration_problems" >&2
+  exit 1
+}
+
+# Every platform the tree has must be registered, including the Windows host,
+# which has no install.sh under platforms/windows/ and is therefore absent from
+# the installer's own list above.
+for expected_platform in fedora fedora-wsl macos parrot-ctf windows; do
+  awk -F '\t' -v p="$expected_platform" \
+    'NR > 1 && $2 == p { found = 1 } END { exit !found }' \
+    "$repo_root/config/capabilities.tsv" || {
+    printf 'config/capabilities.tsv has no %s row.\n' "$expected_platform" >&2
+    exit 1
+  }
+done
+awk -F '\t' '$2 == "windows" && $11 != "platforms/windows/verify.ps1" && $15 == "implemented" {
+  printf "An implemented windows row declares %s rather than the Windows verifier.\n", $11
+  bad = 1
+}
+END { exit bad }' "$repo_root/config/capabilities.tsv" || exit 1
+
+# The negative control: a sixth platform directory, with a verifier and no
+# rows, must fail this check until it is registered.
+new_scratch unregistered-platform
+mkdir -p "$scratch/platforms/plasma9/scripts"
+cp "$repo_root/platforms/fedora/scripts/verify.sh" \
+  "$scratch/platforms/plasma9/scripts/verify.sh"
+unregistered="$(platform_registration_problems "$scratch")"
+printf '%s\n' "$unregistered" | grep -Fq \
+  'plasma9: a directory under platforms/ with no row in config/capabilities.tsv' || {
+  printf 'An unregistered platform directory was not reported:\n%s\n' "$unregistered" >&2
+  exit 1
+}
+printf '%s\n' "$unregistered" | grep -Fq \
+  'scripts/validate-capabilities.py PLATFORMS is' || {
+  printf 'An unregistered platform was not reported against the validator list:\n%s\n' \
+    "$unregistered" >&2
+  exit 1
+}
+printf 'PASS: an unregistered platform directory is rejected\n'
 
 printf 'Capability manifest validation passed.\n'

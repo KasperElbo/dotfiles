@@ -1,7 +1,8 @@
 # Supported platforms and profiles
 
-Four platforms, one portable core. This page records what is supported, what
-is deliberately out of scope, and where each platform's own guide lives.
+Four platforms this repository builds a workstation on, one portable core, and
+the Windows host that carries one of them. This page records what is supported,
+what is deliberately out of scope, and where each platform's own guide lives.
 
 | Platform | Guide |
 |---|---|
@@ -9,6 +10,12 @@ is deliberately out of scope, and where each platform's own guide lives.
 | Fedora on WSL | [fedora-wsl.md](fedora-wsl.md) |
 | Apple Silicon macOS | [macos.md](macos.md) |
 | Parrot Security Edition CTF guest | [parrot-ctf.md](parrot-ctf.md) |
+| Windows host (WSL 2, terminal, dictation) | [windows.md](windows.md) |
+
+The first four are `./install.sh --platform` names. The Windows host is not: it
+is installed by `platforms\windows\install.ps1` and verified by
+`platforms\windows\verify.ps1`, and it is in the registry on the same terms as
+the others.
 
 Which capability each platform actually has, and who provides it, is generated
 from `config/capabilities.tsv` into
