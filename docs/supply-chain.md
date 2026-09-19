@@ -246,7 +246,7 @@ present, naming the `--no-<component>` flag that would remove it.
 1. Add a row to `config/network-sources.tsv` with an owner, tier, privilege,
    integrity mechanism, cadence, rollback strategy, and consumers.
 2. Annotate the call site with `# network-source: <id>`, on the line or within
-   the four comment lines above it.
+   the four lines above it.
 3. Run `./scripts/render-supply-chain.py` to refresh the generated inventory.
 
 `./scripts/lint.sh` runs `scripts/validate-network-sources.py`, which fails on
@@ -257,16 +257,40 @@ added with `dnf config-manager addrepo` and a signing key imported with
 `rpm --import`, however their argument is spelled. It also fails on a registry
 row whose tier and integrity mechanism contradict each other.
 
+A construct counts however it is written. A clone spelled as an argument
+vector — `vim.fn.system({ "git", "clone", … })`, which is how the Neovim
+bootstrap spawns it — is the same clone as a command line. A container image
+written as Docker Hub shorthand, `parrotsec/core:latest`, pulls the same code
+as `docker.io/parrotsec/core:latest`; shorthand counts when the line puts it in
+a container context (a `docker`/`podman` command, a workflow `container:` or
+`image:` key, a build `FROM`), because `owner/name:tag` outside one is ordinary
+text — a desktop association reads exactly the same.
+
 The scan covers every tracked file outside `tests/` (except
-`tests/integration/`) that is shell, PowerShell, YAML, or Python by any of
-three signals: its suffix, a classification in
+`tests/integration/`) that is shell, PowerShell, YAML, Python, or Lua by any of
+four signals: its suffix, a known basename (`Brewfile`), a classification in
 [`config/shell-file-roles.tsv`](../config/shell-file-roles.tsv), or a shell or
-Python shebang. An extensionless command such as `./doctor` or a stowed
-`~/.local/bin` helper is therefore held to the same rule as an installer.
+Python shebang. An extensionless command such as `./doctor`, a stowed
+`~/.local/bin` helper, editor configuration, and a package manifest are
+therefore all held to the same rule as an installer.
+
+`common/lib/fetch.sh` is scanned like anything else. It performs every
+repository-controlled download, so exempting it would exempt the one file a
+hardcoded URL would do the most damage in. Its primitives take the URL from
+their caller and say so with `# network-source: caller-provided`; the call site
+carries the annotation that names the real source.
+
+An annotation covers the host it names, not whatever construct happens to
+follow it. When a construct writes a host out in full — on its own line or on a
+continuation of it — at least one of the annotations covering it must name a
+source served by that host, so a new download dropped under an existing comment
+inherits nothing. A URL built from a variable names no host the validator can
+check, and is covered by its annotation alone.
 
 A construct that genuinely reaches no external network (a loopback probe, a
 request to the container under test) is annotated
 `# network-source: local-only`, which is still a deliberate, reviewable act.
+That annotation covers loopback hosts only.
 
 ## Authenticating the rate-limited API
 
