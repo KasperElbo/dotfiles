@@ -54,7 +54,7 @@ check_windows_path_command_absent() {
   local command_name="$1"
   local command_path
 
-  command_path="$(PATH="$login_path" command -v "$command_name" 2>/dev/null || true)"
+  command_path="$(PATH="$system_path" command -v "$command_name" 2>/dev/null || true)"
   if [[ -z "$command_path" ]]; then
     pass "$command_name is not inherited through PATH"
   else
@@ -89,6 +89,89 @@ else
   fail "Default login shell is not Zsh: ${login_shell:-unknown}"
 fi
 
+section "Windows PATH injection policy"
+
+# This is the check that decides whether Windows directories reach PATH at all.
+# appendWindowsPath=false is a WSL-level setting: it governs every context on
+# the machine -- systemd units, "wsl.exe -e", VS Code's integrated shell, cron,
+# any script -- whereas the Zsh hook in platform-env.zsh only ever runs in an
+# interactive Zsh login shell. A machine where configure-interop.sh wrote the
+# file but nobody ran "wsl --shutdown" still injects the Windows PATH into all
+# of those, and only reading the file can see it.
+#
+# The value is read, not the file's formatting compared: a wsl.conf this
+# repository did not write may spell the key "appendWindowsPath = false", and
+# WSL reads that as false, so reporting it as unset would fail a machine that
+# is correctly configured. ini_section_key_value shares its key-line shape with
+# the renderer configure-interop.sh writes with.
+wsl_conf_file="${WSL_CONF_FILE:-/etc/wsl.conf}"
+wsl_conf_remedy="run platforms/fedora-wsl/scripts/configure-interop.sh, then 'wsl --shutdown' from Windows PowerShell (this affects every WSL distribution, not just this one) and reopen this distribution"
+
+if [[ -r "$wsl_conf_file" ]]; then
+  wsl_conf_content="$(cat "$wsl_conf_file")"
+  append_windows_path="$(
+    ini_section_key_value "$wsl_conf_content" "interop" "appendWindowsPath"
+  )"
+  case "$append_windows_path" in
+  false)
+    pass "$wsl_conf_file sets [interop] appendWindowsPath=false, so no context inherits the Windows PATH"
+    ;;
+  "")
+    fail "$wsl_conf_file does not set [interop] appendWindowsPath=false, so every non-interactive context (systemd units, 'wsl.exe -e', VS Code, cron) still inherits the Windows PATH: $wsl_conf_remedy"
+    ;;
+  *)
+    fail "$wsl_conf_file sets [interop] appendWindowsPath=$append_windows_path, so every non-interactive context (systemd units, 'wsl.exe -e', VS Code, cron) still inherits the Windows PATH: $wsl_conf_remedy"
+    ;;
+  esac
+else
+  fail "Cannot read $wsl_conf_file, so [interop] appendWindowsPath=false is unverified: $wsl_conf_remedy"
+fi
+
+section "Inherited Windows PATH isolation"
+
+# What the system actually hands a process, before any configuration in this
+# repository acts on it. "zsh -f" reads no user rc files, so platform-env.zsh's
+# stripper does not run and cannot mask an entry that is really there. This is
+# the PATH sample that can fail; the sanitized one below cannot, by
+# construction.
+#
+# It is still sampled from this process's own environment, so it reports what
+# reached the verifier. The /etc/wsl.conf assertion above, not this, is what
+# proves the contexts the verifier cannot start from are clean.
+system_path="$(
+  zsh -fc \
+    'printf "\n__DOTFILES_VERIFY_SYSTEM_PATH__%s\n" "$PATH"' 2>/dev/null |
+    sed -n 's/^__DOTFILES_VERIFY_SYSTEM_PATH__//p' |
+    tail -n 1
+)"
+if [[ -z "$system_path" ]]; then
+  fail "Could not inspect the unsanitized system PATH"
+else
+  system_path_has_windows_entry="false"
+  IFS=: read -r -a system_path_entries <<<"$system_path"
+  for path_entry in "${system_path_entries[@]}"; do
+    if is_windows_path "$path_entry"; then
+      fail "The unsanitized system PATH contains a Windows entry: $path_entry ($wsl_conf_remedy)"
+      system_path_has_windows_entry="true"
+    fi
+  done
+
+  if [[ "$system_path_has_windows_entry" == "false" ]]; then
+    pass "The unsanitized system PATH contains only Linux filesystem entries"
+  fi
+fi
+
+# Without a system PATH these lookups would run against an empty PATH and
+# report vacuous passes. The probe failure is already recorded above.
+if [[ -n "$system_path" ]]; then
+  for command_name in node.exe dotnet.exe python.exe claude.exe codex.exe; do
+    check_windows_path_command_absent "$command_name"
+  done
+  pass "Explicit .exe lookup was checked in the unsanitized system PATH"
+else
+  warn "Skipping explicit .exe lookup: the unsanitized system PATH could not be inspected"
+fi
+
 section "Linux-native commands"
 
 login_path="$(
@@ -100,31 +183,22 @@ login_path="$(
 if [[ -z "$login_path" ]]; then
   fail "Could not inspect the Zsh login PATH"
 else
+  # This sample has already been through platform-env.zsh's stripper, so a
+  # Windows entry here means that stripper is broken -- it is not, and cannot
+  # be, evidence that WSL stopped injecting one. Interop policy is proved
+  # above.
   path_has_windows_entry="false"
   IFS=: read -r -a login_path_entries <<<"$login_path"
   for path_entry in "${login_path_entries[@]}"; do
     if is_windows_path "$path_entry"; then
-      fail "Zsh PATH still contains a Windows entry: $path_entry"
+      fail "The Zsh PATH sanitizer left a Windows entry in the login PATH: $path_entry"
       path_has_windows_entry="true"
     fi
   done
 
   if [[ "$path_has_windows_entry" == "false" ]]; then
-    pass "Zsh PATH contains only Linux filesystem entries"
+    pass "The Zsh PATH sanitizer leaves only Linux filesystem entries in the login PATH (proof that the Zsh layer works, not that Windows PATH injection is off)"
   fi
-fi
-
-section "Inherited Windows PATH isolation"
-
-# Without a login PATH these lookups would run against an empty PATH and report
-# vacuous passes. The probe failure is already recorded above.
-if [[ -n "$login_path" ]]; then
-  for command_name in node.exe dotnet.exe python.exe claude.exe codex.exe; do
-    check_windows_path_command_absent "$command_name"
-  done
-  pass "Explicit .exe lookup was checked in the fresh Zsh login PATH"
-else
-  warn "Skipping explicit .exe lookup: the Zsh login PATH could not be inspected"
 fi
 
 selected_theme="macchiato"
