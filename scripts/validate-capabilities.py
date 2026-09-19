@@ -37,8 +37,14 @@ FIELDS = [
     "dependencies", "conflicts", "provider", "packages", "stow",
     "verifier", "state", "docs", "provenance", "status", "installers",
 ]
-PLATFORMS = {"fedora", "fedora-wsl", "macos", "parrot-ctf"}
-PLATFORM_VERIFIER = re.compile(r"^platforms/[^/]+/scripts/verify\.sh$")
+# Every platform this repository installs, which is not the same list as the
+# platforms `./install.sh --platform` accepts: the Windows host is installed by
+# platforms/windows/install.ps1 and verified by platforms/windows/verify.ps1,
+# so it answers to this registry like the four Bash platforms.
+# tests/test-capabilities.sh derives the same list from the directories under
+# platforms/ and fails if this one drifts from it.
+PLATFORMS = {"fedora", "fedora-wsl", "macos", "parrot-ctf", "windows"}
+PLATFORM_VERIFIER = re.compile(r"^platforms/[^/]+/(?:scripts/verify\.sh|verify\.ps1)$")
 # A platform verifier is the baseline capability from its first line, so
 # requiring it to name "base" would only add noise. Every other capability it
 # is declared for must be findable in the file.
@@ -57,6 +63,17 @@ OPTION_FIELDS = [
 # a transient execution control, so it belongs to no machine's remembered
 # configuration and must not gain an install-options.tsv row.
 TRANSIENT_CAPABILITIES = {"dev-workflows"}
+
+# Platforms whose installer is not the portable Bash one.
+# `config/install-options.tsv` is the contract of the
+# `platforms/<platform>/install.sh` argv parsers and of the selection a machine
+# remembers for `--rerun`. The Windows host is installed by PowerShell, which
+# parses its own switches and records what was selected in
+# `%LOCALAPPDATA%\dotfiles\windows-selection.json` -- the file its verifier
+# reads. Its rows may therefore name the switch that selects them without an
+# option row to agree with, and scripts/validate-install-options.py rejects an
+# option row for a platform that has no install.sh at all.
+SELF_RECORDING_PLATFORMS = {"windows"}
 
 # How a capability default maps onto the persistent option's default, per
 # option kind. A `value` option is "off" by declaring no default at all.
@@ -182,6 +199,8 @@ def check_option_manifest(rows: list[dict[str, str]]) -> int:
     by_flag = {(row["platform"], row["on_flag"]): row for row in options}
     for row in rows:
         if row["status"] != "implemented" or row["cli_flag"] in {"", "-"}:
+            continue
+        if row["platform"] in SELF_RECORDING_PLATFORMS:
             continue
         where = f"{row['platform']}/{row['capability']}"
         if row["capability"] in TRANSIENT_CAPABILITIES:
@@ -375,6 +394,15 @@ def check_stow_ownership(rows: list[dict[str, str]]) -> int:
         declared.setdefault(row["platform"], set()).update(cell)
 
     for platform in sorted(declared):
+        # A platform with no Stow tree declares no Stow packages and has no
+        # Stow script to compare them with: the Windows host is configured by
+        # copies install.ps1 writes under %LOCALAPPDATA%, not by symlinks into
+        # a checkout. Declaring a package there still fails below, and a
+        # stow.sh appearing later puts the platform back under this check.
+        if not declared[platform] and not (
+            ROOT / "platforms" / platform / "scripts" / "stow.sh"
+        ).is_file():
+            continue
         scripted, script_errors = scripted_stow_packages(platform)
         errors += script_errors
         for package in sorted(declared[platform] - scripted):
@@ -452,6 +480,12 @@ VERIFIER_REFERENCE = re.compile(
 # verifier or installer the workflow runs may name another script behind an
 # option the workflow never passes, which is not evidence that it runs.
 INTEGRATION_SCRIPT = re.compile(r"(?<![\w-])(tests/integration/[\w.-]+\.sh)(?![\w-])")
+# The Windows boundary job runs PowerShell suites directly rather than a Bash
+# sequence, so those count as steps of the workflow too. They spell repository
+# paths with backslashes, which real_install_text() normalizes before the
+# search: `platforms\windows\verify.ps1` there is the same evidence as the
+# forward-slashed path a manifest row declares.
+WINDOWS_SUITE = re.compile(r"(?<![\w-])(tests/[\w.-]+\.ps1)(?![\w-])")
 SOURCE_LINE = re.compile(r'^\s*(?:source|\.)\s+"(.+)"\s*$')
 SOURCE_PREFIXES = ('$(dirname "${BASH_SOURCE[0]}")/', "$DOTFILES_ROOT/")
 
@@ -551,6 +585,14 @@ def check_verifier_library(verifiers: dict[str, set[str]]) -> int:
         path = ROOT / verifier
         if not path.is_file():
             continue
+        # The Windows host is verified by PowerShell, which cannot source a
+        # Bash library. platforms/windows/verify.ps1 carries the same contract
+        # in its own dialect -- [PASS]/[FAIL]/Write-Warning, a counted summary
+        # and a non-zero exit on failure -- and tests/test-windows-verifier.ps1
+        # is what holds it to that. The rule below is about the Bash library,
+        # so it has nothing to say about a verifier that is not Bash.
+        if path.suffix != ".sh":
+            continue
         if not sources_verify_library(path):
             fail(
                 f"{verifier}: verifier does not source common/lib/verify.sh; "
@@ -570,12 +612,15 @@ def default_test_suites() -> set[str]:
 
 
 def real_install_text() -> str:
-    """real-install.yml, plus every integration sequence one of its steps runs."""
+    """real-install.yml, plus every sequence or suite one of its steps runs."""
     workflow = code_text(REAL_INSTALL_WORKFLOW)
     texts = [workflow]
-    for script in sorted(set(INTEGRATION_SCRIPT.findall(workflow))):
+    scripts = set(INTEGRATION_SCRIPT.findall(workflow)) | set(
+        WINDOWS_SUITE.findall(workflow)
+    )
+    for script in sorted(scripts):
         if (ROOT / script).is_file():
-            texts.append(code_text(ROOT / script))
+            texts.append(code_text(ROOT / script).replace("\\", "/"))
     return "\n".join(texts)
 
 

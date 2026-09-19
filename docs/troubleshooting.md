@@ -22,6 +22,24 @@ recorded state disagrees with what an installed machine should look like.
 [verification](workflows/verification.md) for what those verifiers prove, and
 the entry below that matches the message you got.
 
+### `doctor` is a Linux and macOS command
+
+There is deliberately no Windows `doctor`, and adding one is not pending work.
+`./doctor` reports the *lifecycle* state of an `./install.sh` run — the
+installation record, the component state files, and the configuration
+`./install.sh --rerun` would reapply. The Windows host has none of those: it is
+installed by `platforms\windows\install.ps1`, which records one selection file
+instead of a lifecycle, and that file is read by a verifier rather than by a
+rerun. The equivalent on Windows is therefore the verifier itself, which is
+read-only and reports the same way:
+
+```powershell
+.\verify.ps1
+```
+
+See the [Windows host guide](platforms/windows.md#verify) for what it proves.
+Inside Fedora on WSL, `./doctor` is the Linux command it always was.
+
 ## The installer refuses to start
 
 Preflight runs before anything is changed, and refuses rather than half-installing:

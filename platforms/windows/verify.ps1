@@ -491,6 +491,9 @@ if ($null -ne $observation) {
             Write-VerificationFailure "Scoop resolves outside its owned shims: $($observation.Scoop.CommandPath)"
         }
 
+        # verifies: terminal
+        # Noctty is this host's terminal: declared bucket, declared package, a
+        # shim-resolved command and a Scoop-owned current executable.
         if ($observation.State.NocttySelected) {
             Confirm-ScoopPackageOwnership -DisplayName 'Noctty' `
                 -Scoop $observation.Scoop `
