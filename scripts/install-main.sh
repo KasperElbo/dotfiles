@@ -13,9 +13,27 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [[ "${1:-}" == doctor ]]; then
-  shift
-  exec "$BASH" "$repo_root/scripts/doctor.sh" "$@"
+# doctor is a subcommand rather than a platform option, and it is recognised
+# wherever it stands in the argument vector rather than as $1 alone: the macOS
+# compatibility bootstrap forwards the original vector unchanged, so
+# ./install.sh --platform macos doctor arrives here with the selector first.
+# Only the value of --platform is skipped, so --platform doctor still names a
+# (nonexistent) platform and is reported as one.
+subcommand=""
+skip_argument=false
+for argument in "$@"; do
+  if [[ "$skip_argument" == true ]]; then
+    skip_argument=false
+    continue
+  fi
+  case "$argument" in
+  --platform) skip_argument=true ;;
+  doctor) subcommand="doctor" ;;
+  esac
+done
+
+if [[ "$subcommand" == doctor ]]; then
+  exec "$BASH" "$repo_root/scripts/doctor.sh"
 fi
 
 platform="fedora"
@@ -200,7 +218,7 @@ for forwarded_arg in "${forwarded_args[@]}"; do
     cat <<EOF
 Usage: ./install.sh [--platform NAME|--platform=NAME] [options]
        ./install.sh --rerun [--dry-run] [--non-interactive]
-       ./install.sh doctor
+       ./install.sh [--platform NAME] doctor
 
 Options (platform '$platform'):
   --platform NAME    Target platform: selects which platforms/NAME/install.sh

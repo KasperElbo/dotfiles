@@ -10,10 +10,11 @@ platform="fedora"
 platform_explicit="false"
 rerun="false"
 expect_platform="false"
+subcommand=""
 
-# Inspect only the platform selector and --rerun. Do not shift or rebuild "$@":
-# the exact original argument vector is forwarded across the interpreter
-# boundary.
+# Inspect only the platform selector, --rerun and the doctor subcommand. Do
+# not shift or rebuild "$@": the exact original argument vector is forwarded
+# across the interpreter boundary.
 for argument in "$@"; do
   if [ "$expect_platform" = "true" ]; then
     if [ -z "$argument" ]; then
@@ -41,12 +42,29 @@ for argument in "$@"; do
     --rerun)
       rerun="true"
       ;;
+    doctor)
+      subcommand="doctor"
+      ;;
   esac
 done
 
 if [ "$expect_platform" = "true" ]; then
   printf 'ERROR: --platform requires a value\n' >&2
   exit 1
+fi
+
+# doctor is a subcommand, not a platform option, so it is answered here --
+# before the platform dispatch -- however it is spelled: bare, or after a
+# --platform the user copied from the surrounding documentation. Routing it
+# into a platform installer is what made ./install.sh --platform macos doctor
+# answer with an unknown-option error from that platform's parser.
+#
+# It does not go through the macOS compatibility bootstrap either. That
+# bootstrap exists to install Homebrew and a supported Bash, and the report is
+# read-only; scripts/doctor.sh selects a supported interpreter for itself and
+# says so plainly when there is none. It takes no arguments of its own.
+if [ "$subcommand" = "doctor" ]; then
+  exec "${BASH:-/bin/bash}" "$repo_root/scripts/doctor.sh"
 fi
 
 # A --rerun that names no platform must still reach the interpreter its
