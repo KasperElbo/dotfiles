@@ -236,10 +236,30 @@ resolve_existing_path() {
   fi
 }
 
+# canonical_path_spelling <path>: one canonical spelling for a path whose final
+# component need not exist. The containing directory is canonicalized
+# physically; the final component is left as written, so this answers for a
+# file that has been deleted as long as its directory is still there.
+canonical_path_spelling() {
+  local path="$1"
+  local directory name
+
+  directory="$(cd -P -- "$(dirname -- "$path")" 2>/dev/null && pwd)" || return 1
+  name="$(basename -- "$path")"
+
+  # Joining '/' with a child using the generic '%s/%s' form produces '//usr'.
+  # Although POSIX permits a special interpretation for exactly two leading
+  # slashes, ownership checks need one stable canonical spelling.
+  if [[ "$directory" == / ]]; then
+    printf '/%s\n' "${name#/}"
+  else
+    printf '%s/%s\n' "$directory" "$name"
+  fi
+}
+
 resolve_symlink_target() {
   local path="$1"
   local target
-  local target_dir
 
   target="$(readlink "$path")" || return 1
 
@@ -247,8 +267,28 @@ resolve_symlink_target() {
     target="$(dirname "$path")/$target"
   fi
 
-  target_dir="$(cd -P "$(dirname "$target")" 2>/dev/null && pwd)" || return 1
-  printf '%s/%s\n' "$target_dir" "$(basename "$target")"
+  canonical_path_spelling "$target"
+}
+
+# resolved_link_matches <link> <expected-path>: true when <link> is a symlink
+# pointing at <expected-path>, with both sides reduced to the same canonical
+# spelling first.
+#
+# Comparing a resolved target against a path built from DOTFILES_ROOT is what
+# this exists for, and comparing the two spellings directly is wrong:
+# DOTFILES_ROOT is logical -- built with cd/pwd, so it keeps the symlinks the
+# caller walked through -- while a resolved target is physical. Under a
+# checkout reached through a symlink the two differ although they name the same
+# file, so a correctly linked path reads as owned by something else.
+# common/lib/verify.sh's check_symlink canonicalizes both sides for the same
+# reason; this is that rule for callers that need equality rather than
+# containment, and for the legacy links whose target no longer exists.
+resolved_link_matches() {
+  local resolved expected
+
+  resolved="$(resolve_symlink_target "$1" 2>/dev/null)" || return 1
+  expected="$(canonical_path_spelling "$2" 2>/dev/null)" || return 1
+  [[ "$resolved" == "$expected" ]]
 }
 
 atomic_write_file() {

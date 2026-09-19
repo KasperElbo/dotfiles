@@ -61,6 +61,7 @@ $GhosttyThemes = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\themes'
 $NocttyThemeHelper = Join-Path $PSScriptRoot 'set-noctty-theme.ps1'
 $SelectionStatePath = Join-Path $env:LOCALAPPDATA $WindowsManifest.SelectionStateRelativePath
 . (Join-Path $PSScriptRoot 'lib\wsl-version.ps1')
+. (Join-Path $PSScriptRoot 'lib\scoop.ps1')
 
 function Write-Step {
     param([string]$Message)
@@ -443,24 +444,6 @@ function Install-WslDistribution {
     else {
         throw "Unable to determine the WSL version for installed distribution $Distribution."
     }
-}
-
-function Resolve-ScoopCommand {
-    $command = Get-Command scoop -ErrorAction SilentlyContinue
-    if ($command) {
-        return $command.Source
-    }
-
-    foreach ($candidate in @(
-        (Join-Path $env:USERPROFILE 'scoop\shims\scoop.ps1'),
-        (Join-Path $env:USERPROFILE 'scoop\shims\scoop.cmd')
-    )) {
-        if (Test-Path -LiteralPath $candidate) {
-            return $candidate
-        }
-    }
-
-    return $null
 }
 
 function Install-Scoop {

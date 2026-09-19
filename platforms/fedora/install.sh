@@ -228,6 +228,12 @@ fedora_verify_command() { printf '%s\n' platforms/fedora/scripts/verify.sh; }
 preflight_fedora() {
   require_regular_user; require_fedora
   preflight_platform_command_providers fedora; preflight_sudo "$interactive"
+  # The hardening profile is the one selected step that asks the user to agree
+  # to it, and the plan has no way to skip a step: a no during execution can
+  # only fail the run, after everything before it has already been installed.
+  # So the question is asked here instead, while nothing has been changed yet
+  # and the plan is still just a list. --confirm changes nothing on its own.
+  [[ "$install_hardening" != true || "$interactive" != true ]] || plan_command_run fedora_hardening_command --confirm
   [[ "$install_vm_guest" != true ]] || plan_command_run fedora_vm_guest_command --preflight
   [[ -z "$hardware_model" ]] || plan_command_run fedora_hardware_command --preflight
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
@@ -256,7 +262,9 @@ apply_hardware() { local args=(); [[ "$interactive" == true ]] || args+=(--non-i
 apply_sway() { plan_command_run fedora_sway_command; }
 apply_vm_host() { plan_command_run fedora_vm_host_command; }
 apply_vm_guest() { plan_command_run fedora_vm_guest_command; }
-apply_hardening() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interactive); plan_command_run fedora_hardening_command "${args[@]}"; }
+# Always --non-interactive: consent was taken in preflight_fedora, and asking
+# again here would put the same question after the point where a no is free.
+apply_hardening() { plan_command_run fedora_hardening_command --non-interactive; }
 apply_desktop() { plan_command_run fedora_desktop_tools_command; }
 apply_dictation() { plan_command_run fedora_dictation_command; }
 apply_containers() { plan_command_run fedora_containers_command; }

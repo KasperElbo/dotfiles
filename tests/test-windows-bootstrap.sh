@@ -82,6 +82,40 @@ if [[ "$(grep -Fc -- "$start_process_call" <<<"$invoke_elevated_phase_body")" -n
   exit 1
 fi
 
+# Scoop resolution is PATH-independent and shared, not duplicated.
+#
+# The Scoop installer runs in a child PowerShell, and a package's shim reaches
+# PATH through the registry, so the session that performed a completely
+# successful install still cannot see either through Get-Command. install.ps1
+# always had a fallback for that; verify.ps1 had none, so verifying in the same
+# session after a successful install reported three healthy things as missing
+# -- two of them with an empty path, because Test-PathWithinRoot answers false
+# for a null path. One helper now answers for both scripts.
+scoop_helper="$repo_root/platforms/windows/lib/scoop.ps1"
+[[ -f "$scoop_helper" ]]
+grep -Fq 'function Get-ScoopRoot' "$scoop_helper"
+grep -Fq 'function Resolve-ScoopShimCommand' "$scoop_helper"
+grep -Fq 'function Resolve-ScoopCommand' "$scoop_helper"
+grep -Fq "Join-Path (Get-ScoopRoot) 'shims'" "$scoop_helper"
+
+for windows_script in "$installer" "$windows_verifier"; do
+  grep -Fq "Join-Path \$PSScriptRoot 'lib\\scoop.ps1'" "$windows_script" || {
+    printf 'Scoop resolution must come from the shared helper: %s\n' \
+      "$windows_script" >&2
+    exit 1
+  }
+  if grep -Fq 'function Resolve-ScoopCommand' "$windows_script"; then
+    printf 'Scoop resolution belongs in platforms/windows/lib/scoop.ps1, not: %s\n' \
+      "$windows_script" >&2
+    exit 1
+  fi
+  if grep -Eq 'Get-Command +(scoop|noctty)\b' "$windows_script"; then
+    printf 'Scoop-owned commands must not be resolved through PATH alone: %s\n' \
+      "$windows_script" >&2
+    exit 1
+  fi
+done
+
 grep -Fq 'https://get.scoop.sh' "$installer"
 grep -Fq 'https://github.com/amanthanvi/scoop-noctty' "$windows_manifest"
 grep -Fq "QualifiedName = 'noctty/noctty'" "$windows_manifest"
@@ -210,6 +244,7 @@ if command -v pwsh >/dev/null 2>&1; then
   powershell_files=(
     "$installer"
     "$wsl_version_helper"
+    "$scoop_helper"
     "$theme_helper"
     "$windows_verifier"
     "$repo_root/verify.ps1"
