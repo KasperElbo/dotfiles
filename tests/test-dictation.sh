@@ -188,7 +188,7 @@ for argument in "$@"; do
 done
 [[ -n "$output" ]] || exit 2
 [[ "${MOCK_CURL_EXIT:-0}" == 0 ]] || exit "$MOCK_CURL_EXIT"
-cat -- "$MOCK_DMG_PAYLOAD" >"$output"
+cat "$MOCK_DMG_PAYLOAD" >"$output"
 EOF_CURL
 
   cat >"$bin/hdiutil" <<'EOF_HDIUTIL'
@@ -224,7 +224,7 @@ printf 'ditto %s\n' "$*" >>"$COMMAND_LOG"
 source_path="$1"
 destination="$2"
 mkdir -p "$destination"
-cp -R -- "$source_path/." "$destination/"
+cp -R "$source_path/." "$destination/"
 EOF_DITTO
 
   # `defaults read <bundle>/Contents/Info CFBundleShortVersionString`, answered
@@ -274,14 +274,18 @@ stage_repository() {
 
   mkdir -p "$checkout/platforms/macos/scripts" "$checkout/platforms/macos/lib" \
     "$checkout/common/lib" "$root/tmp"
-  cp -R -- "$repo_root/common/lib/." "$checkout/common/lib/"
-  cp -- "$repo_root/platforms/macos/lib/macos.sh" "$checkout/platforms/macos/lib/"
-  cp -- "$pin_library" "$checkout/platforms/macos/lib/dictation.sh"
-  cp -- "$installer" "$checkout/platforms/macos/scripts/"
+  cp -R "$repo_root/common/lib/." "$checkout/common/lib/"
+  cp "$repo_root/platforms/macos/lib/macos.sh" "$checkout/platforms/macos/lib/"
+  cp "$pin_library" "$checkout/platforms/macos/lib/dictation.sh"
+  cp "$installer" "$checkout/platforms/macos/scripts/"
 
-  digest="$(sha256sum -- "$MOCK_PAYLOAD_PATH" | cut -d' ' -f1)"
-  sed -i "s/^DICTATION_GHOST_PEPPER_SHA256=.*/DICTATION_GHOST_PEPPER_SHA256=\"$digest\"/" \
-    "$checkout/platforms/macos/lib/dictation.sh"
+  digest="$(sha256sum "$MOCK_PAYLOAD_PATH" | cut -d' ' -f1)"
+  # Not `sed -i`: that spelling is a GNU extension, and these suites also run
+  # on macOS, whose sed reads the next argument as a backup suffix.
+  local pin="$checkout/platforms/macos/lib/dictation.sh"
+  sed "s/^DICTATION_GHOST_PEPPER_SHA256=.*/DICTATION_GHOST_PEPPER_SHA256=\"$digest\"/" \
+    "$pin" >"$pin.rewritten"
+  mv -- "$pin.rewritten" "$pin"
   printf '%s\n' "$checkout/platforms/macos/scripts/install-dictation.sh"
 }
 
@@ -358,7 +362,7 @@ printf 'PASS: a fresh install downloads, verifies, mounts, copies and detaches\n
 
 # --- Rerunning is a no-op ----------------------------------------------------
 
-first_state="$(sha256sum -- "$state_file")"
+first_state="$(sha256sum "$state_file")"
 : >"$root/commands.log"
 
 run_installer "$root"
@@ -367,7 +371,7 @@ assert_contains "$TEST_OUTPUT" "already installed"
 assert_file_not_contains "$root/commands.log" 'curl'
 assert_file_not_contains "$root/commands.log" 'hdiutil'
 assert_file_not_contains "$root/commands.log" 'ditto'
-assert_eq "$first_state" "$(sha256sum -- "$state_file")" \
+assert_eq "$first_state" "$(sha256sum "$state_file")" \
   'the dictation state file changed on a no-op rerun'
 printf 'PASS: rerunning at the pinned version downloads nothing and rewrites nothing\n'
 
