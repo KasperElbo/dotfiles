@@ -164,6 +164,19 @@ plan_execute() {
     info "[${PLAN_IDS[i]}] ${PLAN_LABELS[i]}"
     plan_log "start id=${PLAN_IDS[i]} phase=${PLAN_PHASES[i]}"
     if [[ -n "$action" && "$action" != : ]]; then
+      # The contract for a plan action: it runs with errexit suppressed, so it
+      # must handle its own failures explicitly.
+      #
+      # Bash ignores errexit for an `if` condition and for everything that
+      # condition runs, however deep — the same trap theme-hooks.sh documents
+      # for its own boundary. The boundary there can be a subshell; this one
+      # cannot, because an action such as macOS's activate_homebrew_path
+      # mutates PATH for the steps that follow and has to run in this shell.
+      # Every construct that captures a failure without aborting suppresses
+      # errexit the same way, so the contract is explicit rather than
+      # inherited: an action whose fallible command is not its last statement
+      # must write `|| return` on that command, or the step reports as
+      # completed after it failed.
       if "$action"; then
         exit_code=0
       else
