@@ -222,4 +222,35 @@ assert_contains "$TEST_OUTPUT" \
   'Step [tailscale] dry-run promised "platforms/fedora/scripts/install-tailscale.sh" but apply ran "platforms/fedora/scripts/install-containers.sh".'
 printf 'PASS: a diverged apply_tailscale is reported against its dry-run note\n'
 
+# The hardening profile is the one selected step that asks the user to agree to
+# it, and the plan has no way to skip a step: asked from the step itself, a no
+# could only fail the run after everything ahead of it had already been
+# installed, leaving the machine changed and the installation unrecorded. So
+# platforms/fedora/install.sh asks from its preflight, with
+# install-hardening.sh --confirm, while the plan is still just a list. The real
+# script goes back into the scratch tree for this: the answer has to travel
+# through the option parser that has to keep understanding --confirm, not
+# through a recorder that exits 0 whatever it is handed.
+cp "$repo_root/platforms/fedora/scripts/install-hardening.sh" \
+  "$tree/platforms/fedora/scripts/install-hardening.sh"
+test_stub_allow "$test_root" sudo -v
+
+declined_home="$test_root/homes/hardening-declined"
+mkdir -p "$declined_home"
+# Yes to the installer's own "Continue with installation?", then no to the
+# hardening profile.
+printf 'y\nn\n' >"$test_root/hardening-answers"
+run_installer "$declined_home" fedora --no-kde --no-latex --hardening \
+  <"$test_root/hardening-answers"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'Hardening installation declined'
+# install_lifecycle_begin writes install.conf and names install.log, and it
+# runs only after preflight has returned. Neither exists, so the run stopped
+# while nothing had been installed and nothing had been recorded.
+[[ ! -e "$declined_home/.local/state/dotfiles/install.conf" ]] ||
+  _test_die 'a declined hardening profile recorded an installation'
+[[ ! -e "$declined_home/.local/state/dotfiles/install.log" ]] ||
+  _test_die 'a declined hardening profile stopped the run only after steps had begun running'
+printf 'PASS: declining the hardening profile stops the run before any step has run\n'
+
 printf 'Installer plan-command tests passed.\n'

@@ -997,36 +997,64 @@ run_confirmation_contract() {
   )
   local state_file="$test_root/config/dotfiles/hardening.conf"
 
-  # run_answer <label> <expected-message> [answer]
+  # run_answer <label> <expected-status> <expected-message> <answer-or-empty> [option...]
   #
-  # The answer is fed to the prompt; omitting it means a closed standard
+  # The answer is fed to the prompt; an empty answer means a closed standard
   # input, which `confirm` documents as declined rather than as a silently
-  # inherited yes.
+  # inherited yes. The state file is checked after every run: neither mode may
+  # record a profile the user did not agree to.
   run_answer() {
-    local label="$1" expected_message="$2"
-    shift 2
+    local label="$1" expect="$2" expected_message="$3" answer="$4"
+    shift 4
     local status=0 output
     local answer_file="$test_root/state/answer"
 
     rm -f -- "$state_file"
     # An empty answer file is an immediate EOF, which is what `read` sees on a
     # closed standard input; an unattended run must not inherit a yes there.
-    if (($#)); then printf '%s\n' "$1" >"$answer_file"; else : >"$answer_file"; fi
+    if [[ -n "$answer" ]]; then printf '%s\n' "$answer" >"$answer_file"; else : >"$answer_file"; fi
 
     output="$("${test_environment[@]}" \
-      "$repo_root/platforms/fedora/scripts/install-hardening.sh" \
+      "$repo_root/platforms/fedora/scripts/install-hardening.sh" "$@" \
       <"$answer_file" 2>&1)" || status=$?
 
-    ((status != 0)) ||
-      _test_die "[$label] a hardening profile that was not agreed to exited 0, so the plan records it as installed; output: $output"
-    assert_contains "$output" "$expected_message"
+    case "$expect" in
+    agreed)
+      ((status == 0)) ||
+        _test_die "[$label] a hardening confirmation that was agreed to exited $status; output: $output"
+      ;;
+    stopped)
+      ((status != 0)) ||
+        _test_die "[$label] a hardening profile that was not agreed to exited 0, so the plan records it as installed; output: $output"
+      ;;
+    *) _test_die "run_answer: unknown expectation: $expect" ;;
+    esac
+    [[ -z "$expected_message" ]] || assert_contains "$output" "$expected_message"
     [[ ! -e "$state_file" ]] ||
-      _test_die "[$label] a hardening profile that was not agreed to wrote $state_file"
+      _test_die "[$label] the run wrote $state_file"
   }
 
-  run_answer 'declined' 'Hardening installation declined' n
-  run_answer 'unparseable answer' 'Invalid confirmation response' maybe
-  run_answer 'no answer on standard input' 'Hardening installation declined'
+  run_answer 'declined' stopped 'Hardening installation declined' n
+  run_answer 'unparseable answer' stopped 'Invalid confirmation response' maybe
+  run_answer 'no answer on standard input' stopped 'Hardening installation declined' ''
+
+  # --confirm is how platforms/fedora/install.sh asks during preflight, before
+  # any step has run. It must report the same three answers in its exit status
+  # and change nothing at all, including on a yes: the profile is installed by
+  # the plan's own step, later.
+  run_answer '--confirm accepted' agreed '' y --confirm
+  run_answer '--confirm declined' stopped 'Hardening installation declined' n --confirm
+  run_answer '--confirm unparseable' stopped 'Invalid confirmation response' maybe --confirm
+  run_answer '--confirm with no answer' stopped 'Hardening installation declined' '' --confirm
+
+  # A mode that cannot report the answer in its exit status is refused rather
+  # than silently preferred over the question.
+  run_answer '--confirm --non-interactive' stopped \
+    '--confirm and --non-interactive cannot be combined' y --confirm --non-interactive
+  run_answer '--confirm --dry-run' stopped \
+    '--confirm and --dry-run cannot be combined' y --confirm --dry-run
+  run_answer '--confirm --validate' stopped \
+    '--confirm and --validate cannot be combined' y --confirm --validate
 
   printf 'PASS: a hardening confirmation that is not a yes stops the run instead of completing it\n'
 }

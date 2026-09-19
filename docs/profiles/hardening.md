@@ -30,6 +30,13 @@ or, once the base workstation is already installed:
 ./platforms/fedora/scripts/verify-hardening.sh              # re-run verification any time
 ```
 
+An interactive `./install.sh --hardening` asks you to agree to this profile
+during preflight, before any step of the installation has run: the execution
+plan has no way to skip a step, so a no asked later could only fail the run
+once everything ahead of it had already been installed. Declining therefore
+stops the run with nothing changed and nothing recorded. `--non-interactive`
+does not ask, as everywhere else.
+
 ### Fedora's baseline (verified, not changed)
 
 Fedora Workstation already provides real protection out of the box. This

@@ -13,6 +13,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/hardening.sh"
 
 dry_run="false"
 validate_only="false"
+confirm_only="false"
 interactive="true"
 
 usage() {
@@ -24,6 +25,10 @@ Install the optional, conservative Fedora security-hardening profile.
 Options:
   --dry-run          Show the hardening plan without changing anything
   --validate         Validate an existing hardening installation only
+  --confirm          Ask for consent only, change nothing, and report the
+                     answer in the exit status. platforms/fedora/install.sh
+                     asks this way during preflight, so a declined profile
+                     stops the run before anything has been installed.
   --non-interactive  Do not prompt before applying changes
   -h, --help         Show this help
 
@@ -64,6 +69,10 @@ while (($#)); do
     validate_only="true"
     shift
     ;;
+  --confirm)
+    confirm_only="true"
+    shift
+    ;;
   --non-interactive)
     interactive="false"
     shift
@@ -80,6 +89,16 @@ done
 
 if [[ "$dry_run" == "true" && "$validate_only" == "true" ]]; then
   die "--dry-run and --validate cannot be combined"
+fi
+
+# --confirm asks the question and answers nothing else: pairing it with a mode
+# that shows a plan, validates an existing installation, or declares that
+# nothing may be asked would leave the caller unable to read the answer out of
+# the exit status.
+if [[ "$confirm_only" == "true" ]]; then
+  [[ "$dry_run" != "true" ]] || die "--confirm and --dry-run cannot be combined"
+  [[ "$validate_only" != "true" ]] || die "--confirm and --validate cannot be combined"
+  [[ "$interactive" == "true" ]] || die "--confirm and --non-interactive cannot be combined"
 fi
 
 if [[ "$validate_only" == "true" ]]; then
@@ -144,25 +163,45 @@ fi
 
 require_fedora
 
-if [[ "$interactive" == "true" ]]; then
+# `confirm` is deliberately three-valued, and this script is a step of
+# platforms/fedora/install.sh's plan rather than a top-level installer: a plan
+# step that exits 0 on anything but a yes reports a profile nobody agreed to
+# install as installed. plan_execute would record `[hardening] completed`,
+# install_lifecycle_commit would add `hardening` to observed_capabilities, and
+# the plan's verify step could not catch it, because
+# platforms/fedora/scripts/verify.sh only runs the hardening verifier when the
+# state file this run never wrote exists. Only ./doctor would notice, much
+# later. So both non-yes statuses stop the run, and they are distinguished the
+# way every other call site distinguishes them: an unparseable answer is a
+# different mistake from a declined one.
+ask_for_consent() {
+  local result
   printf '\n'
   printf 'This installs the optional Fedora hardening profile described above.\n'
   printf 'Run with --dry-run first to see the full plan.\n'
-  # `confirm` is deliberately three-valued and this is a step of a larger
-  # plan, not a top-level installer: exiting 0 on anything but a yes would
-  # report a profile that was never installed as completed. plan_execute would
-  # record `[hardening] completed`, install_lifecycle_commit would add
-  # `hardening` to observed_capabilities, and the plan's verify step could not
-  # catch it, because platforms/fedora/scripts/verify.sh only runs the
-  # hardening verifier when the state file this run never wrote exists. Only
-  # ./doctor would notice, much later. So both non-yes statuses stop the run,
-  # and they are distinguished the way every other call site distinguishes
-  # them: an unparseable answer is a different mistake from a declined one.
+  # The status is read inside the else branch, not after the `if`: an `if`
+  # whose condition is false and which has no else returns 0, so reading $?
+  # after `fi` would report every declined answer as unparseable.
   if confirm "Continue with hardening installation?" "y"; then :; else
     result=$?
     ((result == 1)) || die 'Invalid confirmation response'
     die 'Hardening installation declined; nothing was changed.'
   fi
+}
+
+# The plan has no way to skip a step, so a declined profile can only stop the
+# run. Where that stop happens is the whole difference: platforms/fedora/install.sh
+# asks with --confirm from its preflight, before anything has been installed,
+# so declining costs nothing and the answer is known while the plan is still
+# just a list. Run directly, this script has no preflight to ask from, so it
+# still asks here, immediately before its own first change.
+if [[ "$confirm_only" == "true" ]]; then
+  ask_for_consent
+  exit 0
+fi
+
+if [[ "$interactive" == "true" ]]; then
+  ask_for_consent
 fi
 
 state_selinux="$(selinux_mode)"
