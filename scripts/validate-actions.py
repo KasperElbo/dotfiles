@@ -219,6 +219,38 @@ def check_schema(root: pathlib.Path, rows: list[dict[str, str]], problems: list[
                 )
 
 
+# Comment syntax by source suffix, for `code_text()`. A configuration file
+# with no suffix (the Sway config, a PATH command) takes the default.
+COMMENT_PREFIXES = {".lua": ("--",), ".jsonc": ("//",), ".json": ("//",)}
+DEFAULT_COMMENT_PREFIX = ("#",)
+
+
+def code_text(path: pathlib.Path) -> str:
+    """`path` with every comment line blanked out, line numbering intact.
+
+    A source_pattern is evidence that the tool still has the action, so it has
+    to match a line the tool actually reads. Commenting a binding out would
+    otherwise keep the registry and the printed cheat sheet advertising a key
+    that does nothing. `implemented_actions()` already reads the Sway config
+    this way; this is the same rule for the opposite direction.
+
+    Comment lines are blanked rather than dropped so a multiline pattern still
+    sees the distance between the lines it spans, and the shebang is kept so a
+    pattern anchored on it is still reported as anchored on the shebang.
+    """
+    prefixes = COMMENT_PREFIXES.get(path.suffix, DEFAULT_COMMENT_PREFIX)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    kept = []
+    for number, line in enumerate(lines, 1):
+        if number == 1 and line.startswith("#!"):
+            kept.append(line)
+        elif line.lstrip().startswith(prefixes):
+            kept.append("")
+        else:
+            kept.append(line)
+    return "\n".join(kept)
+
+
 def check_registry_matches_implementation(
     root: pathlib.Path, rows: list[dict[str, str]], problems: list[str]
 ) -> None:
@@ -234,7 +266,7 @@ def check_registry_matches_implementation(
         if not path.is_file():
             continue
         if source not in cache:
-            cache[source] = path.read_text(encoding="utf-8")
+            cache[source] = code_text(path)
         try:
             expression = re.compile(pattern, re.MULTILINE)
         except re.error as error:

@@ -219,9 +219,14 @@ def check_option_manifest(rows: list[dict[str, str]]) -> int:
 
 
 def package_arrays(path: pathlib.Path) -> dict[str, list[str]]:
-    """Every `<name>packages=(...)` literal array in a shell file."""
+    """Every `<name>packages=(...)` literal array in a shell file.
+
+    Read through `code_text()`, because a commented-out entry is not installed:
+    matching the raw file would let `# ripgrep` keep satisfying a row that
+    claims the package while dnf no longer installs it.
+    """
     found: dict[str, list[str]] = {}
-    text = path.read_text(encoding="utf-8")
+    text = code_text(path)
     for match in PACKAGE_ARRAY.finditer(text):
         entries = [
             word for word in match.group(2).split()
@@ -235,13 +240,15 @@ def requested_packages(path: pathlib.Path) -> set[str]:
     """The package names an installer file can be said to request.
 
     A mise configuration is parsed, so a package must be a tool it declares. Any
-    other file is searched for the name as a whole word. Words are split two
-    ways, with and without `@` and `/` as word characters, so a scoped npm
-    package such as `@openai/codex` is found as well as a plain name.
+    other file is searched for the name as a whole word, in the lines that run
+    something rather than in the whole file: a package named only in a comment
+    is documentation, not an install. Words are split two ways, with and
+    without `@` and `/` as word characters, so a scoped npm package such as
+    `@openai/codex` is found as well as a plain name.
     """
     if path.suffix == ".toml":
         return {mise_tool_package(spec) for spec in mise_tools(path)}
-    text = path.read_text(encoding="utf-8")
+    text = code_text(path)
     return set(re.split(r"[^\w.+-]+", text)) | set(re.split(r"[^\w.+@/-]+", text))
 
 
