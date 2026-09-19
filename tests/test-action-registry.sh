@@ -341,7 +341,7 @@ PYTHON
 for sheet_platform in \
   "fedora-wsl:--preserve-wallpaper" "fedora-wsl:swaymsg" "fedora-wsl:Fuzzel" \
   "fedora-wsl:swaylock" "fedora-wsl:ghostty +list-keybinds" \
-  "macos:--preserve-wallpaper" "macos:swaymsg" "macos:Fuzzel" "macos:makoctl" \
+  "macos:swaymsg" "macos:Fuzzel" "macos:makoctl" \
   "parrot-ctf:Ghostty" "parrot-ctf:AeroSpace" "parrot-ctf:Waybar" \
   "parrot-ctf:--preserve-wallpaper"; do
   sheet_name="${sheet_platform%%:*}"

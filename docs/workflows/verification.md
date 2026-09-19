@@ -26,7 +26,7 @@ their own state have their own:
 ```bash
 ./platforms/fedora/scripts/verify.sh
 ./platforms/fedora-wsl/scripts/verify.sh --latex
-./platforms/macos/scripts/verify.sh --defaults --containers --tailscale
+./platforms/macos/scripts/verify.sh --defaults --containers --tailscale --dictation
 ./platforms/parrot-ctf/scripts/verify.sh
 ```
 
@@ -43,7 +43,8 @@ the state they would otherwise read is not theirs:
 - `platforms/fedora-wsl/scripts/verify.sh --latex` also verifies the LaTeX
   toolchain, and `--dev-workflows` runs the language smoke tests.
 - `platforms/macos/scripts/verify.sh` verifies the optional
-  `--defaults`, `--containers` and `--tailscale` areas only when asked.
+  `--defaults`, `--containers`, `--tailscale` and `--dictation` areas only
+  when asked.
 - `scripts/test-dev-workflows.sh` is the `dev-workflows` verifier and selects
   languages with its own flags (see
   [the development workflow](development.md)).
