@@ -125,7 +125,11 @@ cannot be added without saying how a newer release of it would be noticed.
 Some pins cannot be asked this way, and that is a row rather than an omission.
 A `none` probe must carry its reason, and the report prints that reason, so a
 source outside the mechanism stays visible in the output instead of quietly
-absent from it. Three are unprobed today: the OCaml compiler version, which is
+absent from it. A probed row may carry a note too, and the report prints those
+beside the table: a note there is usually the reason a row will keep reporting
+`BEHIND`, as `netcoredbg-legacy-release` does now that upstream has stopped
+publishing the macOS build this repository consumes. Printing it is what stops
+a standing, explained difference reading as an unexamined one every month. Three are unprobed today: the OCaml compiler version, which is
 resolved through opam rather than named by a git ref; the Neovim plugin set,
 which has lazy.nvim's own checker; and the Fedora validation image, whose
 current digest needs a registry token exchange against two further hosts.

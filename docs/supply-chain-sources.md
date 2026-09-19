@@ -22,7 +22,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 
 | Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
 |---|---|---|---|---|---|---|---|---|
-| `catppuccin-kde` | Catppuccin KDE theme | Catppuccin | `git` | `user` | `v0.2.7` | git rev-parse HEAD | `git-tag-pinned` | manual-bump |
+| `catppuccin-kde` | Catppuccin KDE theme | Catppuccin | `git` | `user` | `v0.4.0` | git rev-parse HEAD | `git-tag-pinned` | manual-bump |
 | `catppuccin-tmux` | Catppuccin tmux theme | Catppuccin | `git` | `user` | `v2.3.0` | git rev-parse HEAD | `git-tag-pinned` | manual-bump |
 | `dotfiles-repository` | This repository, checked out by CI | KasperElbo | `git` | `user` | `github.sha` | git rev-parse HEAD | `git-commit-pinned` | per-commit |
 | `lazyvim-plugins` | Neovim plugin set | LazyVim and plugin authors | `git` | `user` | `lazy-lock.json` | lazy-lock.json | `git-commit-pinned` | manual-bump |

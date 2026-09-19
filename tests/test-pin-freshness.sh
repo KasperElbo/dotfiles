@@ -234,6 +234,32 @@ assert_contains "$TEST_OUTPUT" 'Not probed, and why:'
 assert_contains "$TEST_OUTPUT" 'Its pin is not a ref in a git repository.'
 printf 'PASS: a source this report cannot ask about is visible, with its reason\n'
 
+# --- A probed row's note is printed too -------------------------------------
+#
+# A note on a probed row is usually the reason it will keep reporting BEHIND:
+# netcoredbg still publishes releases, but stopped publishing the macOS build
+# this repository consumes. Printing it is what stops a standing, explained
+# difference reading as an unexamined one every month.
+
+manifest="$root/noted.tsv"
+test_manifest "$manifest" \
+  "$(printf 'demo\tgit-tags\thttps://example.invalid/moved.git\t%s\tversion\tUpstream stopped shipping the artifact this consumes.' "$pin_file")"
+run_report "$manifest"
+assert_success
+assert_contains "$TEST_OUTPUT" 'BEHIND'
+assert_contains "$TEST_OUTPUT" 'Notes:'
+assert_contains "$TEST_OUTPUT" 'Upstream stopped shipping the artifact this consumes.'
+printf 'PASS: a probed row carrying a note has it printed beside the table\n'
+
+# A probed row without a note prints no notes section at all.
+manifest="$root/unnoted.tsv"
+test_manifest "$manifest" \
+  "$(printf 'demo\tgit-tags\thttps://example.invalid/current.git\t%s\tversion\t-' "$pin_file")"
+run_report "$manifest"
+assert_success
+assert_not_contains "$TEST_OUTPUT" 'Notes:'
+printf 'PASS: a row with no note adds no notes section\n'
+
 # --- Usage ------------------------------------------------------------------
 
 run_report "$root/none.tsv" --no-such-option

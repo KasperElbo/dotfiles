@@ -36,7 +36,12 @@ test_stub_install "$test_root" git
 test_stub_install "$test_root" sudo
 test_stub_allow "$test_root" dnf install -y kio-extras
 test_stub_allow "$test_root" sudo dnf install -y kio-extras
-test_stub_allow "$test_root" git clone --branch v0.2.7 --depth 1 \
+# The pinned tag is read from the installer rather than repeated here, so
+# bumping the pin cannot leave this stub allowing the previous tag.
+kde_pin="$(sed -n 's/^version="\(v[0-9][0-9.]*\)"$/\1/p' \
+  "$repo_root/platforms/fedora/scripts/install-kde-theme.sh")"
+[[ -n "$kde_pin" ]] || _test_die 'could not read the Catppuccin KDE pin'
+test_stub_allow "$test_root" git clone --branch "$kde_pin" --depth 1 \
   https://github.com/catppuccin/kde.git \
   "$test_root/cache/dotfiles/catppuccin-kde"
 

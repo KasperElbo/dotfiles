@@ -12,13 +12,24 @@ local_bin="$home/.local/bin"
 mock_bin="$test_root/bin"
 channels="$test_root/virtio-ports"
 nvim_install="$data/mise/installs/nvim/0.12.5/bin/nvim"
+
+# The pinned font version is read from the installer rather than repeated here,
+# so bumping the pin cannot leave this suite building its fixture under the
+# previous version's directory while the verifier looks under the new one.
+font_pin="$(sed -n 's/^font_version="\([0-9][0-9.]*\)"$/\1/p' \
+  "$repo_root/platforms/parrot-ctf/scripts/install-terminal.sh")"
+[[ -n "$font_pin" ]] || {
+  printf 'could not read the Hack Nerd Font pin from the Parrot terminal installer\n' >&2
+  exit 1
+}
+
 mkdir -p \
   "$config/dotfiles" \
   "$config/mise" \
   "$config/nvim/profiles/parrot-ctf" \
   "$config/starship" \
   "$config/bat/themes" \
-  "$data/fonts/HackNerdFont/3.4.0" \
+  "$data/fonts/HackNerdFont/$font_pin" \
   "$data/konsole" \
   "$data/mise/shims" \
   "$data/nvim/mason/packages" \
@@ -194,7 +205,7 @@ ln -s "$repo_root/git/.config/git/config" "$config/git/config"
 ln -s "$repo_root/tmux/.tmux.conf" "$home/.tmux.conf"
 ln -s "$repo_root/platforms/parrot-ctf/stow/command-shims/.local/bin/bat" "$local_bin/bat"
 ln -s "$repo_root/platforms/parrot-ctf/stow/command-shims/.local/bin/fd" "$local_bin/fd"
-printf 'font fixture\n' >"$data/fonts/HackNerdFont/3.4.0/HackNerdFontMono-Regular.ttf"
+printf 'font fixture\n' >"$data/fonts/HackNerdFont/$font_pin/HackNerdFontMono-Regular.ttf"
 cat >"$data/konsole/Dotfiles-Parrot-CTF.profile" <<'EOF'
 [General]
 Name=Dotfiles Parrot CTF
@@ -235,7 +246,7 @@ verify_environment=(
   "MOCK_LAZY_LOCK=$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/lazy-lock.json"
   "MOCK_TMUX_PLUGIN=$tmux_plugin"
   "MOCK_ZSH=$mock_bin/zsh"
-  "MOCK_FONT=$data/fonts/HackNerdFont/3.4.0/HackNerdFontMono-Regular.ttf"
+  "MOCK_FONT=$data/fonts/HackNerdFont/$font_pin/HackNerdFontMono-Regular.ttf"
   "SHELL=$mock_bin/zsh"
   "OS_RELEASE_FILE=$test_root/os-release"
   "QEMU_AGENT_CHANNEL=$channels/org.qemu.guest_agent.0"

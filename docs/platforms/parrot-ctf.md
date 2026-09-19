@@ -96,7 +96,7 @@ cd ~/src/dotfiles
 The first install makes the invoking non-root account's registered Zsh the
 login shell. Konsole inherits that account shell naturally; its managed
 `Dotfiles-Parrot-CTF.profile` deliberately has no `Command=` override. The
-profile installs pinned Hack Nerd Font Mono 3.4.0 user-locally, selects it in
+profile installs pinned Hack Nerd Font Mono 3.5.1 user-locally, selects it in
 Konsole, and installs the four pinned Catppuccin bat themes referenced by the
 shared Git/Delta configuration. It does not install Ghostty or apply general
 KDE theming.

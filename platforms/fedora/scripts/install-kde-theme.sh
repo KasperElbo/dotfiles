@@ -17,7 +17,7 @@ else
   sudo dnf install -y kio-extras
 fi
 
-version="v0.2.7"
+version="v0.4.0"
 repo="https://github.com/catppuccin/kde.git"
 workdir="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/catppuccin-kde"
 

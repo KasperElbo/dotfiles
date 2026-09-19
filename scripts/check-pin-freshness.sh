@@ -307,6 +307,25 @@ if ((unprobed > 0)); then
   done <<<"$rows"
 fi
 
+# A probed row may carry a note too, and when it does the note is usually the
+# reason a row will keep reporting BEHIND: an upstream that stopped publishing
+# the artifact this repository consumes still publishes releases. Printing it
+# beside the table is what stops a standing, explained difference reading as an
+# unexamined one every month.
+notes=0
+while IFS=$'\t' read -r _ probe _ _ _ note; do
+  [[ "$probe" != none && "$note" != "-" ]] || continue
+  notes=$((notes + 1))
+done <<<"$rows"
+
+if ((notes > 0)); then
+  printf '\nNotes:\n'
+  while IFS=$'\t' read -r source probe _ _ _ note; do
+    [[ "$probe" != none && "$note" != "-" ]] || continue
+    printf '  %s: %s\n' "$source" "$note"
+  done <<<"$rows"
+fi
+
 if ((behind > 0)); then
   printf '\nA pin reported BEHIND is a prompt to go and look, not an instruction\n'
   printf 'to bump: a newer tag may be a pre-release, and adopting a release is a\n'
