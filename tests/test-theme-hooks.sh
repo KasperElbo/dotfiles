@@ -401,8 +401,14 @@ printf 'PASS: a failing Noctty bridge is reported without losing shared state\n'
 parrot_hooks="$repo_root/platforms/parrot-ctf/stow/theme-hooks"
 [[ ! -e "$parrot_hooks" ]] ||
   _test_die 'the Parrot lab profile must not gain workstation desktop theme hooks'
-assert_file_not_contains "$repo_root/config/capabilities.tsv" \
-  'parrot-ctf	ctf-guest	-	enabled	-	-	apt+upstream	-	-	theme-hooks'
+# Read the Stow column out of the row, the way the macOS check below does.
+# The needle this replaces was a tab-delimited line fragment, and theme-hooks
+# only ever appears inside the comma-separated Stow column, so planting the
+# leak in that column did not make it match.
+parrot_stow="$(awk -F '\t' '$1 == "base" && $2 == "parrot-ctf" { print $10 }' \
+  "$repo_root/config/capabilities.tsv")"
+[[ -n "$parrot_stow" ]] || _test_die 'no parrot-ctf base capability row with Stow packages'
+assert_not_contains ",$parrot_stow," ',theme-hooks,'
 printf 'PASS: the Parrot profile installs no desktop theme hooks\n'
 
 # --- The macOS hook ---------------------------------------------------------

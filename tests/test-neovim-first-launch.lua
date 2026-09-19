@@ -25,17 +25,65 @@ assert(vim.tbl_contains(packages, "tree-sitter-cli"), "tree-sitter-cli is missin
 assert(not vim.tbl_contains(packages, "ocaml-lsp"), "OCaml LSP must remain opam-owned")
 
 local previous_profile = vim.env.DOTFILES_NVIM_PROFILE
+package.path = "nvim-lazyvim/.config/nvim/lua/?.lua;nvim-lazyvim/.config/nvim/lua/?/init.lua;" .. package.path
+
+-- The set the reduced profile is supposed to carry, stated once. Naming it
+-- here rather than deriving it from the Parrot profile is the point: a
+-- workstation extra that displaced one of these would still leave three.
+local reduced_extras = {
+  "lazyvim.plugins.extras.dap.core",
+  "lazyvim.plugins.extras.lang.python",
+  "lazyvim.plugins.extras.test.core",
+}
+
+-- What must not leak is read out of the workstation profile rather than
+-- listed, so an extra added there is covered without editing this test.
+vim.env.DOTFILES_NVIM_PROFILE = "workstation"
+package.loaded["config.profile"] = nil
+local workstation_extras = require("config.profile").current().extras
+local workstation_only = {}
+for _, extra in ipairs(workstation_extras) do
+  if not vim.tbl_contains(reduced_extras, extra) then
+    table.insert(workstation_only, extra)
+  end
+end
+
 vim.env.DOTFILES_NVIM_PROFILE = "parrot-ctf"
 package.loaded["config.profile"] = nil
-package.path = "nvim-lazyvim/.config/nvim/lua/?.lua;nvim-lazyvim/.config/nvim/lua/?/init.lua;" .. package.path
 local profile = require("config.profile")
 assert(profile.name() == "parrot-ctf", "explicit Parrot Neovim profile was not selected")
 assert(profile.current().checker_enabled == false, "Parrot profile must not check for updates at startup")
 assert(profile.current().plugins == "ctf_plugins", "Parrot profile loaded workstation plugin overrides")
-assert(#profile.current().extras == 3, "Parrot profile should contain only the reduced extra set")
-for _, extra in ipairs(profile.current().extras) do
-  assert(not extra:match("angular|markdown|tex|yaml|eslint"), "workstation extra leaked into Parrot profile: " .. extra)
+
+local parrot_extras = profile.current().extras
+
+-- Before concluding that nothing leaked: there has to be something to leak.
+-- If the two profiles ever declared the same extras, the loop below would
+-- compare nothing and pass, which is how the check it replaces went quiet.
+assert(
+  #workstation_only > 0,
+  "the workstation profile declares no extra the reduced set lacks, so the leak check compares nothing"
+)
+for _, extra in ipairs(workstation_only) do
+  assert(
+    not vim.tbl_contains(parrot_extras, extra),
+    "workstation extra leaked into Parrot profile: " .. extra
+  )
 end
+
+-- The other direction, which the count alone does not give: a leak that
+-- displaced one of the three would still leave three.
+assert(
+  #parrot_extras == #reduced_extras,
+  "Parrot profile should contain only the reduced extra set"
+)
+for _, extra in ipairs(reduced_extras) do
+  assert(
+    vim.tbl_contains(parrot_extras, extra),
+    "the reduced Parrot extra set lost " .. extra
+  )
+end
+
 vim.env.DOTFILES_NVIM_PROFILE = previous_profile
 package.loaded["config.profile"] = nil
 
