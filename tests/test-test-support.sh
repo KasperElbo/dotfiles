@@ -207,17 +207,30 @@ printf 'No test pipes into a quiet grep\n'
 # The defect first, because a rule is worth only as much as its demonstration:
 # with a producer still writing when grep exits, a needle that IS present is
 # reported absent, and the here-string form of the same test finds it.
+#
+# The producer waits rather than racing. A large-but-finite one -- `seq 1
+# 200000` was the first attempt -- makes the proof depend on pipe buffer size
+# and scheduling, and it duly found the needle on the macOS runner while
+# failing open on Linux: the demonstration of a timing bug must not itself be
+# one. Emitting the needle and then sleeping makes grep's early exit certain to
+# leave the producer writing to a closed pipe, on every platform, while still
+# terminating.
 quiet_grep_proof="$root/quiet-grep-fails-open.sh"
 cat >"$quiet_grep_proof" <<'EOF'
 #!/usr/bin/env bash
 set -uo pipefail
-if seq 1 200000 | grep -q '^1$'; then
+producer() {
+  printf 'needle\n'
+  sleep 1
+  printf 'tail\n'
+}
+if producer | grep -Fq needle; then
   printf 'piped: FOUND\n'
 else
   printf 'piped: NOT FOUND\n'
 fi
-haystack="$(seq 1 200000)"
-if grep -q '^1$' <<<"$haystack"; then
+haystack="$(producer)"
+if grep -Fq needle <<<"$haystack"; then
   printf 'here-string: FOUND\n'
 else
   printf 'here-string: NOT FOUND\n'
