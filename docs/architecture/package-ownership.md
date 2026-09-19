@@ -81,6 +81,7 @@ unsupported on a platform install nothing there and are omitted.
 | `base` | always | `homebrew` | `aerospace` `bash` `bat` `coreutils` `eza` `fd` `fzf` `gh` `ghostty` `git` `git-delta` `jq` `mise` `neovim` `ripgrep` `shellcheck` `sqlite` `starship` `stow` `tmux` `zoxide` `zsh-autosuggestions` `zsh-syntax-highlighting` |
 | `codex` | `--codex` | `mise-npm` | `@openai/codex` |
 | `containers` | `--containers` | `homebrew` | `podman` `podman-compose` |
+| `dictation` | `--dictation` | `upstream-dmg` | `ghost-pepper` |
 | `dotnet-debug` | always | `mise-easydotnet` | `EasyDotnet` |
 | `firstmate` | `--firstmate` | `mise+upstream-scripts` | `chrome-devtools-axi` `firstmate` `gh-axi` `lavish-axi` `no-mistakes` `quota-axi` `tasks-axi` `treehouse` |
 | `gnhf` | `--gnhf` | `mise-npm` | `gnhf` |

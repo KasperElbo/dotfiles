@@ -118,6 +118,14 @@ homebrew_path() {
   printf '%s\n' "${HOMEBREW_BIN:-/opt/homebrew/bin/brew}"
 }
 
+# The directory macOS keeps applications in. A real run never sets the
+# override; it exists so the one profile that writes an application bundle
+# itself, rather than handing the job to Homebrew, can be exercised against a
+# fixture directory the way HOMEBREW_BIN and SHELLS_FILE already allow.
+macos_applications_dir() {
+  printf '%s\n' "${MACOS_APPLICATIONS_DIR:-/Applications}"
+}
+
 activate_homebrew_path() {
   export PATH="/opt/homebrew/opt/coreutils/libexec/gnubin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 }

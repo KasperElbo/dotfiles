@@ -35,6 +35,11 @@ profile_state_allowed_keys() {
   ocaml) printf '%s\n' switch compiler ;;
   ga402xz | ga402rk) printf '%s\n' secure_boot charge_limit ;;
   containers) printf '%s\n' runtime mode compose_provider api_socket user ;;
+  # The optional dictation profile. sha256/version/artifact record the pinned
+  # upstream artifact the machine was installed from, and bundle_id/team_id
+  # the signing identity verification asserts, so a machine can be audited
+  # against the pin without redownloading anything.
+  dictation) printf '%s\n' application provider version artifact sha256 bundle_id team_id path ;;
   desktop-tools) printf '%s\n' image_viewer image_editor pdf_viewer pdf_tool archive_manager media_player scanner force_defaults ;;
   hardening) printf '%s\n' selinux_mode faillock sudo_logfile auditd sysctl_ptrace_scope sysctl_kptr_restrict sysctl_dmesg_restrict ssh dnf_automatic ;;
   tailscale) printf '%s\n' repo service variant ;;
@@ -53,6 +58,7 @@ profile_state_required_keys() {
   ocaml) printf '%s\n' switch compiler ;;
   ga402xz | ga402rk) printf '%s\n' secure_boot charge_limit ;;
   containers) printf '%s\n' runtime mode api_socket ;;
+  dictation) printf '%s\n' application provider version ;;
   desktop-tools) printf '%s\n' image_viewer image_editor pdf_viewer pdf_tool ;;
   hardening) printf '%s\n' selinux_mode faillock auditd ;;
   tailscale) printf '%s\n' variant ;;

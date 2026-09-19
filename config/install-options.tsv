@@ -34,6 +34,7 @@ macos	theme	value	--theme	-	macchiato	latte|frappe|macchiato|mocha	-	Catppuccin 
 macos	ocaml	boolean	--ocaml	--no-ocaml	false	-	ocaml	OCaml profile
 macos	containers	boolean	--containers	--no-containers	false	-	containers	Podman machine profile
 macos	tailscale	boolean	--tailscale	--no-tailscale	false	-	tailscale	Tailscale networking profile
+macos	dictation	boolean	--dictation	--no-dictation	false	-	dictation	Local voice dictation profile
 macos	defaults	boolean	--defaults	--no-defaults	true	-	-	Reversible macOS defaults
 macos	ai	boolean	--ai	--no-ai	false	-	ai	AI-assisted development profile
 macos	codex	tristate	--codex	--no-codex	inherit	-	codex	AI subcomponent: Codex CLI

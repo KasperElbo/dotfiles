@@ -51,6 +51,7 @@ tailscale	fedora	workstation	--tailscale	disabled	base	-	dnf-tailscale	tailscale
 tailscale	fedora-wsl	workstation	-	disabled	-	-	windows-host	-	-	none	-	docs/profiles/tailscale.md	windows-owned	unsupported	-
 tailscale	macos	workstation	--tailscale	disabled	base	-	homebrew-cask	tailscale-app	-	platforms/macos/scripts/verify.sh	macos-tailscale	docs/profiles/tailscale.md	native	implemented	platforms/macos/scripts/install-tailscale.sh
 tailscale	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	docs/platforms/parrot-ctf.md	intentional-absence	unsupported	-
+dictation	macos	workstation	--dictation	disabled	base	-	upstream-dmg	ghost-pepper	-	platforms/macos/scripts/verify.sh	macos-dictation	docs/profiles/dictation.md#macos	upstream+pinned	implemented	platforms/macos/scripts/install-dictation.sh
 ai	fedora	workstation	--ai	disabled	base	-	mise	claude-code,herdr	-	common/verify-ai.sh	ai	docs/profiles/ai.md	ecosystem	implemented	common/install-ai.sh
 ai	fedora-wsl	workstation	--ai	disabled	base	-	mise	claude-code,herdr	-	common/verify-ai.sh	ai	docs/profiles/ai.md	ecosystem	implemented	common/install-ai.sh
 ai	macos	workstation	--ai	disabled	base	-	mise	claude-code,herdr	-	common/verify-ai.sh	ai	docs/profiles/ai.md	ecosystem	implemented	common/install-ai.sh

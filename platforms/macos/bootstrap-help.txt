@@ -5,6 +5,9 @@ Options:
   --ocaml/--no-ocaml
   --containers/--no-containers
   --tailscale/--no-tailscale
+  --dictation/--no-dictation
+                     Local voice dictation (Ghost Pepper); needs
+                     Microphone and Accessibility approval afterwards
   --defaults/--no-defaults
   --dev-workflows/--no-dev-workflows
                      Disposable development workflow smoke tests

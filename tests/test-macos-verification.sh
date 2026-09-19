@@ -46,7 +46,35 @@ printf 'System Integrity Protection status: enabled.\n'
 EOF
 stub spctl <<'EOF'
 #!/usr/bin/env bash
-printf 'assessments enabled\n'
+case "${1:-}" in
+--status) printf 'assessments enabled\n' ;;
+--assess) exit "${MOCK_SPCTL_ASSESS_EXIT:-0}" ;;
+esac
+EOF
+# The signature the optional dictation profile asserts. --display writes to
+# standard error, the way the real codesign does, because that is what the
+# verifier captures.
+stub codesign <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+--verify) exit "${MOCK_CODESIGN_VERIFY_EXIT:-0}" ;;
+--display)
+  printf 'Identifier=com.github.matthartman.ghostpepper\n' >&2
+  printf 'TeamIdentifier=%s\n' "${MOCK_CODESIGN_TEAM:-$DICTATION_TEAM}" >&2
+  ;;
+esac
+exit 0
+EOF
+# `defaults read <bundle>/Contents/Info CFBundleShortVersionString`, answered
+# from the one-line fixture plist below.
+stub defaults <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == read && "${3:-}" == CFBundleShortVersionString ]] || exit 1
+plist="$2.plist"
+[[ -f "$plist" ]] || exit 1
+value="$(sed -n 's/^version=//p' "$plist" | head -n 1)"
+[[ -n "$value" ]] || exit 1
+printf '%s\n' "$value"
 EOF
 stub file <<'EOF'
 #!/usr/bin/env bash
@@ -200,6 +228,42 @@ git -C "$tmux_plugin" add catppuccin.tmux
 git -C "$tmux_plugin" -c user.name=Test -c user.email=test@example.invalid commit -qm theme
 git -C "$tmux_plugin" tag "$tmux_pin"
 
+# --- Optional dictation profile ----------------------------------------------
+#
+# The healthy fixture has the profile installed at the pinned version, signed
+# by the pinned team and accepted by Gatekeeper, so each case below can break
+# exactly one of those facts. The pin is read from the library rather than
+# restated, so bumping the release does not silently stop testing anything.
+
+read_dictation_pin() {
+  sed -n "s/^$1=\"\\(.*\\)\"\$/\\1/p" \
+    "$repo_root/platforms/macos/lib/dictation.sh" | head -n 1
+}
+DICTATION_VERSION="$(read_dictation_pin DICTATION_GHOST_PEPPER_VERSION)"
+DICTATION_TEAM="$(read_dictation_pin DICTATION_GHOST_PEPPER_TEAM_ID)"
+DICTATION_APP_NAME="$(read_dictation_pin DICTATION_GHOST_PEPPER_APP)"
+[[ -n "$DICTATION_VERSION" && -n "$DICTATION_TEAM" && -n "$DICTATION_APP_NAME" ]] ||
+  _test_die 'could not read the Ghost Pepper pin'
+export DICTATION_TEAM
+
+applications="$root/applications"
+dictation_app="$applications/$DICTATION_APP_NAME"
+dictation_state="$config/dotfiles/macos-dictation.conf"
+mkdir -p "$dictation_app/Contents/MacOS"
+printf 'version=%s\n' "$DICTATION_VERSION" >"$dictation_app/Contents/Info.plist"
+printf 'fixture\n' >"$dictation_app/Contents/MacOS/GhostPepper"
+write_dictation_state() {
+  cat >"$dictation_state" <<EOF_STATE
+schema_version=2
+profile=dictation
+status=installed
+application=ghost-pepper
+provider=upstream-dmg
+version=${1:-$DICTATION_VERSION}
+EOF_STATE
+}
+write_dictation_state
+
 verify_environment=(
   env
   "HOME=$home"
@@ -215,6 +279,8 @@ verify_environment=(
   "SHELLS_FILE=$root/shells"
   "MOCK_ZSH=$mock_bin/zsh"
   "MOCK_EASY_DOTNET_DEBUGGER=$debugger"
+  "MACOS_APPLICATIONS_DIR=$applications"
+  "DICTATION_TEAM=$DICTATION_TEAM"
 )
 
 # run_verifier [VAR=value ...]: the verifier's output and failure count.
@@ -245,7 +311,12 @@ for expected in \
   'node is mise-managed via shim' \
   'git runs:' \
   'scp runs:' \
-  'Neovim 0.12.5 satisfies the >= 0.12 baseline'; do
+  'Neovim 0.12.5 satisfies the >= 0.12 baseline' \
+  "Ghost Pepper is at the pinned $DICTATION_VERSION" \
+  'Ghost Pepper has no competing Homebrew cask' \
+  "Ghost Pepper is signed by the pinned Developer ID team $DICTATION_TEAM" \
+  'Gatekeeper accepts Ghost Pepper' \
+  'Microphone and Accessibility consent is interactive'; do
   assert_contains "$baseline_output" "$expected"
 done
 # The fixture itself is healthy: nothing this suite proves fails in it.
@@ -325,5 +396,70 @@ printf '#!/usr/bin/env bash\nexit 127\n' | stub stow
 run_verifier
 expect_one_more_failure 'a resolvable command that cannot run fails verification' \
   "stow resolves to $mock_bin/stow but does not run: 'stow --version' exited 127"
+
+# --- Optional dictation profile: one broken fact at a time -------------------
+
+# The previous case left a deliberately broken `stow` in place. Restore it, so
+# the cases below are measured against the same healthy baseline as every
+# other case rather than against one extra standing failure.
+rm "$mock_bin/stow"
+ln -s /usr/bin/true "$mock_bin/stow"
+
+# expect_more_failures <count> <description> <message>
+expect_more_failures() {
+  assert_eq "$((baseline_failures + $1))" "$failures" "$2: failure count"
+  assert_contains "$TEST_OUTPUT" "$3"
+  printf 'PASS: %s\n' "$2"
+}
+
+# A build that is not the pinned one. It is installed, signed and accepted, so
+# only the pin comparison catches it -- which is exactly what happens when
+# Ghost Pepper's bundled Sparkle updater replaces the reviewed artifact.
+printf 'version=99.0.0\n' >"$dictation_app/Contents/Info.plist"
+run_verifier
+expect_more_failures 1 'a Ghost Pepper build past the pin fails verification' \
+  "Ghost Pepper reports 99.0.0, not the pinned $DICTATION_VERSION"
+printf 'version=%s\n' "$DICTATION_VERSION" >"$dictation_app/Contents/Info.plist"
+
+# A differently signed build under the same name.
+run_verifier MOCK_CODESIGN_TEAM=ZZZZZZZZZZ
+expect_more_failures 1 'a Ghost Pepper signed by another team fails verification' \
+  "Ghost Pepper is signed by team ZZZZZZZZZZ, not the pinned $DICTATION_TEAM"
+
+# A damaged signature.
+run_verifier MOCK_CODESIGN_VERIFY_EXIT=1
+expect_more_failures 1 "a damaged Ghost Pepper signature fails verification" \
+  "Ghost Pepper's code signature does not verify"
+
+# Gatekeeper refusing the bundle is a failure, and the message says not to
+# resolve it by turning Gatekeeper off.
+run_verifier MOCK_SPCTL_ASSESS_EXIT=3
+expect_more_failures 1 'a Gatekeeper refusal fails verification' \
+  'do not work around this by disabling Gatekeeper'
+assert_contains "$TEST_OUTPUT" 'stripping the quarantine attribute'
+
+# Recorded state that names a different release than the machine has.
+write_dictation_state 1.0.0
+run_verifier
+expect_more_failures 1 'recorded dictation state past the pin fails verification' \
+  "Recorded dictation state names 1.0.0, not the pinned $DICTATION_VERSION"
+write_dictation_state
+
+# An application present with no recorded state is an unowned copy: the
+# profile was never selected, so nothing here owns what is installed.
+mv "$dictation_state" "$root/macos-dictation.conf"
+run_verifier
+expect_more_failures 1 'an unowned Ghost Pepper copy fails verification' \
+  'The dictation profile is not selected, but dictation-owned files'
+
+# A machine that never selected the profile passes, and says so.
+mv "$dictation_app" "$root/GhostPepper.app"
+run_verifier
+assert_eq "$baseline_failures" "$failures" \
+  'an unselected dictation profile: failure count'
+assert_contains "$TEST_OUTPUT" 'Dictation profile is not installed (not selected)'
+printf 'PASS: an unselected dictation profile verifies cleanly\n'
+mv "$root/GhostPepper.app" "$dictation_app"
+mv "$root/macos-dictation.conf" "$dictation_state"
 
 printf 'macOS verifier section tests passed.\n'

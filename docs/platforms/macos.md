@@ -380,6 +380,35 @@ nodes, subnet routes, Tailscale SSH, `--accept-routes`/`--accept-dns`), and
 normal day-to-day commands. None of that is Fedora-specific; it applies here
 unchanged.
 
+### Optional dictation
+
+```bash
+./install.sh --platform macos --dictation
+```
+
+Local, offline voice dictation: Ghost Pepper, a menu-bar application installed
+from a pinned upstream disk image because no Homebrew cask exists for it. It is
+the one macOS application this installer places in `/Applications` itself, so
+the release tag and its SHA-256 are pinned in
+`platforms/macos/lib/dictation.sh` and bumped by hand.
+
+It needs Microphone and Accessibility approval, both granted by you after the
+install; Accessibility is what makes the global hotkey and the paste work at
+all. Nothing here scripts a privacy prompt, and nothing here touches Gatekeeper
+or SIP: the application is Developer ID signed and Apple-notarized, and the
+verifier asserts that Gatekeeper accepts it as shipped.
+
+Rollback:
+
+```bash
+rm -rf /Applications/GhostPepper.app
+rm ~/.config/dotfiles/macos-dictation.conf
+```
+
+See [the dictation profile guide](../profiles/dictation.md#macos) for the
+decision record, the pin's maintenance cost, the shortcut constraints, where
+models and history live, and what verification proves.
+
 ## Desktop wallpaper
 
 `theme <flavour>` sets the desktop wallpaper to the matching Catppuccin image,
