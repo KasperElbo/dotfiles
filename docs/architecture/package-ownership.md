@@ -355,12 +355,13 @@ Packages normally track whatever version their registry advertises.
 installed are ignored, so one file serves every Neovim profile.
 
 `roslyn` is pinned. It is served by the third-party
-`github:Crashdummyy/mason-registry`, whose daily release points at the matching
-`roslynLanguageServer` release. That upstream release is created before its
-per-platform archives are uploaded, so the registry can advertise a version
-whose downloads return 404 on every platform and fail a real installation. Bump
-the pin after confirming the newer release actually carries its platform
-archives.
+`github:Crashdummyy/mason-registry`, registered as `mason-registry-crashdummyy`
+in [`config/network-sources.tsv`](../../config/network-sources.tsv). Its daily
+release points at the matching `roslynLanguageServer` release. That upstream
+release is created before its per-platform archives are uploaded, so the
+registry can advertise a version whose downloads return 404 on every platform
+and fail a real installation. Bump the pin after confirming the newer release
+actually carries its platform archives.
 
 ## Project-local tooling
 

@@ -310,9 +310,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      # network-source: parrot-boundary-image
       - name: Pull a disposable Parrot image
         run: docker pull parrotsec/core:latest
 
+      # network-source: parrot-boundary-image
       - name: Confirm Parrot identity and APT availability
         run: |
           docker run --rm parrotsec/core:latest bash -lc \
