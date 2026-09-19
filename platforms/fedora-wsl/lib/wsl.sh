@@ -147,6 +147,51 @@ render_ini_section_keys() {
   printf '%s\n' "${out[@]}"
 }
 
+# ini_section_key_value <content> <section> <key>: prints the value <key>
+# carries inside [<section>], or nothing when either is absent. The last
+# assignment wins, as it does for the parser WSL itself uses. Whitespace
+# around the value is stripped, and the key is matched with the same
+# exact-case, space-tolerant shape render_ini_section_keys replaces on, so a
+# file this repository did not write -- where a key may be spelled
+# "key = value" -- reads as the value it actually has rather than as a
+# difference in formatting. The two must keep agreeing about what a key line
+# is; tests/test-wsl-interop.sh holds them to the same fixtures.
+ini_section_key_value() {
+  local content="$1"
+  local section="$2"
+  local key="$3"
+
+  local -a lines=()
+  if [[ -n "$content" ]]; then
+    mapfile -t lines <<<"$content"
+  fi
+
+  local in_section="false"
+  local line value=""
+
+  for line in "${lines[@]}"; do
+    if [[ "$line" =~ ^\[([^]]*)\][[:space:]]*$ ]]; then
+      if [[ "${BASH_REMATCH[1]}" == "$section" ]]; then
+        in_section="true"
+      else
+        in_section="false"
+      fi
+      continue
+    fi
+
+    if [[ "$in_section" == "true" &&
+      "$line" =~ ^[[:space:]]*([A-Za-z0-9_]+)[[:space:]]*=(.*)$ ]]; then
+      if [[ "${BASH_REMATCH[1]}" == "$key" ]]; then
+        value="${BASH_REMATCH[2]}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+      fi
+    fi
+  done
+
+  printf '%s\n' "$value"
+}
+
 # windows_interop_probe_path: the full path to the Windows executable used
 # to behaviorally verify explicit interop below.
 windows_interop_probe_path() {

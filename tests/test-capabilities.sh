@@ -190,6 +190,23 @@ fi
 grep -Fq "fedora: Stow package 'nonexistent' is deployed by the Stow scripts but no fedora capability declares it" \
   "$fixture.tree.log"
 
+# A commented-out array entry installs nothing, so a row may not keep claiming
+# the package. The installer is read as shell rather than as text, which is the
+# only way this fails: `# ripgrep` still contains the word `ripgrep`. Copied
+# with tar so the working trees under .claude are left out.
+mkdir -p "$fixture.commented"
+tar -C "$repo_root" --exclude=.git --exclude=.claude -cf - . |
+  tar -C "$fixture.commented" -xf -
+sed -i 's/^  ripgrep$/  # ripgrep/' \
+  "$fixture.commented/platforms/fedora/scripts/install-system.sh"
+if python3 "$fixture.commented/scripts/validate-capabilities.py" \
+  2>"$fixture.commented.log"; then
+  printf 'Commented-out installer package unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora/base: package 'ripgrep' is declared but is not requested by platforms/fedora/scripts/install-system.sh" \
+  "$fixture.commented.log"
+
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
 # shellcheck source=../common/lib/capabilities.sh

