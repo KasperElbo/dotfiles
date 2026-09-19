@@ -1,0 +1,54 @@
+name: Pin freshness
+
+# The manual-bump pins have no other way of being noticed.
+#
+# Every other cadence in config/network-sources.tsv announces itself: a package
+# manager, a registry, or lazy.nvim's own update checker tells the machine that
+# something moved. The `manual-bump` rows are pinned to an exact tag or a
+# SHA-256 that nothing would otherwise ever mention again, and the scheduled
+# real-install validation only catches one of them once it has *broken* -- a
+# download that 404s, a digest that no longer matches. A pin that is three
+# releases old and still serving correctly looks exactly like a pin that is
+# current.
+#
+# So this job asks the upstreams once a month and writes the answer into the
+# run summary. It opens nothing, changes nothing and never bumps a pin:
+# --fail-on-stale is deliberately not passed, because a newer tag is a prompt
+# to go and review a release, not a defect. The job does fail when a pin could
+# not be read or an upstream could not be reached, since a report that silently
+# reached nothing would read as "all current".
+
+on:
+  schedule:
+    - cron: "23 5 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pin-freshness-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: Manual-bump pins against their upstreams
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Report pin freshness
+        run: |
+          report="$(mktemp)"
+          status=0
+          ./scripts/check-pin-freshness.sh | tee "$report" || status=$?
+          {
+            printf '## Pinned components\n\n'
+            printf '```text\n'
+            cat "$report"
+            printf '```\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"

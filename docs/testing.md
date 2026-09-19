@@ -421,6 +421,32 @@ installer that runs but produces the wrong target.
   failure, naming it. A Catppuccin tmux checkout moved past the pin is the
   exception: it warns, naming both versions, and adds no failure.
 
+## Scheduled pin freshness
+
+`.github/workflows/pin-freshness.yml` runs `./scripts/check-pin-freshness.sh`
+on the first of each month and can be dispatched manually. It is a report, not
+a test: it asks each `manual-bump` upstream in
+[`config/network-sources.tsv`](../config/network-sources.tsv) what its newest
+release is, prints that beside the pinned value, and writes the table into the
+run summary. It downloads no artifact and changes no pin.
+
+It exists because the real-install validation below cannot cover this. That
+workflow installs from every pin for real, so it catches a pin that has
+*broken*; a pin three releases old and still serving its bytes correctly is
+indistinguishable from a current one there. The two are complementary, which is
+why this is a separate schedule rather than another job.
+
+A newer upstream release does not fail the job — `--fail-on-stale` is
+deliberately not passed, because adopting a release is a reviewed act. A pin
+that could not be read, or an upstream that could not be reached, does fail it:
+a report that silently reached nothing would read as "everything is current".
+
+`tests/test-pin-freshness.sh` covers the report itself against a stubbed
+`git ls-remote`, so no suite here reaches the network, and covers
+`scripts/validate-pin-freshness.py`, the lint gate that requires every
+`manual-bump` source to declare how its staleness is noticed. See
+[supply chain](supply-chain.md#noticing-that-a-pinned-source-has-moved).
+
 ## Scheduled/manual real-install validation
 
 `.github/workflows/real-install.yml` is intentionally separate from normal PR

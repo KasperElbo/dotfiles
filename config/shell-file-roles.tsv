@@ -7,6 +7,7 @@ internal-executable	755	scripts/doctor.sh	Doctor implementation behind ./doctor
 public-entrypoint	755	scripts/benchmark-shell-startup.sh	Manual shell-startup measurement
 public-entrypoint	755	scripts/test-dev-workflows.sh	Disposable development-workflow smoke tests
 public-entrypoint	755	scripts/update-starship-themes.sh	Generate the tracked Starship configurations
+public-entrypoint	755	scripts/check-pin-freshness.sh	Report which pinned components have newer upstream releases
 public-entrypoint	755	docs/cheatsheets/generate.sh	Render the printable cheat sheets
 public-entrypoint	755	docs/cheatsheets/verify.sh	Verify the printable cheat sheets
 platform-entrypoint	755	platforms/*/install.sh	Platform installer, selected by --platform
@@ -51,6 +52,7 @@ public-entrypoint	755	scripts/validate-library-guards.py	Validates that every sh
 public-entrypoint	755	scripts/validate-neovim-plugin-specs.py	Validates Neovim plugin fragments against lazy.nvim's merge rules
 public-entrypoint	755	scripts/validate-command-provider-closure.py	Validates the command-provider dependency closure
 public-entrypoint	755	scripts/validate-network-sources.py	Validates the network-source registry
+public-entrypoint	755	scripts/validate-pin-freshness.py	Validates that every manual-bump source declares how its staleness is noticed
 public-entrypoint	755	scripts/validate-repository-hygiene.py	Validates repository hygiene rules
 public-entrypoint	755	scripts/validate-plan-network.py	Validates each execution-plan step's declared scripts and the sources they reach
 public-entrypoint	755	scripts/validate-shell-file-roles.py	Validates shell/PowerShell/Python file roles and modes
