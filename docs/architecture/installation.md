@@ -155,5 +155,32 @@ follows, and component scripts stay individually callable and safe to rerun.
 
 <!-- END GENERATED INSTALL FLOWS -->
 
+## What a plan action may assume
+
+`plan_execute` runs each step's action as the condition of an `if`, so it can
+report which step failed and what was left pending rather than letting the
+whole installer abort at the point of failure. Bash ignores `errexit` for an
+`if` condition and for everything that condition runs, however deep, so **an
+action runs with `errexit` suppressed and must handle its own failures
+explicitly.**
+
+In practice that means an action whose fallible command is its last statement
+needs nothing — its status is the function's status, which is the ordinary
+shape and the one nearly every action uses. An action that runs anything
+*after* a fallible command has to write `|| return` on that command, or the
+failure is discarded and the step is reported as completed.
+
+The boundary cannot be a subshell, which is how
+[`common/lib/theme-hooks.sh`](../../common/lib/theme-hooks.sh) solves the same
+problem for theme hooks: an action such as macOS's `activate_homebrew_path`
+mutates `PATH` for the steps that follow and has to run in the installer's own
+shell. Every construct that captures a failure without aborting suppresses
+`errexit` the same way, so the contract is stated rather than enforced by the
+boundary.
+
+`tests/test-execution-plan.sh` covers both shapes, and holds a negative control
+that fails if the boundary ever starts propagating on its own — so this section
+cannot quietly go stale.
+
 The historical `scripts/*.sh` paths remain thin compatibility entry points for
 Fedora; see [repository conventions](repository-conventions.md#deprecated-wrappers).
