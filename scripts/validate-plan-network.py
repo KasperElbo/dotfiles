@@ -237,9 +237,21 @@ def sourced_closure(root: pathlib.Path, start: pathlib.Path) -> set[pathlib.Path
     return found
 
 
-def plan_steps(install: pathlib.Path) -> list[tuple[int, str, str, set[str]]]:
-    """Each `plan_add` line: its line number, id, apply function and declaration."""
+def plan_steps(
+    install: pathlib.Path, page: str
+) -> tuple[list[tuple[int, str, str, set[str]]], int]:
+    """Each `plan_add` line: its line number, id, apply function and declaration.
+
+    Returned with the number of lines that could not be read. A `plan_add` line
+    the tokeniser cannot split into the command and its eight arguments is a
+    build error, not a line to skip: dropping it takes the step out of the
+    check in both directions, so an undeclared network step would pass and the
+    preflight would never probe the host it downloads from. Shell the tokeniser
+    does not understand -- a trailing comment, say -- has to be reported and
+    fixed, here or in the tokeniser.
+    """
     steps = []
+    errors = 0
     for number, line in enumerate(install.read_text(encoding="utf-8").splitlines(), 1):
         stripped = line.strip()
         start = stripped.find("plan_add ")
@@ -247,10 +259,16 @@ def plan_steps(install: pathlib.Path) -> list[tuple[int, str, str, set[str]]]:
             continue
         tokens = tokenize(stripped[start:])
         if len(tokens) != 9:
+            fail(
+                f"{page}:{number}: cannot read this plan_add line as a command "
+                f"with eight arguments (read {len(tokens) - 1}); every step has "
+                f"to be checked, so an unreadable one is a build error"
+            )
+            errors += 1
             continue
         declared = tokens[8].strip("'\"").split()
         steps.append((number, tokens[1].strip("'\""), tokens[5], set(declared)))
-    return steps
+    return steps, errors
 
 
 def main() -> int:
@@ -289,7 +307,9 @@ def main() -> int:
             + sorted((install.parent / "lib").glob("*.sh"))
             + sorted((root / "common" / "lib").glob("*.sh"))
         )
-        steps = plan_steps(install)
+        page = install.relative_to(root).as_posix()
+        steps, unreadable = plan_steps(install, page)
+        errors += unreadable
         if not steps:
             fail(f"{platform}: no plan_add step declares its scripts")
             errors += 1
@@ -297,7 +317,6 @@ def main() -> int:
 
         for number, step, apply_function, declared in steps:
             reached = reachable_scripts(apply_function, bodies)
-            page = install.relative_to(root).as_posix()
             missing = sorted(reached - declared)
             if missing:
                 fail(
