@@ -109,6 +109,15 @@ leaves this shell's own theming correct — and deliberately does not on any
 other status, where the shared state was not written and restarting would only
 hide the failure.
 
+That re-exec reaches one shell, not every shell. `LG_CONFIG_FILE`,
+`BAT_THEME`, `STARSHIP_CONFIG` and the sourced fzf palette are per-shell
+environment set once by `.zshrc`, so already-open shells and tmux panes keep
+the old flavour until each one re-execs or is replaced — `exec zsh` in a pane
+is enough. Consumers that read a shared state file instead, delta through
+`~/.config/dotfiles/git-theme`, follow at once, as does tmux, whose running
+server the command reloads; Ghostty is the one consumer that needs a full
+restart (see [Terminal restart requirements](#terminal-restart-requirements)).
+
 ## Hooks only apply what is installed
 
 A platform hook must never apply an identifier for assets that were never

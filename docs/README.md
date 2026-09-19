@@ -46,7 +46,6 @@ current support contract. A guide never says a capability is "waiting for" or
 - [profiles/desktop-tools.md](profiles/desktop-tools.md) — day-to-day desktop applications
 - [profiles/dictation.md](profiles/dictation.md) — local, offline voice dictation
 - [profiles/tailscale.md](profiles/tailscale.md) — Tailscale networking
-- [profiles/dictation.md](profiles/dictation.md) — local voice dictation
 - [profiles/ai.md](profiles/ai.md) — the AI-assisted development toolchain
 
 ### Workflows

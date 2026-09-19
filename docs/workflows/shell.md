@@ -28,8 +28,8 @@ without reordering. Nothing sorts `PATH`, and deliberate precedence survives:
 - mise-managed tools keep the precedence mise's own activation gives them;
 - on macOS, Homebrew's coreutils `gnubin` stays **last**, so it supplies the
   GNU tools macOS does not ship (`timeout`, used by the shared Neovim
-  bootstrap) without shadowing Apple's `ls`, `date` or `cp` — the contract
-  contract this repository settles deliberately;
+  bootstrap) without shadowing Apple's `ls`, `date` or `cp` — the trade-off
+  this repository settles deliberately;
 - on Fedora WSL, the platform hook still removes inherited `/mnt/<drive>/…`
   entries before any tool runs;
 - on Parrot, the distro's `/usr/local/sbin:/usr/sbin:/sbin` search order is

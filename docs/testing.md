@@ -197,19 +197,23 @@ no theme or lifecycle state, and that transient execution controls never appear
 in the persistent option manifest.
 
 `tests/test-theme-hooks.sh` builds machines with a recorded capability set and
-runs the real `theme` command against the real Fedora and Fedora WSL hooks. It
-proves a `--no-kde` machine never runs a KDE apply command — including when KDE
-assets are left over from an earlier install — that a selected capability with
-missing assets is still skipped, and that a machine with no recorded install
-decides by assets alone. For failure isolation it fails one action and requires
-the independent ones after it to still run, the failing one to be named, the
-shared state to be current, and the command to exit 3 rather than claiming a
-complete application; a hook that calls `exit` is contained the same way, while
-an unwritable shared state stops the command with status 1. Two cases guard the
-boundary itself: a hook, and then an action inside a hook, that fails on its
-first statement must stop there rather than running to the end and being
-reported as applied. It also asserts that no output claims a live Ghostty theme
-reload.
+runs the real `theme` command against the real Fedora, Fedora WSL and macOS
+hooks. It proves a `--no-kde` machine never runs a KDE apply command —
+including when KDE assets are left over from an earlier install — that a
+selected capability with missing assets is still skipped, and that a machine
+with no recorded install decides by assets alone. For failure isolation it
+fails one action and requires the independent ones after it to still run, the
+failing one to be named, the shared state to be current, and the command to
+exit 3 rather than claiming a complete application; a hook that calls `exit` is
+contained the same way, while an unwritable shared state stops the command with
+status 1. Two cases guard the boundary itself: a hook, and then an action
+inside a hook, that fails on its first statement must stop there rather than
+running to the end and being reported as applied. It also asserts that no
+output claims a live Ghostty theme reload. The macOS hook runs under a stubbed
+`osascript`, which proves the hook's asset selection and its one invocation per
+flavour — and none under `--preserve-wallpaper` — but not that macOS accepted
+the change; see
+[the macOS desktop-wallpaper notes](platforms/macos.md#desktop-wallpaper).
 
 ### Generated Starship configurations
 

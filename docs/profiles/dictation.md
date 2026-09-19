@@ -211,10 +211,16 @@ where this repository says, and can the key reach it" — is.
 ### Uninstalling
 
 ```bash
-sudo dnf remove Handy                      # the pinned rpm
+rpm -qf "$(command -v handy)"              # the rpm that owns the binary
+sudo dnf remove "$(rpm -qf --queryformat '%{NAME}\n' "$(command -v handy)")"
 rm ~/.config/dotfiles/dictation.conf       # the profile state
 rm -rf ~/.config/com.pais.handy            # settings, history and models
 ```
+
+The package name is queried rather than typed for the same reason the
+installer never assumes it: the Tauri bundler derives it from the upstream
+product name, so it is not this repository's to guess. `verify-dictation.sh`
+asks `rpm -qf` the same question.
 
 `wtype` and `gtk-layer-shell` are ordinary Fedora packages and are left alone;
 remove them separately if nothing else wants them. The Sway binding stays in
