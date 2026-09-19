@@ -112,8 +112,9 @@ byte-identically. A version other than the pinned one is replaced.
 
 ### First-run permissions
 
-Both are interactive by design. The installer prints these steps and stops;
-nothing here scripts, pre-approves or bypasses a macOS privacy prompt.
+Open the application once, then grant two permissions. Both prompts are
+interactive by design: the installer prints these steps and stops, and nothing
+here scripts, pre-approves or bypasses a macOS privacy prompt.
 
 1. **Open Ghost Pepper once** from `/Applications`. It is a menu-bar
    application, so it has no Dock window. Gatekeeper checks the signature and
