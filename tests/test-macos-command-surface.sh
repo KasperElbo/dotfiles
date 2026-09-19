@@ -76,7 +76,7 @@ commands="$(printf '%s' "$commands" | sed '/^$/d')"
 # the fixtures below prove it can actually refuse.
 classify_command() {
   local command_path="$1"
-  local name first_library guard refusal construct
+  local name first_library guard refusal construct code
   name="$(basename "$command_path")"
   first_library="$(
     grep -n '^\(source\|\.\) .*common/lib/' "$command_path" |
@@ -87,8 +87,9 @@ classify_command() {
     # Category 1: no shared library, so nothing can require Bash 4. The dialect
     # is still checked, because the command runs under whatever Bash the user's
     # environment provides, and that may be Apple's.
+    code="$(sed -e 's/^[[:space:]]*#.*$//' "$command_path")"
     for construct in 'declare -[Aa]' 'local -[Aa]' '\bmapfile\b' '\breadarray\b'; do
-      if sed -e 's/^[[:space:]]*#.*$//' "$command_path" | grep -Eq -- "$construct"; then
+      if grep -Eq -- "$construct" <<<"$code"; then
         printf '%s loads no shared library but uses %s, which Apple Bash 3.2 lacks;\n' \
           "$name" "$construct" >&2
         printf 'either stay inside that dialect or select a supported Bash first.\n' >&2
@@ -187,7 +188,7 @@ public_entrypoints="$(
 )"
 while IFS= read -r documented; do
   [[ -n "$documented" ]] || continue
-  printf '%s\n' "$public_entrypoints" | grep -Fqx -- "$documented" || {
+  grep -Fqx -- "$documented" <<<"$public_entrypoints" || {
     printf 'repository-conventions.md calls %s a portable entry point, but\n' "$documented" >&2
     printf 'config/shell-file-roles.tsv does not give it the public-entrypoint role\n' >&2
     exit 1
@@ -208,7 +209,8 @@ while IFS= read -r candidate; do
     printf '%s is listed as a portable entry point but does not exist\n' "$candidate" >&2
     exit 1
   }
-  head -n 1 "$repo_root/$candidate" | grep -q 'bash' || continue
+  shebang="$(head -n 1 "$repo_root/$candidate")"
+  grep -q 'bash' <<<"$shebang" || continue
   entrypoints="$entrypoints$candidate"$'\n'
 done <<<"$(printf '%s\n%s\n' "$documented_entrypoints" "$root_entrypoints" | sed '/^$/d' | sort -u)"
 [[ -n "$entrypoints" ]] ||
@@ -235,7 +237,7 @@ chain=""
 while [[ -n "$pending" ]]; do
   current="$(printf '%s\n' "$pending" | head -n 1)"
   pending="$(printf '%s\n' "$pending" | sed '1d')"
-  if printf '%s\n' "$chain" | grep -Fqx -- "$current"; then
+  if grep -Fqx -- "$current" <<<"$chain"; then
     continue
   fi
   chain="$chain$current"$'\n'
@@ -257,7 +259,7 @@ printf 'PASS: every portable entry point, and what it execs, is audited (%d)\n' 
 # The set must actually contain the entry points the defect was found in, or a
 # derivation that quietly produced nothing would look like a clean audit.
 for required in doctor scripts/doctor.sh scripts/lint.sh scripts/test.sh install.sh; do
-  printf '%s' "$chain" | grep -Fqx -- "$required" || {
+  grep -Fqx -- "$required" <<<"$chain" || {
     printf 'The derived entry-point set does not contain %s\n' "$required" >&2
     printf 'audited:\n%s\n' "$chain" >&2
     exit 1

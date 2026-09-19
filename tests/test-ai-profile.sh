@@ -1030,7 +1030,8 @@ assert_contains "$dry_run_output" "$dry_home/.codex/AGENTS.md"
 assert_contains "$dry_run_output" "$dry_home/.config/opencode/AGENTS.md"
 assert_contains "$dry_run_output" 'No changes were made.'
 
-if find "$dry_home" -mindepth 1 -print -quit | grep -q .; then
+dry_run_residue="$(find "$dry_home" -mindepth 1 -print -quit)"
+if [[ -n "$dry_run_residue" ]]; then
   printf 'AI profile dry-run mutated state under %s\n' "$dry_home" >&2
   exit 1
 fi

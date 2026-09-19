@@ -64,7 +64,8 @@ printf 'PASS: Prettier has exactly one declared editor-side owner\n'
 options="$lazyvim_config/lua/config/options.lua"
 grep -Fq 'vim.g.lazyvim_prettier_needs_config = false' "$options" ||
   fail "the standalone-file formatting policy is not stated explicitly"
-if grep -rn 'BufWritePre' "$lazyvim_config/lua" | grep -Eq 'json'; then
+save_hooks="$(grep -rn 'BufWritePre' "$lazyvim_config/lua" || true)"
+if grep -Eq 'json' <<<"$save_hooks"; then
   fail "a JSON-specific format-on-save hook diverges from the repository policy"
 fi
 printf 'PASS: JSON follows the repository-wide format-on-save policy\n'

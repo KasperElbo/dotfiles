@@ -324,7 +324,8 @@ for unexpected in 'Theme state' 'Starship configuration' 'theme override' \
   'bat does not' 'Zsh login STARSHIP_CONFIG' 'Zsh login BAT_THEME' 'Mason package' \
   'Catppuccin tmux is' 'resolves outside mise' 'does not run' \
   'does not satisfy'; do
-  if grep -F -- "$unexpected" <<<"$baseline_output" | grep -Fq '✗'; then
+  reported="$(grep -F -- "$unexpected" <<<"$baseline_output" || true)"
+  if grep -Fq '✗' <<<"$reported"; then
     _test_die "the healthy macOS fixture failed a check this suite owns ($unexpected):\n$baseline_output"
   fi
 done

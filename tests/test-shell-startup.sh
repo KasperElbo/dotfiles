@@ -474,8 +474,9 @@ for suffix in tar tar.gz tar.xz tgz txz; do
   covered+=(".$suffix")
 done
 
+covered_suffixes="$(printf '%s\n' "${covered[@]}")"
 for required in .tar .tar.gz; do
-  printf '%s\n' "${covered[@]}" | grep -Fxq -- "$required" ||
+  grep -Fxq -- "$required" <<<"$covered_suffixes" ||
     _test_die "the archive helpers must be exercised for $required"
 done
 

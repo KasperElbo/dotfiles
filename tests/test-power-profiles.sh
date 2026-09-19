@@ -12,9 +12,11 @@ platform_profile_file="$(mktemp)"
 trap 'rm -f -- "$command_log" "$platform_profile_file"' EXIT
 
 printf 'balanced\n' >"$platform_profile_file"
-PLATFORM_PROFILE_FILE="$platform_profile_file" \
-  "$(dirname "${BASH_SOURCE[0]}")/../platforms/fedora/stow/sway/.local/bin/power-profile-status" \
-  | grep -Fqx 'Power balanced'
+status_line="$(
+  PLATFORM_PROFILE_FILE="$platform_profile_file" \
+    "$(dirname "${BASH_SOURCE[0]}")/../platforms/fedora/stow/sway/.local/bin/power-profile-status"
+)"
+grep -Fqx 'Power balanced' <<<"$status_line"
 
 # The production helper calls systemctl through sudo; this test intercepts sudo
 # separately and uses this function only for read-only state queries.

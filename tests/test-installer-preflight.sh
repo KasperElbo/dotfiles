@@ -608,7 +608,8 @@ for platform in fedora fedora-wsl macos parrot-ctf; do
       "$repo_root/platforms/$platform/install.sh"
   )"
   [[ -n "$scripts" ]] || { printf 'No tmux step declared on %s\n' "$platform" >&2; exit 1; }
-  probe_plan_hosts $scripts | grep -Fq 'github.com' || {
+  probed_hosts="$(probe_plan_hosts $scripts)"
+  grep -Fq 'github.com' <<<"$probed_hosts" || {
     printf 'The %s tmux step does not probe github.com\n' "$platform" >&2
     exit 1
   }

@@ -65,8 +65,9 @@ assert_contains "$tailscale_dry_run" \
   'Install the optional Tailscale profile (Homebrew cask, interactive login).'
 grep -Fq -- '--cask tailscale-app' "$macos_root/scripts/install-tailscale.sh"
 grep -Fq -- '--tailscale' "$macos_root/scripts/verify.sh"
-if rg -n 'systemctl|tailscaled\.service' "$macos_root/scripts/install-tailscale.sh" \
-  "$macos_root/scripts/verify.sh" | grep -q .; then
+systemd_references="$(rg -n 'systemctl|tailscaled\.service' \
+  "$macos_root/scripts/install-tailscale.sh" "$macos_root/scripts/verify.sh" || true)"
+if [[ -n "$systemd_references" ]]; then
   printf 'macOS Tailscale profile reuses Fedora systemd/tailscaled assumptions.\n' >&2
   exit 1
 fi
@@ -91,7 +92,8 @@ for package in lazygit node python dotnet uv; do
 done
 
 # The selected manager is exclusive and preserves the Sway mental model.
-if rg -l -i 'yabai|skhd' "$macos_root" --glob '!docs/**' | grep -q .; then
+unselected_managers="$(rg -l -i 'yabai|skhd' "$macos_root" --glob '!docs/**' || true)"
+if [[ -n "$unselected_managers" ]]; then
   printf 'macOS implementation contains an unselected window manager.\n' >&2
   exit 1
 fi
@@ -213,7 +215,8 @@ nvim_macos_plugin="$macos_root/stow/nvim-macos/.config/nvim/lua/plugins/macos.lu
   exit 1
 }
 grep -Fq 'vim.g.vimtex_view_general_viewer = "open"' "$nvim_macos_plugin"
-if rg -l 'xdg-open' "$macos_root" | grep -q .; then
+xdg_open_references="$(rg -l 'xdg-open' "$macos_root" || true)"
+if [[ -n "$xdg_open_references" ]]; then
   printf 'macOS implementation references the Linux-only xdg-open.\n' >&2
   exit 1
 fi

@@ -323,8 +323,9 @@ run_failure "GNHF requires the AI profile" "--gnhf/--no-gnhf requires --ai" \
 run_failure "backpass requires the AI profile" "--backpass/--no-backpass requires --ai" \
   ./install.sh --dry-run --backpass
 
-if find "$test_root/home" "$test_root/config" "$test_root/data" \
-  "$test_root/cache" -mindepth 1 -print -quit | grep -q .; then
+dry_run_residue="$(find "$test_root/home" "$test_root/config" "$test_root/data" \
+  "$test_root/cache" -mindepth 1 -print -quit)"
+if [[ -n "$dry_run_residue" ]]; then
   printf 'Dry-runs changed isolated user state\n' >&2
   exit 1
 fi

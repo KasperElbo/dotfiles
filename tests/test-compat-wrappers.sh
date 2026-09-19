@@ -240,7 +240,8 @@ printf 'PASS: the deprecated theme-state shim still provides write_theme_state\n
 # shellcheck disable=SC2016 # The payload expands in the child bash, not here.
 run_capture bash -c '
   set -euo pipefail
-  source "$1/scripts/lib/theme-state.sh" 2>&1 >/dev/null | grep -Fq DEPRECATED
+  warning="$(source "$1/scripts/lib/theme-state.sh" 2>&1 >/dev/null)"
+  grep -Fq DEPRECATED <<<"$warning"
 ' bash "$repo_root"
 assert_success
 printf 'PASS: sourcing the deprecated shim warns\n'
