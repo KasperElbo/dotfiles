@@ -154,6 +154,10 @@ recorded digest no longer matches the pinned one.
 
 To roll back, restore the previous version and digest and rerun the installer.
 
+`./scripts/check-pin-freshness.sh` is what tells you a newer Handy release
+exists: nothing else here would ever mention one. See
+[supply chain](../supply-chain.md#noticing-that-a-pinned-source-has-moved).
+
 ### Rerunning
 
 The installer is idempotent. It compares the recorded state against the pin
@@ -291,6 +295,8 @@ The pinned route was taken, and it costs two things:
   `manual-bump`. Nothing updates them automatically; a new upstream release is
   adopted by editing those constants, and the verifier fails until the
   installed build matches the pin again.
+  `./scripts/check-pin-freshness.sh` is what reports that a newer release
+  exists, and the monthly `pin-freshness` workflow runs it.
 - **A checksum this repository computes.** Upstream publishes no checksum file
   alongside its releases, so the recorded SHA-256 was computed here from the
   downloaded asset rather than copied from upstream. It pins exactly the bytes

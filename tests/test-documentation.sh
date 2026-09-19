@@ -742,10 +742,10 @@ claim_negative generators docs/capabilities.md \
   sed -i 's/^   Six generators read/   Seven generators read/' \
   "$repo_root/docs/capabilities.md"
 
-# The manifest count the README carried while config/ already held eight.
+# The manifest count the README carried while config/ already held one more.
 claim_negative manifests README.md \
-  'says 7 manifests under config/, but it holds 8' \
-  sed -i 's/^Eight manifests under/Seven manifests under/' "$repo_root/README.md"
+  'says 8 manifests under config/, but it holds 9' \
+  sed -i 's/^Nine manifests under/Eight manifests under/' "$repo_root/README.md"
 
 # A manifest that exists but never made it into the table.
 claim_negative manifests README.md \

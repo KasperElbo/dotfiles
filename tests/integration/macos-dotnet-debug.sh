@@ -92,6 +92,10 @@ if pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto >/dev/null 2>&1; then
   rosetta_package=present
 fi
 
+# The pinned upstream release, on its own line so scripts/check-pin-freshness.sh
+# can read it the same way it reads every other manual-bump pin. Its row in
+# config/pin-freshness.tsv names this variable.
+legacy_version="3.1.3-1062"
 legacy_archive="$test_root/netcoredbg-osx-amd64.tar.gz"
 legacy_root="$test_root/legacy"
 mkdir -p "$legacy_root"
@@ -99,7 +103,7 @@ mkdir -p "$legacy_root"
 curl --fail --location --silent --show-error \
   --connect-timeout 10 --max-time 300 \
   --output "$legacy_archive" \
-  https://github.com/Samsung/netcoredbg/releases/download/3.1.3-1062/netcoredbg-osx-amd64.tar.gz
+  "https://github.com/Samsung/netcoredbg/releases/download/${legacy_version}/netcoredbg-osx-amd64.tar.gz"
 tar -xzf "$legacy_archive" -C "$legacy_root"
 legacy_debugger="$(find "$legacy_root" -type f -name netcoredbg -perm -u+x -print -quit)"
 [[ -n "$legacy_debugger" ]] || {

@@ -77,6 +77,65 @@ minute proves only that the download was not corrupted in flight; it says
 nothing about what the next machine will get. Where such a digest is recorded,
 it is recorded as an audit record of what ran, and is labelled that way.
 
+### Noticing that a pinned source has moved
+
+The rolling tiers announce their own updates. A package manager, a registry or
+a version line tells the machine that something moved, and `brew upgrade`,
+`sudo dnf upgrade --refresh`, `scoop update` or `mise upgrade` applies it with
+no change to this repository at all. Neovim is the same story with its own
+mechanism: lazy.nvim's update checker is enabled for the workstation profile,
+and `:Lazy update` writes the new commits through the Stow symlink into the
+checkout, so a plugin bump arrives as a `git diff` on `lazy-lock.json`.
+
+`manual-bump` is the cadence with no such mechanism. Those rows are pinned to
+an exact tag, commit or SHA-256 that nothing else would ever mention again, and
+for a long time they were the strongest pins here with the weakest
+notification. The scheduled real-install validation is not that notification:
+it installs from every pin for real, so it catches one that has *broken* — a
+download that 404s, a digest that no longer matches — but a pin three releases
+old and still serving its bytes correctly produces a completely green run.
+
+```bash
+./scripts/check-pin-freshness.sh
+```
+
+asks each of those upstreams what it has now and prints it beside what this
+repository pins. It is a report: it downloads no artifact, writes no file and
+changes no pin. `git ls-remote` reads refs and transfers no objects, so the
+whole thing needs no credential and no API budget.
+`.github/workflows/pin-freshness.yml` runs it monthly and puts the table in the
+run summary. It deliberately does not pass `--fail-on-stale`: a newer tag is a
+prompt to go and review a release, not a defect. It *does* fail when a pin
+could not be read or an upstream could not be reached, because a report that
+silently reached nothing would read as "everything is current".
+
+[`config/pin-freshness.tsv`](../config/pin-freshness.tsv) is what it reads. One
+row per `manual-bump` source says which repository to ask, and which
+`key="value"` assignment in which installer states the pin — read out of the
+installer rather than repeated in the manifest, so a bump cannot leave the
+report comparing against the previous release.
+
+`./scripts/lint.sh` runs `scripts/validate-pin-freshness.py`, which holds the
+two manifests to each other: every `manual-bump` source has exactly one
+freshness row and nothing else does, each probe row names an installer that
+really states its pin once, and a `requested` value that states the pin as a
+literal must equal what that installer actually pins. So a pinned artifact
+cannot be added without saying how a newer release of it would be noticed.
+
+Some pins cannot be asked this way, and that is a row rather than an omission.
+A `none` probe must carry its reason, and the report prints that reason, so a
+source outside the mechanism stays visible in the output instead of quietly
+absent from it. Three are unprobed today: the OCaml compiler version, which is
+resolved through opam rather than named by a git ref; the Neovim plugin set,
+which has lazy.nvim's own checker; and the Fedora validation image, whose
+current digest needs a registry token exchange against two further hosts.
+
+Adopting whatever the report turns up stays a reviewed act, and is the same
+work it always was: take the artifact, take its digest, edit the version and
+the digest together, rerun the installer — which reinstalls precisely because
+the recorded digest no longer matches the pinned one — and rerun the verifier.
+Reviewing the new release is the whole reason the pin exists.
+
 ## Bounded network behaviour
 
 [`common/lib/fetch.sh`](../common/lib/fetch.sh) is the only sanctioned way for

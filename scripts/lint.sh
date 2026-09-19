@@ -79,6 +79,7 @@ python3 ./scripts/validate-install-options.py
 python3 ./scripts/validate-command-provider-closure.py
 python3 ./scripts/validate-tool-floors.py
 python3 ./scripts/validate-network-sources.py
+python3 ./scripts/validate-pin-freshness.py
 python3 ./scripts/validate-plan-network.py
 python3 ./scripts/render-supply-chain.py --check
 

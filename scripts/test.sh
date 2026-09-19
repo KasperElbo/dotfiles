@@ -84,6 +84,7 @@ default_tests=(
   tests/test-compat-wrappers.sh
   tests/test-command-provider-closure.sh
   tests/test-supply-chain.sh
+  tests/test-pin-freshness.sh
   tests/test-profile-state.sh
   tests/test-execution-plan.sh
   tests/test-cli-contract.sh

@@ -68,6 +68,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `homebrew-installer` | Homebrew installer script | Homebrew | `remote-script` | `root` | `HEAD` | brew --version | `https-tls` | rolling |
 | `mise-installer` | mise standalone installer script | jdx | `remote-script` | `user` | `latest` | mise --version | `https-tls` | rolling |
 | `no-mistakes-installer` | No Mistakes push gate installer | kunchenguid | `remote-script` | `user` | `main` | no_mistakes_digest in ai state | `https-tls` | rolling |
+| `pin-freshness-probe` | Upstream tag and branch refs read by the pin freshness report | GitHub | `git` | `user` | `refs of the repositories config/pin-freshness.tsv names` | git ls-remote output | `https-tls` | rolling |
 | `scoop-installer` | Scoop installer script | Scoop | `remote-script` | `user` | `latest` | scoop --version | `https-tls` | rolling |
 | `starship-installer` | Starship prompt installer script | Starship | `remote-script` | `user` | `latest` | starship --version | `https-tls` | rolling |
 | `treehouse-installer` | Treehouse worktree isolation installer | kunchenguid | `remote-script` | `user` | `live` | treehouse_digest in ai state | `https-tls` | rolling |
@@ -100,6 +101,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `opam-repository` | `https://opam.ocaml.org` | opam switch remove | `common/install-ocaml.sh` |
 | `parrot-boundary-image` | `docker.io/parrotsec/core:latest` | docker rmi | `.github/workflows/real-install.yml` |
 | `parrot-os-repos` | `https://deb.parrot.sh` | sudo apt-get install --reinstall | `platforms/parrot-ctf/scripts/install-system.sh` |
+| `pin-freshness-probe` | `https://github.com` | not-applicable | `scripts/check-pin-freshness.sh` `config/pin-freshness.tsv` |
 | `rpmfusion-free-release` | `https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-free-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `rpmfusion-nonfree-release` | `https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-nonfree-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `scoop-extras-bucket` | `https://github.com/ScoopInstaller/Extras` | scoop bucket rm extras | `platforms/windows/install.ps1` |
