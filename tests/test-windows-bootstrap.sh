@@ -179,9 +179,10 @@ if grep -Fq 'RepositoryRoot' <<<"$install_handy_body"; then
   printf 'The dictation install must not write anything into the checkout.\n' >&2
   exit 1
 fi
-if git -C "$repo_root" ls-files -- \
+tracked_media="$(git -C "$repo_root" ls-files -- \
   '*.wav' '*.mp3' '*.m4a' '*.flac' '*.ogg' '*.gguf' '*.onnx' '*.bin' '*.pt' \
-  '*.safetensors' | grep -q .; then
+  '*.safetensors')"
+if [[ -n "$tracked_media" ]]; then
   printf 'Recorded audio, transcripts and speech models must never be tracked.\n' >&2
   exit 1
 fi

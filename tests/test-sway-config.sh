@@ -60,7 +60,8 @@ grep -Fq 'for_window [class="^xwaylandvideobridge$"] move scratchpad' "$config"
 
 grep -Fq "timeout 600" "$config"
 grep -Fq "timeout 900" "$config"
-if grep -Ev '^[[:space:]]*#' "$config" | grep -Eq 'suspend|hibernate'; then
+config_code="$(grep -Ev '^[[:space:]]*#' "$config" || true)"
+if grep -Eq 'suspend|hibernate' <<<"$config_code"; then
   printf 'Sway config must not suspend or hibernate automatically.\n' >&2
   exit 1
 fi

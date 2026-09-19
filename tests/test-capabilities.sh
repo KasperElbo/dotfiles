@@ -631,13 +631,12 @@ mkdir -p "$scratch/platforms/plasma9/scripts"
 cp "$repo_root/platforms/fedora/scripts/verify.sh" \
   "$scratch/platforms/plasma9/scripts/verify.sh"
 unregistered="$(platform_registration_problems "$scratch")"
-printf '%s\n' "$unregistered" | grep -Fq \
-  'plasma9: a directory under platforms/ with no row in config/capabilities.tsv' || {
+grep -Fq 'plasma9: a directory under platforms/ with no row in config/capabilities.tsv' \
+  <<<"$unregistered" || {
   printf 'An unregistered platform directory was not reported:\n%s\n' "$unregistered" >&2
   exit 1
 }
-printf '%s\n' "$unregistered" | grep -Fq \
-  'scripts/validate-capabilities.py PLATFORMS is' || {
+grep -Fq 'scripts/validate-capabilities.py PLATFORMS is' <<<"$unregistered" || {
   printf 'An unregistered platform was not reported against the validator list:\n%s\n' \
     "$unregistered" >&2
   exit 1
