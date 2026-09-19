@@ -129,10 +129,12 @@ unregistered_suites() {
     printf 'no default_tests array in %s\n' "$runner"
     return
   }
+  local registered
+  registered="$(printf '%s\n' "${default_tests[@]}")"
   for suite in "$tests_dir"/test-*.sh; do
     [[ -e "$suite" ]] || continue
     name="tests/${suite##*/}"
-    printf '%s\n' "${default_tests[@]}" | grep -Fxq "$name" ||
+    grep -Fxq "$name" <<<"$registered" ||
       printf '%s is not registered in default_tests in %s\n' "$name" "$runner"
   done
 }
