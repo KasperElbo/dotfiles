@@ -180,7 +180,7 @@ The `theme` Zsh wrapper normally does this automatically.
 
 ## Neovim does not update immediately after a theme switch
 
-Refocus the Neovim window. The Catppuccin config checks the machine-local theme on `FocusGained`.
+Refocus the Neovim window. The Catppuccin config checks the machine-local theme on `FocusGained`, and `tmux/.tmux.conf` sets `focus-events on` so the event reaches a pane.
 
 ## EasyDotnet warns that its Roslyn LSP is disabled
 

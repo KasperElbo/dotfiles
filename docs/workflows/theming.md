@@ -282,6 +282,9 @@ Available colorschemes:
 ```
 
 Neovim reads the machine-local theme state on startup and checks it again on `FocusGained`.
+Inside tmux that works because the tracked `tmux/.tmux.conf` sets
+`focus-events on`; tmux defaults it off, and with it off no pane ever sees
+a focus change.
 
 ## Starship
 

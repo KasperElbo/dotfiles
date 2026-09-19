@@ -534,4 +534,24 @@ if problems:
 print(f"PASS: no page denies a theme hook a platform ships ({', '.join(hooked)})")
 PY_WALLPAPER
 
+# --- The FocusGained promise has a transport ---------------------------------
+#
+# Two pages tell the user that refocusing the Neovim window picks up a new
+# flavour, and the autocmd that does it is registered in the shared colorscheme
+# fragment. Neither is worth anything inside tmux unless tmux forwards focus:
+# the option defaults to off, and with it off tmux does not even ask the
+# terminal for focus reporting. The promise, the consumer and the transport are
+# three files that have to agree, so assert all three together.
+focus_promises=(docs/troubleshooting.md docs/workflows/theming.md)
+for page in "${focus_promises[@]}"; do
+  assert_file_contains "$repo_root/$page" 'FocusGained'
+done
+assert_file_contains \
+  "$repo_root/nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua" \
+  'FocusGained'
+if ! grep -Eq '^set -g focus-events on$' "$repo_root/tmux/.tmux.conf"; then
+  _test_die "docs promise a FocusGained reload, but tmux/.tmux.conf does not set focus-events on, so the event never reaches a pane"
+fi
+printf 'PASS: the documented FocusGained reload has a tmux transport\n'
+
 printf '\nAll documentation checks passed.\n'
