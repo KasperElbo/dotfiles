@@ -93,3 +93,16 @@ assert(
   vim.deep_equal(conform.opts.formatters_by_ft.htmlangular, { "prettier" }),
   "the Angular template filetype lost its Prettier mapping"
 )
+
+-- Format-on-save belongs to LazyVim here, through the `vim.g.autoformat`
+-- toggle. Conform can install a save hook of its own, which that toggle does
+-- not reach; reading the spec as the table it is says so exactly, where the
+-- companion check in tests/test-json-workflow.sh reads the whole
+-- configuration and can only say that the construct does not appear.
+for _, option in ipairs({ "format_on_save", "format_after_save" }) do
+  assert(
+    conform.opts[option] == nil,
+    "Conform's " .. option .. " is a second format-on-save policy that "
+      .. "LazyVim's autoformat toggle does not turn off"
+  )
+end
