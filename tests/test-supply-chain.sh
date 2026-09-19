@@ -332,6 +332,26 @@ fi
 assert_contains "$lint_output" 'wildcard'
 printf 'PASS: a wildcard is never accepted as an exact pin\n'
 
+# --- A digest pin the consumer does not use is not a pin -------------------
+#
+# The Parrot boundary image was registered with its tag while the workflow
+# pulled `parrotsec/core:latest`, so the registry's claim and the job's
+# behaviour could drift without anything noticing. A recorded digest now has
+# to be the reference the consumer actually names.
+awk -F '\t' 'BEGIN { OFS = "\t" }
+  NR > 1 && $1 == "parrot-boundary-image" {
+    $9 = "sha256:" sprintf("%064d", 0)
+  }
+  { print }' "$repo_root/config/network-sources.tsv" >"$manifest_fixture"
+if lint_output="$(NETWORK_SOURCE_MANIFEST="$manifest_fixture" \
+  python3 "$repo_root/scripts/validate-network-sources.py" 2>&1)"; then
+  printf 'The linter accepted a digest no consumer pulls.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'is recorded as image-digest-pinned'
+assert_contains "$lint_output" '.github/workflows/real-install.yml does not name that digest'
+printf 'PASS: a recorded image digest must be the one its consumers pull\n'
+
 # --- Terra: no --nogpgcheck, and the key is fingerprint-pinned -------------
 
 # Comments may still explain why the flag is gone; a live invocation may not.

@@ -310,4 +310,129 @@ run_capture python3 "$guard_validator" --root "$guard_tree"
 assert_success
 printf 'PASS: reaching common.sh through a guarded sibling is accepted\n'
 
+# --- Workflow actions must be pinned to a commit ---------------------------
+
+# A tag is whatever its owner last pointed it at, so an action pinned to one
+# can be replaced under CI without a commit here. The fixture tree writes the
+# three shapes the rule distinguishes.
+new_workflow_tree() {
+  new_clean_tree
+  mkdir -p "$tree/.github/workflows"
+  cat >"$tree/.github/workflows/example.yml" <<'EOF'
+name: Example
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/local-thing
+      - name: Check whitespace
+        run: git diff --check "origin/$BASE_REF...HEAD"
+EOF
+}
+
+new_workflow_tree
+run_capture python3 "$validator" --root "$tree"
+assert_success
+printf 'PASS: a pinned action with its tag comment, and a local action, are accepted\n'
+
+new_workflow_tree
+sed -i 's|actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1|actions/checkout@v7|' \
+  "$tree/.github/workflows/example.yml"
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" "actions/checkout is pinned to 'v7', which is a mutable reference"
+printf 'PASS: an action pinned to a tag is rejected\n'
+
+new_workflow_tree
+sed -i 's| # v7.0.1$||' "$tree/.github/workflows/example.yml"
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'pinned to a commit with no trailing comment naming the tag'
+printf 'PASS: a bare SHA with no tag comment is rejected\n'
+
+# --- A whitespace check must compare a range -------------------------------
+
+new_workflow_tree
+sed -i 's|run: git diff --check .*|run: git diff --check|' \
+  "$tree/.github/workflows/example.yml"
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '`git diff --check` with no range inspects the working tree'
+printf 'PASS: a whitespace check with no range is rejected\n'
+
+# The rule exists because the unranged form cannot fail. This is that claim,
+# proved against git rather than asserted: one fixture repository, one commit
+# that adds trailing whitespace, both spellings of the step run against it.
+test_new_root
+fixture_repo="$TEST_ROOT/whitespace-fixture"
+mkdir -p "$fixture_repo"
+git -C "$fixture_repo" init --quiet
+git -C "$fixture_repo" config user.email ci@example.invalid
+git -C "$fixture_repo" config user.name CI
+printf 'clean\n' >"$fixture_repo/file.txt"
+git -C "$fixture_repo" add file.txt
+git -C "$fixture_repo" commit --quiet -m 'clean baseline'
+base_sha="$(git -C "$fixture_repo" rev-parse HEAD)"
+printf 'trailing   \n' >>"$fixture_repo/file.txt"
+git -C "$fixture_repo" add file.txt
+git -C "$fixture_repo" commit --quiet -m 'commit trailing whitespace'
+
+# The step body as validate.yml runs it, read out of the workflow rather than
+# retyped: every `Check whitespace` step's `run:` block, dedented.
+whitespace_steps() {
+  python3 - "$repo_root/.github/workflows/validate.yml" <<'PYTHON'
+import pathlib
+import sys
+
+lines = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+bodies = []
+for index, line in enumerate(lines):
+    if line.strip() != "- name: Check whitespace":
+        continue
+    indent = len(line) - len(line.lstrip())
+    for cursor in range(index + 1, len(lines)):
+        following = lines[cursor]
+        if following.strip() and len(following) - len(following.lstrip()) <= indent:
+            break
+        if following.strip() != "run: |":
+            continue
+        block = []
+        body_indent = None
+        for step in range(cursor + 1, len(lines)):
+            text = lines[step]
+            if not text.strip():
+                break
+            width = len(text) - len(text.lstrip())
+            if body_indent is None:
+                body_indent = width
+            if width < body_indent:
+                break
+            block.append(text[body_indent:])
+        bodies.append("\n".join(block))
+        break
+if not bodies:
+    raise SystemExit("no 'Check whitespace' step with a run block in validate.yml")
+print("\0".join(bodies), end="")
+PYTHON
+}
+
+mapfile -t -d '' steps < <(whitespace_steps)
+assert_eq 2 "${#steps[@]}" 'validate.yml must carry two Check whitespace steps'
+
+for step in "${steps[@]}"; do
+  step_script="$TEST_ROOT/step.sh"
+  printf '%s\n' "$step" >"$step_script"
+  run_capture env -C "$fixture_repo" EVENT_NAME=push BEFORE_SHA="$base_sha" \
+    BASE_REF=main bash "$step_script"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" 'trailing whitespace'
+done
+printf 'PASS: both Check whitespace steps fail on a committed whitespace defect\n'
+
+# And the form the macOS job used to run, on the same commit, does not.
+run_capture env -C "$fixture_repo" git diff --check
+assert_success
+printf 'PASS: the unranged form passes the same commit, which is why it changed\n'
+
 printf '\nAll repository hygiene checks passed.\n'

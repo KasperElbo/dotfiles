@@ -38,6 +38,11 @@ Dependency policy:
   Commands in DOTFILES_TEST_REQUIRED_COMMANDS are always runner requirements.
   Missing runner requirements are an error before any suite runs; they are never
   silently treated as test success.
+
+Environment:
+  DOTFILES_TEST_SUITE_TIMEOUT  Seconds a single suite may run before it is
+                               killed and counted as failed (default 900).
+                               0 disables the per-suite timeout.
 EOF_USAGE
 }
 
@@ -164,7 +169,17 @@ required_commands=()
 if [[ -n "${DOTFILES_TEST_REQUIRED_COMMANDS:-}" ]]; then
   read -r -a required_commands <<<"$DOTFILES_TEST_REQUIRED_COMMANDS"
 elif ((${#selected_tests[@]} == 0)); then
-  required_commands=(awk bash find git grep jq mktemp nvim python3 rg sed stow timeout zsh)
+  # Every host command the default suites reach for, not only the obvious
+  # ones. A command missing from here does not go unnoticed: it surfaces as a
+  # suite failure somewhere in the middle of the run, naming the tool but not
+  # the policy, which is the opposite of the promise above. scp, sftp and ssh
+  # belong to the idempotency, SFTP-baseline and verifier suites, getent and
+  # unlink to the isolated-PATH ones, and curl and sha256sum to every suite
+  # that mocks a download.
+  required_commands=(
+    awk bash curl find getent git grep jq mktemp nvim python3 rg scp sed
+    sftp sha256sum ssh stow timeout unlink zsh
+  )
 fi
 
 missing_commands=()
@@ -216,6 +231,15 @@ passed=()
 failed=()
 skipped=()
 
+# The aggregate preflight requires `timeout`, and this is what it requires it
+# for: a suite that hangs -- waiting on a prompt, a lock, or a socket that will
+# never answer -- otherwise stalls the whole run until the job's own limit
+# kills it, with no summary and no failing suite named. A killed suite is a
+# failed suite, counted and reported like any other. Targeted mode does not
+# preflight the toolchain, so it runs without a limit when `timeout` is absent
+# rather than refusing to run at all.
+suite_timeout="${DOTFILES_TEST_SUITE_TIMEOUT:-900}"
+
 run_suite() {
   local test_script="$1"
   local test_path="$test_script"
@@ -226,10 +250,17 @@ run_suite() {
     return 127
   fi
 
+  local -a limit=()
+  if ((suite_timeout > 0)) && command -v timeout >/dev/null 2>&1; then
+    # --kill-after gives a suite that traps TERM a moment to remove its
+    # temporary directories before SIGKILL ends the argument.
+    limit=(timeout --signal=TERM --kill-after=30 "$suite_timeout")
+  fi
+
   if [[ -x "$test_path" ]]; then
-    "$test_path"
+    "${limit[@]}" "$test_path"
   else
-    bash "$test_path"
+    "${limit[@]}" bash "$test_path"
   fi
 }
 
@@ -241,7 +272,11 @@ for ((index = 0; index < ${#tests[@]}; index++)); do
     passed+=("$test_script")
   else
     status=$?
-    failed+=("$test_script (exit $status)")
+    if ((status == 124)); then
+      failed+=("$test_script (timed out after ${suite_timeout}s)")
+    else
+      failed+=("$test_script (exit $status)")
+    fi
     if [[ "$fail_fast" == true ]]; then
       for ((remaining = index + 1; remaining < ${#tests[@]}; remaining++)); do
         skipped+=("${tests[remaining]} (fail-fast)")

@@ -314,7 +314,10 @@ an unregistered `curl`, `wget`, PowerShell download, remote `git clone`/`fetch`,
 constructs that give the machine a new package trust root, a DNF repository
 added with `dnf config-manager addrepo` and a signing key imported with
 `rpm --import`, however their argument is spelled. It also fails on a registry
-row whose tier and integrity mechanism contradict each other.
+row whose tier and integrity mechanism contradict each other, and on one whose
+`integrity` is `image-digest-pinned` while a consumer names some other
+reference — a digest the job does not pull is a claim about a run that never
+happens.
 
 A construct counts however it is written. A clone spelled as an argument
 vector — `vim.fn.system({ "git", "clone", … })`, which is how the Neovim
@@ -350,6 +353,33 @@ A construct that genuinely reaches no external network (a loopback probe, a
 request to the container under test) is annotated
 `# network-source: local-only`, which is still a deliberate, reviewable act.
 That annotation covers loopback hosts only.
+
+## Actions and images CI runs
+
+A workflow downloads and executes code too, and the same position applies to
+it. Every third-party `uses:` step is pinned to a full 40-character commit SHA,
+with the tag it was in a trailing comment, so a reader can see which release is
+running and a bump is a reviewable commit here:
+
+```yaml
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+```
+
+A tag is not a pin. `actions/checkout@v7` is whatever its owner last pointed
+`v7` at, which is exactly what the tier table refuses to call `exact-commit`
+anywhere else. A local action (`uses: ./…`) is this repository's own code and
+carries no pin; a container image names provenance through
+`config/network-sources.tsv` like any other image.
+
+`scripts/validate-repository-hygiene.py` enforces both halves — a mutable
+reference and a bare SHA with no tag comment each fail — and
+`tests/test-repository-hygiene.sh` breaks a fixture workflow once per rule.
+
+The images CI runs are pinned the same way, by digest: the Fedora validation
+container in `validate.yml` and the Parrot boundary image in
+`real-install.yml`. A boundary check that pulls a moving tag proves whatever
+upstream published that morning, and a failure could not be told apart from a
+regression.
 
 ## Authenticating the rate-limited API
 

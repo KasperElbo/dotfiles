@@ -36,6 +36,7 @@ FIELDS = [
     "capability", "platform", "profile", "cli_flag", "default",
     "dependencies", "conflicts", "provider", "packages", "stow",
     "verifier", "state", "docs", "provenance", "status", "installers",
+    "ci_scope",
 ]
 # Every platform this repository installs, which is not the same list as the
 # platforms `./install.sh --platform` accepts: the Windows host is installed by
@@ -445,7 +446,9 @@ def verifier_mentions(path: pathlib.Path, capability: str) -> bool:
 # The checks above prove the manifest against the installers and the
 # documentation. These prove it against the verifiers: that a declared
 # verifier checks what its row installs, reads the registry instead of a copy
-# of it, reports through the shared library, and is actually run by CI.
+# of it, reports through the shared library, and is actually run by CI -- and
+# then, separately, that the capability the verifier is declared for is one CI
+# actually selects, which is not the same claim.
 # ---------------------------------------------------------------------------
 
 VERIFY_LIBRARY = ROOT / "common" / "lib" / "verify.sh"
@@ -493,6 +496,14 @@ INTEGRATION_SCRIPT = re.compile(r"(?<![\w-])(tests/integration/[\w.-]+\.sh)(?![\
 # search: `platforms\windows\verify.ps1` there is the same evidence as the
 # forward-slashed path a manifest row declares.
 WINDOWS_SUITE = re.compile(r"(?<![\w-])(tests/[\w.-]+\.ps1)(?![\w-])")
+
+# The one value of `ci_scope` that says something: this capability is
+# deliberately never selected by the real-install tier, and the rest of the
+# value is why. `-` is the other value, and means the row makes no claim --
+# it must then actually be selected. See docs/capabilities.md.
+CI_EXCLUDED = "excluded:"
+INSTALL_ENTRY_POINT = "./install.sh"
+CAPABILITY_FLAG = re.compile(r"(?<![\w-])--[\w-]+")
 SOURCE_LINE = re.compile(r'^\s*(?:source|\.)\s+"(.+)"\s*$')
 SOURCE_PREFIXES = ('$(dirname "${BASH_SOURCE[0]}")/', "$DOTFILES_ROOT/")
 
@@ -629,6 +640,99 @@ def real_install_text() -> str:
         if (ROOT / script).is_file():
             texts.append(code_text(ROOT / script).replace("\\", "/"))
     return "\n".join(texts)
+
+
+def install_selections(text: str) -> set[str]:
+    """Every flag passed to an `./install.sh` invocation in `text`.
+
+    The arguments of one invocation are not one line. A YAML folded scalar
+    (`run: >-`) and a Bash backslash continuation both spread them over
+    several, and in both shapes a continued line begins with the next flag, so
+    that is what the walk follows. It stops at the first line that is not a
+    flag -- the next command, the next YAML key, the blank line after the step
+    -- which is where the invocation has ended.
+
+    Reading the flags rather than searching the file for them is what makes
+    this a check about *selection*: `--kde` written in a comment, in a step
+    name or in an unrelated command is not a machine that installed KDE.
+    """
+    flags: set[str] = set()
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        _, separator, arguments = line.partition(INSTALL_ENTRY_POINT)
+        if not separator:
+            continue
+        invocation = [arguments]
+        cursor = index
+        while cursor + 1 < len(lines):
+            following = lines[cursor + 1]
+            if not (
+                invocation[-1].rstrip().endswith("\\")
+                or following.lstrip().startswith("--")
+            ):
+                break
+            if not following.strip():
+                break
+            invocation.append(following)
+            cursor += 1
+        flags.update(CAPABILITY_FLAG.findall(" ".join(invocation)))
+    return flags
+
+
+def check_capability_ci_selection(rows: list[dict[str, str]]) -> int:
+    """A capability CI proves for real must actually be selected there.
+
+    check_verifier_ci() above asks whether a *verifier* is run. That is not the
+    same question as whether a *capability* is installed: six capabilities
+    declared the shared platform verifier, which every job runs, while no job
+    ever passed their flag. Their verifier ran; they did not. This asks the
+    second question, and a row that answers neither -- not selected, and no
+    `ci_scope` exclusion saying why -- fails.
+
+    Capabilities whose evidence is a mocked machine (MOCKED_VERIFIERS) are not
+    real-install evidence at all and are checked there instead. A transient
+    control installs nothing, so running its verifier is the whole capability.
+    """
+    errors = 0
+    selected = install_selections(real_install_text())
+    for row in rows:
+        where = f"{row['platform']}/{row['capability']}"
+        scope = row["ci_scope"]
+        flag = row["cli_flag"]
+        selectable = (
+            row["status"] == "implemented"
+            and flag.startswith("--")
+            and row["capability"] not in TRANSIENT_CAPABILITIES
+            and row["verifier"] not in MOCKED_VERIFIERS
+        )
+
+        if scope != "-":
+            if not scope.startswith(CI_EXCLUDED) or not scope[len(CI_EXCLUDED):].strip():
+                fail(f"{where}: ci_scope must be '-' or "
+                     f"'{CI_EXCLUDED}<why>'; got {scope!r}")
+                errors += 1
+                continue
+            if not selectable:
+                fail(f"{where}: ci_scope records a CI exclusion, but this row is "
+                     f"not one the real-install tier could select anyway")
+                errors += 1
+            elif flag in selected:
+                fail(f"{where}: ci_scope excludes it from CI, but "
+                     f".github/workflows/real-install.yml selects {flag}; "
+                     f"delete the exclusion rather than leaving a stale reason")
+                errors += 1
+            continue
+
+        if selectable and flag not in selected:
+            fail(
+                f"{where}: no ./install.sh invocation in "
+                f".github/workflows/real-install.yml, or in a script it runs, "
+                f"passes {flag}, so no real installation ever installs or "
+                f"verifies it; select it there, or record why not in the "
+                f"ci_scope column ('{CI_EXCLUDED}<why>')"
+            )
+            errors += 1
+    return errors
 
 
 def check_verifier_ci(verifiers: dict[str, set[str]]) -> int:
@@ -776,6 +880,7 @@ def main() -> int:
     errors += check_verifier_package_arrays(verifiers)
     errors += check_verifier_library(verifiers)
     errors += check_verifier_ci(verifiers)
+    errors += check_capability_ci_selection(rows)
     return 1 if errors else 0
 
 

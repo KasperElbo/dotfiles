@@ -33,12 +33,26 @@ platform and profile:
 | `provenance` | Where the thing itself comes from | any |
 | `status` | Whether this repository provides it | `implemented`, `unsupported` |
 | `installers` | The files that request its packages | repository-relative paths, or `-` |
+| `ci_scope` | Whether it is deliberately never selected by the real-install workflow, and why | `-`, or `excluded:<why>` |
 
 An `implemented` row must name a provider, a verifier, documentation and a
 provenance; an `unsupported` row must name who owns that absence. Deliberate
 absence is recorded rather than left out, so the generated
 [capability matrix](reference/capability-matrix.md) can distinguish "we do not
 do this here" from "nobody has considered it".
+
+`ci_scope` is the one column that is about CI rather than about the capability
+itself, and it exists because "a verifier ran" and "this capability was
+installed" are different claims. `-` makes no claim: the capability must then
+actually be selected by `.github/workflows/real-install.yml` or a script one of
+its steps runs. `excluded:<why>` says it deliberately never is, and the reason
+is part of the value, because this file has no comment syntax — three readers
+treat line 1 as the header and every other line as a row. Three rows carry one
+today: `fedora/latex` and `fedora-wsl/latex`, whose TeX Live install is
+gigabytes on every scheduled run, and `macos/dictation`, which needs a desktop
+session and a microphone no runner has and is verified by the manual checklist
+in [the dictation profile](profiles/dictation.md). An exclusion the workflow
+contradicts fails, so it cannot outlive its reason.
 
 `-` is this file's only spelling of "none", in every column that can be empty.
 It is a decision, not a blank: `packages` is `-` when the capability installs
@@ -150,6 +164,9 @@ capability the manifest does not implement.
    add the installer implementation and verifier before marking it
    `implemented`. Name the files that request its packages in `installers`,
    and its Stow packages in `stow` next to the Stow script that deploys them.
+   Then select it in `.github/workflows/real-install.yml`, or in the
+   `tests/integration/` sequence one of its steps runs, so a real installation
+   proves it — or write the reason it never will into `ci_scope`.
 4. Add focused positive and negative tests, then run `./scripts/lint.sh` and
    `./scripts/test.sh`. Lint runs every validator and every generator in
    `--check` mode, so a manifest change that was not regenerated fails there.
@@ -232,6 +249,18 @@ the repository once per rule, proving each one can fail:
   profiles no real-install job installs are listed in `MOCKED_VERIFIERS` with
   the default fast suite that runs them against a mocked machine instead, and
   that suite must be in `scripts/test.sh`'s default tests and run the verifier.
+- **Selected by CI.** Running a verifier is not installing the capability it is
+  declared for. Six capabilities declared the shared platform verifier, which
+  every real-install job runs, while no job ever passed their flag: their
+  verifier ran and they did not. So a second rule reads the flags of every
+  `./install.sh` invocation in `.github/workflows/real-install.yml` and in the
+  `tests/integration/` sequences its steps run — the invocation's own arguments,
+  not the file's text, so a flag written in a step title or a comment proves
+  nothing — and requires an `implemented` row with a `--flag` to be among them.
+  A row that is not may say so in `ci_scope` and no other way. Rows whose
+  evidence is a mocked machine (`MOCKED_VERIFIERS`) answer to the rule above
+  instead, and a transient control such as `--dev-workflows` installs nothing,
+  so running its verifier is the whole capability.
 
 The shared library carries the checks these rules lead to.
 `check_command <name> --probe` runs a command instead of only finding it on

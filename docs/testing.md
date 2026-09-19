@@ -24,9 +24,12 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 | jq | any recent release | JSON-fixture and action-registry suites |
 | ripgrep (`rg`) | any recent release | `./scripts/test.sh` preflight and search-based checks |
 
-`./scripts/test.sh` also preflights `awk`, `bash`, `find`, `git`, `grep`,
-`mktemp`, `sed` and `timeout`, which are assumed already present on any
-supported development machine.
+`./scripts/test.sh` also preflights `awk`, `bash`, `curl`, `find`, `getent`,
+`git`, `grep`, `mktemp`, `sed`, `sha256sum`, `timeout` and `unlink`, which are
+assumed already present on any supported development machine. The list is the
+whole set the default suites reach for, not the memorable part of it: a command
+that is missing from the preflight does not go unnoticed, it surfaces halfway
+through the run as one suite's failure, naming the tool but not the policy.
 
 Every minimum version in that table comes from
 [`config/tool-floors.tsv`](../config/tool-floors.tsv), which is the one place
@@ -80,13 +83,16 @@ request and on pushes to `main`. It has four independent jobs:
 | `repository` (Repository validation) | `ubuntu-latest`, inside a pinned `fedora:44` container | `./scripts/lint.sh`, then a clone of the lazy.nvim revision `nvim-lazyvim/.config/nvim/lazy-lock.json` pins, `./scripts/test.sh`, and a whitespace check (`git diff --check`) against the PR's base |
 | `cheatsheets` (Printable cheat sheets) | `ubuntu-latest`, inside the same pinned `fedora:44` container, with a LaTeX toolchain installed | `./docs/cheatsheets/verify.sh`, then asserts the compiled PDFs are left untracked |
 | `windows` (Windows PowerShell validation) | `windows-latest` | `tests/test-windows-bootstrap.ps1`, `tests/test-windows-verifier.ps1`, and a `verify.ps1` smoke test against a fixture |
-| `macos` (macOS 26 arm64 validation) | `macos-26` | `tests/integration/macos-dotnet-debug.sh`, `./scripts/lint.sh`, portable-verifier/shell-test/profile-state suites, a `--dry-run` macOS install, `tests/test-macos.sh`/`tests/test-macos-ai.sh`/`tests/test-ocaml-verification.sh`, and a whitespace check |
+| `macos` (macOS 26 arm64 validation) | `macos-26` | `tests/integration/macos-dotnet-debug.sh`, `./scripts/lint.sh`, portable-verifier/shell-test/profile-state suites, a `--dry-run` macOS install, `tests/test-macos.sh`/`tests/test-macos-ai.sh`/`tests/test-ocaml-verification.sh`, and the same ranged whitespace check the `repository` job runs |
 
 `./scripts/test.sh` is the normal aggregate runner that the `repository` job
 above invokes. It:
 
 - preflights the normal Linux aggregate toolchain before the default suite set;
-- runs independent suites to completion by default;
+- runs independent suites to completion by default, each under a per-suite
+  `timeout` (900 seconds, `DOTFILES_TEST_SUITE_TIMEOUT`, `0` to disable), so a
+  suite that hangs is killed and counted as failed instead of stalling the run
+  until the job's own limit ends it with no summary at all;
 - reports passed, failed, and skipped suites in one final summary;
 - exits non-zero when any required suite fails;
 - accepts `--fail-fast` for local debugging;
@@ -97,6 +103,12 @@ above invokes. It:
 preflight explicitly. Missing commands in that list are a **runner error**, not
 a skip and never a pass. Individual targeted suites remain responsible for
 reporting dependencies specific to themselves.
+
+Every `tests/test-*.sh` must appear in the runner's `default_tests` array, and
+`tests/test-test-runner.sh` compares the directory with the array and fails
+naming any file that does not. Nothing used to require that: a new suite that
+always failed passed every validator, because no check looked at the two lists
+together, so a suite could be written, forgotten and never run once.
 
 These tests use isolated homes, strict mocks, disposable directories and
 containers where appropriate. Their output is labelled
