@@ -18,6 +18,13 @@ warning is information (a revision that has moved on, residual state from a
 capability no longer selected, legacy unversioned state); a failure means the
 recorded state disagrees with what an installed machine should look like.
 
+`./install.sh doctor` and `./install.sh --platform <name> doctor` run the same
+report; `doctor` is a subcommand, not a platform option, and none of these
+spellings installs anything. On macOS they work even when `bash` on your PATH
+is Apple's 3.2: the report selects a supported Bash for itself, and says so
+plainly if the machine has none (see
+[the macOS compatibility boundary](platforms/macos.md#system-bash-compatibility-boundary)).
+
 `./doctor` names the verifier to run next — see
 [verification](workflows/verification.md) for what those verifiers prove, and
 the entry below that matches the message you got.

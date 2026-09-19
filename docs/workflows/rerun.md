@@ -102,4 +102,8 @@ command for reference) instead of guessing. One ordinary installation records
 everything a rerun needs; no reinstall-from-scratch is required.
 
 `./install.sh doctor` reports whether a valid remembered configuration exists
-and how to use it, without dumping the record itself.
+and how to use it, without dumping the record itself. `doctor` is a subcommand
+rather than a platform option, so `./install.sh --platform macos doctor` (and
+the same with any other platform name) runs the same read-only report; it never
+starts an installation, and on macOS it never runs the Homebrew bootstrap.
+`./doctor` is the shortest spelling of all of them.

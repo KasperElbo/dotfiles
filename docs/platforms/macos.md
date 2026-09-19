@@ -84,6 +84,26 @@ The command list comes from the macOS stow packages in
 declared. Making every shared script 3.2-compatible is not the goal; the
 repository's Bash 4.4+ baseline is unchanged.
 
+The portable entry points are a third surface with the same problem: `./doctor`
+is `#!/usr/bin/env bash`, which resolves to Apple's Bash whenever Homebrew is
+not ahead of `/bin` on `PATH` — precisely the broken `PATH` that
+[troubleshooting](../troubleshooting.md) sends you to `./doctor` to diagnose.
+`scripts/doctor.sh`, `scripts/lint.sh` and `scripts/test.sh` therefore select a
+supported Bash the way `theme` does, and the same audit covers them and the
+scripts each entry point `exec`s. It admits one further answer there:
+`scripts/install-main.sh` neither stays in the 3.2 dialect nor re-executes, it
+**refuses** before loading anything modern and names the bootstrap that fixes
+it — installing an interpreter is the bootstrap's job, with your consent, not a
+side effect of a health report. That input set is read from the "Portable entry
+point" row of
+[repository conventions](../architecture/repository-conventions.md) and from
+the root-level `public-entrypoint` rows of `config/shell-file-roles.tsv`, so a
+new entry point is audited when it is given its role.
+
+Because `doctor` is a subcommand and not a platform option, `./doctor`,
+`./install.sh doctor` and `./install.sh --platform macos doctor` all reach that
+report, and none of them runs the Homebrew bootstrap.
+
 **Automated:** Preview the exact plan without changing the machine:
 
 ```bash
