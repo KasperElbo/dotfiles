@@ -387,7 +387,15 @@ for sheet_platform in \
 done
 
 # The WSL sheet must name the terminal Windows actually runs.
-expand_sheet fedora-wsl | grep -Fq 'Noctty' ||
+#
+# Expanded into a variable first, deliberately. Piping into `grep -Fq` makes
+# grep exit at the first match, and the Python expander is still writing: it
+# takes SIGPIPE, and `pipefail` turns that into a failed pipeline, so the
+# assertion fails exactly when the text it is looking for IS present. Seen
+# once on a loaded machine. Every assertion that expects a match has to read
+# its producer to the end.
+wsl_sheet_text="$(expand_sheet fedora-wsl)"
+grep -Fq 'Noctty' <<<"$wsl_sheet_text" ||
   _test_die 'fedora-wsl.tex must name Noctty as the Windows-side terminal'
 printf 'PASS: no sheet advertises a component its platform does not have\n'
 
