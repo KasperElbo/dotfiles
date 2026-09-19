@@ -18,6 +18,28 @@ python3 "$repo_root/scripts/validate-network-sources.py"
 python3 "$repo_root/scripts/render-supply-chain.py" --check
 printf 'PASS: the network-source registry validates and its inventory is current\n'
 
+# --- Every plan_add step is read, or the build fails ------------------------
+
+python3 "$repo_root/scripts/validate-plan-network.py"
+printf 'PASS: every resolved plan step declares the scripts it runs\n'
+
+# The declaration is what `preflight_plan_network` derives its probe set from,
+# so a `plan_add` line the tokeniser cannot read drops out of the check in both
+# directions and an undeclared network step passes. A trailing comment is valid
+# shell that the runtime `[[ $# -eq 8 ]]` check still accepts, so it is the
+# cheapest proof that the validator fails closed rather than skipping the line.
+plan_tree="$test_root/plan-tree"
+mkdir -p "$plan_tree"
+tar -C "$repo_root" --exclude=.git --exclude=.claude -cf - . |
+  tar -C "$plan_tree" -xf -
+sed -i '/plan_add ai /s/$/  # keep in step order/' \
+  "$plan_tree/platforms/fedora/install.sh"
+run_capture python3 "$repo_root/scripts/validate-plan-network.py" --root "$plan_tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'cannot read this plan_add line as a command'
+assert_contains "$TEST_OUTPUT" 'platforms/fedora/install.sh:'
+printf 'PASS: a plan_add line the tokeniser cannot read is a build error\n'
+
 # Everything the audit named as a trust source is actually registered.
 for source_id in terra-repo terra-signing-key rpmfusion-free-release \
   rpmfusion-nonfree-release tailscale-repo mise-installer starship-installer \
