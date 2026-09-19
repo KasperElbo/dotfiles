@@ -277,8 +277,12 @@ ensure_rpm_fusion_repositories() {
   fedora_version="$(rpm -E %fedora)"
 
   info "Enabling the RPM Fusion repositories"
-  # The release RPMs are signed by the Fedora-shipped RPM Fusion keys, which
-  # dnf already trusts; the HTTPS transport is the only pre-trust boundary.
+  # HTTPS to mirrors.rpmfusion.org is the whole trust boundary here, which is
+  # what config/network-sources.tsv records as this source's integrity
+  # mechanism. Fedora ships no RPM Fusion signing keys, and dnf's
+  # localpkg_gpgcheck is off by default, so nothing verifies these two release
+  # RPMs by signature before they are installed. They are what install the keys
+  # every later RPM Fusion package is then checked against.
   # network-source: rpmfusion-free-release,rpmfusion-nonfree-release
   sudo dnf install -y \
     "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm" \

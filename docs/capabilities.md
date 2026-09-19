@@ -116,10 +116,14 @@ capability the manifest does not implement.
    and its Stow packages in `stow` next to the Stow script that deploys them.
 4. Add focused positive and negative tests, then run `./scripts/lint.sh` and
    `./scripts/test.sh`. Lint runs every validator and every generator in
-   `--check` mode, so a manifest change that was not regenerated fails there;
-   regenerate with `./scripts/render-capability-matrix.py`,
-   `./scripts/render-installer-options.py` and
-   `./scripts/render-action-reference.py`.
+   `--check` mode, so a manifest change that was not regenerated fails there.
+   Six generators read `config/capabilities.tsv`, and a change can reach any of
+   them; regenerate with `./scripts/render-action-reference.py`,
+   `./scripts/render-capability-matrix.py`,
+   `./scripts/render-file-ownership.py`,
+   `./scripts/render-installer-options.py`,
+   `./scripts/render-package-ownership.py` and
+   `./scripts/render-verifier-reference.py`.
 
 `config/capabilities.tsv` records which capability owns a provider and
 packages. Its companion, `config/network-sources.tsv`, records where each
@@ -222,3 +226,9 @@ The table does not duplicate language-runtime or repository-script ownership.
 Those remain with mise, Mason, Stow, and the capability manifest. Run
 `./scripts/validate-command-provider-closure.py` after changing a platform
 baseline, the Sway packages, or their command requirements.
+
+The validator reads the manifest and checks each row against the tree, not the
+other way round: it proves every row names a real owner, provider and file, but
+a command a script runs without a row here is simply never preflighted. Adding
+the command to a script therefore means adding its row too; nothing fails if
+you forget.
