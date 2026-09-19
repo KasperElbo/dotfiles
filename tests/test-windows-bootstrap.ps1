@@ -283,6 +283,178 @@ try {
         -Message 'A transient launch failure did not back off between attempts.'
     Assert-Equal -Actual $transient.Warnings.Count -Expected 2 `
         -Message 'A transient launch failure did not warn about each retry.'
+
+    # Voice dictation on Windows is Handy, and it is a Scoop package like
+    # everything else the bootstrap installs. The manifest is the single
+    # source of truth for its bucket and package names, so assert the
+    # manifest rather than a string inside the script.
+    $manifestPath = Join-Path $repoRoot 'platforms\windows\manifest.psd1'
+    $windowsManifest = Import-PowerShellDataFile $manifestPath
+    Assert-Equal -Actual $windowsManifest.Scoop.ExtrasBucket.Name -Expected 'extras' `
+        -Message 'Handy must come from Scoop''s official extras bucket.'
+    Assert-Equal -Actual $windowsManifest.Scoop.ExtrasBucket.Url `
+        -Expected 'https://github.com/ScoopInstaller/Extras' `
+        -Message 'The extras bucket must be the official ScoopInstaller one.'
+    Assert-Equal -Actual $windowsManifest.Scoop.HandyPackage.QualifiedName `
+        -Expected 'extras/handy' `
+        -Message 'Handy must be installed as a bucket-qualified Scoop package.'
+    Assert-Equal -Actual $windowsManifest.Scoop.HandyPackage.Executable `
+        -Expected 'handy.exe' -Message 'Unexpected Handy executable name.'
+
+    # Handy being a Scoop package is what keeps the whole Windows bootstrap on
+    # one package manager; nothing here may reach for another.
+    if ((Get-Content -LiteralPath $installer -Raw) -match '(?i)winget') {
+        throw 'The Windows bootstrap must install every application through Scoop.'
+    }
+
+    $functionDefinitions = @{}
+    foreach ($definition in $installerAst.FindAll(
+        {
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+        },
+        $true
+    )) {
+        $functionDefinitions[$definition.Name] = $definition.Extent.Text
+    }
+
+    $handyFunctionNames = @(
+        'Test-ScoopPackageInstalled',
+        'Add-ScoopBucket',
+        'Install-ScoopPackage',
+        'Install-Handy'
+    )
+    foreach ($handyFunctionName in $handyFunctionNames) {
+        if (-not $functionDefinitions.ContainsKey($handyFunctionName)) {
+            throw "install.ps1 no longer defines ${handyFunctionName}."
+        }
+    }
+    $handyFunctionText = (
+        $handyFunctionNames | ForEach-Object { $functionDefinitions[$_] }
+    ) -join "`n"
+
+    # Runs the shipped Install-Handy with Scoop, the native command runner and
+    # the step log replaced, so bucket selection, idempotency and dry-run
+    # honesty are exercised without Scoop, a network or an elevated session.
+    $runInstallHandy = {
+        param(
+            [string]$FunctionText,
+            [string]$ManifestPath,
+            [string[]]$Buckets,
+            [bool]$DryRunValue,
+            [string]$ProfileRoot,
+            [string[]]$ResolvableCommands = @()
+        )
+
+        $script:handySteps = @()
+        $script:handyCommands = @()
+        $script:handyBuckets = $Buckets
+        $script:handyResolvable = $ResolvableCommands
+        $DryRun = $DryRunValue
+        $WindowsManifest = Import-PowerShellDataFile $ManifestPath
+        $env:USERPROFILE = $ProfileRoot
+
+        function Write-Step {
+            param([string]$Message)
+            $script:handySteps += $Message
+        }
+
+        function Invoke-NativeCommand {
+            param([string]$FilePath, [string[]]$Arguments = @())
+            $script:handyCommands += ($Arguments -join ' ')
+        }
+
+        function Get-Command {
+            param([string]$Name, $ErrorAction)
+            if ($script:handyResolvable -contains $Name) {
+                return [pscustomobject]@{ Source = "C:\fixture\scoop\shims\$Name.exe" }
+            }
+            return $null
+        }
+
+        function Resolve-ScoopCommand { return 'C:\fixture\scoop\shims\scoop.ps1' }
+
+        function Install-Scoop {
+            throw 'Install-Handy bootstrapped Scoop when Scoop was already available.'
+        }
+
+        function Get-ScoopBucketList {
+            param([string]$Scoop)
+            return $script:handyBuckets
+        }
+
+        . ([scriptblock]::Create($FunctionText))
+
+        Install-Handy
+
+        [pscustomobject]@{
+            Steps = $script:handySteps
+            Commands = $script:handyCommands
+        }
+    }
+
+    $withoutExtras = @(
+        'Name Source Updated Manifests',
+        'main https://github.com/ScoopInstaller/Main 2026-01-01 1000'
+    )
+    $withExtras = $withoutExtras + @(
+        'extras https://github.com/ScoopInstaller/Extras 2026-01-01 2000'
+    )
+    $emptyProfile = Join-Path $testRoot 'HandyAbsent'
+    [IO.Directory]::CreateDirectory($emptyProfile) | Out-Null
+
+    $dryRun = & $runInstallHandy $handyFunctionText $manifestPath $withoutExtras $true $emptyProfile
+    Assert-Equal -Actual $dryRun.Commands.Count -Expected 0 `
+        -Message 'A dry run must not run any Scoop command.'
+    if ($dryRun.Steps -notcontains
+        'Would add the extras Scoop bucket: https://github.com/ScoopInstaller/Extras') {
+        throw "A dry run did not describe adding the extras bucket: $($dryRun.Steps -join '; ')"
+    }
+    if ($dryRun.Steps -notcontains
+        'Would install extras/handy for the current Windows user') {
+        throw "A dry run did not describe installing Handy: $($dryRun.Steps -join '; ')"
+    }
+
+    $dryRunBucketPresent = & $runInstallHandy $handyFunctionText $manifestPath `
+        $withExtras $true $emptyProfile
+    if ($dryRunBucketPresent.Steps -match 'Would add the extras Scoop bucket') {
+        throw 'An already-added extras bucket was described as needing to be added.'
+    }
+
+    $install = & $runInstallHandy $handyFunctionText $manifestPath `
+        $withoutExtras $false $emptyProfile
+    if ($install.Commands -notcontains
+        'bucket add extras https://github.com/ScoopInstaller/Extras') {
+        throw "Handy was installed without adding the extras bucket: $($install.Commands -join '; ')"
+    }
+    if ($install.Commands -notcontains 'install extras/handy') {
+        throw "Handy was not installed from the extras bucket: $($install.Commands -join '; ')"
+    }
+
+    $rerun = & $runInstallHandy $handyFunctionText $manifestPath `
+        $withExtras $false $emptyProfile
+    Assert-Equal -Actual $rerun.Commands.Count -Expected 1 `
+        -Message 'A rerun re-added the extras bucket.'
+
+    # Idempotency: an installed Handy is left alone, whether it is found
+    # through its Scoop shim or under Scoop's apps directory.
+    $installedProfile = Join-Path $testRoot 'HandyPresent'
+    $installedDirectory = Join-Path $installedProfile 'scoop\apps\handy\current'
+    [IO.Directory]::CreateDirectory($installedDirectory) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $installedDirectory 'handy.exe'), '')
+
+    $alreadyInstalled = & $runInstallHandy $handyFunctionText $manifestPath `
+        $withoutExtras $false $installedProfile
+    Assert-Equal -Actual $alreadyInstalled.Commands.Count -Expected 0 `
+        -Message 'An installed Handy was installed again.'
+    if ($alreadyInstalled.Steps -notcontains 'Handy is already installed') {
+        throw "An installed Handy was not reported as present: $($alreadyInstalled.Steps -join '; ')"
+    }
+
+    $onPath = & $runInstallHandy $handyFunctionText $manifestPath `
+        $withoutExtras $false $emptyProfile @('handy')
+    Assert-Equal -Actual $onPath.Commands.Count -Expected 0 `
+        -Message 'A resolvable handy command was installed again.'
 }
 finally {
     $env:LOCALAPPDATA = $originalLocalAppData

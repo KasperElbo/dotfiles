@@ -102,7 +102,17 @@ Useful options are:
 
 # Install Noctty but preserve all of its existing configuration.
 .\platforms\windows\install.ps1 -SkipNocttyConfiguration
+
+# Additionally install the optional Handy voice-dictation application.
+.\platforms\windows\install.ps1 -Handy
 ```
+
+`-Handy` is the only optional desktop tooling this script installs. It is
+opt-in, per-user and Scoop-owned like Noctty, and it changes nothing about the
+WSL or terminal bootstrap. See the
+[optional dictation profile](../profiles/dictation.md#windows) for the
+shortcut, the first-run steps, where models and transcript history are kept,
+and how to verify and uninstall it.
 
 If Noctty already has a user-managed `command =` setting, the script retains
 it and omits the managed Fedora command. Otherwise the marked block in
@@ -121,7 +131,9 @@ verifier from the repository root:
 It reads `%LOCALAPPDATA%\dotfiles\windows-selection.json` and reports pass,
 warning, and fail outcomes. A failed repository-owned invariant returns a
 nonzero exit code. When Noctty was selected, verification requires its bucket,
-package, current executable, and resolved command to remain Scoop-owned. It
+package, current executable, and resolved command to remain Scoop-owned, and
+selected Handy is held to the same Scoop ownership through the `extras`
+bucket. It
 also compares every managed Noctty copy to the current checkout and detects
 broken or stale checkout links. The WSL check is limited to Windows ownership:
 the proven WSL package version and the recorded Fedora distribution on WSL 2.

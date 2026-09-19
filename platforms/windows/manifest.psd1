@@ -12,6 +12,15 @@
             QualifiedName = 'noctty/noctty'
             Executable = 'noctty.exe'
         }
+        ExtrasBucket = @{
+            Name = 'extras'
+            Url = 'https://github.com/ScoopInstaller/Extras'
+        }
+        HandyPackage = @{
+            Name = 'handy'
+            QualifiedName = 'extras/handy'
+            Executable = 'handy.exe'
+        }
     }
     NocttyManagedFiles = @(
         @{
