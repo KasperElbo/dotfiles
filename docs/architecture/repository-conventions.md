@@ -23,6 +23,7 @@ Do not commit:
 - machine-local theme state
 - runtime logs
 - nested Git repositories
+- recorded audio, transcription history, or downloaded speech models
 
 Do not leave a package manager's lockfile at the repository root without the
 project it belongs to. `./scripts/lint.sh` rejects a lone root lockfile: it
