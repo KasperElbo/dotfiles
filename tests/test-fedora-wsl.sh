@@ -689,6 +689,38 @@ grep -Fq "$missing_append_conf does not set [interop] appendWindowsPath=false" \
 grep -Fq 'configure-interop.sh' "$test_root/wsl-conf-missing-append.log"
 printf 'PASS: Fedora WSL verification rejects a wsl.conf without [interop] appendWindowsPath=false\n'
 
+# A wsl.conf this repository did not write may spell the key with spaces, and
+# WSL reads that as false. Comparing the file against the rendered form would
+# report a correctly configured machine as unconfigured, so the check reads the
+# value instead.
+spaced_append_conf="$test_root/wsl-conf-spaced-append.conf"
+printf '[boot]\nsystemd=true\n\n[interop]\nenabled=true\n  appendWindowsPath = false\n' \
+  >"$spaced_append_conf"
+if ! "${bootstrap_environment[@]}" "WSL_CONF_FILE=$spaced_append_conf" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/wsl-conf-spaced-append.log" 2>&1; then
+  printf 'Fedora WSL verification rejected a wsl.conf that sets appendWindowsPath with spaces:\n' >&2
+  sed -n '1,120p' "$test_root/wsl-conf-spaced-append.log" >&2
+  exit 1
+fi
+grep -Fq "$spaced_append_conf sets [interop] appendWindowsPath=false" \
+  "$test_root/wsl-conf-spaced-append.log"
+printf 'PASS: Fedora WSL verification accepts the spaced "appendWindowsPath = false" form\n'
+
+# The opposite of absent: the key is there and switched on. The failure has to
+# name the value it found, not claim the key is missing.
+enabled_append_conf="$test_root/wsl-conf-append-true.conf"
+printf '[interop]\nenabled=true\nappendWindowsPath=true\n' >"$enabled_append_conf"
+if "${bootstrap_environment[@]}" "WSL_CONF_FILE=$enabled_append_conf" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/wsl-conf-append-true.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a wsl.conf with appendWindowsPath=true.\n' >&2
+  exit 1
+fi
+grep -Fq "$enabled_append_conf sets [interop] appendWindowsPath=true" \
+  "$test_root/wsl-conf-append-true.log"
+printf 'PASS: Fedora WSL verification names the value when appendWindowsPath is on\n'
+
 # With the wsl.conf policy in place but WSL still injecting Windows entries
 # (the file was written and never applied by "wsl --shutdown"), the sanitized
 # login PATH looks perfect -- the Zsh stripper removed the entry before the

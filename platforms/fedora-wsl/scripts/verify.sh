@@ -99,22 +99,30 @@ section "Windows PATH injection policy"
 # file but nobody ran "wsl --shutdown" still injects the Windows PATH into all
 # of those, and only reading the file can see it.
 #
-# The file is read with the same renderer configure-interop.sh writes it with:
-# if rendering the current content with the intended pair would change nothing,
-# the content already holds that pair. No second wsl.conf parser is introduced.
+# The value is read, not the file's formatting compared: a wsl.conf this
+# repository did not write may spell the key "appendWindowsPath = false", and
+# WSL reads that as false, so reporting it as unset would fail a machine that
+# is correctly configured. ini_section_key_value shares its key-line shape with
+# the renderer configure-interop.sh writes with.
 wsl_conf_file="${WSL_CONF_FILE:-/etc/wsl.conf}"
 wsl_conf_remedy="run platforms/fedora-wsl/scripts/configure-interop.sh, then 'wsl --shutdown' from Windows PowerShell (this affects every WSL distribution, not just this one) and reopen this distribution"
 
 if [[ -r "$wsl_conf_file" ]]; then
   wsl_conf_content="$(cat "$wsl_conf_file")"
-  if [[ "$wsl_conf_content" == "$(
-    render_ini_section_keys "$wsl_conf_content" "interop" \
-      "appendWindowsPath=false"
-  )" ]]; then
+  append_windows_path="$(
+    ini_section_key_value "$wsl_conf_content" "interop" "appendWindowsPath"
+  )"
+  case "$append_windows_path" in
+  false)
     pass "$wsl_conf_file sets [interop] appendWindowsPath=false, so no context inherits the Windows PATH"
-  else
+    ;;
+  "")
     fail "$wsl_conf_file does not set [interop] appendWindowsPath=false, so every non-interactive context (systemd units, 'wsl.exe -e', VS Code, cron) still inherits the Windows PATH: $wsl_conf_remedy"
-  fi
+    ;;
+  *)
+    fail "$wsl_conf_file sets [interop] appendWindowsPath=$append_windows_path, so every non-interactive context (systemd units, 'wsl.exe -e', VS Code, cron) still inherits the Windows PATH: $wsl_conf_remedy"
+    ;;
+  esac
 else
   fail "Cannot read $wsl_conf_file, so [interop] appendWindowsPath=false is unverified: $wsl_conf_remedy"
 fi
