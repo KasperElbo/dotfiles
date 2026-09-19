@@ -21,9 +21,12 @@ set -uo pipefail
 # workflow's directory is removed as soon as it finishes, including when it
 # fails part-way through.
 
+# The library itself, not scripts/lib/common.sh: that wrapper is deprecated and
+# announces itself on stderr, into output the Fedora and macOS real-install jobs
+# capture and other suites assert on.
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=lib/common.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=../common/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../common/lib/common.sh"
 # Reuse the repository's shared reporting primitives rather than inventing a
 # second result vocabulary for user-facing validation.
 # shellcheck source=../common/lib/verify.sh

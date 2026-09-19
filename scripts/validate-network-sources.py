@@ -88,6 +88,9 @@ EXACT_REF_INTEGRITY = VERIFIED_INTEGRITY | {"git-tag-pinned", "git-commit-pinned
 
 PRIVILEGES = {"user", "root"}
 
+# The `resolved` column of a digest-pinned image row.
+IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+
 KINDS = {
     "apt-repo", "archive", "container-image", "file", "git", "gpg-key",
     "json-api", "package-registry", "remote-script", "rpm-package", "rpm-repo",
@@ -341,6 +344,24 @@ def load_registry() -> tuple[list[dict[str, str]], int]:
             if consumer and not (ROOT / consumer).exists():
                 fail(f"line {line}: {source_id} names a missing consumer: {consumer}")
                 errors += 1
+
+        # A digest pin the consumer does not use is a claim about a run that
+        # never happens: the registry would say `image-digest-pinned` while the
+        # workflow pulled a tag. The resolved digest has to be the reference
+        # the consumer actually names.
+        if row["integrity"] == "image-digest-pinned" and IMAGE_DIGEST.match(row["resolved"]):
+            for consumer in row["consumers"].split(","):
+                consumer = consumer.strip()
+                path = ROOT / consumer
+                if not consumer or not path.is_file():
+                    continue
+                if row["resolved"] not in path.read_text(encoding="utf-8"):
+                    fail(
+                        f"line {line}: {source_id} is recorded as image-digest-pinned "
+                        f"at {row['resolved']}, but {consumer} does not name that "
+                        f"digest; the consumer is pulling something else"
+                    )
+                    errors += 1
 
     return rows, errors
 

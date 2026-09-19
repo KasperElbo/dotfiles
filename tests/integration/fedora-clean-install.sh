@@ -162,7 +162,12 @@ run_as_negative_user() {
     "$container" bash -lc "$1"
 }
 
-install_command='./install.sh --platform fedora --no-kde --no-latex --non-interactive'
+# --kde and --sway are selected rather than left to detection so this sequence
+# is the real-installation evidence config/capabilities.tsv claims for them:
+# a capability that is never selected here is never installed or verified end
+# to end, whatever its verifier mentions. --latex stays off and says so in the
+# registry's ci_scope column, because TeX Live is gigabytes on every run.
+install_command='./install.sh --platform fedora --kde --sway --no-latex --non-interactive'
 
 printf '\n==> Invalid package must fail through the real installer\n'
 set +e
@@ -200,7 +205,7 @@ run_as_user "$install_command"
 run_as_user './platforms/fedora/scripts/verify.sh'
 
 printf '\n==> Selected-state transition (theme macchiato -> mocha)\n'
-run_as_user './install.sh --platform fedora --theme mocha --no-kde --no-latex --non-interactive'
+run_as_user './install.sh --platform fedora --theme mocha --kde --sway --no-latex --non-interactive'
 run_as_user "grep -Fxq mocha \"\${XDG_CONFIG_HOME:-\$HOME/.config}/dotfiles/theme\""
 run_as_user './platforms/fedora/scripts/verify.sh'
 

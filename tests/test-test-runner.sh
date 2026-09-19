@@ -111,4 +111,62 @@ assert_contains "$TEST_OUTPUT" "has no column: tool"
 assert_contains "$TEST_OUTPUT" "could not read the version floors from $headerless"
 assert_eq '' "$(cat "$log")" 'a floor manifest without a tool column must stop before any suite executes'
 
+printf 'A suite that is not registered in default_tests is a build failure\n'
+# Nothing used to require this. A new tests/test-*.sh that always failed passed
+# every validator, because no check compared the directory with the runner's
+# own list -- so a suite could be written, forgotten, and never run.
+#
+# The check is a function of a tests directory and a runner, so the same code
+# answers for this repository and for a scratch directory that is deliberately
+# missing one. `default_tests` is read out of the runner as the shell array it
+# is, by the shell, rather than matched as text.
+unregistered_suites() {
+  local tests_dir="$1" runner="$2" suite name
+  local -a default_tests=()
+  # shellcheck disable=SC1090  # the array declaration, evaluated on its own.
+  eval "$(sed -n '/^default_tests=(/,/^)/p' "$runner")"
+  ((${#default_tests[@]} > 0)) || {
+    printf 'no default_tests array in %s\n' "$runner"
+    return
+  }
+  for suite in "$tests_dir"/test-*.sh; do
+    [[ -e "$suite" ]] || continue
+    name="tests/${suite##*/}"
+    printf '%s\n' "${default_tests[@]}" | grep -Fxq "$name" ||
+      printf '%s is not registered in default_tests in %s\n' "$name" "$runner"
+  done
+}
+
+orphans="$(unregistered_suites "$repo_root/tests" "$repo_root/scripts/test.sh")"
+assert_eq '' "$orphans" 'every tests/test-*.sh must be listed in default_tests'
+
+# The negative control: a suite file the runner does not know about. It is
+# written to a scratch directory, so this checkout never grows a stray suite.
+orphan_dir="$root/orphan-tests"
+mkdir -p "$orphan_dir"
+cp "$repo_root/tests/test-verifier.sh" "$orphan_dir/test-verifier.sh"
+# Composed rather than written out, so the hygiene suite's "every repository
+# path a tracked file names must exist" rule does not read this fixture's name
+# as a promise that tests/ holds such a file.
+orphan_name="test-never-$(printf 'registered').sh"
+printf '#!/usr/bin/env bash\nexit 1\n' >"$orphan_dir/$orphan_name"
+orphans="$(unregistered_suites "$orphan_dir" "$repo_root/scripts/test.sh")"
+assert_contains "$orphans" \
+  "tests/$orphan_name is not registered in default_tests"
+assert_not_contains "$orphans" 'test-verifier.sh is not registered'
+
+printf 'A hung suite is killed and counted as failed, not left to stall the run\n'
+hung="$root/hang.sh"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" hang >>"${RUNNER_LOG:?}"\nsleep 120\n' >"$hung"
+chmod +x "$hung"
+: >"$log"
+run_capture env DOTFILES_TEST_REQUIRED_COMMANDS=bash DOTFILES_TEST_SUITE_TIMEOUT=2 \
+  RUNNER_LOG="$log" "$repo_root/scripts/test.sh" "$hung" "$pass_one"
+assert_status 1
+assert_file_contains "$log" 'hang'
+assert_file_contains "$log" 'pass-one'
+assert_contains "$TEST_OUTPUT" 'timed out after 2s'
+assert_contains "$TEST_OUTPUT" 'failed:  1'
+assert_contains "$TEST_OUTPUT" 'passed:  1'
+
 printf 'Aggregate test-runner tests passed.\n'

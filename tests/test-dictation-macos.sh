@@ -59,7 +59,7 @@ capability_row="$(awk -F'\t' '$1 == "dictation" && $2 == "macos"' \
   _test_die 'config/capabilities.tsv has no macos row for the dictation capability'
 IFS=$'\t' read -r _ _ _ capability_flag capability_default capability_dependencies \
   _ capability_provider _ _ capability_verifier capability_state capability_docs \
-  _ capability_status capability_installers <<<"$capability_row"
+  _ capability_status capability_installers capability_ci_scope <<<"$capability_row"
 assert_eq '--dictation' "$capability_flag" 'dictation capability flag'
 assert_eq 'disabled' "$capability_default" 'dictation capability default'
 assert_eq 'base' "$capability_dependencies" 'dictation capability dependencies'
@@ -70,6 +70,15 @@ assert_eq 'macos-dictation' "$capability_state" 'dictation state file name'
 assert_eq 'docs/profiles/dictation.md#macos' "$capability_docs" 'dictation documentation'
 assert_eq 'platforms/macos/scripts/install-dictation.sh' "$capability_installers" \
   'dictation installer'
+# No CI job can grant a microphone or a desktop session, so this profile is
+# deliberately never selected by the real-install workflow. That has to be a
+# recorded decision with its reason, not an omission: see the manual checklist
+# in docs/profiles/dictation.md.
+case "$capability_ci_scope" in
+excluded:*) ;;
+*) _test_die "the macos dictation row must record its CI exclusion, got: $capability_ci_scope" ;;
+esac
+assert_contains "$capability_ci_scope" 'docs/profiles/dictation.md'
 
 # The only platform row this change owns. The Fedora and Windows rows for the
 # same capability belong to their own changes, and this suite must not start

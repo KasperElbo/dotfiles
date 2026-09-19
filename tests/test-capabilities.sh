@@ -298,7 +298,7 @@ helper_platforms="$(PYTHONPATH="$repo_root/scripts/lib" python3 -c \
 }
 
 cp "$repo_root/config/capabilities.tsv" "$fixture.platform"
-printf 'base\tplasma9\tworkstation\t-\tenabled\t-\t-\tdnf\t-\t-\tplatforms/fedora/scripts/verify.sh\t-\tdocs/platforms/fedora.md\tnative\timplemented\t-\n' \
+printf 'base\tplasma9\tworkstation\t-\tenabled\t-\t-\tdnf\t-\t-\tplatforms/fedora/scripts/verify.sh\t-\tdocs/platforms/fedora.md\tnative\timplemented\t-\t-\n' \
   >>"$fixture.platform"
 if CAPABILITY_MANIFEST="$fixture.platform" \
   python3 "$repo_root/scripts/render-capability-matrix.py" --check \
@@ -380,6 +380,54 @@ new_scratch mocked-suite
 sed -i '/verify-desktop-tools\.sh/d' "$scratch/tests/test-desktop-tools.sh"
 expect_scratch_rejected 'a mocked verifier its suite never runs is rejected' \
   'desktop-tools: tests/test-desktop-tools.sh is recorded as the CI evidence for platforms/fedora/scripts/verify-desktop-tools.sh but never runs it'
+
+# A verifier being run is not the capability being installed. These rows all
+# declare a shared platform verifier that every real-install job runs, so the
+# rule above says nothing about them: what has to be true is that some
+# ./install.sh invocation actually *selects* them.
+new_scratch selection-fedora
+sed -i 's/--kde --sway --no-latex/--no-kde --no-latex/g' \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+expect_scratch_rejected 'a Fedora capability the integration script stops selecting is rejected' \
+  'fedora/sway: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --sway'
+
+new_scratch selection-macos
+sed -i 's/--ocaml --containers --tailscale --defaults/--ocaml --no-containers --no-tailscale --defaults/' \
+  "$scratch/.github/workflows/real-install.yml"
+expect_scratch_rejected 'a macOS capability the workflow stops selecting is rejected' \
+  'macos/tailscale: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --tailscale'
+
+# The escape hatch is a registry value, not silence. Deleting the recorded
+# reason puts the capability straight back under the rule.
+new_scratch selection-exclusion
+sed -i 's/\texcluded:[^\t]*$/\t-/' "$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'a capability whose CI exclusion is deleted is rejected' \
+  "macos/dictation: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --dictation"
+
+# Nor may the reason be anything the schema does not recognise.
+new_scratch selection-scope-value
+sed -i 's/\texcluded:needs a desktop session[^\t]*$/\tnot-in-ci/' \
+  "$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'an unrecognised ci_scope value is rejected' \
+  "macos/dictation: ci_scope must be '-' or 'excluded:<why>'; got 'not-in-ci'"
+
+# An exclusion that stopped being true is a false claim in the registry, so it
+# fails rather than sitting there outranking the workflow.
+new_scratch selection-stale-exclusion
+sed -i 's/^\(sway\tfedora\t.*\)\t-$/\1\texcluded:needs a compositor/' \
+  "$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'a CI exclusion the workflow contradicts is rejected' \
+  'fedora/sway: ci_scope excludes it from CI, but .github/workflows/real-install.yml selects --sway'
+
+# Selection is read out of the invocation, not searched for in the file: the
+# flag written in a step name or a comment is not a machine that installed it.
+new_scratch selection-mention-only
+sed -i 's/--kde --sway --no-latex/--no-kde --no-latex/g' \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+sed -i "s|^      - name: Run clean install, verifier, rerun and state transition\$|      - name: Run clean install with --kde --sway|" \
+  "$scratch/.github/workflows/real-install.yml"
+expect_scratch_rejected 'a flag named only in a step title is not selection' \
+  'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
 
 # Shell reads every manifest column by name (common/lib/manifest.sh), never by
 # a position stated in shell. Reordering columns must not change what an

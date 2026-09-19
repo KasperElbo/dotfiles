@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run clean install, verifier, rerun and state transition
         run: ./tests/integration/fedora-clean-install.sh
@@ -64,7 +64,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -111,12 +111,18 @@ jobs:
         # Both spellings: an upstream that reads either finds it, and the
         # installer offers the same token through a netrc for the ones that
         # read neither.
+        #
+        # --containers and --tailscale are selected here, not left off: this
+        # step is the real-installation evidence config/capabilities.tsv
+        # claims for both macOS rows, and a capability the workflow never
+        # selects is never installed or verified end to end. Neither is ever
+        # logged in or started -- "supported" means installable and runnable.
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: >-
           ./install.sh --platform macos --theme mocha
-          --ocaml --no-containers --no-tailscale --defaults
+          --ocaml --containers --tailscale --defaults
           --ai --codex --firstmate --gnhf --backpass
           --non-interactive
 
@@ -240,7 +246,8 @@ jobs:
           printf 'Remembered selection: %s\n' "$selection"
           # The optional AI subcomponents have to survive the round trip, or
           # --rerun would reapply a different machine than the one recorded.
-          for expected in ocaml:true ai:true codex:true firstmate:true gnhf:true backpass:true; do
+          for expected in ocaml:true containers:true tailscale:true \
+            ai:true codex:true firstmate:true gnhf:true backpass:true; do
             case ",$selection," in
               *",$expected,"*) ;;
               *) printf '::error::remembered selection dropped %s: %s\n' "$expected" "$selection"; exit 1 ;;
@@ -274,7 +281,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Test Windows bootstrap boundary
         shell: pwsh
@@ -306,24 +313,33 @@ jobs:
     name: Parrot image boundary (not VM evidence)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    env:
+      # Pinned by digest, as the Fedora validation image is: a boundary check
+      # that pulls a moving tag proves whatever Parrot published that morning,
+      # and a failure could not be told apart from a regression here. This is
+      # docker.io/parrotsec/core:latest as of 2026-09-19; see
+      # config/network-sources.tsv (parrot-boundary-image). Every step below
+      # uses this one reference, so the digest is bumped in one place.
+      # network-source: parrot-boundary-image
+      PARROT_IMAGE: docker.io/parrotsec/core@sha256:944b58dad7e74ae4789e5ae9e369109dc5ebb3fe143ec65a5e39ec4132d80469
+
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # network-source: parrot-boundary-image
       - name: Pull a disposable Parrot image
-        run: docker pull parrotsec/core:latest
+        run: docker pull "$PARROT_IMAGE"
 
-      # network-source: parrot-boundary-image
       - name: Confirm Parrot identity and APT availability
         run: |
-          docker run --rm parrotsec/core:latest bash -lc \
+          docker run --rm "$PARROT_IMAGE" bash -lc \
             "grep -Eiq 'parrot' /etc/os-release && apt-get update >/dev/null"
 
       - name: Exercise Parrot plan without claiming guest integration
         run: |
           docker run --rm -v "$PWD:/workspace:ro" -w /workspace \
-            parrotsec/core:latest \
+            "$PARROT_IMAGE" \
             ./install.sh --platform parrot-ctf --dry-run
 
       - name: Prove a non-QEMU container is rejected as a real Parrot guest
@@ -334,7 +350,7 @@ jobs:
             -e HOME=/tmp -e XDG_CONFIG_HOME=/tmp/.config \
             -e XDG_DATA_HOME=/tmp/.local/share \
             -v "$PWD:/workspace:ro" -w /workspace \
-            parrotsec/core:latest \
+            "$PARROT_IMAGE" \
             ./install.sh --platform parrot-ctf --non-interactive 2>&1)"
           status=$?
           set -e
@@ -473,7 +489,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Check out repository in the guest
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: dotfiles-ci
 
