@@ -30,10 +30,21 @@ mkdir -p "$test_root/xdg" "$test_root/home"
 # host's sha256sum rather than stubbing it keeps the verification under test
 # genuine: a mismatch case below has to fail through the same code path a
 # tampered download would.
-fixture_rpm="$test_root/fixture-handy.rpm"
+fixture_rpm="$test_root/fixture-handy.x86_64.rpm"
 printf 'not really an rpm, but a deterministic one\n' >"$fixture_rpm"
 fixture_sha256="$(sha256sum "$fixture_rpm" | cut -d' ' -f1)"
-wrong_sha256="0000000000000000000000000000000000000000000000000000000000000000"
+
+# What a tampered download looks like: the pin still describes the artifact
+# above, but these are the bytes that arrive. Verification has to reject them.
+tampered_rpm="$test_root/tampered-handy.x86_64.rpm"
+printf 'not really an rpm, and not the pinned one either\n' >"$tampered_rpm"
+
+# The digest this repository actually ships, read back out of the installer so
+# the suite cannot drift from it and so a blanked pin fails here rather than
+# silently reducing coverage.
+shipped_sha256="$(sed -n 's/^handy_rpm_sha256="\([0-9a-f]\{64\}\)"$/\1/p' "$installer")"
+[[ -n "$shipped_sha256" ]] ||
+  _test_die 'the installer must ship a 64-character hexadecimal pinned digest'
 
 # dnf is an allow-list, not an unconditional success: an unexpected package
 # transaction has to fail the suite. The staged rpm path is a mktemp directory
@@ -104,11 +115,30 @@ base_environment=(
 
 state_file="$test_root/xdg/dotfiles/dictation.conf"
 
+# A run against a fixture artifact: the installer fetches that file and
+# verifies it against its own digest. Passing an empty fixture leaves the pin
+# unrecorded, which is how the fail-closed guard is exercised.
 run_installer() {
-  local digest="$1"
+  local fixture="$1"
   shift
-  run_capture "${base_environment[@]}" "DOTFILES_HANDY_RPM_SHA256=$digest" \
+  run_capture "${base_environment[@]}" "DOTFILES_TEST_HANDY_RPM=$fixture" \
     "$installer" "$@"
+}
+
+# A run with no fixture at all, so the shipped pin and the shipped URL are
+# what the installer uses.
+run_installer_as_shipped() {
+  run_capture "${base_environment[@]}" "$installer" "$@"
+}
+
+# A run where the bytes that arrive are not the bytes the pin describes. The
+# later FIXTURE_RPM assignment wins, so the stubbed download serves the
+# tampered file while the pin still names the fixture.
+run_installer_serving() {
+  local fixture="$1" served="$2"
+  shift 2
+  run_capture "${base_environment[@]}" "DOTFILES_TEST_HANDY_RPM=$fixture" \
+    "FIXTURE_RPM=$served" "$installer" "$@"
 }
 
 reset_logs() {
@@ -130,10 +160,10 @@ printf 'PASS: the Handy release is pinned by version and artifact name\n'
 
 # --- dry-run changes nothing and states the provider ----------------------
 
-run_installer "$fixture_sha256" --dry-run
+run_installer_as_shipped --dry-run
 assert_success
 assert_contains "$TEST_OUTPUT" 'Provider:           pinned upstream release rpm, verified by SHA-256'
-assert_contains "$TEST_OUTPUT" "Pinned SHA-256:     $fixture_sha256"
+assert_contains "$TEST_OUTPUT" "Pinned SHA-256:     $shipped_sha256"
 assert_contains "$TEST_OUTPUT" 'https://github.com/cjpais/Handy/releases/download/'
 assert_contains "$TEST_OUTPUT" 'Fedora packages:    gtk-layer-shell wtype'
 assert_contains "$TEST_OUTPUT" 'Super+O, owned by Sway (pkill -USR2 -x handy)'
@@ -165,10 +195,10 @@ printf 'PASS: an unpinned artifact fails closed before any download or sudo\n'
 # --- the pinned artifact is downloaded, verified and installed ------------
 
 install_handy_command
-run_installer "$fixture_sha256"
+run_installer "$fixture_rpm"
 assert_success
 assert_file_contains "$command_log" 'sudo dnf install -y gtk-layer-shell wtype'
-assert_file_contains "$download_log" 'https://github.com/cjpais/Handy/releases/download/'
+assert_file_contains "$download_log" 'https://dotfiles-test.invalid/'
 assert_file_contains "$download_log" '.x86_64.rpm'
 if ! grep -Eq '^sudo dnf install -y /.*/Handy-[0-9.]+-1\.x86_64\.rpm$' "$command_log"; then
   _test_die "the verified rpm was not installed:\n$(cat "$command_log")"
@@ -207,7 +237,7 @@ printf 'PASS: the profile state records the verified artifact\n'
 
 first_state="$(sha256sum "$state_file")"
 reset_logs
-run_installer "$fixture_sha256"
+run_installer "$fixture_rpm"
 assert_success
 assert_contains "$TEST_OUTPUT" 'already installed from the pinned artifact'
 assert_file_empty "$download_log"
@@ -219,7 +249,7 @@ printf 'PASS: a rerun with the pinned artifact already installed is a no-op\n'
 # --- a changed pin reinstalls rather than trusting the old state ----------
 
 reset_logs
-run_installer "$wrong_sha256"
+run_installer_serving "$tampered_rpm" "$fixture_rpm"
 assert_failure
 assert_contains "$TEST_OUTPUT" 'SHA-256 mismatch'
 assert_file_contains "$download_log" '.x86_64.rpm'

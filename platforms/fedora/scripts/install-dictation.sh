@@ -48,15 +48,25 @@ handy_version="0.9.7"
 handy_rpm="Handy-${handy_version}-1.x86_64.rpm"
 # network-source: handy-release
 handy_url="https://github.com/cjpais/Handy/releases/download/v${handy_version}/${handy_rpm}"
-handy_rpm_sha256=""
+handy_rpm_sha256="91efeac19e2af6e5d92b6adf27991eafb7f10ef4979558f486f61f6db1820053"
 
-# Test hook, deliberately one-directional: the suites exercise the real
-# download/verify/install path against a fixture artifact, whose digest cannot
-# be the pinned one. It is consulted only while the tracked pin above is
-# empty, so it can never override or weaken a digest this repository has
-# actually recorded.
-if [[ -z "$handy_rpm_sha256" ]]; then
-  handy_rpm_sha256="${DOTFILES_HANDY_RPM_SHA256:-}"
+# Test seam. The suites cannot download a 112 MB release artifact, so they
+# name a small fixture file instead, and the digest that is verified is that
+# file's own -- computed here, never supplied by the caller.
+#
+# It cannot weaken the pinned download, because naming a fixture also replaces
+# the URL. The pinned URL above is only ever paired with the pinned digest
+# above; no value of this variable makes the real artifact acceptable under a
+# digest someone else chose. Set but empty exercises the unpinned guard below.
+if [[ -n "${DOTFILES_TEST_HANDY_RPM+set}" ]]; then
+  if [[ -n "$DOTFILES_TEST_HANDY_RPM" ]]; then
+    # .invalid is reserved by RFC 2606 and resolves nowhere, so this URL can
+    # never reach the real artifact; only a stubbed download answers it.
+    handy_url="https://dotfiles-test.invalid/$handy_rpm"
+    handy_rpm_sha256="$(sha256sum -- "$DOTFILES_TEST_HANDY_RPM" | cut -d' ' -f1)"
+  else
+    handy_rpm_sha256=""
+  fi
 fi
 
 state_file="${DICTATION_STATE_FILE:-$XDG_CONFIG_HOME/dotfiles/dictation.conf}"
