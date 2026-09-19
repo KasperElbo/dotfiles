@@ -13,7 +13,8 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 lazyvim_config="$repo_root/nvim-lazyvim/.config/nvim"
 lua_output="$(mktemp)"
-trap 'rm -f -- "$lua_output"' EXIT
+scratch="$(mktemp -d)"
+trap 'rm -f -- "$lua_output"; rm -rf -- "$scratch"' EXIT
 
 fail() {
   printf 'JSON workflow test failed: %s\n' "$*" >&2
@@ -64,10 +65,77 @@ printf 'PASS: Prettier has exactly one declared editor-side owner\n'
 options="$lazyvim_config/lua/config/options.lua"
 grep -Fq 'vim.g.lazyvim_prettier_needs_config = false' "$options" ||
   fail "the standalone-file formatting policy is not stated explicitly"
-save_hooks="$(grep -rn 'BufWritePre' "$lazyvim_config/lua" || true)"
-if grep -Eq 'json' <<<"$save_hooks"; then
-  fail "a JSON-specific format-on-save hook diverges from the repository policy"
+# Three constructs would put a second save-time policy beside LazyVim's, each
+# outside the `vim.g.autoformat` toggle that turns the first one off: an
+# autocommand on a write event, Conform's own `format_on_save` /
+# `format_after_save`, and an `autoformat` override for some buffers only. The
+# configuration is read as Lua, so a comment or a string naming one of them is
+# not one -- the distinction #273 was caught by.
+reader="$repo_root/tests/support/check-nvim-save-policy.py"
+save_policy="$(python3 "$reader" "$lazyvim_config/lua")" ||
+  fail "the Neovim configuration could not be read as Lua"
+
+# What the reader found, before anything is concluded from what it did not.
+# The assertion below is about a set the reader has demonstrably seen: this
+# configuration registers autocommands, and the reader reports them.
+scanned="$(awk -F'\t' '$1 == "scanned" { print $2 }' <<<"$save_policy")"
+[[ "$scanned" =~ ^[0-9]+$ ]] && ((scanned > 0)) ||
+  fail "the save-policy reader scanned no Lua files"
+autocmds="$(awk -F'\t' '$1 == "autocmd" { print $2 ":" $3 " " $4 }' <<<"$save_policy")"
+[[ -n "$autocmds" ]] ||
+  fail "the save-policy reader found no autocommands at all, so it cannot show that none of them is a save hook"
+
+# `dynamic` is an event list the reader could not resolve from the source. It
+# fails here rather than passing, because nothing has shown it is not a write.
+write_hooks="$(awk -F'\t' '
+  $1 == "autocmd" && ($4 ~ /BufWrite/ || $4 == "dynamic") { print $2 ":" $3 " " $4 }
+' <<<"$save_policy")"
+[[ -z "$write_hooks" ]] ||
+  fail "a save-time autocommand runs outside LazyVim's autoformat toggle: $write_hooks"
+conform_hooks="$(awk -F'\t' '$1 == "conform-save" { print $2 ":" $3 " " $4 }' <<<"$save_policy")"
+[[ -z "$conform_hooks" ]] ||
+  fail "Conform installs its own save hook, which the autoformat toggle does not reach: $conform_hooks"
+overrides="$(awk -F'\t' '$1 == "autoformat" { print $2 ":" $3 }' <<<"$save_policy")"
+[[ -z "$overrides" ]] ||
+  fail "an autoformat override makes the format-on-save policy per-buffer: $overrides"
+
+# The negative control. Two of the three assertions above are about constructs
+# this configuration has none of, so without a planted copy they would be
+# reporting the absence of something nothing had shown the reader could find.
+control="$scratch/lua"
+mkdir -p "$control"
+cat >"$control/planted.lua" <<'LUA'
+-- A comment naming BufWritePre, format_on_save and autoformat is not code,
+-- and neither is this string: "format_after_save".
+vim.api.nvim_create_autocmd("BufWritePre", {
+  pattern = { "*.json", "*.jsonc" },
+  callback = function()
+    vim.b.autoformat = true
+    require("conform").format()
+  end,
+})
+return {
+  { "stevearc/conform.nvim", opts = { format_on_save = { timeout_ms = 500 } } },
+}
+LUA
+control_report="$(python3 "$reader" "$control")" ||
+  fail "the save-policy reader could not read its own negative control"
+for kind in autocmd conform-save autoformat; do
+  found="$(awk -F'\t' -v kind="$kind" '$1 == kind' <<<"$control_report")"
+  [[ -n "$found" ]] ||
+    fail "the save-policy reader reports no $kind record, so its absence above proves nothing"
+done
+control_events="$(awk -F'\t' '$1 == "autocmd" { print $4 }' <<<"$control_report")"
+[[ "$control_events" == *BufWrite* ]] ||
+  fail "the save-policy reader did not report the planted write event"
+
+# A file it cannot lex is an error, not a file that quietly contributes no
+# findings -- the fail-open shape this repository keeps having to remove.
+printf 'local unterminated = "\n' >"$control/broken.lua"
+if python3 "$reader" "$control" >/dev/null 2>&1; then
+  fail "the save-policy reader accepted a file it could not read as Lua"
 fi
+rm -f -- "$control/broken.lua"
 printf 'PASS: JSON follows the repository-wide format-on-save policy\n'
 
 # The disposable fixture the behavioural test consumes must stay complete.
