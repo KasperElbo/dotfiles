@@ -392,10 +392,28 @@ output="$(
     XDG_STATE_HOME="$doctor_home/state" XDG_DATA_HOME="$doctor_home/data" \
     "$repo_root/install.sh" --platform doctor 2>&1 || true
 )"
-grep -Fq 'Unsupported platform: doctor' <<<"$output" || {
-  printf '--platform doctor was not treated as a platform name:\n%s\n' "$output" >&2
+# What must hold everywhere: the report did not run.
+if grep -Fq 'Dotfiles doctor (read-only)' <<<"$output"; then
+  # Apple's Bash reads a format starting with "-" as an option, and this file
+  # runs under /bin/bash on the macOS runner, so the format never starts with
+  # one -- not even in a branch that is only reached when something is wrong.
+  printf '%s\n%s\n' '--platform doctor ran the doctor instead of naming a platform:' \
+    "$output" >&2
   exit 1
-}
+fi
+# What it says depends on the interpreter this file was started with. With a
+# supported Bash the installer reaches its platform validation and names the
+# platform. Started under Apple's Bash -- which is how the macOS job runs this
+# file -- scripts/install-main.sh refuses at its own boundary first, and that
+# refusal is the documented behaviour, not a failure of this case. The doctor
+# cases above are unaffected either way, because modern-bash.sh finds Homebrew
+# Bash by absolute path rather than through PATH.
+if ! grep -Fq 'Unsupported platform: doctor' <<<"$output" &&
+  ! grep -Fq 'requires Bash 4.4 or newer' <<<"$output"; then
+  printf '%s\n%s\n' '--platform doctor was neither rejected as a platform nor refused by the Bash boundary:' \
+    "$output" >&2
+  exit 1
+fi
 printf 'PASS: --platform doctor still names a platform\n'
 
 # --- The interesting case, run for real where a real Apple Bash exists --------
@@ -456,7 +474,7 @@ if [[ "$system_bash_is_old" == true ]]; then
     exit 1
   }
   ! grep -Fq 'Unknown option: --preserve-wallpaper' <<<"$output" || {
-    printf '--preserve-wallpaper was lost or reordered:\n%s\n' "$output" >&2
+    printf '%s\n%s\n' '--preserve-wallpaper was lost or reordered:' "$output" >&2
     exit 1
   }
   printf 'PASS: theme mocha --preserve-wallpaper keeps its argv across the re-exec\n'
