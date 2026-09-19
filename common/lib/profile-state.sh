@@ -35,11 +35,14 @@ profile_state_allowed_keys() {
   ocaml) printf '%s\n' switch compiler ;;
   ga402xz | ga402rk) printf '%s\n' secure_boot charge_limit ;;
   containers) printf '%s\n' runtime mode compose_provider api_socket user ;;
-  # The optional dictation profile. sha256/version/artifact record the pinned
-  # upstream artifact the machine was installed from, and bundle_id/team_id
-  # the signing identity verification asserts, so a machine can be audited
-  # against the pin without redownloading anything.
-  dictation) printf '%s\n' application provider version artifact sha256 bundle_id team_id path ;;
+  # The optional dictation profile, whose application differs per platform.
+  # Every platform records the pinned upstream artifact the machine was
+  # installed from (version/sha256, plus artifact or rpm for the file name),
+  # so a machine can be audited against the pin without redownloading. macOS
+  # adds bundle_id/team_id/path for the signing identity its verifier
+  # asserts; Fedora adds paste_backend and toggle for the Wayland route and
+  # the compositor-owned key.
+  dictation) printf '%s\n' application provider version artifact rpm sha256 bundle_id team_id path paste_backend toggle ;;
   desktop-tools) printf '%s\n' image_viewer image_editor pdf_viewer pdf_tool archive_manager media_player scanner force_defaults ;;
   hardening) printf '%s\n' selinux_mode faillock sudo_logfile auditd sysctl_ptrace_scope sysctl_kptr_restrict sysctl_dmesg_restrict ssh dnf_automatic ;;
   tailscale) printf '%s\n' repo service variant ;;
@@ -58,6 +61,9 @@ profile_state_required_keys() {
   ocaml) printf '%s\n' switch compiler ;;
   ga402xz | ga402rk) printf '%s\n' secure_boot charge_limit ;;
   containers) printf '%s\n' runtime mode api_socket ;;
+  # What every platform's dictation state must carry. The per-platform extras
+  # are allowed above and asserted by each platform's own suite, because a key
+  # required here would have to exist on all of them.
   dictation) printf '%s\n' application provider version ;;
   desktop-tools) printf '%s\n' image_viewer image_editor pdf_viewer pdf_tool ;;
   hardening) printf '%s\n' selinux_mode faillock auditd ;;

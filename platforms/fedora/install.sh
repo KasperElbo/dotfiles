@@ -20,7 +20,8 @@ theme="$THEME_DEFAULT_FLAVOUR"; theme_explicit=false; install_kde=auto; install_
 run_dev_workflows=false
 install_sway=false; install_vm_host=false; install_vm_guest=false
 install_hardening=false; install_desktop_tools=false
-desktop_tools_force_defaults=false; install_containers=false
+desktop_tools_force_defaults=false; install_dictation=false
+install_containers=false
 containers_api_socket=false; install_tailscale=false; install_ai=false
 # Empty means the sub-flag was omitted. install-ai.sh treats that as
 # additive -- keep whatever is already installed -- so it must stay
@@ -46,6 +47,8 @@ Options:
   --hardening/--no-hardening
   --desktop-tools/--no-desktop-tools
   --desktop-tools-force-defaults
+  --dictation/--no-dictation
+                     Voice dictation (Handy), bound to Super+O by Sway
   --containers/--no-containers
   --containers-api-socket
   --tailscale/--no-tailscale
@@ -78,6 +81,7 @@ while (($#)); do
   --hardening) install_hardening=true; shift ;; --no-hardening) install_hardening=false; shift ;;
   --desktop-tools) install_desktop_tools=true; shift ;; --no-desktop-tools) install_desktop_tools=false; shift ;;
   --desktop-tools-force-defaults) desktop_tools_force_defaults=true; shift ;;
+  --dictation) install_dictation=true; shift ;; --no-dictation) install_dictation=false; shift ;;
   --containers) install_containers=true; shift ;; --no-containers) install_containers=false; shift ;;
   --containers-api-socket) containers_api_socket=true; shift ;;
   --tailscale) install_tailscale=true; shift ;; --no-tailscale) install_tailscale=false; shift ;;
@@ -150,6 +154,7 @@ install_selection_set vm-guest "$install_vm_guest"
 install_selection_set hardening "$install_hardening"
 install_selection_set desktop-tools "$install_desktop_tools"
 install_selection_set desktop-tools-force-defaults "$desktop_tools_force_defaults"
+install_selection_set dictation "$install_dictation"
 install_selection_set containers "$install_containers"
 install_selection_set containers-api-socket "$containers_api_socket"
 install_selection_set tailscale "$install_tailscale"
@@ -175,7 +180,7 @@ hardware_selected=false
 fedora_selected_capabilities() {
   local selection
   printf '%s\n' base dotnet-debug
-  for selection in "$bool_kde:kde" "$bool_latex:latex" "$install_ocaml:ocaml" "$install_sway:sway" "$install_vm_host:vm-host" "$install_vm_guest:vm-guest" "$hardware_selected:hardware" "$install_hardening:hardening" "$install_desktop_tools:desktop-tools" "$install_containers:containers" "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
+  for selection in "$bool_kde:kde" "$bool_latex:latex" "$install_ocaml:ocaml" "$install_sway:sway" "$install_vm_host:vm-host" "$install_vm_guest:vm-guest" "$hardware_selected:hardware" "$install_hardening:hardening" "$install_desktop_tools:desktop-tools" "$install_dictation:dictation" "$install_containers:containers" "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
     [[ "${selection%%:*}" != true ]] || printf '%s\n' "${selection#*:}"
   done
 }
@@ -199,6 +204,7 @@ fedora_vm_host_command() { printf '%s\n' platforms/fedora/scripts/install-vm-hos
 fedora_vm_guest_command() { printf '%s\n' platforms/fedora/scripts/install-vm-guest.sh; }
 fedora_hardening_command() { printf '%s\n' platforms/fedora/scripts/install-hardening.sh; }
 fedora_desktop_tools_command() { printf '%s\n' platforms/fedora/scripts/install-desktop-tools.sh; [[ "$desktop_tools_force_defaults" != true ]] || printf '%s\n' --force-defaults; }
+fedora_dictation_command() { printf '%s\n' platforms/fedora/scripts/install-dictation.sh; }
 fedora_containers_command() { printf '%s\n' platforms/fedora/scripts/install-containers.sh; [[ "$containers_api_socket" != true ]] || printf '%s\n' --api-socket; }
 fedora_tailscale_command() { printf '%s\n' platforms/fedora/scripts/install-tailscale.sh; }
 fedora_local_command() { printf '%s\n' platforms/fedora/scripts/setup-local.sh "$theme"; [[ "$install_sway" != true ]] || { printf '%s\n' --sway; [[ -z "$hardware_model" ]] || printf '%s\n' --hardware "$hardware_model"; }; }
@@ -252,6 +258,7 @@ apply_vm_host() { plan_command_run fedora_vm_host_command; }
 apply_vm_guest() { plan_command_run fedora_vm_guest_command; }
 apply_hardening() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interactive); plan_command_run fedora_hardening_command "${args[@]}"; }
 apply_desktop() { plan_command_run fedora_desktop_tools_command; }
+apply_dictation() { plan_command_run fedora_dictation_command; }
 apply_containers() { plan_command_run fedora_containers_command; }
 apply_tailscale() { plan_command_run fedora_tailscale_command; }
 apply_local() { plan_command_run fedora_local_command; }
@@ -276,6 +283,7 @@ plan_add terra 'Enable Terra and install Terra-managed packages' apply : apply_t
 [[ "$install_vm_guest" != true ]] || plan_add vm-guest 'Install the explicit Fedora KVM/QEMU VM-guest profile' apply : apply_vm_guest : "$(plan_command_note fedora_vm_guest_command)" 'platforms/fedora/scripts/install-vm-guest.sh'
 [[ "$install_hardening" != true ]] || plan_add hardening 'Install the optional conservative security-hardening profile' apply : apply_hardening : "$(plan_command_note fedora_hardening_command)" 'platforms/fedora/scripts/install-hardening.sh'
 [[ "$install_desktop_tools" != true ]] || plan_add desktop-tools 'Install the optional day-to-day desktop application profile' apply : apply_desktop : "$(plan_command_note fedora_desktop_tools_command); GIMP, pdfarranger, mpv, Skanpage; reuses Gwenview, Okular, Ark" 'platforms/fedora/scripts/install-desktop-tools.sh'
+[[ "$install_dictation" != true ]] || plan_add dictation 'Install the optional voice-dictation profile' apply : apply_dictation : "$(plan_command_note fedora_dictation_command); Handy from a pinned, digest-verified release rpm, plus wtype and gtk-layer-shell" 'platforms/fedora/scripts/install-dictation.sh'
 [[ "$install_containers" != true ]] || plan_add containers 'Install the optional rootless Podman profile' apply : apply_containers : "$(plan_command_note fedora_containers_command)" 'platforms/fedora/scripts/install-containers.sh'
 [[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale networking profile' apply : apply_tailscale : "$(plan_command_note fedora_tailscale_command)" 'platforms/fedora/scripts/install-tailscale.sh'
 plan_add local 'Initialize machine-local configuration' apply : apply_local : "$(plan_command_note fedora_local_command)" 'platforms/fedora/scripts/setup-local.sh'
@@ -306,6 +314,7 @@ VM-guest profile:    $install_vm_guest
 Hardening profile:   $install_hardening
 Desktop tools:       $install_desktop_tools
 Force app defaults:  $desktop_tools_force_defaults
+Dictation profile:   $install_dictation
 Containers profile:  $install_containers
 Containers API socket: $containers_api_socket
 Tailscale profile:   $install_tailscale

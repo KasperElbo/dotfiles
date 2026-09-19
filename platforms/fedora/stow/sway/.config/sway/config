@@ -122,6 +122,14 @@ bindsym $mod+Shift+s exec sway-screenshot region
 bindsym Shift+Print exec sway-screenshot output
 bindsym $mod+Shift+v exec cliphist list | fuzzel --dmenu --config=$HOME/.config/dotfiles/fuzzel.ini | cliphist decode | wl-copy
 
+# Voice dictation (optional --dictation profile). Sway owns the binding on
+# purpose: Handy's own global shortcut cannot work on wlroots, so the
+# compositor delivers SIGUSR2 to the running instance instead, which is the
+# route Handy documents for Wayland. -x matches the process name exactly, and
+# pkill only delivers the signal -- it never terminates Handy. With the
+# profile unselected nothing matches and the key is a harmless no-op.
+bindsym $mod+o exec pkill -USR2 -x handy
+
 # Session services. Swayidle deliberately never suspends the machine.
 exec sway-session-start
 exec /usr/libexec/lxqt-policykit-agent

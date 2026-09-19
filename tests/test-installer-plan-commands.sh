@@ -166,9 +166,9 @@ assert_plan_keeps_promises() {
 }
 
 assert_plan_keeps_promises fedora-every-option fedora \
-  base,dotnet-debug,kde,latex,ocaml,sway,vm-host,hardware,hardening,desktop-tools,containers,tailscale,ai,codex,gnhf,backpass \
+  base,dotnet-debug,kde,latex,ocaml,sway,vm-host,hardware,hardening,desktop-tools,dictation,containers,tailscale,ai,codex,gnhf,backpass \
   --kde --latex --ocaml --sway --vm-host --hardware ga402xz --secure-boot --charge-limit 80 \
-  --hardening --desktop-tools --desktop-tools-force-defaults --containers --containers-api-socket \
+  --hardening --desktop-tools --desktop-tools-force-defaults --dictation --containers --containers-api-socket \
   --tailscale --ai --codex --no-firstmate --gnhf --backpass --dev-workflows
 assert_plan_keeps_promises fedora-option-defaults fedora \
   base,dotnet-debug,vm-guest,desktop-tools,containers,ai,firstmate \

@@ -83,6 +83,7 @@ for a flag again. The manifest's `state` column is what names them:
 | `~/.config/dotfiles/ai.conf` | `ai`, `backpass`, `codex`, `firstmate`, `gnhf` |
 | `~/.config/dotfiles/containers.conf` | `containers` |
 | `~/.config/dotfiles/desktop-tools.conf` | `desktop-tools` |
+| `~/.config/dotfiles/dictation.conf` | `dictation` |
 | `~/.config/dotfiles/hardening.conf` | `hardening` |
 | `~/.config/dotfiles/hardware.conf` | `hardware` |
 | `~/.config/dotfiles/macos-containers.conf` | `containers` |

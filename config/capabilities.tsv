@@ -39,6 +39,9 @@ desktop-tools	fedora	workstation	--desktop-tools	disabled	base	-	dnf+rpmfusion	g
 desktop-tools	fedora-wsl	workstation	-	disabled	-	-	unsupported	-	-	none	-	docs/platforms/fedora-wsl.md	intentional-absence	unsupported	-
 desktop-tools	macos	workstation	-	disabled	-	-	unsupported	-	-	none	-	docs/platforms/macos.md	intentional-absence	unsupported	-
 desktop-tools	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	docs/platforms/parrot-ctf.md	intentional-absence	unsupported	-
+dictation	fedora	workstation	--dictation	disabled	base	-	dnf+pinned-rpm	wtype,gtk-layer-shell	-	platforms/fedora/scripts/verify-dictation.sh	dictation	docs/profiles/dictation.md	native+pinned	implemented	platforms/fedora/scripts/install-dictation.sh
+dictation	fedora-wsl	workstation	-	disabled	-	-	unsupported	-	-	none	-	docs/platforms/fedora-wsl.md	intentional-absence	unsupported	-
+dictation	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	docs/platforms/parrot-ctf.md	intentional-absence	unsupported	-
 terminal	fedora-wsl	workstation	-	disabled	-	-	windows-host	-	-	none	-	docs/platforms/fedora-wsl.md	windows-owned	unsupported	-
 terminal	fedora	workstation	-	enabled	base	-	base	-	-	platforms/fedora/scripts/verify.sh	-	docs/platforms/fedora.md#terminal	native	implemented	-
 terminal	macos	workstation	-	enabled	base	-	base	-	-	platforms/macos/scripts/verify.sh	-	docs/platforms/macos.md#terminal	native	implemented	-

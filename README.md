@@ -168,6 +168,7 @@ authoritative for what. The usual starting points:
   [VM host](docs/profiles/vm-host.md), [VM guest](docs/profiles/vm-guest.md),
   [hardening](docs/profiles/hardening.md),
   [desktop tools](docs/profiles/desktop-tools.md),
+  [dictation](docs/profiles/dictation.md),
   [Tailscale](docs/profiles/tailscale.md), [AI toolchain](docs/profiles/ai.md)
 - **Daily workflows** — [shell](docs/workflows/shell.md),
   [terminal](docs/workflows/terminal.md), [theming](docs/workflows/theming.md),

@@ -678,6 +678,22 @@ if [[ -f "$desktop_tools_state" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Optional dictation profile
+# ---------------------------------------------------------------------------
+
+dictation_state="$XDG_CONFIG_HOME/dotfiles/dictation.conf"
+
+if [[ -f "$dictation_state" ]]; then
+  section "Dictation"
+
+  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-dictation.sh"; then
+    pass "Dictation profile verification completed"
+  else
+    fail "Dictation profile verification failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Optional containers (Podman) profile
 # ---------------------------------------------------------------------------
 

@@ -113,6 +113,7 @@ ARRAY_OWNERS = {
     # to the platform image rather than to any capability here.
     ("platforms/fedora/scripts/install-desktop-tools.sh", "baseline_packages"): None,
     ("platforms/fedora/scripts/install-desktop-tools.sh", "added_packages"): "desktop-tools",
+    ("platforms/fedora/scripts/install-dictation.sh", "packages"): "dictation",
 }
 
 PACKAGE_ARRAY = re.compile(r"^\s*(\w*packages)=\(([^)]*)\)", re.M)
@@ -436,6 +437,7 @@ MOCKED_VERIFIERS = {
     "platforms/fedora/scripts/verify-asus-hardware.sh": "tests/test-asus-verification.sh",
     "platforms/fedora/scripts/verify-containers.sh": "tests/test-containers.sh",
     "platforms/fedora/scripts/verify-desktop-tools.sh": "tests/test-desktop-tools.sh",
+    "platforms/fedora/scripts/verify-dictation.sh": "tests/test-dictation-fedora.sh",
     "platforms/fedora/scripts/verify-hardening.sh": "tests/test-hardening.sh",
     "platforms/fedora/scripts/verify-tailscale.sh": "tests/test-tailscale.sh",
     "platforms/fedora/scripts/verify-vm-guest.sh": "tests/test-vm-guest.sh",

@@ -306,7 +306,7 @@ The shell re-exec belongs to the Zsh wrapper, not to the command; see
 
 ## Complete action reference
 
-Every action this repository defines or deliberately puts in front of you: 237 entries, grouped by the platform they exist on.
+Every action this repository defines or deliberately puts in front of you: 238 entries, grouped by the platform they exist on.
 
 **Origin** is the distinction that matters when something behaves unexpectedly.
 `repository` means this repository binds it, and the `Source` column says where.
@@ -520,6 +520,7 @@ choice with a recorded reason, never an omission.
 | Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
 |---|---|---|---|---|---|---|---|
 | `Super+Shift+V` | Clipboard history picker (cliphist + Fuzzel) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
+| `Super+O` | Toggle Handy voice dictation on and off (SIGUSR2 to the running instance) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Tab` | Focus the next display | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Shift+Tab` | Move the focused window to the next display | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Ctrl+Tab` | Move the whole workspace to the next display | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
@@ -715,7 +716,7 @@ choice with a recorded reason, never an omission.
 
 ### Why an action is not on a printable sheet
 
-44 of the 237 registered actions are deliberately kept off every sheet:
+44 of the 238 registered actions are deliberately kept off every sheet:
 
 | Action | Reason |
 |---|---|
