@@ -64,6 +64,29 @@ exception: `docs/cheatsheets/generate.sh` renders them from tracked LaTeX
 source, but the PDFs are not committed, so there is no output that can go
 stale.
 
+## What a check may conclude from
+
+A gate exists to catch a class of mistake, so it has to be written so that the
+mistake it names cannot get past it. Two rules, both learned from gates that
+failed open on exactly what they existed to catch:
+
+**A check over shell must read shell.** A regex over a file's raw text proves
+nothing about behaviour. `# ripgrep` still contains the word `ripgrep`, so a
+package commented out of an installer array still satisfies a text search; a
+commented-out `bindsym` line still contains its key, so the registry and the
+printed cheat sheet keep advertising a key that does nothing. Drop the comment
+lines before matching (`code_text()` in `scripts/validate-capabilities.py` and
+in `scripts/validate-actions.py`), parse the construct, or run the shell and
+observe what it did. The same holds for the other configuration languages: a
+mise pin and an AeroSpace binding are parsed as TOML, a Waybar click as JSON.
+
+**A check that cannot parse its input must error.** Skipping the line it cannot
+read turns a gate into a suggestion, and that line is the one most likely to be
+wrong. `scripts/validate-plan-network.py` names the file and the line and fails
+the build when a `plan_add` call does not tokenise, rather than dropping the
+step from a check that runs in both directions. No validator may `continue`
+past input it was written to check.
+
 ## Entry points, and what `scripts/` actually is
 
 A file living under `scripts/` is not automatically a public, cross-platform

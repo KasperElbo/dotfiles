@@ -133,6 +133,41 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "sway.launch.terminal: source_pattern no longer matches"
 printf 'PASS: renaming a binding without updating the registry fails\n'
 
+# --- A commented-out binding in the tracked config is caught ----------------
+
+# A `#` line is read by nobody, so a source_pattern that lands on one is no
+# evidence the action exists; the registry and the printed sheet would keep
+# advertising a key that does nothing. `implemented_actions` already reads the
+# Sway config line by line, and this is the same rule for the other direction.
+test_new_root
+scratch="$TEST_ROOT/commented-sway"
+mkdir -p "$scratch"
+cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
+# shellcheck disable=SC2016 # $mod is a literal Sway variable.
+sed -i 's|^bindsym \$mod+Return exec ghostty|# bindsym $mod+Return exec ghostty|' \
+  "$scratch/platforms/fedora/stow/sway/.config/sway/config"
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "sway.launch.terminal: source_pattern no longer matches"
+printf 'PASS: commenting a Sway binding out without updating the registry fails\n'
+
+# The same rule with Lua comment syntax, so the per-suffix comment prefix is
+# exercised rather than assumed.
+test_new_root
+scratch="$TEST_ROOT/commented-lua"
+mkdir -p "$scratch"
+cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
+sed -i 's|^\( *\)lhs = "<leader>tr"|\1-- lhs = "<leader>tr"|' \
+  "$scratch/nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua"
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "nvim.dotnet.run-nearest: source_pattern no longer matches"
+printf 'PASS: commenting a Neovim keymap out without updating the registry fails\n'
+
 # --- An unregistered custom action is caught --------------------------------
 
 test_new_root
@@ -352,7 +387,15 @@ for sheet_platform in \
 done
 
 # The WSL sheet must name the terminal Windows actually runs.
-expand_sheet fedora-wsl | grep -Fq 'Noctty' ||
+#
+# Expanded into a variable first, deliberately. Piping into `grep -Fq` makes
+# grep exit at the first match, and the Python expander is still writing: it
+# takes SIGPIPE, and `pipefail` turns that into a failed pipeline, so the
+# assertion fails exactly when the text it is looking for IS present. Seen
+# once on a loaded machine. Every assertion that expects a match has to read
+# its producer to the end.
+wsl_sheet_text="$(expand_sheet fedora-wsl)"
+grep -Fq 'Noctty' <<<"$wsl_sheet_text" ||
   _test_die 'fedora-wsl.tex must name Noctty as the Windows-side terminal'
 printf 'PASS: no sheet advertises a component its platform does not have\n'
 
