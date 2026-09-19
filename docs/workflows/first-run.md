@@ -27,17 +27,20 @@ theme macchiato
 theme mocha
 ```
 
-On the Fedora desktop, where this repository manages a flavour-matched
-wallpaper, `--preserve-wallpaper` changes the flavour while keeping the
-wallpaper currently selected in KDE or Sway:
+On the Fedora desktop and on macOS, where this repository manages a
+flavour-matched wallpaper, `--preserve-wallpaper` changes the flavour while
+keeping the wallpaper you have:
 
 ```bash
 theme macchiato --preserve-wallpaper
 ```
 
-It preserves only the desktop wallpaper; the KDE and Sway lock screens keep
-following the selected flavour. On Fedora WSL, macOS and the Parrot guest there
-is no repository-managed wallpaper, so the flag has nothing to preserve.
+Without it, `theme` replaces the desktop wallpaper on those two platforms — in
+KDE or Sway on Fedora, and on every display on macOS. It preserves only the
+desktop wallpaper: the KDE and Sway lock screens keep following the selected
+flavour, and the Mac lock screen shows the desktop wallpaper either way. On
+Fedora WSL and the Parrot guest there is no repository-managed wallpaper, so
+the flag is accepted and has nothing to preserve.
 
 The selection is stored locally in:
 

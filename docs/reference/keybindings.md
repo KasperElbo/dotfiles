@@ -289,12 +289,13 @@ changed flavour up on a full restart rather than a config reload.
 
 Platform-specific hooks under `~/.config/dotfiles/theme-hooks.d/` extend it:
 the Fedora hook additionally re-themes KDE/Sway/Waybar and the flavour-matched
-wallpaper; the Fedora WSL hook updates Noctty's managed config through Windows
-PowerShell. There is no macOS theme hook, so `theme` there only changes the
-terminal/editor/CLI tooling above, not system appearance. Wallpaper and
-`--preserve-wallpaper` are
-Fedora-desktop concepts: on Fedora WSL, macOS and the Parrot guest there is no
-repository-managed wallpaper to preserve.
+wallpaper; the macOS hook sets the flavour-matched desktop wallpaper on every
+display; the Fedora WSL hook updates Noctty's managed config through Windows
+PowerShell. Fedora and macOS are therefore the platforms with a
+repository-managed wallpaper, and `--preserve-wallpaper` is the flag that
+leaves it alone on both. On Fedora WSL and the Parrot guest there is no
+repository-managed wallpaper, so the flag is accepted and has nothing to
+preserve.
 
 The shell re-exec belongs to the Zsh wrapper, not to the command; see
 [which layer does what](../workflows/theming.md#which-layer-does-what).
@@ -390,6 +391,7 @@ choice with a recorded reason, never an omission.
 
 | Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
 |---|---|---|---|---|---|---|---|
+| `theme <f> --preserve-wallpaper` | Change the Catppuccin flavour while keeping the desktop wallpaper the platform theme hook would otherwise replace | command | repository | `base` | documentation only | yes | `bin/.local/bin/theme` |
 | `theme <f>` | Switch the active Catppuccin flavour across the terminal, editor and CLI tools, plus the desktop where a hook is installed | command | repository | `base` | documentation only | yes | `bin/.local/bin/theme` |
 
 #### tmux
@@ -561,12 +563,6 @@ choice with a recorded reason, never an omission.
 | `Super+Ctrl+H/J/K/L` | Move through the wrapping 3x3 workspace grid (sway-workspace-grid) | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+Shift+1..9` | Move the container to workspace 1-9 | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
 | `Super+1..9` | Switch to workspace 1-9 | key | repository | `sway` | the tracked config | yes | `platforms/fedora/stow/sway/.config/sway/config` |
-
-#### theme
-
-| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
-|---|---|---|---|---|---|---|---|
-| `theme <f> --preserve-wallpaper` | Change the Catppuccin flavour while keeping the current desktop wallpaper (Fedora desktop only) | command | repository | `base` | documentation only | yes | `bin/.local/bin/theme` |
 
 #### waybar
 
@@ -769,7 +765,7 @@ choice with a recorded reason, never an omission.
 
 ### Why a printed action is missing from a sheet it could appear on
 
-These 46 actions are printed somewhere, but not on every sheet whose platform has them. The registry records why, and `scripts/validate-actions.py` refuses a silent omission:
+These 47 actions are printed somewhere, but not on every sheet whose platform has them. The registry records why, and `scripts/validate-actions.py` refuses a silent omission:
 
 | Action | Printed on | Reason |
 |---|---|---|
@@ -819,6 +815,7 @@ These 46 actions are printed somewhere, but not on every sheet whose platform ha
 | `nvim.default.word-motion` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
 | `nvim.default.write-quit` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
 | `nvim.default.yank-put` | `fedora-kde`, `fedora-sway`, `fedora-wsl`, `macos` | Withheld from the Parrot sheet: the guest runs the same Neovim, and that sheet points at WhichKey rather than reprinting an editor keymap. |
+| `theme.preserve-wallpaper` | `fedora-kde:prose`, `fedora-sway`, `macos:prose` | Not printed on the Fedora WSL or Parrot sheets: neither platform has a repository-managed wallpaper, so there is nothing for the flag to preserve |
 
 <!-- END GENERATED ACTION REFERENCE -->
 

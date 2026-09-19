@@ -185,7 +185,8 @@ anything. It also sets:
 | `DOTFILES_ROOT` | this repository's checkout, for sourcing a platform library of your own |
 
 ShellCheck cannot see where those come from, so a hook needs a
-`# shellcheck disable=SC2154` above its first use, as both existing hooks have.
+`# shellcheck disable=SC2154` above its first use, as all three existing hooks
+have.
 
 **The boundary functions.** Put each effect a user can see in its own named
 action, so the summary can name it:
@@ -212,6 +213,9 @@ Zsh wrapper alike.
 is the full example, with the capability questions and several named actions;
 `platforms/fedora-wsl/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora-wsl.sh`
 is the minimal one.
+`platforms/macos/stow/theme-hooks/.config/dotfiles/theme-hooks.d/macos.sh` sits
+between them: one wallpaper action, and `--preserve-wallpaper` handled as a
+`theme_action_skipped` rather than as an absence.
 
 ## Terminal restart requirements
 

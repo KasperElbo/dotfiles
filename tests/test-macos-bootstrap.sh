@@ -122,6 +122,38 @@ grep -Fxq 'verify:0' "$action_log"
 grep -Fxq 'verify:4:--defaults:--containers:--tailscale:--dictation' "$action_log"
 grep -Fxq 'verify:2:--defaults:--tailscale' "$action_log"
 
+# A plan action runs with errexit suppressed (common/lib/execution-plan.sh), and
+# this is the one action that runs a statement after its fallible command. A
+# failing installer must therefore still be a failing action, or the plan prints
+# "[system] completed" for a Mac that never got its Homebrew baseline and every
+# later mutating step runs anyway.
+failing_root="$test_root/failing-root"
+mkdir -p "$failing_root/platforms/macos/scripts"
+cat >"$failing_root/platforms/macos/scripts/install-system.sh" <<'EOF_FIXTURE'
+#!/usr/bin/env bash
+exit 17
+EOF_FIXTURE
+chmod +x "$failing_root/platforms/macos/scripts/install-system.sh"
+
+homebrew_path_activated=false
+activate_homebrew_path() { homebrew_path_activated=true; }
+for interactive_argument in true false; do
+  status=0
+  DOTFILES_ROOT="$failing_root" \
+    macos_run_system_installer "$interactive_argument" || status=$?
+  if ((status != 17)); then
+    printf 'macos_run_system_installer swallowed a failing installer (interactive=%s, status=%s).\n' \
+      "$interactive_argument" "$status" >&2
+    exit 1
+  fi
+done
+if [[ "$homebrew_path_activated" != false ]]; then
+  printf 'macos_run_system_installer activated the Homebrew PATH after the installer failed.\n' >&2
+  exit 1
+fi
+activate_homebrew_path() { :; }
+printf 'macOS system-installer failure propagation passed.\n'
+
 if [[ "$(uname -s)" == Darwin ]]; then
   # Force explicit Homebrew discovery while ordinary PATH lookup can see only
   # Apple system tools. The modern-only real boundary proves re-exec happened.

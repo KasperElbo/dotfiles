@@ -453,6 +453,87 @@ assert_file_contains "$repo_root/README.md" "docs/README.md"
 printf 'PASS: the README stays an entry point (%s lines)\n' "$readme_lines"
 
 
+# --- A platform that ships a wallpaper hook is not described as lacking one ---
+#
+# The prose naming which platforms theme the desktop is the one thing no drift
+# gate reads, and it fell a release behind when macOS gained a hook: four pages
+# still said macOS had none while the hook was replacing the wallpaper on every
+# display. Tie the claim to the artifact, so the next platform to gain a hook
+# cannot leave the prose behind.
+python3 - "$repo_root" <<'PY_WALLPAPER'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+
+# The display name each platform goes by in prose. A hook whose platform is not
+# listed here is a new platform: fail rather than skip, so this check cannot be
+# silently outgrown.
+DISPLAY = {"fedora": "Fedora", "fedora-wsl": "Fedora WSL", "macos": "macOS"}
+
+hooks = sorted(
+    root.glob("platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.sh")
+)
+if not hooks:
+    sys.exit("no theme hooks found; the glob in tests/test-documentation.sh is stale")
+
+unknown = [h.stem for h in hooks if h.stem not in DISPLAY]
+if unknown:
+    sys.exit(
+        "theme hook for an unknown platform: "
+        + ", ".join(unknown)
+        + "; add its prose name to DISPLAY in tests/test-documentation.sh"
+    )
+
+hooked = [h.stem for h in hooks]
+wallpaper = [h.stem for h in hooks if "wallpaper" in h.read_text(encoding="utf-8")]
+if sorted(wallpaper) != ["fedora", "macos"]:
+    sys.exit(
+        "expected exactly the Fedora and macOS hooks to set a wallpaper, found: "
+        + ", ".join(sorted(wallpaper) or ["none"])
+    )
+
+# "no <platform> theme hook" in any casing.
+def denies_hook(text: str, name: str) -> bool:
+    return re.search(rf"\bno {re.escape(name)} theme hook\b", text, re.IGNORECASE) is not None
+
+# A sentence saying some list of platforms has no repository-managed wallpaper.
+# The name has to appear as its own item, so "Fedora WSL" in that list does not
+# count as a claim about "Fedora".
+DENIAL = re.compile(r"[^.]*\bno\b[^.]*repository-managed wallpaper[^.]*\.", re.IGNORECASE)
+
+def denies_wallpaper(text: str, name: str) -> bool:
+    for sentence in DENIAL.findall(text):
+        flat = " ".join(sentence.split())
+        for match in re.finditer(rf"\b{re.escape(name)}\b", flat, re.IGNORECASE):
+            trailing = flat[match.end():]
+            if name == "Fedora" and re.match(r"\s+WSL\b", trailing):
+                continue
+            return True
+    return False
+
+pages = sorted(root.joinpath("docs").rglob("*.md")) + [root / "README.md"]
+problems = []
+for page in pages:
+    text = page.read_text(encoding="utf-8")
+    where = page.relative_to(root)
+    for platform in hooked:
+        if denies_hook(text, DISPLAY[platform]):
+            problems.append(f"{where}: says there is no {DISPLAY[platform]} theme hook, but {platform} ships one")
+    for platform in wallpaper:
+        if denies_wallpaper(text, DISPLAY[platform]):
+            problems.append(
+                f"{where}: says {DISPLAY[platform]} has no repository-managed wallpaper, "
+                f"but its theme hook sets one"
+            )
+
+if problems:
+    sys.exit("\n".join(problems))
+
+print(f"PASS: no page denies a theme hook a platform ships ({', '.join(hooked)})")
+PY_WALLPAPER
+
 # --- The FocusGained promise has a transport ---------------------------------
 #
 # Two pages tell the user that refocusing the Neovim window picks up a new
