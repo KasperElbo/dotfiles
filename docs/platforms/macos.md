@@ -683,8 +683,8 @@ platforms/macos/scripts/verify.sh --defaults
 git diff --check
 ```
 
-Add `--containers` and/or `--tailscale` to verification when those optional
-profiles are installed. The verifier checks arm64, `/opt/homebrew`, the
+Add `--containers`, `--tailscale` and/or `--dictation` to verification when
+those optional profiles are installed. The verifier checks arm64, `/opt/homebrew`, the
 absence of Intel Homebrew, SIP, Gatekeeper, shared/macOS Stow links,
 tools (each run as well as found), mise ownership of the managed runtimes,
 the applied theme, the Mason inventory, the Catppuccin tmux plugin, apps,
@@ -698,7 +698,7 @@ To remove only the Mac desktop layer while leaving common dotfiles intact:
 ```bash
 pkill AeroSpace || true
 brew uninstall --cask nikitabobko/tap/aerospace ghostty
-stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace zsh-platform nvim-macos ghostty-macos
+stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace zsh-platform nvim-macos ghostty-macos theme-hooks
 platforms/macos/scripts/apply-defaults.sh --restore
 ```
 
