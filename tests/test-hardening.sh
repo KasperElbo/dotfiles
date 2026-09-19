@@ -969,6 +969,97 @@ SUDO_EOF
   printf 'PASS: %s\n' "$scenario_name"
 }
 
+# The interactive confirmation is the last point before this profile mutates
+# anything, and it is a step of platforms/fedora/install.sh's plan rather than
+# a top-level installer. Collapsing `confirm`'s three-valued result with
+# `|| exit 0` therefore reported a profile nobody agreed to install as
+# installed: plan_execute recorded `[hardening] completed` and
+# install_lifecycle_commit put `hardening` in observed_capabilities, while no
+# hardening.conf existed for the verifier to check.
+run_confirmation_contract() {
+  test_new_root
+  local test_root="$TEST_ROOT"
+  local mock_bin="$test_root/bin"
+
+  mkdir -p "$mock_bin"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$mock_bin/dnf"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$mock_bin/rpm"
+  chmod +x "$mock_bin"/*
+  printf 'ID=fedora\n' >"$test_root/os-release"
+
+  local base_environment
+  mapfile -t base_environment < <(test_env_args "$test_root")
+  local test_environment=(
+    env
+    "${base_environment[@]}"
+    "PATH=$mock_bin:$PATH"
+    "OS_RELEASE_FILE=$test_root/os-release"
+  )
+  local state_file="$test_root/config/dotfiles/hardening.conf"
+
+  # run_answer <label> <expected-status> <expected-message> <answer-or-empty> [option...]
+  #
+  # The answer is fed to the prompt; an empty answer means a closed standard
+  # input, which `confirm` documents as declined rather than as a silently
+  # inherited yes. The state file is checked after every run: neither mode may
+  # record a profile the user did not agree to.
+  run_answer() {
+    local label="$1" expect="$2" expected_message="$3" answer="$4"
+    shift 4
+    local status=0 output
+    local answer_file="$test_root/state/answer"
+
+    rm -f -- "$state_file"
+    # An empty answer file is an immediate EOF, which is what `read` sees on a
+    # closed standard input; an unattended run must not inherit a yes there.
+    if [[ -n "$answer" ]]; then printf '%s\n' "$answer" >"$answer_file"; else : >"$answer_file"; fi
+
+    output="$("${test_environment[@]}" \
+      "$repo_root/platforms/fedora/scripts/install-hardening.sh" "$@" \
+      <"$answer_file" 2>&1)" || status=$?
+
+    case "$expect" in
+    agreed)
+      ((status == 0)) ||
+        _test_die "[$label] a hardening confirmation that was agreed to exited $status; output: $output"
+      ;;
+    stopped)
+      ((status != 0)) ||
+        _test_die "[$label] a hardening profile that was not agreed to exited 0, so the plan records it as installed; output: $output"
+      ;;
+    *) _test_die "run_answer: unknown expectation: $expect" ;;
+    esac
+    [[ -z "$expected_message" ]] || assert_contains "$output" "$expected_message"
+    [[ ! -e "$state_file" ]] ||
+      _test_die "[$label] the run wrote $state_file"
+  }
+
+  run_answer 'declined' stopped 'Hardening installation declined' n
+  run_answer 'unparseable answer' stopped 'Invalid confirmation response' maybe
+  run_answer 'no answer on standard input' stopped 'Hardening installation declined' ''
+
+  # --confirm is how platforms/fedora/install.sh asks during preflight, before
+  # any step has run. It must report the same three answers in its exit status
+  # and change nothing at all, including on a yes: the profile is installed by
+  # the plan's own step, later.
+  run_answer '--confirm accepted' agreed '' y --confirm
+  run_answer '--confirm declined' stopped 'Hardening installation declined' n --confirm
+  run_answer '--confirm unparseable' stopped 'Invalid confirmation response' maybe --confirm
+  run_answer '--confirm with no answer' stopped 'Hardening installation declined' '' --confirm
+
+  # A mode that cannot report the answer in its exit status is refused rather
+  # than silently preferred over the question.
+  run_answer '--confirm --non-interactive' stopped \
+    '--confirm and --non-interactive cannot be combined' y --confirm --non-interactive
+  run_answer '--confirm --dry-run' stopped \
+    '--confirm and --dry-run cannot be combined' y --confirm --dry-run
+  run_answer '--confirm --validate' stopped \
+    '--confirm and --validate cannot be combined' y --confirm --validate
+
+  printf 'PASS: a hardening confirmation that is not a yes stops the run instead of completing it\n'
+}
+
+run_confirmation_contract
 run_root_prefix_contract unset
 run_root_prefix_contract empty
 run_root_prefix_contract prefix

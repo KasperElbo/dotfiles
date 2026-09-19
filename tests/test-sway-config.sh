@@ -366,4 +366,63 @@ if [[ -z "$waybar_reload_line" || -z "$sway_reload_line" ]] ||
   exit 1
 fi
 
+# Every colour the Waybar stylesheet names must be one the theme integration
+# actually defines. GTK's CSS parser errors on an undefined @name and drops the
+# whole declaration, so a missing one is not a fallback: it is a logged parse
+# error at every Waybar start and at every SIGUSR2 reload -- which the Fedora
+# theme hook sends on every `theme` run -- and the widget renders in whatever it
+# inherits. The two files are set-differenced rather than spot-checked, so a
+# colour added to the stylesheet later cannot go undefined either.
+waybar_style="$fedora_stow/waybar/.config/waybar/style.css"
+theme_state_root="$test_root/theme-state"
+mkdir -p "$theme_state_root"
+env HOME="$theme_state_root" XDG_CONFIG_HOME="$theme_state_root/.config" \
+  bash -c '
+    set -euo pipefail
+    source "$1/common/lib/common.sh"
+    source "$1/platforms/fedora/lib/theme-desktop.sh"
+    write_fedora_theme_state macchiato >/dev/null
+  ' _ "$repo_root"
+
+generated_css="$theme_state_root/.config/dotfiles/waybar-theme.css"
+[[ -f "$generated_css" ]] || {
+  printf 'The Fedora theme integration wrote no waybar-theme.css.\n' >&2
+  exit 1
+}
+
+# `@define-color` and `@import` are CSS at-rules, not colour references.
+defined_colours="$(grep -o '^@define-color [a-zA-Z0-9_-]*' "$generated_css" |
+  awk '{ print $2 }' | sort -u)"
+used_colours="$(grep -o '@[a-zA-Z0-9_-]*' "$waybar_style" |
+  sed 's/^@//' | grep -Ev '^(import|define-color|media|keyframes|supports)$' |
+  sort -u)"
+undefined_colours="$(comm -23 <(printf '%s\n' "$used_colours") \
+  <(printf '%s\n' "$defined_colours"))"
+[[ -z "$undefined_colours" ]] || {
+  printf 'Waybar stylesheet uses colours write_fedora_theme_state never defines: %s\n' \
+    "$(printf '%s' "$undefined_colours" | tr '\n' ' ')" >&2
+  exit 1
+}
+[[ -n "$used_colours" ]] || {
+  printf 'No Waybar colour references were found; the check is not testing anything.\n' >&2
+  exit 1
+}
+
+# Every flavour has to carry every colour: a palette that defines one only for
+# some flavours would leave the others with an empty `@define-color name #;`.
+for flavour in latte frappe macchiato mocha; do
+  env HOME="$theme_state_root" XDG_CONFIG_HOME="$theme_state_root/.config" \
+    bash -c '
+      set -euo pipefail
+      source "$1/common/lib/common.sh"
+      source "$1/platforms/fedora/lib/theme-desktop.sh"
+      write_fedora_theme_state "$2" >/dev/null
+    ' _ "$repo_root" "$flavour"
+  ! grep -Eq '^@define-color [a-zA-Z0-9_-]+ #;' "$generated_css" || {
+    printf 'The %s palette leaves a Waybar colour empty.\n' "$flavour" >&2
+    exit 1
+  }
+done
+printf 'PASS: every Waybar colour reference is defined by the Fedora theme integration\n'
+
 printf 'Sway configuration, 3x3 workspace navigation and display cycling tests passed.\n'
