@@ -82,6 +82,54 @@ $second"
 printf 'PASS: render_ini_section_keys is idempotent\n'
 
 # =============================================================================
+# ini_section_key_value: pure-function coverage
+# =============================================================================
+
+# The verifier asks this what /etc/wsl.conf actually says, so it has to agree
+# with the renderer above about what a key line is -- including the spaced
+# form, which WSL reads as a value and the renderer rewrites in place. A reader
+# that missed it would fail a correctly configured machine.
+
+run_read() {
+  local content="$1"
+  bash -c '
+    source "'"$repo_root"'/common/lib/common.sh"
+    source "'"$repo_root"'/platforms/fedora-wsl/lib/wsl.sh"
+    ini_section_key_value "$1" "$2" "$3"
+  ' _ "$content" "$2" "$3"
+}
+
+result="$(run_read $'[interop]\nappendWindowsPath=false' interop appendWindowsPath)"
+[[ "$result" == "false" ]] ||
+  fail_with_context "plain key=value: expected false, got: '$result'"
+printf 'PASS: ini_section_key_value reads a plain key=value pair\n'
+
+result="$(run_read $'[boot]\nsystemd=true\n\n[interop]\n  appendWindowsPath =  false  ' interop appendWindowsPath)"
+[[ "$result" == "false" ]] ||
+  fail_with_context "spaced key = value: expected false, got: '$result'"
+printf 'PASS: ini_section_key_value reads the spaced "key = value" form WSL also accepts\n'
+
+result="$(run_read $'[interop]\nenabled=true' interop appendWindowsPath)"
+[[ -z "$result" ]] ||
+  fail_with_context "absent key: expected nothing, got: '$result'"
+printf 'PASS: ini_section_key_value returns nothing for a key the section lacks\n'
+
+result="$(run_read $'[boot]\nappendWindowsPath=false\n\n[interop]\nenabled=true' interop appendWindowsPath)"
+[[ -z "$result" ]] ||
+  fail_with_context "key in another section: expected nothing, got: '$result'"
+printf 'PASS: ini_section_key_value ignores the same key in another section\n'
+
+result="$(run_read $'[interop]\nappendWindowsPath=true\nappendWindowsPath=false' interop appendWindowsPath)"
+[[ "$result" == "false" ]] ||
+  fail_with_context "repeated key: expected the last assignment, got: '$result'"
+printf 'PASS: ini_section_key_value takes the last assignment, as the WSL parser does\n'
+
+result="$(run_read $'[interop]\n# appendWindowsPath=false' interop appendWindowsPath)"
+[[ -z "$result" ]] ||
+  fail_with_context "commented key: expected nothing, got: '$result'"
+printf 'PASS: ini_section_key_value does not read a commented-out key\n'
+
+# =============================================================================
 # configure-interop.sh: script-level coverage
 # =============================================================================
 

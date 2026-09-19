@@ -24,7 +24,6 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `catppuccin-kde` | Catppuccin KDE theme | Catppuccin | `git` | `user` | `v0.2.7` | git rev-parse HEAD | `git-tag-pinned` | manual-bump |
 | `catppuccin-tmux` | Catppuccin tmux theme | Catppuccin | `git` | `user` | `v2.3.0` | git rev-parse HEAD | `git-tag-pinned` | manual-bump |
 | `dotfiles-repository` | This repository, checked out by CI | KasperElbo | `git` | `user` | `github.sha` | git rev-parse HEAD | `git-commit-pinned` | per-commit |
-| `lazy-nvim` | lazy.nvim plugin manager, cloned by CI to resolve plugin specs | folke | `git` | `user` | `lazy-lock.json` | lazy-lock.json | `git-commit-pinned` | manual-bump |
 | `lazyvim-plugins` | Neovim plugin set | LazyVim and plugin authors | `git` | `user` | `lazy-lock.json` | lazy-lock.json | `git-commit-pinned` | manual-bump |
 
 ## Tier: `exact-version`
@@ -40,9 +39,12 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 |---|---|---|---|---|---|---|---|---|
 | `firstmate-repo` | FirstMate crew coordinator | kunchenguid | `git` | `user` | `default-branch` | firstmate_commit in ai state | `https-tls` | rolling |
 | `homebrew-formulae` | Homebrew formulae and casks | Homebrew | `package-registry` | `user` | `Brewfile` | brew bundle list | `registry-tls` | rolling |
+| `lazy-nvim` | lazy.nvim plugin manager: cloned at --branch=stable on a workstation, at the revision lazy-lock.json names by CI | folke | `git` | `user` | `stable branch (bootstrap), lazy-lock.json (CI)` | branch tip on a workstation, lazy-lock.json in CI | `https-tls` | rolling |
 | `mason-registry` | Neovim LSP/DAP tooling | Mason registry | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | rolling |
+| `mason-registry-crashdummyy` | Neovim LSP/DAP tooling absent from the official registry (roslyn) | Crashdummyy | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | rolling |
 | `mise-tool-registry` | mise tool registry and backends | mise | `package-registry` | `user` | `config.toml` | mise ls | `registry-tls` | rolling |
 | `npm-registry` | npm packages installed through mise | npm | `package-registry` | `user` | `latest` | mise ls | `registry-tls` | rolling |
+| `parrot-boundary-image` | Parrot base image for the CI boundary check (not VM evidence) | Parrot Security | `container-image` | `root` | `latest` | docker image inspect | `registry-tls` | rolling |
 | `scoop-extras-bucket` | Official Scoop extras bucket (Handy dictation) | ScoopInstaller | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | rolling |
 | `scoop-noctty-bucket` | noctty terminal Scoop bucket | amanthanvi | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | rolling |
 | `smoke-image-alpine` | Podman machine architecture smoke image | Docker Official Images | `container-image` | `user` | `latest` | podman image inspect | `registry-tls` | rolling |
@@ -86,15 +88,17 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `handy-release` | `https://github.com/cjpais/Handy/releases/download/v${handy_version}/${handy_rpm}` | reinstall the previously pinned release rpm and restore its digest | `platforms/fedora/scripts/install-dictation.sh` |
 | `homebrew-formulae` | `https://formulae.brew.sh` | brew uninstall | `platforms/macos/Brewfile` `platforms/macos/scripts/install-system.sh` |
 | `homebrew-installer` | `https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh` | Homebrew uninstall script | `scripts/bootstrap-macos.sh` `platforms/macos/install.sh` `platforms/macos/scripts/install-system.sh` |
-| `lazy-nvim` | `https://github.com/folke/lazy.nvim.git` | git restore lazy-lock.json and rerun the job | `nvim-lazyvim/.config/nvim/lazy-lock.json` `.github/workflows/validate.yml` |
+| `lazy-nvim` | `https://github.com/folke/lazy.nvim.git` | restore lazy-lock.json and rerun the job; on a workstation, check out the previous commit in ~/.local/share/nvim/lazy/lazy.nvim | `nvim-lazyvim/.config/nvim/lazy-lock.json` `nvim-lazyvim/.config/nvim/lua/config/lazy.lua` `.github/workflows/validate.yml` |
 | `lazyvim-plugins` | `https://github.com/LazyVim/LazyVim` | git restore lazy-lock.json and :Lazy restore | `nvim-lazyvim/.config/nvim/lazy-lock.json` |
 | `mason-registry` | `https://github.com/mason-org/mason-registry` | Mason uninstall | `common/install-neovim-tools.sh` `common/mason-package-versions.txt` |
+| `mason-registry-crashdummyy` | `https://github.com/Crashdummyy/mason-registry` | Mason uninstall | `common/bootstrap-mason.lua` `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
 | `mise-installer` | `https://mise.run` | rm ~/.local/bin/mise and rerun | `platforms/fedora-wsl/install.sh` `platforms/parrot-ctf/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |
 | `mise-tool-registry` | `https://mise.jdx.dev/registry.html` | mise uninstall | `mise/.config/mise/config.toml` `common/install-mise.sh` |
 | `netcoredbg-legacy-release` | `https://github.com/Samsung/netcoredbg/releases/download/3.1.3-1062/netcoredbg-osx-amd64.tar.gz` | pin the previous release tag | `tests/integration/macos-dotnet-debug.sh` |
 | `no-mistakes-installer` | `https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh` | ./scripts/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
 | `npm-registry` | `https://registry.npmjs.org` | mise uninstall | `common/install-ai.sh` |
 | `opam-repository` | `https://opam.ocaml.org` | opam switch remove | `common/install-ocaml.sh` |
+| `parrot-boundary-image` | `docker.io/parrotsec/core:latest` | docker rmi | `.github/workflows/real-install.yml` |
 | `parrot-os-repos` | `https://deb.parrot.sh` | sudo apt-get install --reinstall | `platforms/parrot-ctf/scripts/install-system.sh` |
 | `rpmfusion-free-release` | `https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-free-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `rpmfusion-nonfree-release` | `https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-nonfree-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
