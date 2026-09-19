@@ -173,6 +173,36 @@ suite through `tests/support/check-quiet-grep-assertions.py`, which finds the
 pipelines by tokenising the suites as shell rather than by matching their text,
 and carries a control that demonstrates the fail-open case itself.
 
+A negative assertion says what a producer did not contain, so it is only worth
+anything once the producer has been shown to contain something. Several in this
+repository were searching an empty set and passing for that reason alone: one
+grepped the Neovim configuration for `BufWritePre`, a string that appears
+nowhere in it; one used a Lua pattern with a `|` in it, which Lua has no
+alternation for, so it searched for a literal 32-character string no name could
+contain; one looked for a tab-delimited registry fragment of a shape that file
+never has. Each named exactly the leak it was meant to catch, and none of them
+could have caught it.
+
+So an assertion of the form "X does not appear in Y" carries a guard that fails
+when Y is empty, and says in its message that the check would otherwise be
+proving nothing:
+
+```
+commands="$(derive_the_set)"
+[[ -n "$commands" ]] || _test_die 'no commands were derived, so the audit proves nothing'
+assert_not_contains "$commands" "$forbidden"
+```
+
+`tests/test-macos-command-surface.sh` and `tests/test-sway-config.sh` are the
+worked examples. Where the forbidden construct is absent from the tree by
+design, so no live guard is possible, the suite plants it in a scratch copy and
+asserts the reader reports it -- `tests/test-json-workflow.sh` does both, and
+its permanent negative control is what keeps the two halves honest. The same
+rule applies to the search itself: prefer a plain-text comparison to a pattern
+language whose syntax the assertion does not actually use, and give a tool that
+could be missing an explicit requirement rather than an `|| true` that reads its
+absence as a clean result.
+
 A suite whose code under test probes for tools on `PATH` calls
 `test_isolate_path [command ...]` right after that trap. It replaces `PATH` with
 one directory linking only a small portable base userland plus the host commands

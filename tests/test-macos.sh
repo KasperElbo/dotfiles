@@ -20,6 +20,28 @@ assert_contains() {
   }
 }
 
+# The three searches below are negative assertions: they pass when ripgrep
+# prints nothing. `|| true` made "nothing" and "could not search" the same
+# answer, so with rg missing its exit 127 was swallowed and every one of them
+# passed on a tree that violated them. ripgrep exits 1 when it matched
+# nothing and 2 or more when it failed; only the first is an answer.
+command -v rg >/dev/null 2>&1 || {
+  printf 'ripgrep is required: without it the searches below report nothing and pass.\n' >&2
+  exit 1
+}
+
+rg_matches() {
+  local output status=0
+  # The status is captured on the failing branch rather than read afterwards:
+  # an `if` whose condition is false and which has no `else` returns 0.
+  output="$(rg "$@")" || status=$?
+  ((status <= 1)) || {
+    printf 'ripgrep could not search (exit %d): rg %s\n' "$status" "$*" >&2
+    exit 1
+  }
+  printf '%s\n' "$output"
+}
+
 # Only GitHub-hosted runners may treat an unobservable SIP state as an
 # evidence-boundary outcome. Self-hosted Actions machines are real hosts and
 # must retain the normal invariant check.
@@ -65,8 +87,8 @@ assert_contains "$tailscale_dry_run" \
   'Install the optional Tailscale profile (Homebrew cask, interactive login).'
 grep -Fq -- '--cask tailscale-app' "$macos_root/scripts/install-tailscale.sh"
 grep -Fq -- '--tailscale' "$macos_root/scripts/verify.sh"
-systemd_references="$(rg -n 'systemctl|tailscaled\.service' \
-  "$macos_root/scripts/install-tailscale.sh" "$macos_root/scripts/verify.sh" || true)"
+systemd_references="$(rg_matches -n 'systemctl|tailscaled\.service' \
+  "$macos_root/scripts/install-tailscale.sh" "$macos_root/scripts/verify.sh")"
 if [[ -n "$systemd_references" ]]; then
   printf 'macOS Tailscale profile reuses Fedora systemd/tailscaled assumptions.\n' >&2
   exit 1
@@ -92,7 +114,7 @@ for package in lazygit node python dotnet uv; do
 done
 
 # The selected manager is exclusive and preserves the Sway mental model.
-unselected_managers="$(rg -l -i 'yabai|skhd' "$macos_root" --glob '!docs/**' || true)"
+unselected_managers="$(rg_matches -l -i 'yabai|skhd' "$macos_root" --glob '!docs/**')"
 if [[ -n "$unselected_managers" ]]; then
   printf 'macOS implementation contains an unselected window manager.\n' >&2
   exit 1
@@ -215,7 +237,7 @@ nvim_macos_plugin="$macos_root/stow/nvim-macos/.config/nvim/lua/plugins/macos.lu
   exit 1
 }
 grep -Fq 'vim.g.vimtex_view_general_viewer = "open"' "$nvim_macos_plugin"
-xdg_open_references="$(rg -l 'xdg-open' "$macos_root" || true)"
+xdg_open_references="$(rg_matches -l 'xdg-open' "$macos_root")"
 if [[ -n "$xdg_open_references" ]]; then
   printf 'macOS implementation references the Linux-only xdg-open.\n' >&2
   exit 1

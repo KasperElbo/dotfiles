@@ -202,7 +202,10 @@ assert_file_line() {
 assert_file_not_contains() {
   local path="$1"
   local needle="$2"
-  [[ -e "$path" ]] || return 0
+  # A missing file used to pass here, alone among the file assertions. That
+  # makes every negative assertion in the suites survive a rename of the file
+  # it guards, with nothing to say it stopped checking.
+  [[ -r "$path" ]] || _test_die "file is not readable: $path" || return 1
   if grep -Fq -- "$needle" "$path"; then
     _test_die "expected $path not to contain '$needle'"
   fi
