@@ -559,12 +559,18 @@ test_stub_npm_global "$bootstrap_bin"
 rm -- "$bootstrap_bin/zsh"
 # MOCK_LOGIN_PATH_PREFIX models a directory a real login would put ahead of
 # the mise shims, such as a dnf package's /usr/bin copy of a runtime.
+# MOCK_SYSTEM_PATH_PREFIX models what WSL itself prepends before any of this
+# repository's Zsh configuration runs, which is what "zsh -f" (no rc files)
+# samples: it is deliberately not part of the sanitized login PATH above.
 cat >"$bootstrap_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
 printf '\033[H\033[2J\033[3J'
+system_path="${MOCK_SYSTEM_PATH_PREFIX:+$MOCK_SYSTEM_PATH_PREFIX:}$PATH"
 PATH="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
 if [[ "$*" == *'printf "%s\\n" "$PATH"'* ]]; then
   printf '%s\n' "$PATH"
+elif [[ "$*" == *'__DOTFILES_VERIFY_SYSTEM_PATH__'* ]]; then
+  printf '\n__DOTFILES_VERIFY_SYSTEM_PATH__%s\n' "$system_path"
 elif [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then
   printf '\n__DOTFILES_VERIFY_PATH__%s\n' "$PATH"
 elif [[ "$*" == *'__DOTFILES_VERIFY_STARSHIP__'* ]]; then
@@ -662,6 +668,52 @@ if grep -Fq 'node resolves outside mise' "$test_root/dnf-shadow.log"; then
   exit 1
 fi
 printf 'PASS: Fedora WSL verification rejects a non-mise runtime shadowing the mise shim\n'
+
+# /etc/wsl.conf's [interop] appendWindowsPath=false is what keeps Windows
+# directories out of PATH in every context that is not an interactive Zsh
+# login: systemd units, "wsl.exe -e", VS Code's integrated shell, cron. A file
+# that configure-interop.sh has not reached (or that a WSL restart has not been
+# applied to) leaves all of those inheriting the Windows PATH, and nothing in
+# the login shell can reveal that. The verifier must read the file itself.
+missing_append_conf="$test_root/wsl-conf-without-append.conf"
+printf '[boot]\nsystemd=true\n\n[interop]\nenabled=true\n' >"$missing_append_conf"
+if "${bootstrap_environment[@]}" "WSL_CONF_FILE=$missing_append_conf" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/wsl-conf-missing-append.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a wsl.conf without appendWindowsPath=false.\n' >&2
+  exit 1
+fi
+grep -Fq "$missing_append_conf does not set [interop] appendWindowsPath=false" \
+  "$test_root/wsl-conf-missing-append.log"
+# The unrelated [boot] section must not be what the check keyed on.
+grep -Fq 'configure-interop.sh' "$test_root/wsl-conf-missing-append.log"
+printf 'PASS: Fedora WSL verification rejects a wsl.conf without [interop] appendWindowsPath=false\n'
+
+# With the wsl.conf policy in place but WSL still injecting Windows entries
+# (the file was written and never applied by "wsl --shutdown"), the sanitized
+# login PATH looks perfect -- the Zsh stripper removed the entry before the
+# verifier could see it. The unsanitized sample is what observes it, and it
+# must name the entry.
+injected_windows_entry="/mnt/c/Windows/System32"
+if "${bootstrap_environment[@]}" \
+  "MOCK_SYSTEM_PATH_PREFIX=$injected_windows_entry" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/windows-path-injected.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a Windows entry in the unsanitized PATH.\n' >&2
+  exit 1
+fi
+grep -Fq \
+  "The unsanitized system PATH contains a Windows entry: $injected_windows_entry" \
+  "$test_root/windows-path-injected.log"
+if grep -Fq 'does not set [interop] appendWindowsPath=false' \
+  "$test_root/windows-path-injected.log"; then
+  printf 'The injected-PATH fixture unexpectedly failed the wsl.conf check too.\n' >&2
+  exit 1
+fi
+# The sanitized check passed in the same run: on its own it cannot see this.
+grep -Fq 'The Zsh PATH sanitizer leaves only Linux filesystem entries' \
+  "$test_root/windows-path-injected.log"
+printf 'PASS: Fedora WSL verification rejects a Windows entry the Zsh sanitizer hides\n'
 
 wsl_tmux_plugin="$bootstrap_data/tmux/plugins/catppuccin"
 rm -f -- "$wsl_tmux_plugin/catppuccin.tmux"
