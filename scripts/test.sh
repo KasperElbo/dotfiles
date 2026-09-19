@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
-set -uo pipefail
 
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd -- "$script_dir/.." && pwd)"
+# A portable entry point, so it may be started under Apple's Bash 3.2: on macOS
+# `env bash` resolves to /bin/bash whenever Homebrew is not ahead of it on PATH.
+# Everything down to the modern-Bash guard therefore stays inside that dialect,
+# and `set -uo pipefail` waits until after it, as bin/.local/bin/theme does.
+# The runner itself, and the libraries it loads below, are written for the
+# repository's documented Bash 4.4+ runtime.
+
+script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/${BASH_SOURCE[0]##*/}"
+repo_root="$(cd -- "$(dirname -- "$script_path")/.." && pwd)"
+
+# shellcheck source=../common/lib/modern-bash.sh
+. "$repo_root/common/lib/modern-bash.sh"
+modern_bash_reexec ./scripts/test.sh "$script_path" "$@" || exit 2
+
+set -uo pipefail
 cd -- "$repo_root" || exit 1
 
 usage() {
