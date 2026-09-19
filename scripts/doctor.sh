@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
 # The lifecycle health report behind ./doctor. It keeps its own pass, fail and
 # warning helpers on purpose instead of sourcing common/lib/verify.sh:
@@ -12,8 +11,27 @@ set -euo pipefail
 #     end the report at its first finding instead of listing every one.
 #   - Its closing "Result: N failure(s), M warning(s). No changes made." line
 #     is its own contract (tests/test-doctor.sh), not finish_verification's.
+#
+# `./doctor` is what docs/troubleshooting.md sends a user to when something is
+# wrong, which on macOS is exactly when `env bash` resolves to Apple's 3.2 --
+# so everything down to the modern-Bash guard below stays inside that dialect,
+# and `set -euo pipefail` waits until after it, as bin/.local/bin/theme does.
 
-repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/${BASH_SOURCE[0]##*/}"
+repo_root="$(cd -- "$(dirname -- "$script_path")/.." && pwd)"
+
+# The libraries below are written for the repository's Bash 4.4+ runtime;
+# install-lifecycle.sh reaches install-selection.sh, whose opening `declare -A`
+# fails at source time under Apple's Bash with `declare: -A: invalid option`
+# before any of this report's own output. Choose the interpreter first,
+# re-executing this same file with the original arguments if the one in hand is
+# too old.
+# shellcheck source=../common/lib/modern-bash.sh
+. "$repo_root/common/lib/modern-bash.sh"
+modern_bash_reexec doctor "$script_path" "$@" || exit 2
+
+set -euo pipefail
+
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
 # shellcheck source=../common/lib/profile-state.sh
