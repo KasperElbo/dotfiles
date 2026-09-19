@@ -110,7 +110,8 @@ done
 
 theme_command="$repo_root/bin/.local/bin/theme"
 
-"$theme_command" --help | grep -Fq -- '--preserve-wallpaper'
+theme_help="$("$theme_command" --help)"
+grep -Fq -- '--preserve-wallpaper' <<<"$theme_help"
 
 if "$theme_command" mocha --unknown >"$test_root/invalid.out" 2>&1; then
   printf 'Unknown theme flags must fail.\n' >&2

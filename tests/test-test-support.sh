@@ -182,4 +182,86 @@ for suite in "$repo_root"/tests/test-*.sh; do
   fi
 done
 
+# --- No test pipes into a quiet grep ----------------------------------------
+
+# `grep -q` exits at its first match, so the producer on the left of the pipe
+# is left writing to a closed pipe: it takes SIGPIPE and exits non-zero, and
+# under `set -o pipefail` that becomes the pipeline's status. The pipeline then
+# reports on the writer rather than on the match, and it does so in exactly the
+# case each assertion exists to detect. Both directions are unsound:
+#
+#   producer | grep -Fq needle || _test_die   fails when the needle IS present
+#   if producer | grep -Fq needle; then ...   does nothing when it IS present
+#
+# The first fired once for real, in tests/test-action-registry.sh on a loaded
+# machine, and blamed the sheet rather than the pipeline. The second is the
+# worse of the two: it fails open, so an assertion written that way -- several
+# of them negative controls proving a validator still catches drift -- passes
+# silently while catching nothing. Both survive only while the producer is
+# small enough to finish before grep exits, which is precisely the property
+# that changes under load. So the rule is one rule: a test never pipes into a
+# quiet grep, in either direction. Read the producer into a variable and match
+# against a here-string.
+printf 'No test pipes into a quiet grep\n'
+
+# The defect first, because a rule is worth only as much as its demonstration:
+# with a producer still writing when grep exits, a needle that IS present is
+# reported absent, and the here-string form of the same test finds it.
+quiet_grep_proof="$root/quiet-grep-fails-open.sh"
+cat >"$quiet_grep_proof" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+if seq 1 200000 | grep -q '^1$'; then
+  printf 'piped: FOUND\n'
+else
+  printf 'piped: NOT FOUND\n'
+fi
+haystack="$(seq 1 200000)"
+if grep -q '^1$' <<<"$haystack"; then
+  printf 'here-string: FOUND\n'
+else
+  printf 'here-string: NOT FOUND\n'
+fi
+EOF
+run_capture bash "$quiet_grep_proof"
+assert_success
+assert_contains "$TEST_OUTPUT" 'piped: NOT FOUND'
+assert_contains "$TEST_OUTPUT" 'here-string: FOUND'
+
+quiet_grep_check="$repo_root/tests/support/check-quiet-grep-assertions.py"
+run_capture python3 "$quiet_grep_check" "$repo_root"/tests/*.sh \
+  "$repo_root"/tests/lib/*.sh "$repo_root"/tests/integration/*.sh
+assert_success
+
+# The negative control: both shapes, so a check that had stopped looking, or
+# that had kept the old exemption for the failure-expected direction, fails
+# here rather than passing quietly.
+quiet_grep_control="$root/quiet-grep-control.sh"
+cat >"$quiet_grep_control" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# Line 4 fails closed: the assertion fails when the needle IS present.
+list_installed_tools | grep -Fq 'ripgrep' || _test_die 'ripgrep must be installed'
+# Line 6 fails open: the branch is skipped when the needle IS present.
+if list_installed_tools | grep -Fq 'yabai'; then
+  _test_die 'yabai must not be installed'
+fi
+# Line 10 is the fix, and must not be reported.
+tools="$(list_installed_tools)"
+grep -Fq 'ripgrep' <<<"$tools" || _test_die 'ripgrep must be installed'
+EOF
+run_capture python3 "$quiet_grep_check" "$quiet_grep_control"
+assert_status 1
+assert_contains "$TEST_OUTPUT" "$quiet_grep_control:4: pipes a producer into a quiet grep"
+assert_contains "$TEST_OUTPUT" "$quiet_grep_control:6: pipes a producer into a quiet grep"
+assert_not_contains "$TEST_OUTPUT" "$quiet_grep_control:11"
+
+# A check that cannot read its input must say so rather than skip it.
+quiet_grep_unreadable="$root/quiet-grep-unreadable.sh"
+printf '#!/usr/bin/env bash\nprintf %s\n' "'unterminated" >"$quiet_grep_unreadable"
+run_capture python3 "$quiet_grep_check" "$quiet_grep_unreadable"
+assert_status 2
+assert_contains "$TEST_OUTPUT" 'cannot read as shell'
+assert_contains "$TEST_OUTPUT" 'unterminated single quote'
+
 printf 'Shared test-support tests passed.\n'

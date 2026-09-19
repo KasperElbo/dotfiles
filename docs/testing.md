@@ -128,6 +128,39 @@ extra cleanup, such as restoring a tracked file a negative case edited in place,
 passes a function name to `test_install_cleanup_trap` instead of installing its
 own EXIT trap; `tests/test-test-support.sh` enforces both rules.
 
+A test never pipes into a quiet grep, in either direction. `grep -q` exits at
+its first match, which leaves the producer writing to a closed pipe: it takes
+SIGPIPE and exits non-zero, and under `set -o pipefail` that is the pipeline's
+status. The pipeline then says something about the writer rather than about the
+match, and it says it in exactly the case the assertion exists to detect. Both
+directions are wrong, in opposite ways:
+
+```
+producer | grep -Fq needle || _test_die  # fails when the needle IS present
+if producer | grep -Fq needle; then ...  # does nothing when it IS present
+```
+
+The first fired once for real, on a loaded machine, and blamed the data rather
+than the pipeline. The second is the worse of the two, because it fails open --
+it reports no violation, and several assertions of that shape are the negative
+controls that prove a validator still catches drift:
+
+```
+$ bash -c 'set -o pipefail
+>   if seq 1 200000 | grep -q "^1$"; then echo CAUGHT; else echo MISSED; fi'
+MISSED
+```
+
+Both survive only while the producer is small enough to finish before grep
+exits, which is the property that changes under load. Read the producer into a
+variable and match against a here-string instead
+(`result="$(producer)"; grep -Fq needle <<<"$result"`), or, where the test only
+asks whether the producer emitted anything at all, capture it and test
+`[[ -n "$result" ]]`. `tests/test-test-support.sh` enforces this across every
+suite through `tests/support/check-quiet-grep-assertions.py`, which finds the
+pipelines by tokenising the suites as shell rather than by matching their text,
+and carries a control that demonstrates the fail-open case itself.
+
 A suite whose code under test probes for tools on `PATH` calls
 `test_isolate_path [command ...]` right after that trap. It replaces `PATH` with
 one directory linking only a small portable base userland plus the host commands

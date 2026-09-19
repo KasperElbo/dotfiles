@@ -251,6 +251,7 @@ assert_contains "$repo_root/platforms/fedora/scripts/install-system.sh" '  Shell
 
 mason_inventory_file="$lazyvim_config/mason-packages.txt"
 mapfile -t mason_inventory <"$mason_inventory_file"
+mason_inventory_text="$(printf '%s\n' "${mason_inventory[@]}")"
 
 expected_mason_packages=(
   angular-language-server
@@ -343,8 +344,8 @@ assert_contains "$repo_root/platforms/parrot-ctf/install.sh" \
 assert_contains "$repo_root/platforms/parrot-ctf/scripts/verify.sh" \
   'Mason inventory mismatch'
 
-if printf '%s\n' "${mason_inventory[@]}" | grep -Fxq 'ocaml-lsp' ||
-  printf '%s\n' "${mason_inventory[@]}" | grep -Fxq 'ocamlformat'; then
+if grep -Fxq 'ocaml-lsp' <<<"$mason_inventory_text" ||
+  grep -Fxq 'ocamlformat' <<<"$mason_inventory_text"; then
   fail "OCaml switch tooling must not be Mason-managed"
 fi
 
@@ -373,7 +374,7 @@ for tool in "${project_tools[@]}"; do
     fail "project-local tool is declared through mise: $tool"
   fi
 
-  if printf '%s\n' "${mason_inventory[@]}" | grep -Fxq "$tool"; then
+  if grep -Fxq "$tool" <<<"$mason_inventory_text"; then
     fail "project-local tool is declared through Mason: $tool"
   fi
 done

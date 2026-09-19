@@ -381,7 +381,8 @@ for sheet_platform in \
   "parrot-ctf:--preserve-wallpaper"; do
   sheet_name="${sheet_platform%%:*}"
   forbidden="${sheet_platform#*:}"
-  if expand_sheet "$sheet_name" | grep -Fqi -- "$forbidden"; then
+  sheet_text="$(expand_sheet "$sheet_name")"
+  if grep -Fqi -- "$forbidden" <<<"$sheet_text"; then
     _test_die "$sheet_name.tex must not advertise '$forbidden'"
   fi
 done
