@@ -554,4 +554,216 @@ if ! grep -Eq '^set -g focus-events on$' "$repo_root/tmux/.tmux.conf"; then
 fi
 printf 'PASS: the documented FocusGained reload has a tmux transport\n'
 
+# --- Counted claims are checked against the artifacts, not restated ----------
+#
+# Four prose claims name a number or a list that the tree already decides: the
+# generators that read config/capabilities.tsv, the manifests under config/,
+# the installed theme hooks, and whether a GitHub plugin exists to back the
+# Octo mappings. Each was wrong on main at some point (#316), and each is wrong
+# again the moment a file is added or removed, so assert them against the file
+# set rather than against a remembered number.
+
+claim_checks="$TEST_ROOT/claim-checks.py"
+cat >"$claim_checks" <<'PY_CLAIMS'
+"""Check the documented counts and lists against the real file set."""
+
+import json
+import pathlib
+import re
+import sys
+
+WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+    "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+}
+
+
+def spelled(page, text, pattern, what, problems):
+    """The single spelled-out number in `pattern`, or None with a problem logged."""
+    found = re.findall(pattern, text, re.IGNORECASE)
+    if len(found) != 1:
+        problems.append(
+            f"{page}: expected exactly one sentence stating {what}, found {len(found)}"
+        )
+        return None
+    word = found[0].lower()
+    if word not in WORDS:
+        problems.append(f"{page}: cannot read {word!r} as a number in the {what}")
+        return None
+    return WORDS[word]
+
+
+def generators(root, problems):
+    page = "docs/capabilities.md"
+    text = (root / page).read_text(encoding="utf-8")
+    reading = sorted(
+        path.name
+        for path in (root / "scripts").glob("render-*.py")
+        if "capabilities.tsv" in path.read_text(encoding="utf-8")
+    )
+    named = sorted(set(re.findall(r"scripts/(render-[a-z-]+\.py)", text)))
+    for name in sorted(set(reading) - set(named)):
+        problems.append(
+            f"{page}: scripts/{name} reads config/capabilities.tsv but the page "
+            f"does not tell a contributor to regenerate it"
+        )
+    for name in sorted(set(named) - set(reading)):
+        problems.append(
+            f"{page}: names scripts/{name}, which does not read config/capabilities.tsv"
+        )
+    stated = spelled(
+        page, text, r"\b([A-Za-z]+) generators read `config/capabilities\.tsv`",
+        "how many generators read config/capabilities.tsv", problems,
+    )
+    if stated is not None and stated != len(reading):
+        problems.append(
+            f"{page}: says {stated} generators read config/capabilities.tsv, "
+            f"but {len(reading)} do: {', '.join(reading)}"
+        )
+
+
+def manifests(root, problems):
+    page = "README.md"
+    text = (root / page).read_text(encoding="utf-8")
+    present = sorted(path.name for path in (root / "config").glob("*.tsv"))
+    stated = spelled(
+        page, text, r"\b([A-Za-z]+) manifests under `config/`",
+        "how many manifests config/ holds", problems,
+    )
+    if stated is not None and stated != len(present):
+        problems.append(
+            f"{page}: says {stated} manifests under config/, but it holds "
+            f"{len(present)}: {', '.join(present)}"
+        )
+    tabled = sorted(set(re.findall(r"^\| `config/([a-z-]+\.tsv)` \|", text, re.M)))
+    for name in sorted(set(present) - set(tabled)):
+        problems.append(f"{page}: the manifest table does not list config/{name}")
+    for name in sorted(set(tabled) - set(present)):
+        problems.append(f"{page}: the manifest table lists config/{name}, which does not exist")
+
+
+def hooks(root, problems):
+    page = "docs/workflows/theming.md"
+    text = (root / page).read_text(encoding="utf-8")
+    shipped = sorted(
+        path.stem
+        for path in root.glob(
+            "platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.sh"
+        )
+    )
+    stated = spelled(
+        page, text, r"\ball ([A-Za-z]+) existing hooks\b",
+        "how many theme hooks exist", problems,
+    )
+    if stated is not None and stated != len(shipped):
+        problems.append(
+            f"{page}: says all {stated} existing hooks, but platforms/ ships "
+            f"{len(shipped)}: {', '.join(shipped)}"
+        )
+
+
+def octo(root, problems):
+    page = "docs/workflows/git.md"
+    text = (root / page).read_text(encoding="utf-8")
+    locks = sorted(root.glob("nvim-lazyvim/.config/nvim/**/lazy-lock.json"))
+    if not locks:
+        problems.append("no lazy-lock.json found; the Octo check would pass vacuously")
+        return
+    installed = sorted(
+        {
+            name
+            for lock in locks
+            for name in json.loads(lock.read_text(encoding="utf-8"))
+            if "octo" in name.lower()
+        }
+    )
+    documented = sorted({b for b in ("<leader>gp", "<leader>gi") if b in text})
+    if not installed and documented:
+        problems.append(
+            f"{page}: documents {', '.join(documented)}, which only octo.nvim "
+            f"provides, but no lazy-lock.json installs it"
+        )
+    if installed and re.search(r"Octo[^.]*not installed", text):
+        problems.append(
+            f"{page}: says Octo is not installed, but a lockfile pins "
+            f"{', '.join(installed)}"
+        )
+
+
+def main():
+    root = pathlib.Path(sys.argv[1])
+    which = sys.argv[2]
+    problems = []
+    {"generators": generators, "manifests": manifests, "hooks": hooks, "octo": octo}[
+        which
+    ](root, problems)
+    if problems:
+        print("\n".join(problems))
+        return 1
+    print(f"PASS: the documented {which} match the tree")
+    return 0
+
+
+raise SystemExit(main())
+PY_CLAIMS
+
+for claim in generators manifests hooks octo; do
+  run_capture python3 "$claim_checks" "$repo_root" "$claim"
+  assert_success
+done
+printf 'PASS: every counted documentation claim matches the tree\n'
+
+# Negative controls. Each doctors one page, or the tree the page describes, and
+# requires the check to name the drift.
+claim_scratch="$TEST_ROOT/claims"
+mkdir -p "$claim_scratch"
+
+claim_negative() {
+  local claim="$1" page="$2" needle="$3" backup
+  shift 3
+  backup="$claim_scratch/$(basename "$page").$claim"
+  cp "$repo_root/$page" "$backup"
+  "$@"
+  run_capture python3 "$claim_checks" "$repo_root" "$claim"
+  cp "$backup" "$repo_root/$page"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "$needle"
+}
+
+# One generator dropped from the list step 4 hands a contributor.
+claim_negative generators docs/capabilities.md \
+  'scripts/render-file-ownership.py reads config/capabilities.tsv but the page does not tell a contributor to regenerate it' \
+  sed -i '/render-file-ownership\.py/d' "$repo_root/docs/capabilities.md"
+
+# The generator count left behind after a seventh generator is added.
+claim_negative generators docs/capabilities.md \
+  'says 7 generators read config/capabilities.tsv, but 6 do' \
+  sed -i 's/^   Six generators read/   Seven generators read/' \
+  "$repo_root/docs/capabilities.md"
+
+# The manifest count the README carried while config/ already held eight.
+claim_negative manifests README.md \
+  'says 7 manifests under config/, but it holds 8' \
+  sed -i 's/^Eight manifests under/Seven manifests under/' "$repo_root/README.md"
+
+# A manifest that exists but never made it into the table.
+claim_negative manifests README.md \
+  'the manifest table does not list config/tool-floors.tsv' \
+  sed -i '/^| `config\/tool-floors\.tsv` |/d' "$repo_root/README.md"
+
+# The hook count left behind when the third hook was added.
+claim_negative hooks docs/workflows/theming.md \
+  'says all 2 existing hooks, but platforms/ ships 3: fedora, fedora-wsl, macos' \
+  sed -i 's/as all three existing hooks/as all two existing hooks/' \
+  "$repo_root/docs/workflows/theming.md"
+
+# The Octo mappings, restored to a page whose lockfiles install no Octo.
+claim_negative octo docs/workflows/git.md \
+  'documents <leader>gi, <leader>gp, which only octo.nvim provides, but no lazy-lock.json installs it' \
+  sed -i 's/^<leader>gB    open current file\/line on GitHub$/<leader>gp    GitHub pull requests\n<leader>gi    GitHub issues\n<leader>gB    open current file\/line on GitHub/' \
+  "$repo_root/docs/workflows/git.md"
+
+printf 'PASS: each counted-claim check fails on its own drift\n'
+
 printf '\nAll documentation checks passed.\n'

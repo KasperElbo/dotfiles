@@ -52,13 +52,16 @@ Useful LazyVim Git mappings:
 <leader>ghs   stage hunk
 <leader>ghr   reset hunk
 
-<leader>gp    GitHub pull requests
-<leader>gi    GitHub issues
 <leader>gB    open current file/line on GitHub
 <leader>gY    copy GitHub URL
 ```
 
-Fugitive and Octo are intentionally not installed at present.
+`<leader>gB` and `<leader>gY` come from snacks.nvim, which LazyVim always
+loads; they open or copy a GitHub URL and need no GitHub plugin.
+
+Fugitive and Octo are intentionally not installed at present, so there is
+no in-editor pull-request or issue browser; `gh` above covers that from the
+shell.
 
 Multi-agent work (see [the AI profile guide](../profiles/ai.md)), when
 Treehouse is installed, uses isolated worktrees managed by `treehouse`

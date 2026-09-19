@@ -1,7 +1,12 @@
 # XDG-based Zsh configuration
 export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"
 
-# PATH policy for every Zsh, interactive or not.
+# PATH policy for every top-level Zsh, interactive or not.
+#
+# "Top-level" is exact: ZDOTDIR is exported above, and there is no .zshenv in
+# it, so a Zsh started from inside a Zsh reads no .zshenv at all and never
+# re-runs any of this. A nested shell gets what this file exported (PATH below,
+# DISABLE_UPDATES further down), and nothing else here has to reach one.
 #
 # Zsh ties the `path` array to `PATH`; marking the pair unique makes every
 # later prepend or append idempotent, in this file, in platform files, and in
@@ -25,9 +30,10 @@ export PATH
 # what "mise owns this package" means.
 #
 # Set here rather than behind the AI profile because this file is read by every
-# Zsh, interactive or not, which is what makes the setting effective in a fresh
-# login shell however Claude Code is started. On a machine that never selected
-# the AI profile the variable simply has no reader.
+# top-level Zsh, interactive or not, and exported from there into everything
+# that shell starts, which is what makes the setting effective however Claude
+# Code is started. On a machine that never selected the AI profile the variable
+# simply has no reader.
 export DISABLE_UPDATES=1
 
 # Platform environment policy must run before .zshrc executes any commands.
