@@ -123,6 +123,7 @@ default_tests=(
   tests/test-containers.sh
   tests/test-containers-wsl.sh
   tests/test-tailscale.sh
+  tests/test-dictation.sh
   tests/test-wsl-interop.sh
   tests/test-wsl-open.sh
   tests/test-fedora-wsl.sh

@@ -147,6 +147,8 @@ macos	date	macos	base	base	supported-base
 macos	df	macos	base	base	supported-base
 macos	find	macos	base	base	supported-base
 macos	readlink	macos	base	base	supported-base
+macos	ditto	macos	base	dictation	supported-base
+macos	hdiutil	macos	base	dictation	supported-base
 parrot-ctf	apt-get	apt	base	base	bootstrap-prerequisite
 parrot-ctf	curl	curl	base	base	bootstrap-prerequisite
 parrot-ctf	git	git	base	base	bootstrap-prerequisite
