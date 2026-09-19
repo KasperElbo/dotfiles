@@ -153,9 +153,15 @@ preflight_platform_command_providers() {
 # earlier layout of this checkout left behind, and is not a conflict.
 preflight_stow_packages() {
   local spec package_root package source relative target resolved parent conflict_type
-  local candidate is_replaced
+  local candidate is_replaced canonical_root source_resolved
   local conflict_count=0
   local -a replaces=()
+  # Physical, because a resolved symlink target is physical. DOTFILES_ROOT is
+  # logical, so under a checkout reached through a symlink the prefix test
+  # below would never match and every correctly stowed link would be reported
+  # as owned by another checkout.
+  canonical_root="$(resolve_existing_path "$DOTFILES_ROOT" 2>/dev/null || printf '%s' "$DOTFILES_ROOT")"
+  canonical_root="${canonical_root%/}"
   while [[ "${1:-}" == --replaces ]]; do
     replaces+=("$2")
     shift 2
@@ -184,10 +190,14 @@ preflight_stow_packages() {
       if [[ "$is_replaced" == true ]]; then
         continue
       elif [[ -L "$target" ]]; then
-        resolved="$(resolve_symlink_target "$target" 2>/dev/null || true)"
+        # Both sides are canonicalized, as common/lib/verify.sh's check_symlink
+        # does: a link this checkout already owns must compare equal however the
+        # checkout was reached.
+        resolved="$(resolve_existing_path "$target" 2>/dev/null || true)"
+        source_resolved="$(resolve_existing_path "$source" 2>/dev/null || true)"
         if [[ -z "$resolved" ]]; then conflict_type='dangling link'
-        elif [[ "$resolved" == "$source" ]]; then continue
-        elif [[ "$resolved" == "$DOTFILES_ROOT/"* ]]; then conflict_type='link to another package in this checkout'
+        elif [[ -n "$source_resolved" && "$resolved" == "$source_resolved" ]]; then continue
+        elif [[ "$resolved" == "$canonical_root" || "$resolved" == "$canonical_root/"* ]]; then conflict_type='link to another package in this checkout'
         else conflict_type='link owned by another checkout or source'
         fi
         printf 'Stow conflict [%s]: %s: %s\n' "$package" "$conflict_type" "$target" >&2

@@ -154,7 +154,26 @@ EOF
   cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
-exec "$@"
+# DOTFILES_TEST_SUDO is what the `cat` shim below reads to tell a privileged
+# read from an unprivileged one; the real sudo has actual privilege instead.
+DOTFILES_TEST_SUDO=1 exec "$@"
+EOF
+  # A root-owned /etc/wsl.conf the invoking user cannot read. The suite cannot
+  # produce one with chmod, because a root test runner reads every file
+  # regardless of mode, so the denial is modelled at the read itself: this
+  # shim refuses exactly the protected path, and only when the caller did not
+  # come through sudo.
+  cat >"$mock_bin/cat" <<EOF
+#!/usr/bin/env bash
+if [[ -n "\${DOTFILES_TEST_UNREADABLE_FILE:-}" && -z "\${DOTFILES_TEST_SUDO:-}" ]]; then
+  for argument in "\$@"; do
+    if [[ "\$argument" == "\$DOTFILES_TEST_UNREADABLE_FILE" ]]; then
+      printf 'cat: %s: Permission denied\n' "\$argument" >&2
+      exit 1
+    fi
+  done
+fi
+exec $(command -v cat) "\$@"
 EOF
   cat >"$mock_bin/mktemp" <<'EOF'
 #!/usr/bin/env bash
@@ -258,6 +277,62 @@ expected=$'[boot]\nsystemd=true\n\n[wsl2]\nmemory=4GB\n\n[interop]\nenabled=true
   fail_with_context "Unrelated sections were not preserved" "$test_root/wsl.conf"
 grep -Fq 'sudo install -m 0644' "$test_root/commands.log"
 printf 'PASS: a real run preserves unrelated existing sections ([boot], [wsl2])\n'
+rm -rf -- "$test_root"
+
+# --- a file this user cannot read is read with sudo, never treated as empty --
+#
+# The write below this read is sudo-backed and can replace a file the reader
+# could not open. Reading an unreadable /etc/wsl.conf as "" would therefore
+# replace the whole file with just [interop], dropping [boot] systemd=true --
+# the exact precondition lib/containers.sh refuses to install containers
+# without -- with no copy of it anywhere in this repository.
+
+test_root="$(new_test_root)"
+mapfile -t test_environment < <(base_environment "$test_root")
+test_environment+=("DOTFILES_TEST_UNREADABLE_FILE=$test_root/wsl.conf")
+printf '[boot]\nsystemd=true\n\n[user]\ndefault=kasper\n' >"$test_root/wsl.conf"
+test_stub_allow "$test_root" sudo cat -- "$test_root/wsl.conf"
+
+if ! env "${test_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/configure-interop.sh" \
+  >"$test_root/run.log" 2>&1; then
+  cat "$test_root/run.log" >&2
+  fail_with_context \
+    'configure-interop.sh must read an unreadable /etc/wsl.conf through sudo, not fail or start from an empty document' \
+    "$test_root/wsl.conf"
+fi
+
+expected=$'[boot]\nsystemd=true\n\n[user]\ndefault=kasper\n\n[interop]\nenabled=true\nappendWindowsPath=false'
+[[ "$(cat "$test_root/wsl.conf")" == "$expected" ]] ||
+  fail_with_context \
+    'A /etc/wsl.conf this user cannot read was rewritten from an empty document: [boot] systemd=true and [user] default= were lost' \
+    "$test_root/wsl.conf"
+grep -Fq 'sudo cat -- ' "$test_root/commands.log" ||
+  fail_with_context 'The unreadable file was never read through sudo' \
+    "$test_root/commands.log"
+printf 'PASS: a /etc/wsl.conf this user cannot read is read through sudo, with every section preserved\n'
+rm -rf -- "$test_root"
+
+# --- the existing mode survives the rewrite --------------------------------
+
+test_root="$(new_test_root)"
+mapfile -t test_environment < <(base_environment "$test_root")
+printf '[boot]\nsystemd=true\n' >"$test_root/wsl.conf"
+chmod 0600 "$test_root/wsl.conf"
+test_stub_allow "$test_root" sudo install -m 0600 \
+  "$test_root/generated-wsl.conf" "$test_root/wsl.conf"
+
+if ! env "${test_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/configure-interop.sh" \
+  >"$test_root/run.log" 2>&1; then
+  cat "$test_root/run.log" >&2
+  fail_with_context 'configure-interop.sh failed against a mode 0600 wsl.conf'
+fi
+
+observed_mode="$(stat -c '%a' -- "$test_root/wsl.conf")"
+[[ "$observed_mode" == "600" ]] ||
+  fail_with_context "The existing mode was not preserved: expected 600, got $observed_mode"
+printf 'PASS: a restricted /etc/wsl.conf keeps its mode instead of being reset to 0644\n'
 rm -rf -- "$test_root"
 
 # --- rerunning is a no-op: no sudo call, file untouched ---------------------

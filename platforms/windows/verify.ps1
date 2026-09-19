@@ -23,6 +23,7 @@ $ErrorActionPreference = 'Stop'
 $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $Manifest = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'manifest.psd1')
 . (Join-Path $PSScriptRoot 'lib\wsl-version.ps1')
+. (Join-Path $PSScriptRoot 'lib\scoop.ps1')
 
 if (-not $StatePath) {
     if ($FixturePath) {
@@ -257,14 +258,13 @@ function Get-LiveObservation {
         $schemaVersion = $state.SchemaVersion
     }
 
-    $scoopRoot = if ($env:SCOOP) {
-        [IO.Path]::GetFullPath($env:SCOOP)
-    }
-    else {
-        [IO.Path]::GetFullPath((Join-Path $env:USERPROFILE 'scoop'))
-    }
-    $scoopCommand = Get-Command scoop -ErrorAction SilentlyContinue
-    $nocttyCommand = Get-Command noctty -ErrorAction SilentlyContinue
+    # Every command below is resolved through the shared resolver, never
+    # through PATH alone: a package's shim reaches PATH through the registry,
+    # so the session that ran a successful install still cannot see it, and
+    # reporting that as a missing package would fail a healthy machine.
+    $scoopRoot = Get-ScoopRoot
+    $scoopCommandPath = Resolve-ScoopCommand
+    $nocttyCommandPath = Resolve-ScoopShimCommand -Name 'noctty'
     $bucketName = $Manifest.Scoop.NocttyBucket.Name
     $packageName = $Manifest.Scoop.NocttyPackage.Name
     $executableName = $Manifest.Scoop.NocttyPackage.Executable
@@ -275,7 +275,7 @@ function Get-LiveObservation {
     $extrasBucketName = $Manifest.Scoop.ExtrasBucket.Name
     $handyPackageName = $Manifest.Scoop.HandyPackage.Name
     $handyExecutableName = $Manifest.Scoop.HandyPackage.Executable
-    $handyCommand = Get-Command $handyPackageName -ErrorAction SilentlyContinue
+    $handyCommandPath = Resolve-ScoopShimCommand -Name $handyPackageName
     $extrasBucketPath = Join-Path $scoopRoot "buckets\$extrasBucketName"
     $handyPackagePath = Join-Path $scoopRoot "apps\$handyPackageName\current"
     $handyPackageExecutable = Join-Path $handyPackagePath $handyExecutableName
@@ -359,9 +359,9 @@ function Get-LiveObservation {
             FedoraDistribution = $distribution
         }
         Scoop = [pscustomobject]@{
-            Available = ($null -ne $scoopCommand -and (Test-Path -LiteralPath $scoopRoot -PathType Container))
+            Available = ($null -ne $scoopCommandPath -and (Test-Path -LiteralPath $scoopRoot -PathType Container))
             Root = $scoopRoot
-            CommandPath = if ($scoopCommand) { $scoopCommand.Source } else { $null }
+            CommandPath = $scoopCommandPath
             Bucket = [pscustomobject]@{
                 Name = $bucketName
                 Exists = Test-Path -LiteralPath $bucketPath -PathType Container
@@ -371,7 +371,7 @@ function Get-LiveObservation {
                 Name = $packageName
                 Exists = Test-Path -LiteralPath $packageExecutable -PathType Leaf
                 CurrentPath = $packageExecutable
-                CommandPath = if ($nocttyCommand) { $nocttyCommand.Source } else { $null }
+                CommandPath = $nocttyCommandPath
             }
             ExtrasBucket = [pscustomobject]@{
                 Name = $extrasBucketName
@@ -382,7 +382,7 @@ function Get-LiveObservation {
                 Name = $handyPackageName
                 Exists = Test-Path -LiteralPath $handyPackageExecutable -PathType Leaf
                 CurrentPath = $handyPackageExecutable
-                CommandPath = if ($handyCommand) { $handyCommand.Source } else { $null }
+                CommandPath = $handyCommandPath
             }
         }
         Configuration = [pscustomobject]@{

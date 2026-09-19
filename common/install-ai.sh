@@ -720,7 +720,11 @@ link_agent_instructions() {
   ensure_dir "$(dirname "$target")"
 
   if [[ -L "$target" ]]; then
-    if [[ "$(resolve_symlink_target "$target" 2>/dev/null || true)" == "$agents_source" ]]; then
+    # Canonicalized on both sides: agents_source is built from DOTFILES_ROOT,
+    # which is logical, while a resolved link is physical, so a link this
+    # repository already owns must still compare equal under a checkout reached
+    # through a symlink.
+    if resolved_link_matches "$target" "$agents_source"; then
       info "Already linked: $target -> $agents_source"
     else
       warn "Keeping existing symlink (points elsewhere), not linking: $target"
