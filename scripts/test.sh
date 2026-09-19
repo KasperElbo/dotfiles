@@ -120,6 +120,7 @@ default_tests=(
   tests/test-vm-guest.sh
   tests/test-hardening.sh
   tests/test-desktop-tools.sh
+  tests/test-dictation.sh
   tests/test-containers.sh
   tests/test-containers-wsl.sh
   tests/test-tailscale.sh

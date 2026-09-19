@@ -22,6 +22,7 @@ platforms support what, and who owns each deliberate absence.
 | `platforms/fedora/scripts/verify-asus-hardware.sh` | `hardware` | `--hardware` |
 | `platforms/fedora/scripts/verify-containers.sh` | `containers` | `--containers` |
 | `platforms/fedora/scripts/verify-desktop-tools.sh` | `desktop-tools` | `--desktop-tools` |
+| `platforms/fedora/scripts/verify-dictation.sh` | `dictation` | `--dictation` |
 | `platforms/fedora/scripts/verify-hardening.sh` | `hardening` | `--hardening` |
 | `platforms/fedora/scripts/verify-tailscale.sh` | `tailscale` | `--tailscale` |
 | `platforms/fedora/scripts/verify-vm-guest.sh` | `vm-guest` | `--vm-guest` |

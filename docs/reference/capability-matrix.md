@@ -21,6 +21,7 @@ A cell reads one of three ways, and the difference matters:
 | `containers` | ✓ `dnf` | ✓ `dnf` | ✓ `homebrew` | — unsupported |
 | `desktop-tools` | ✓ `dnf+rpmfusion` | — unsupported | — unsupported | — unsupported |
 | `dev-workflows` | ✓ `repository` | ✓ `repository` | ✓ `repository` | — unsupported |
+| `dictation` | ✓ `dnf+pinned-rpm` | — unsupported | — | — unsupported |
 | `dotnet-debug` | ✓ `mise-easydotnet` | ✓ `mise-easydotnet` | ✓ `mise-easydotnet` | — unsupported |
 | `firstmate` | ✓ `mise+upstream-scripts` | ✓ `mise+upstream-scripts` | ✓ `mise+upstream-scripts` | — |
 | `gnhf` | ✓ `mise-npm` | ✓ `mise-npm` | ✓ `mise-npm` | — |

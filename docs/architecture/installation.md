@@ -62,7 +62,7 @@ follows, and component scripts stay individually callable and safe to rerun.
 
 ### Fedora workstation
 
-`platforms/fedora/install.sh`, 23 steps:
+`platforms/fedora/install.sh`, 24 steps:
 
 | # | Step | Phase | When | What it does |
 |---|---|---|---|---|
@@ -75,20 +75,21 @@ follows, and component scripts stay individually callable and safe to rerun.
 | 7 | `vm-guest` | `apply` | conditional | Install the explicit Fedora KVM/QEMU VM-guest profile |
 | 8 | `hardening` | `apply` | conditional | Install the optional conservative security-hardening profile |
 | 9 | `desktop-tools` | `apply` | conditional | Install the optional day-to-day desktop application profile |
-| 10 | `containers` | `apply` | conditional | Install the optional rootless Podman profile |
-| 11 | `tailscale` | `apply` | conditional | Install the optional Tailscale networking profile |
-| 12 | `local` | `apply` | always | Initialize machine-local configuration |
-| 13 | `stow` | `apply` | always | Deploy tracked configuration with GNU Stow |
-| 14 | `mise` | `apply` | always | Install mise-managed runtimes and developer tools |
-| 15 | `nvim` | `apply` | always | Restore LazyVim and install the Mason inventory |
-| 16 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
-| 17 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch and Platform tools |
-| 18 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
-| 19 | `kde` | `apply` | conditional | Install all four Catppuccin KDE themes |
-| 20 | `latex` | `apply` | conditional | Install LaTeX toolchain |
-| 21 | `theme` | `apply` | always | Apply Catppuccin `<theme>` |
-| 22 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
-| 23 | `verify` | `verify` | always | Verify installation |
+| 10 | `dictation` | `apply` | conditional | Install the optional voice-dictation profile |
+| 11 | `containers` | `apply` | conditional | Install the optional rootless Podman profile |
+| 12 | `tailscale` | `apply` | conditional | Install the optional Tailscale networking profile |
+| 13 | `local` | `apply` | always | Initialize machine-local configuration |
+| 14 | `stow` | `apply` | always | Deploy tracked configuration with GNU Stow |
+| 15 | `mise` | `apply` | always | Install mise-managed runtimes and developer tools |
+| 16 | `nvim` | `apply` | always | Restore LazyVim and install the Mason inventory |
+| 17 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
+| 18 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch and Platform tools |
+| 19 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
+| 20 | `kde` | `apply` | conditional | Install all four Catppuccin KDE themes |
+| 21 | `latex` | `apply` | conditional | Install LaTeX toolchain |
+| 22 | `theme` | `apply` | always | Apply Catppuccin `<theme>` |
+| 23 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
+| 24 | `verify` | `verify` | always | Verify installation |
 
 ### Fedora on WSL
 

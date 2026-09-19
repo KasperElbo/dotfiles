@@ -167,6 +167,20 @@ run_success "Desktop-tools force-defaults remains opt-in" \
 run_success "Desktop-tools force-defaults dry-run" \
   "install-desktop-tools.sh --force-defaults" \
   ./install.sh --dry-run --desktop-tools --desktop-tools-force-defaults
+run_success "Dictation remains opt-in" "Dictation profile:   false" \
+  ./install.sh --dry-run
+run_success "Dictation dry-run" \
+  "platforms/fedora/scripts/install-dictation.sh" \
+  ./install.sh --dry-run --dictation
+run_success "Dictation dry-run names the pinned provider" \
+  "Handy from a pinned, digest-verified release rpm" \
+  ./install.sh --dry-run --dictation
+run_success "Standalone dictation dry-run keeps the compositor-owned key" \
+  "Super+O, owned by Sway (pkill -USR2 -x handy)" \
+  ./platforms/fedora/scripts/install-dictation.sh --dry-run
+run_success "Standalone dictation dry-run configures no cloud transcription" \
+  "local only; no account, API key or cloud endpoint" \
+  ./platforms/fedora/scripts/install-dictation.sh --dry-run
 run_success "Containers remains opt-in" "Containers profile:  false" \
   ./install.sh --dry-run
 run_success "Containers dry-run" \

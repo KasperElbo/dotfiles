@@ -107,6 +107,12 @@
 \csrow{Super+Shift+V}{Clipboard history (cliphist + Fuzzel)}
 \end{cskeys}
 
+\cssection{Voice dictation}
+\begin{cskeys}{0.34\linewidth}
+\csrow{Super+O}{Toggle Handy dictation on and off}
+\end{cskeys}
+\csnote{Sway owns the key and signals Handy (\texttt{pkill -USR2 -x handy}); Handy's own global shortcut cannot work on wlroots. Optional \texttt{--dictation} profile; the key does nothing when Handy is not running.}
+
 \cssection{Media \& hardware}
 \begin{cskeys}{0.30\linewidth}
 \csrow{Vol Up/Down/Mute}{wpctl volume / mute}

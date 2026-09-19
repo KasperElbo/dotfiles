@@ -44,6 +44,7 @@ unsupported on a platform install nothing there and are omitted.
 | `codex` | `--codex` | `mise-npm` | `@openai/codex` |
 | `containers` | `--containers` | `dnf` | `podman` `podman-compose` |
 | `desktop-tools` | `--desktop-tools` | `dnf+rpmfusion` | `gimp` `mpv` `pdfarranger` `skanpage` |
+| `dictation` | `--dictation` | `dnf+pinned-rpm` | `gtk-layer-shell` `wtype` |
 | `dotnet-debug` | always | `mise-easydotnet` | `EasyDotnet` |
 | `firstmate` | `--firstmate` | `mise+upstream-scripts` | `chrome-devtools-axi` `firstmate` `gh-axi` `lavish-axi` `no-mistakes` `quota-axi` `tasks-axi` `treehouse` |
 | `gnhf` | `--gnhf` | `mise-npm` | `gnhf` |

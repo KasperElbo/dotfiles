@@ -43,6 +43,7 @@ current support contract. A guide never says a capability is "waiting for" or
 - [profiles/vm-guest.md](profiles/vm-guest.md) — Fedora guest integration
 - [profiles/hardening.md](profiles/hardening.md) — conservative Fedora hardening
 - [profiles/desktop-tools.md](profiles/desktop-tools.md) — day-to-day desktop applications
+- [profiles/dictation.md](profiles/dictation.md) — optional voice dictation
 - [profiles/tailscale.md](profiles/tailscale.md) — Tailscale networking
 - [profiles/ai.md](profiles/ai.md) — the AI-assisted development toolchain
 

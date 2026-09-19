@@ -36,6 +36,12 @@ profile_state_allowed_keys() {
   ga402xz | ga402rk) printf '%s\n' secure_boot charge_limit ;;
   containers) printf '%s\n' runtime mode compose_provider api_socket user ;;
   desktop-tools) printf '%s\n' image_viewer image_editor pdf_viewer pdf_tool archive_manager media_player scanner force_defaults ;;
+  # The dictation profile owns one pinned release artifact rather than a
+  # repository package, so the state records exactly which artifact is on
+  # the machine: the upstream version, the rpm file name, and the digest
+  # that was verified before it was installed. A later run compares those
+  # three rather than re-downloading, and a removal can name what it owns.
+  dictation) printf '%s\n' application provider version rpm sha256 paste_backend toggle ;;
   hardening) printf '%s\n' selinux_mode faillock sudo_logfile auditd sysctl_ptrace_scope sysctl_kptr_restrict sysctl_dmesg_restrict ssh dnf_automatic ;;
   tailscale) printf '%s\n' repo service variant ;;
   vm-guest) printf '%s\n' hypervisor guest_agent desktop_agent display network shared_folders ;;
@@ -54,6 +60,7 @@ profile_state_required_keys() {
   ga402xz | ga402rk) printf '%s\n' secure_boot charge_limit ;;
   containers) printf '%s\n' runtime mode api_socket ;;
   desktop-tools) printf '%s\n' image_viewer image_editor pdf_viewer pdf_tool ;;
+  dictation) printf '%s\n' application provider version rpm sha256 paste_backend ;;
   hardening) printf '%s\n' selinux_mode faillock auditd ;;
   tailscale) printf '%s\n' variant ;;
   vm-guest) printf '%s\n' hypervisor guest_agent network ;;
