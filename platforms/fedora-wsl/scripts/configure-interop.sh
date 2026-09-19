@@ -61,9 +61,27 @@ done
 
 require_fedora_wsl
 
+# The existing file is the starting document, so failing to read it must never
+# be mistaken for "there is no file yet". /etc/wsl.conf belongs to root and
+# nothing guarantees it is readable by the user running this script: a
+# non-default mode can withhold read from everyone else. An unreadable file
+# read as empty would hand render_ini_section_keys an empty document, and the
+# sudo-backed write below -- which *can* write it -- would then replace the
+# whole file with just [interop]. That silently drops an existing
+# [boot] systemd=true, which platforms/fedora-wsl/lib/containers.sh refuses to
+# install containers without, and an existing [user] default=, which decides
+# who the distribution logs in as. Neither is recoverable from this repository.
+#
+# So the read is attempted as this user first and then retried through the same
+# privilege that performs the write. Keying the retry off the read actually
+# failing, rather than off `[[ -r ]]`, covers every reason a read can fail and
+# leaves no window between testing and reading.
 current_content=""
-if [[ -r "$wsl_conf_file" ]]; then
-  current_content="$(cat "$wsl_conf_file")"
+if [[ -e "$wsl_conf_file" || -L "$wsl_conf_file" ]]; then
+  if ! current_content="$(cat -- "$wsl_conf_file" 2>/dev/null)"; then
+    current_content="$(sudo cat -- "$wsl_conf_file")" ||
+      die "Cannot read $wsl_conf_file, with or without sudo. Refusing to continue: rewriting it from an empty document would replace every section it already has."
+  fi
 fi
 
 new_content="$(render_ini_section_keys "$current_content" "interop" \
@@ -109,10 +127,22 @@ fi
 
 info "Updating $wsl_conf_file: [interop] enabled=true, appendWindowsPath=false"
 
+# Keep whatever mode the file already has. 0644 is the right mode for a file
+# this creates, but forcing it on an existing file would publish one an
+# administrator deliberately restricted -- the same edit-in-place contract the
+# rest of this script keeps for the file's other sections.
+file_mode="0644"
+if [[ -e "$wsl_conf_file" ]]; then
+  existing_mode="$(stat -c '%a' -- "$wsl_conf_file" 2>/dev/null || true)"
+  if [[ "$existing_mode" =~ ^[0-7]+$ ]]; then
+    printf -v file_mode '%04o' "$((8#$existing_mode))"
+  fi
+fi
+
 temp_file="$(mktemp)"
 trap 'rm -f -- "$temp_file"' EXIT
 printf '%s\n' "$new_content" >"$temp_file"
-sudo install -m 0644 "$temp_file" "$wsl_conf_file"
+sudo install -m "$file_mode" "$temp_file" "$wsl_conf_file"
 
 success "$wsl_conf_file now sets [interop] enabled=true / appendWindowsPath=false"
 warn "Restart WSL for this to take effect: run 'wsl --shutdown' from Windows PowerShell (this affects every WSL distribution, not just this one), then reopen this distribution."

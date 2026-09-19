@@ -40,6 +40,43 @@ if preflight_stow_packages "$package_root::three" 2>"$test_root/wrong-checkout";
 fi
 grep -Fq 'link owned by another checkout or source' "$test_root/wrong-checkout"
 
+# A checkout reached through a symlink. DOTFILES_ROOT is logical, because it is
+# built with cd/pwd and keeps the links the caller walked through, while a
+# resolved link target is physical. Comparing the two spellings reported every
+# correctly stowed link as owned by another checkout, so every rerun of
+# ./install.sh and common/stow.sh refused to proceed.
+physical_checkout="$test_root/physical-checkout"
+linked_checkout="$test_root/linked-checkout"
+linked_home="$test_root/linked-home"
+mkdir -p "$physical_checkout/stow/app/.config/app" "$linked_home/.config/app"
+printf 'app\n' >"$physical_checkout/stow/app/.config/app/file"
+ln -s "$physical_checkout" "$linked_checkout"
+ln -s "$linked_checkout/stow/app/.config/app/file" "$linked_home/.config/app/file"
+if ! (
+  HOME="$linked_home"
+  DOTFILES_ROOT="$linked_checkout"
+  preflight_stow_packages "$linked_checkout/stow::app"
+) 2>"$test_root/symlinked-checkout"; then
+  printf 'A link this checkout already owns was reported as a conflict because the checkout is reached through a symlink:\n' >&2
+  cat "$test_root/symlinked-checkout" >&2
+  exit 1
+fi
+
+# ... and canonicalizing must not make every link look owned: a link into a
+# genuinely different source is still a conflict.
+ln -s "$test_root/other-checkout/file" "$linked_home/.config/app/other"
+printf 'other\n' >"$physical_checkout/stow/app/.config/app/other"
+if (
+  HOME="$linked_home"
+  DOTFILES_ROOT="$linked_checkout"
+  preflight_stow_packages "$linked_checkout/stow::app"
+) 2>"$test_root/symlinked-foreign"; then
+  printf 'A link into another source passed under a symlinked checkout.\n' >&2
+  exit 1
+fi
+grep -Fq 'link owned by another checkout or source' "$test_root/symlinked-foreign"
+printf 'PASS: a checkout reached through a symlink recognizes the links it owns\n'
+
 rm -rf "$HOME/.config"
 printf 'parent\n' >"$HOME/.config"
 if preflight_stow_packages "$package_root::one" 2>"$test_root/parent"; then

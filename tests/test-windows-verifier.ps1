@@ -46,6 +46,23 @@ function Assert-FailureContains {
     }
 }
 
+function Assert-Equal {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [object]$Actual,
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [object]$Expected,
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    if ($Actual -ne $Expected) {
+        throw "$Message Expected '$Expected', got '$Actual'."
+    }
+}
+
 function New-CaseFixture {
     param(
         [string]$Name,
@@ -181,7 +198,61 @@ try {
         -Result (Invoke-Verifier -Fixture $case) `
         -Expected 'Recorded Fedora WSL distribution is missing: FedoraLinux-44'
 
-    $source = Get-Content -LiteralPath $verifier -Raw
+    # Scoop resolution must not depend on PATH. The Scoop installer runs in a
+    # child PowerShell and a package shim reaches PATH through the registry, so
+    # the session that ran a completely successful install still cannot see
+    # scoop, noctty or handy through Get-Command. Without the shims fallback the
+    # verifier reported three healthy things as missing, two of them with an
+    # empty path, and exited 1.
+    . (Join-Path $repoRoot 'platforms\windows\lib\scoop.ps1')
+
+    $shimProfile = Join-Path $testRoot 'ShimProfile'
+    $shimDirectory = Join-Path $shimProfile 'scoop\shims'
+    [IO.Directory]::CreateDirectory($shimDirectory) | Out-Null
+    foreach ($shim in @('scoop.ps1', 'scoop.cmd', 'noctty.exe', 'handy.exe')) {
+        [IO.File]::WriteAllText((Join-Path $shimDirectory $shim), '')
+    }
+
+    $originalUserProfile = $env:USERPROFILE
+    $originalScoop = $env:SCOOP
+    $originalPath = $env:PATH
+    try {
+        $env:USERPROFILE = $shimProfile
+        $env:SCOOP = ''
+        # Nothing at all on PATH: exactly what the installing session sees.
+        $env:PATH = ''
+
+        Assert-Equal -Actual (Get-ScoopRoot) `
+            -Expected ([IO.Path]::GetFullPath((Join-Path $shimProfile 'scoop'))) `
+            -Message 'The Scoop root was not taken from the Windows user profile.'
+        Assert-Equal -Actual (Resolve-ScoopCommand) `
+            -Expected (Join-Path $shimDirectory 'scoop.ps1') `
+            -Message 'Scoop was not found in its shims directory with PATH empty.'
+        foreach ($package in @('noctty', 'handy')) {
+            Assert-Equal `
+                -Actual (Resolve-ScoopShimCommand -Name $package) `
+                -Expected (Join-Path $shimDirectory "$package.exe") `
+                -Message "$package was not found in its shims directory with PATH empty."
+        }
+        Assert-Equal -Actual (Resolve-ScoopShimCommand -Name 'not-installed') `
+            -Expected $null `
+            -Message 'A command in neither PATH nor the shims directory must not resolve.'
+
+        $env:SCOOP = Join-Path $testRoot 'ExplicitScoop'
+        Assert-Equal -Actual (Get-ScoopRoot) `
+            -Expected ([IO.Path]::GetFullPath($env:SCOOP)) `
+            -Message 'An explicit $env:SCOOP must decide where the shims are looked for.'
+    }
+    finally {
+        $env:USERPROFILE = $originalUserProfile
+        $env:SCOOP = $originalScoop
+        $env:PATH = $originalPath
+    }
+
+    # The helper verify.ps1 dot-sources is held to the same read-only contract
+    # as the verifier itself.
+    $source = (Get-Content -LiteralPath $verifier -Raw) +
+        (Get-Content -LiteralPath (Join-Path $repoRoot 'platforms\windows\lib\scoop.ps1') -Raw)
     foreach ($forbidden in @(
         'Invoke-WebRequest',
         'Invoke-RestMethod',

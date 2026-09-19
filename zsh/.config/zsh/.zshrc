@@ -10,6 +10,22 @@
 # PATH by re-sourcing, and so mise/opam activation stays idempotent.
 typeset -gU path PATH
 
+# .zshenv puts ~/.local/bin first, but a login shell runs /etc/zprofile between
+# the two files, and on macOS that runs path_helper, which rebuilds PATH with
+# the system directories in front and everything else after them. ~/.local/bin
+# then sits eighth on a normal Mac, and a terminal window is a login shell, so
+# that is the ordinary shape rather than an edge case. Re-assert it here, after
+# every system file has had its say. The tied array is unique, so this is a
+# no-op in the shells where ~/.local/bin is already first: Zsh keeps the
+# leftmost occurrence and drops the later duplicate, moving nothing else.
+#
+# This is what the command shims depend on -- the Parrot profile's ~/.local/bin
+# wrappers for bat and fd only work if they win over anything with the same
+# name -- and it is deliberately a prepend here rather than a change to
+# path_helper's own inputs, which belong to the operating system.
+path=("$HOME/.local/bin" $path)
+export PATH
+
 HISTFILE="${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history"
 mkdir -p "${HISTFILE:h}"
 

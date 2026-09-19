@@ -197,6 +197,48 @@ assert_eq '/opt/homebrew/opt/coreutils/libexec/gnubin' \
 assert_contains "$macos_path" '/opt/homebrew/bin'
 printf 'PASS: platform PATH contracts survive the uniqueness policy\n'
 
+# A macOS *login* shell, which is the ordinary shape there: zsh is the
+# registered login shell and terminals start login shells. The order is
+# .zshenv, then /etc/zprofile, then .zshrc -- and /etc/zprofile runs
+# path_helper, which rebuilds PATH from /etc/paths and /etc/paths.d with the
+# system directories in front and everything that was already there after
+# them. Anything .zshenv prepended is demoted, so the startup files have to
+# re-assert the policy after every system file has had its say.
+#
+# path_helper is simulated rather than invoked: it does not exist on Linux, and
+# what matters is its effect on the order, not its implementation.
+macos_login_path="$(
+  env -i HOME="$root/home" XDG_CONFIG_HOME="$root/config" \
+    XDG_DATA_HOME="$root/data" XDG_STATE_HOME="$root/state" \
+    XDG_CACHE_HOME="$root/cache" TERM=xterm-256color PATH="$sandbox_bin" \
+    DOTFILES_TEST_ZSHENV="$zshenv" DOTFILES_TEST_ZSHRC="$zshrc" \
+    DOTFILES_TEST_PLATFORM_ENV="$macos_env" \
+    "$zsh_path" -f -c '
+      source "$DOTFILES_TEST_ZSHENV"
+      source "$DOTFILES_TEST_PLATFORM_ENV"
+      # /etc/zprofile: the system directories from /etc/paths first, then
+      # every entry that was already on PATH, in order. `path` is unique, so
+      # the duplicates this creates collapse exactly as path_helper drops them.
+      path=(/usr/local/bin /usr/bin /bin /usr/sbin /sbin $path)
+      export PATH
+      source "$DOTFILES_TEST_ZSHRC"
+      print -l -- $path
+    '
+)"
+assert_eq "$root/home/.local/bin" \
+  "$(printf '%s\n' "$macos_login_path" | head -n1)" \
+  'user executables must keep the front of PATH in a macOS login shell, after path_helper has reordered it'
+assert_eq '/opt/homebrew/opt/coreutils/libexec/gnubin' \
+  "$(printf '%s\n' "$macos_login_path" | tail -n1)" \
+  'macOS gnubin must stay last in a login shell too'
+login_duplicates="$(printf '%s\n' "$macos_login_path" | sort | uniq -d)"
+[[ -z "$login_duplicates" ]] || {
+  printf 'TEST FAILURE: the login shape duplicated PATH entries:\n%s\n' \
+    "$login_duplicates" >&2
+  exit 1
+}
+printf 'PASS: a macOS login shell keeps ~/.local/bin first after path_helper\n'
+
 # --- Missing optional integrations (#157) -----------------------------------
 
 run_capture run_zsh bare xterm-256color 'print -r -- loaded'

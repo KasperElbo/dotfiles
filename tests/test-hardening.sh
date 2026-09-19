@@ -969,6 +969,69 @@ SUDO_EOF
   printf 'PASS: %s\n' "$scenario_name"
 }
 
+# The interactive confirmation is the last point before this profile mutates
+# anything, and it is a step of platforms/fedora/install.sh's plan rather than
+# a top-level installer. Collapsing `confirm`'s three-valued result with
+# `|| exit 0` therefore reported a profile nobody agreed to install as
+# installed: plan_execute recorded `[hardening] completed` and
+# install_lifecycle_commit put `hardening` in observed_capabilities, while no
+# hardening.conf existed for the verifier to check.
+run_confirmation_contract() {
+  test_new_root
+  local test_root="$TEST_ROOT"
+  local mock_bin="$test_root/bin"
+
+  mkdir -p "$mock_bin"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$mock_bin/dnf"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$mock_bin/rpm"
+  chmod +x "$mock_bin"/*
+  printf 'ID=fedora\n' >"$test_root/os-release"
+
+  local base_environment
+  mapfile -t base_environment < <(test_env_args "$test_root")
+  local test_environment=(
+    env
+    "${base_environment[@]}"
+    "PATH=$mock_bin:$PATH"
+    "OS_RELEASE_FILE=$test_root/os-release"
+  )
+  local state_file="$test_root/config/dotfiles/hardening.conf"
+
+  # run_answer <label> <expected-message> [answer]
+  #
+  # The answer is fed to the prompt; omitting it means a closed standard
+  # input, which `confirm` documents as declined rather than as a silently
+  # inherited yes.
+  run_answer() {
+    local label="$1" expected_message="$2"
+    shift 2
+    local status=0 output
+    local answer_file="$test_root/state/answer"
+
+    rm -f -- "$state_file"
+    # An empty answer file is an immediate EOF, which is what `read` sees on a
+    # closed standard input; an unattended run must not inherit a yes there.
+    if (($#)); then printf '%s\n' "$1" >"$answer_file"; else : >"$answer_file"; fi
+
+    output="$("${test_environment[@]}" \
+      "$repo_root/platforms/fedora/scripts/install-hardening.sh" \
+      <"$answer_file" 2>&1)" || status=$?
+
+    ((status != 0)) ||
+      _test_die "[$label] a hardening profile that was not agreed to exited 0, so the plan records it as installed; output: $output"
+    assert_contains "$output" "$expected_message"
+    [[ ! -e "$state_file" ]] ||
+      _test_die "[$label] a hardening profile that was not agreed to wrote $state_file"
+  }
+
+  run_answer 'declined' 'Hardening installation declined' n
+  run_answer 'unparseable answer' 'Invalid confirmation response' maybe
+  run_answer 'no answer on standard input' 'Hardening installation declined'
+
+  printf 'PASS: a hardening confirmation that is not a yes stops the run instead of completing it\n'
+}
+
+run_confirmation_contract
 run_root_prefix_contract unset
 run_root_prefix_contract empty
 run_root_prefix_contract prefix

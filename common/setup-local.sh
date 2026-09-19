@@ -30,7 +30,12 @@ ensure_dir "$state_dir"
 migrate_folded_git_directory() {
   [[ -L "$git_dir" ]] || return 0
 
-  if [[ "$(resolve_symlink_target "$git_dir" || true)" != "$former_git_dir" ]]; then
+  # Canonicalized on both sides: former_git_dir is built from DOTFILES_ROOT,
+  # which is logical, while a resolved link is physical. Comparing the two
+  # spellings directly under a checkout reached through a symlink would leave a
+  # legacy Stow-managed directory in place and then write machine-local Git
+  # identities through it, back into the worktree.
+  if ! resolved_link_matches "$git_dir" "$former_git_dir"; then
     info "Keeping existing Git config directory symlink: $git_dir"
     return
   fi
@@ -73,7 +78,7 @@ migrate_stow_managed_git_config() {
     return
   fi
 
-  if [[ "$(resolve_symlink_target "$config_path" || true)" != "$former_stow_path" ]]; then
+  if ! resolved_link_matches "$config_path" "$former_stow_path"; then
     info "Keeping existing Git config symlink: $config_path"
     return
   fi

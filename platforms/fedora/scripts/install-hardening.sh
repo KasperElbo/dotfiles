@@ -148,7 +148,21 @@ if [[ "$interactive" == "true" ]]; then
   printf '\n'
   printf 'This installs the optional Fedora hardening profile described above.\n'
   printf 'Run with --dry-run first to see the full plan.\n'
-  confirm "Continue with hardening installation?" "y" || exit 0
+  # `confirm` is deliberately three-valued and this is a step of a larger
+  # plan, not a top-level installer: exiting 0 on anything but a yes would
+  # report a profile that was never installed as completed. plan_execute would
+  # record `[hardening] completed`, install_lifecycle_commit would add
+  # `hardening` to observed_capabilities, and the plan's verify step could not
+  # catch it, because platforms/fedora/scripts/verify.sh only runs the
+  # hardening verifier when the state file this run never wrote exists. Only
+  # ./doctor would notice, much later. So both non-yes statuses stop the run,
+  # and they are distinguished the way every other call site distinguishes
+  # them: an unparseable answer is a different mistake from a declined one.
+  if confirm "Continue with hardening installation?" "y"; then :; else
+    result=$?
+    ((result == 1)) || die 'Invalid confirmation response'
+    die 'Hardening installation declined; nothing was changed.'
+  fi
 fi
 
 state_selinux="$(selinux_mode)"
