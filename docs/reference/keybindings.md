@@ -306,7 +306,7 @@ The shell re-exec belongs to the Zsh wrapper, not to the command; see
 
 ## Complete action reference
 
-Every action this repository defines or deliberately puts in front of you: 238 entries, grouped by the platform they exist on.
+Every action this repository defines or deliberately puts in front of you: 239 entries, grouped by the platform they exist on.
 
 **Origin** is the distinction that matters when something behaves unexpectedly.
 `repository` means this repository binds it, and the `Source` column says where.
@@ -398,6 +398,7 @@ choice with a recorded reason, never an omission.
 |---|---|---|---|---|---|---|---|
 | `Prefix [` | Scroll / copy mode | key | upstream | `base` | the tool's own help | yes | — |
 | `Prefix ?` | List every tmux key binding | key | upstream | `base` | the tool's own help | yes | — |
+| `Window focus` | Focus changes reach the programs running in a pane, so refocusing Neovim picks up a new Catppuccin flavour and reloads externally changed files | mode | repository | `base` | the tracked config | no | `tmux/.tmux.conf` |
 | `Mouse scroll / click` | Scroll a pane's history and select panes and windows with the mouse | mouse | repository | `base` | the tool's own help | yes | `tmux/.tmux.conf` |
 | `Prefix 1..9` | Windows and panes are numbered from 1, matching the digits on the keyboard | mode | repository | `base` | the tool's own help | no | `tmux/.tmux.conf` |
 | `Prefix s` | Choose a session | key | upstream | `base` | the tool's own help | yes | — |
@@ -716,7 +717,7 @@ choice with a recorded reason, never an omission.
 
 ### Why an action is not on a printable sheet
 
-44 of the 238 registered actions are deliberately kept off every sheet:
+45 of the 239 registered actions are deliberately kept off every sheet:
 
 | Action | Reason |
 |---|---|
@@ -756,6 +757,7 @@ choice with a recorded reason, never an omission.
 | `sway.session.notifications` | A background session service Sway starts itself; the keys that dismiss and restore a notification are registered separately |
 | `sway.session.polkit` | A background session service Sway starts itself; there is nothing for a user to invoke |
 | `sway.session.start` | Sway's own config execs it at session startup; there is nothing for a user to invoke |
+| `tmux.option.focus-events` | There is no key to press: it is the transport the FocusGained reload needs, and the theming and troubleshooting guides are where a user meets it |
 | `tmux.option.numbering` | The numbering is visible in the status bar the moment tmux starts; the sheets' tmux block is for keys |
 | `waybar.audio.click` | Discoverable by clicking the module it sits on |
 | `waybar.bluetooth.click` | Discoverable by clicking the module it sits on |
