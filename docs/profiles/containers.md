@@ -32,7 +32,9 @@ implementation specifically:
   other platform's installer. It uses a rootless Linux VM (`podman machine`)
   and a dedicated smoke test; it does not reuse Fedora systemd, SELinux,
   subuid, or host-networking assumptions, and `verify.sh` there has no
-  `--skip-smoke-test` option. See
+  `--skip-smoke-test` option. It is also the one macOS capability no CI job
+  installs — a hosted runner cannot start the Podman machine — so it is
+  checked by hand. See
   [the macOS guide](../platforms/macos.md#optional-containers).
 - **[Parrot Security Edition CTF guest](../platforms/parrot-ctf.md)**: not
   installed and not appropriate to layer on automatically. The guest is an
