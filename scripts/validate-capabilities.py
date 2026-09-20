@@ -121,6 +121,7 @@ ARRAY_OWNERS = {
     ("platforms/fedora/scripts/install-ocaml.sh", "wsl_packages"): "ocaml",
     ("platforms/fedora/scripts/install-ocaml.sh", "packages"): None,
     ("platforms/fedora/scripts/install-sway.sh", "packages"): "sway",
+    ("platforms/fedora/scripts/install-kde-theme.sh", "packages"): "kde",
     ("platforms/fedora/scripts/install-vm-host.sh", "vm_host_packages"): "vm-host",
     ("platforms/fedora/scripts/install-vm-guest.sh", "vm_guest_packages"): "vm-guest",
     ("platforms/fedora/scripts/install-asus-hardware.sh", "common_packages"): "hardware",

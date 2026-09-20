@@ -112,17 +112,23 @@ jobs:
         # installer offers the same token through a netrc for the ones that
         # read neither.
         #
-        # --containers and --tailscale are selected here, not left off: this
-        # step is the real-installation evidence config/capabilities.tsv
-        # claims for both macOS rows, and a capability the workflow never
-        # selects is never installed or verified end to end. Neither is ever
-        # logged in or started -- "supported" means installable and runnable.
+        # --tailscale is selected here, not left off: this step is the
+        # real-installation evidence config/capabilities.tsv claims for that
+        # macOS row, and a capability the workflow never selects is never
+        # installed or verified end to end. It is never logged in or started
+        # -- "supported" means installable and runnable.
+        #
+        # --containers is deliberately absent. The runner is a VM, so vfkit
+        # has no nested virtualisation and `podman machine start` exits 1
+        # however the capability is installed. config/capabilities.tsv records
+        # that in the row's ci_scope column, and docs/platforms/macos.md
+        # carries the manual check that stands in for this one.
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: >-
           ./install.sh --platform macos --theme mocha
-          --ocaml --containers --tailscale --defaults
+          --ocaml --tailscale --defaults
           --ai --codex --firstmate --gnhf --backpass
           --non-interactive
 
@@ -246,7 +252,10 @@ jobs:
           printf 'Remembered selection: %s\n' "$selection"
           # The optional AI subcomponents have to survive the round trip, or
           # --rerun would reapply a different machine than the one recorded.
-          for expected in ocaml:true containers:true tailscale:true \
+          # containers is the one recorded as declined: the transition step
+          # above does not select it, for the reason given there, so a rerun
+          # that installed it would be reapplying a machine nobody asked for.
+          for expected in ocaml:true containers:false tailscale:true \
             ai:true codex:true firstmate:true gnhf:true backpass:true; do
             case ",$selection," in
               *",$expected,"*) ;;
@@ -265,7 +274,10 @@ jobs:
           ## macOS evidence
           The runner is real Apple Silicon macOS and is disposable for every
           job. It is not a factory-fresh Mac and CI cannot grant interactive
-          AeroSpace Accessibility or Tailscale approvals.
+          AeroSpace Accessibility or Tailscale approvals. It is also itself a
+          virtual machine, so vfkit has no nested virtualisation and the
+          containers profile's Podman machine cannot start here: that profile
+          is excluded in config/capabilities.tsv and checked by hand instead.
 
           The AI component probe is the evidence behind every macOS AI support
           claim in config/capabilities.tsv and docs/platforms/macos.md. It is not a mock:

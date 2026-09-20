@@ -301,6 +301,23 @@ formula to keep machine-package ownership declarative. If that trade-off causes
 a real stability issue, remove the formula and use the upstream installer
 rather than keeping two copies.
 
+This profile is the one macOS capability no CI job installs, and
+`config/capabilities.tsv` records that in the row's `ci_scope` column. A
+hosted macOS runner is itself a virtual machine, so `vfkit` has no nested
+virtualisation to build the Podman machine on: `podman machine init` writes
+the VM and `podman machine start` then fails with `Error: vfkit exited
+unexpectedly with exit code 1`. Nothing in this repository changes that, so
+the real-install workflow does not select `--containers` on macOS.
+
+Check it by hand on a real Mac instead, after an install that selected it:
+
+```bash
+podman machine list          # one machine, Running
+podman info                  # rootless: true
+podman run --rm docker.io/library/alpine:latest uname -m   # aarch64
+podman-compose version
+```
+
 See [the containers profile guide](../profiles/containers.md) for day-to-day
 use. Rollback:
 

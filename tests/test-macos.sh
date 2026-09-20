@@ -66,6 +66,22 @@ assert_contains "$dry_run" 'Podman machine'
 assert_contains "$dry_run" 'AI tooling profile: false'
 assert_contains "$dry_run" 'No changes were made.'
 
+# The containers profile is the one macOS capability no CI job installs. A
+# hosted macOS runner is itself a virtual machine, so vfkit has no nested
+# virtualisation and `podman machine start` exits 1 there whatever this
+# repository does. That has to be a recorded decision with its reason and a
+# manual check standing in for it, not a flag quietly dropped from the
+# workflow, so the registry says so and names where the check lives.
+containers_scope="$(awk -F '\t' '$1 == "containers" && $2 == "macos" { print $17 }' \
+  "$repo_root/config/capabilities.tsv")"
+[[ -n "$containers_scope" ]] ||
+  _test_die 'config/capabilities.tsv has no macos row for the containers capability'
+case "$containers_scope" in
+excluded:*) ;;
+*) _test_die "the macos containers row must record its CI exclusion, got: $containers_scope" ;;
+esac
+assert_contains "$containers_scope" 'docs/platforms/macos.md#optional-containers'
+
 no_defaults="$("$repo_root"/install.sh --platform macos --dry-run --no-defaults)"
 assert_contains "$no_defaults" 'macOS defaults:     false'
 if [[ "$no_defaults" == *'Apply reversible Dock'* ]]; then

@@ -34,8 +34,10 @@ test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
 test_stub_install "$test_root" git
 test_stub_install "$test_root" sudo
-test_stub_allow "$test_root" dnf install -y kio-extras
-test_stub_allow "$test_root" sudo dnf install -y kio-extras
+for package in kio-extras wget; do
+  test_stub_allow "$test_root" dnf install -y "$package"
+  test_stub_allow "$test_root" sudo dnf install -y "$package"
+done
 # The pinned tag is read from the installer rather than repeated here, so
 # bumping the pin cannot leave this stub allowing the previous tag.
 kde_pin="$(sed -n 's/^version="\(v[0-9][0-9.]*\)"$/\1/p' \
@@ -51,12 +53,43 @@ printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 exec "$@"
 EOF
 
+# A real `dnf install wget` puts wget on PATH, and the fixture installer below
+# refuses to run without it, exactly as the pinned upstream one does. So this
+# handler has to put it there too: without it the suite would assert that a
+# command was logged and never that the install it stands for had any effect.
+# TEST_KDE_DNF_INERT switches that off, for the negative control at the end.
+cat >"$test_root/handlers/dnf" <<'EOF'
+#!/usr/bin/env bash
+[[ -z "${TEST_KDE_DNF_INERT:-}" ]] || exit 0
+for argument in "$@"; do
+  [[ "$argument" == wget ]] || continue
+  printf '#!/usr/bin/env sh\nexit 0\n' >"$TEST_STUB_ROOT/bin/wget"
+  chmod +x "$TEST_STUB_ROOT/bin/wget"
+done
+EOF
+
 cat >"$test_root/handlers/git" <<'EOF'
 #!/usr/bin/env bash
 destination="${*: -1}"
 mkdir -p "$destination"
 cat >"$destination/install.sh" <<'INSTALLER'
 #!/usr/bin/env sh
+# The pinned upstream installer checks its dependencies before installing
+# anything, and a missing wget stops it dead -- which is how the scheduled
+# real installation failed. Reproduce that, so dropping the wget install
+# fails this suite instead of only the next Fedora run.
+#
+# It insists on the wget the installer put in the stub directory rather than
+# on any wget: the suite runs with the host PATH appended, so accepting
+# whatever `command -v` finds would pass on any machine that happens to have
+# one and prove nothing here.
+case "$(command -v wget 2>/dev/null)" in
+"$EXPECTED_WGET") ;;
+*)
+  printf "Error: Dependency 'wget' is not met.\n" >&2
+  exit 1
+  ;;
+esac
 printf '%s\n' "$*" >>"$INSTALL_LOG"
 kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key BorderSizeAuto false
 plasma-apply-lookandfeel -a "Catppuccin-$1"
@@ -108,6 +141,7 @@ install_environment=(
   "INSTALL_LOG=$install_log"
   "SIDE_EFFECT_LOG=$side_effect_log"
   "COMMAND_LOG=$command_log"
+  "EXPECTED_WGET=$mock_bin/wget"
   "PATH=$mock_bin:$PATH"
 )
 
@@ -115,17 +149,22 @@ install_kde_themes() {
   RPM_PRESENT="${RPM_PRESENT:-}" "${install_environment[@]}" \
     "$repo_root/platforms/fedora/scripts/install-kde-theme.sh" >/dev/null
 }
+[[ ! -e "$mock_bin/wget" ]] ||
+  _test_die 'wget is already in the stub directory, so installing it proves nothing'
 RPM_PRESENT="" install_kde_themes
 grep -Fq 'sudo dnf install -y kio-extras' "$command_log"
 printf 'PASS: missing kio-extras is installed for Dolphin sftp:// support\n'
+grep -Fq 'sudo dnf install -y wget' "$command_log"
+printf 'PASS: missing wget is installed before the upstream installer runs\n'
 
 : >"$command_log"
-RPM_PRESENT="kio-extras" install_kde_themes
-if grep -Fq 'kio-extras' "$command_log"; then
-  printf 'kio-extras was reinstalled even though it was already present.\n' >&2
+RPM_PRESENT="kio-extras wget" install_kde_themes
+if [[ -s "$command_log" ]]; then
+  printf 'A package was reinstalled even though it was already present:\n' >&2
+  cat "$command_log" >&2
   exit 1
 fi
-printf 'PASS: an already-present kio-extras is reused, not reinstalled\n'
+printf 'PASS: already-present packages are reused, not reinstalled\n'
 
 for flavour in 1 2 3 4; do
   [[ "$(grep -Fxc "$flavour 4 2 auto" "$install_log")" == 2 ]]
@@ -136,6 +175,19 @@ if [[ -s "$side_effect_log" ]]; then
   cat "$side_effect_log" >&2
   exit 1
 fi
+
+# The negative control for the two assertions above: with a dnf that installs
+# nothing, the fixture upstream installer has to fail the way the real one did
+# on the scheduled run. This is what an install-kde-theme.sh that stopped
+# installing wget would look like, so if this passes, those assertions prove
+# nothing.
+rm -f "$mock_bin/wget"
+if negative_output="$(TEST_KDE_DNF_INERT=1 RPM_PRESENT="" install_kde_themes 2>&1)"; then
+  _test_die 'the upstream installer ran without wget, so a missing one cannot fail this suite'
+fi
+unset TEST_KDE_DNF_INERT
+assert_contains "$negative_output" "Dependency 'wget' is not met."
+printf 'PASS: an upstream installer that cannot find wget fails the install\n'
 
 ln -s \
   "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp" \

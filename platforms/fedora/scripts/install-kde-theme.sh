@@ -7,15 +7,26 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 
 require_command git
 
-# kio-extras provides Dolphin's sftp:// support (the KDE SFTP workflow this
-# baseline relies on). Installed explicitly rather than assumed, since it is
-# not guaranteed to be pulled in as a dependency of every KDE package set.
-if rpm -q kio-extras >/dev/null 2>&1; then
-  info "kio-extras is already installed"
-else
-  info "Installing kio-extras for Dolphin sftp:// support"
-  sudo dnf install -y kio-extras
-fi
+# Two packages this capability needs and no KDE package set guarantees, so
+# both are installed explicitly rather than assumed.
+#
+# kio-extras provides Dolphin's sftp:// support, the KDE SFTP workflow this
+# baseline relies on.
+#
+# wget is what the pinned upstream installer downloads the Catppuccin cursors
+# with, and it checks for it before installing anything: without it the first
+# flavour stops at "Error: Dependency 'wget' is not met." and no theme is
+# installed at all. Cursor installation stays enabled below, so the dependency
+# is real rather than avoidable.
+packages=(kio-extras wget)
+for package in "${packages[@]}"; do
+  if rpm -q "$package" >/dev/null 2>&1; then
+    info "$package is already installed"
+  else
+    info "Installing $package"
+    sudo dnf install -y "$package"
+  fi
+done
 
 version="v0.4.0"
 repo="https://github.com/catppuccin/kde.git"

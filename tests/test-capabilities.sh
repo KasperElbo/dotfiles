@@ -392,7 +392,7 @@ expect_scratch_rejected 'a Fedora capability the integration script stops select
   'fedora/sway: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --sway'
 
 new_scratch selection-macos
-sed -i 's/--ocaml --containers --tailscale --defaults/--ocaml --no-containers --no-tailscale --defaults/' \
+sed -i 's/--ocaml --tailscale --defaults/--ocaml --no-tailscale --defaults/' \
   "$scratch/.github/workflows/real-install.yml"
 expect_scratch_rejected 'a macOS capability the workflow stops selecting is rejected' \
   'macos/tailscale: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --tailscale'

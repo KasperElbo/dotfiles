@@ -47,12 +47,14 @@ installed" are different claims. `-` makes no claim: the capability must then
 actually be selected by `.github/workflows/real-install.yml` or a script one of
 its steps runs. `excluded:<why>` says it deliberately never is, and the reason
 is part of the value, because this file has no comment syntax — three readers
-treat line 1 as the header and every other line as a row. Three rows carry one
+treat line 1 as the header and every other line as a row. Four rows carry one
 today: `fedora/latex` and `fedora-wsl/latex`, whose TeX Live install is
-gigabytes on every scheduled run, and `macos/dictation`, which needs a desktop
+gigabytes on every scheduled run; `macos/dictation`, which needs a desktop
 session and a microphone no runner has and is verified by the manual checklist
-in [the dictation profile](profiles/dictation.md). An exclusion the workflow
-contradicts fails, so it cannot outlive its reason.
+in [the dictation profile](profiles/dictation.md); and `macos/containers`,
+whose Podman machine cannot start on a hosted runner, because that runner is
+itself a virtual machine and `vfkit` has no nested virtualisation to use. An
+exclusion the workflow contradicts fails, so it cannot outlive its reason.
 
 `-` is this file's only spelling of "none", in every column that can be empty.
 It is a decision, not a blank: `packages` is `-` when the capability installs
