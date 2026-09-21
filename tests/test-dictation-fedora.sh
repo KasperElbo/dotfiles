@@ -416,9 +416,86 @@ assert_failure
 assert_contains "$TEST_OUTPUT" 'No dictation profile state'
 printf 'PASS: the standalone verifier says so when the profile was never installed\n'
 
-if ! grep -Fq 'dotfiles/dictation.conf' "$repo_root/platforms/fedora/scripts/verify.sh"; then
-  _test_die 'the platform verifier must run the dictation verifier only when the profile state exists'
-fi
-printf 'PASS: the platform verifier runs the dictation verifier on state, not on presence\n'
+# --- the platform verifier reaches this one -------------------------------
+#
+# This used to be a grep for "dotfiles/dictation.conf" in the platform
+# verifier, which asserted that dispatch was decided by the state file and
+# nothing else -- the defect of issue #344, written down as a requirement. A
+# machine that selected --dictation and then lost dictation.conf was left out
+# of the report entirely, with no section and no failure. What the two runs
+# below ask instead is that the platform verifier reaches this verifier for a
+# selected profile, and names the capability when a selected one has no state
+# to verify. The whole selection-against-state matrix is covered in
+# tests/test-optional-capability-dispatch.sh; these are its two ends, asserted
+# here because this is the suite that owns the profile.
+
+platform_verifier="$repo_root/platforms/fedora/scripts/verify.sh"
+platform_bin="$test_root/platform-bin"
+mkdir -p "$platform_bin"
+for command_name in "${TEST_HOST_COMMANDS[@]}"; do
+  [[ "$command_name" == bash ]] && continue
+  ln -sf "$(type -P -- "$command_name")" "$platform_bin/$command_name"
+done
+ln -sf "$BASH" "$platform_bin/bash"
+for command_name in handy wtype rpm; do
+  ln -sf "$verify_bin/$command_name" "$platform_bin/$command_name"
+done
+
+# A dictation record of the shape a completed install leaves behind. The
+# installer wrote one earlier in this suite and the case above removed it, so
+# the two runs below each state which of the two situations they are.
+write_dictation_state() {
+  mkdir -p "$(dirname "$state_file")"
+  cat >"$state_file" <<EOF
+schema_version=2
+profile=dictation
+status=installed
+application=handy
+provider=pinned-release-rpm
+version=0.9.7
+paste_backend=wtype
+EOF
+}
+
+# The fixture machine fails most of what the platform verifier asks about, so
+# its exit status says nothing about dictation and only the dictation lines
+# are asserted.
+run_platform_verifier() {
+  mkdir -p "$test_root/state/dotfiles"
+  cat >"$test_root/state/dotfiles/install.conf" <<EOF
+schema_version=2
+profile=install
+status=installed
+platform=fedora
+requested_capabilities=base,dictation
+observed_capabilities=base,dictation
+external_assurance=not-recorded
+repository=local-checkout
+revision=0123456789abcdef
+provenance=capability-manifest@0123456789abcdef
+EOF
+  run_capture env \
+    "HOME=$test_root/home" \
+    "XDG_CONFIG_HOME=$test_root/xdg" \
+    "XDG_DATA_HOME=$test_root/data" \
+    "XDG_STATE_HOME=$test_root/state" \
+    "XDG_CACHE_HOME=$test_root/cache" \
+    "PATH=$platform_bin" \
+    "RPM_PRESENT=gtk-layer-shell wtype" \
+    "DICTATION_SWAY_CONFIG=$verify_sway_config" \
+    "$platform_verifier"
+}
+
+write_dictation_state
+run_platform_verifier
+assert_contains "$TEST_OUTPUT" 'Dictation verification'
+assert_not_contains "$TEST_OUTPUT" 'Dictation is not selected'
+printf 'PASS: the platform verifier reaches the dictation verifier for a selected profile\n'
+
+rm -f "$state_file"
+run_platform_verifier
+assert_contains "$TEST_OUTPUT" \
+  "Dictation is selected by this machine's recorded installation, but its profile state is missing ($state_file)"
+printf 'PASS: a selected dictation profile with no state is a named failure, not a silence\n'
 
 printf 'Dictation pinned-artifact, ownership, privacy and verification tests passed.\n'
