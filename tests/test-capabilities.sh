@@ -132,7 +132,7 @@ fi
 grep -Fq "fedora/dotnet-debug: package 'EasyDotnetCli' is declared but is not requested by mise/.config/mise/config.toml" \
   "$fixture.mise.log"
 
-awk -F '\t' 'BEGIN {OFS="\t"} $1 == "dotnet-debug" && $2 == "macos" {$16 = "-"} {print}' \
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "dotnet-debug" && $2 == "macos" {$17 = "-"} {print}' \
   "$repo_root/config/capabilities.tsv" >"$fixture.installers"
 if CAPABILITY_MANIFEST="$fixture.installers" python3 "$repo_root/scripts/validate-capabilities.py" \
   2>"$fixture.installers.log"; then
@@ -284,7 +284,7 @@ installer_platforms=""
 while IFS= read -r candidate; do
   [[ -f "$repo_root/platforms/$candidate/install.sh" ]] || continue
   installer_platforms+="${installer_platforms:+$'\n'}$candidate"
-done < <(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
+done < <(awk -F '\t' 'NR > 1 && $1 == "base" && $16 == "implemented" {print $2}' \
   "$repo_root/config/capabilities.tsv")
 helper_platforms="$(PYTHONPATH="$repo_root/scripts/lib" python3 -c \
   'import manifests; print("\n".join(manifests.supported_platforms()))')"
@@ -298,7 +298,7 @@ helper_platforms="$(PYTHONPATH="$repo_root/scripts/lib" python3 -c \
 }
 
 cp "$repo_root/config/capabilities.tsv" "$fixture.platform"
-printf 'base\tplasma9\tworkstation\t-\tenabled\t-\t-\tdnf\t-\t-\tplatforms/fedora/scripts/verify.sh\t-\tdocs/platforms/fedora.md\tnative\timplemented\t-\t-\n' \
+printf 'base\tplasma9\tworkstation\t-\tenabled\t-\t-\tdnf\t-\t-\tplatforms/fedora/scripts/verify.sh\t-\t-\tdocs/platforms/fedora.md\tnative\timplemented\t-\t-\n' \
   >>"$fixture.platform"
 if CAPABILITY_MANIFEST="$fixture.platform" \
   python3 "$repo_root/scripts/render-capability-matrix.py" --check \
@@ -428,6 +428,46 @@ sed -i "s|^      - name: Run clean install, verifier, rerun and state transition
   "$scratch/.github/workflows/real-install.yml"
 expect_scratch_rejected 'a flag named only in a step title is not selection' \
   'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
+
+# The schema a component state file must declare is registry data, because
+# scripts/doctor.sh compares a machine's state files against it (#342). Each of
+# the three rules that keeps it honest is proven able to fail.
+
+# The column is found by its header name, like every reader in this
+# repository: a fixture that edited a fixed position would quietly start
+# breaking a different column if the manifest were ever reordered, and this
+# control would pass on the wrong error.
+set_state_profile() {
+  awk -F '\t' -v capability="$1" -v platform="$2" -v value="$3" 'BEGIN { OFS = "\t" }
+    NR == 1 { for (i = 1; i <= NF; i++) if ($i == "state_profile") column = i
+              if (!column) { print "no state_profile column" >"/dev/stderr"; exit 1 } }
+    NR > 1 && $1 == capability && $2 == platform { $column = value; edited++ }
+    { print }
+    END { if (!edited) { print "no row for " capability "/" platform >"/dev/stderr"; exit 1 } }' \
+    "$repo_root/config/capabilities.tsv"
+}
+
+# A name no schema answers to would make doctor reject a state file every
+# machine writes correctly, so it is caught here rather than on a machine.
+new_scratch state-profile-unknown
+sed -i 's/\tmacos-containers\tpodman-machine\t/\tmacos-containers\tnot-a-schema\t/' \
+  "$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'a state_profile no schema declares is rejected' \
+  "macos/containers: state_profile 'not-a-schema' is not a schema common/lib/profile-state.sh declares"
+
+# One file has one schema. Two rows disagreeing about it would make doctor's
+# verdict depend on which capability it reached first.
+new_scratch state-profile-disagreement
+set_state_profile backpass macos ocaml >"$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'two rows disagreeing about one state file are rejected' \
+  "one state file has one schema"
+
+# The file name and the schema move together: a row that names one without the
+# other leaves doctor comparing a real state file against nothing.
+new_scratch state-profile-missing
+set_state_profile ocaml macos - >"$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'a state file with no declared schema is rejected' \
+  "macos/ocaml: state 'ocaml' and state_profile '-' must either both be '-' or both name something"
 
 # Shell reads every manifest column by name (common/lib/manifest.sh), never by
 # a position stated in shell. Reordering columns must not change what an
@@ -579,7 +619,7 @@ platform_registration_problems() {
     named=false
     for script in "${scripts[@]}"; do
       if awk -F '\t' -v p="$platform" -v v="$script" \
-        'NR > 1 && $2 == p && $11 == v && $15 == "implemented" { found = 1 }
+        'NR > 1 && $2 == p && $11 == v && $16 == "implemented" { found = 1 }
          END { exit !found }' "$manifest"; then
         named=true
       fi
@@ -618,7 +658,7 @@ for expected_platform in fedora fedora-wsl macos parrot-ctf windows; do
     exit 1
   }
 done
-awk -F '\t' '$2 == "windows" && $11 != "platforms/windows/verify.ps1" && $15 == "implemented" {
+awk -F '\t' '$2 == "windows" && $11 != "platforms/windows/verify.ps1" && $16 == "implemented" {
   printf "An implemented windows row declares %s rather than the Windows verifier.\n", $11
   bad = 1
 }

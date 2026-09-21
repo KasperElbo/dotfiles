@@ -72,7 +72,7 @@ assert_contains "$dry_run" 'No changes were made.'
 # repository does. That has to be a recorded decision with its reason and a
 # manual check standing in for it, not a flag quietly dropped from the
 # workflow, so the registry says so and names where the check lives.
-containers_scope="$(awk -F '\t' '$1 == "containers" && $2 == "macos" { print $17 }' \
+containers_scope="$(awk -F '\t' '$1 == "containers" && $2 == "macos" { print $18 }' \
   "$repo_root/config/capabilities.tsv")"
 [[ -n "$containers_scope" ]] ||
   _test_die 'config/capabilities.tsv has no macos row for the containers capability'
@@ -360,7 +360,7 @@ macos_installer="$macos_root/install.sh"
 # and a redirection plus a nested read of the same file is a lint hazard.
 manifest_rows="$(cat "$manifest")"
 
-while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ verifier _ docs _ status _; do
+while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ verifier _ _ docs _ status _; do
   [[ "$platform" == macos ]] || continue
 
   if [[ "$status" != implemented ]]; then

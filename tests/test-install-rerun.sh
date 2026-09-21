@@ -364,7 +364,7 @@ while IFS=$'\t' read -r platform option _kind on_flag _off _default _values capa
   [[ "$platform" != platform ]] || continue
   [[ "$capability" != - ]] || continue
   manifest_flag="$(awk -F '\t' -v p="$platform" -v c="$capability" \
-    'NR>1 && $1==c && $2==p && $15=="implemented" {print $4; exit}' \
+    'NR>1 && $1==c && $2==p && $16=="implemented" {print $4; exit}' \
     "$repo_root/config/capabilities.tsv")"
   assert_eq "$on_flag" "$manifest_flag" \
     "capability manifest flag for $option ($capability) on $platform"

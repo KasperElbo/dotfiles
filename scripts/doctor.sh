@@ -100,11 +100,40 @@ else
       verifier="$(implemented_capability_field "$capability" verifier)"
       if [[ -n "$state_id" && "$state_id" != - && "$state_id" != install ]]; then
         component_state="$XDG_CONFIG_HOME/dotfiles/$state_id.conf"
+        # Which schema this file is allowed to declare comes from the selected
+        # capability's own row, beside the file name it is paired with, so it
+        # is derived from capability and platform like everything else in this
+        # loop. Reading the file's own `profile=` key and handing it back as
+        # the expected one, which this check used to do, asked the file to
+        # grade itself: it proved the record was internally consistent and
+        # said nothing about whether it belonged to the capability whose state
+        # it is. A valid OCaml record in containers.conf passed that way.
+        expected_profiles="$(implemented_capability_field "$capability" state_profile)"
         if [[ ! -e "$component_state" ]]; then
           fail "Enabled capability '$capability' is missing state: $component_state"
+        elif [[ -z "$expected_profiles" || "$expected_profiles" == - ]]; then
+          # The two columns move together, and
+          # scripts/validate-capabilities.py rejects a row where one names
+          # something and the other does not. Saying so here as well keeps a
+          # manifest this report was pointed at by CAPABILITY_MANIFEST from
+          # turning the check below into a comparison against nothing.
+          fail "Capability '$capability' records state in $component_state, but its row names no expected schema."
         else
-          component_profile="$(awk -F= '$1 == "profile" {print $2; exit}' "$component_state")"
-          if ! profile_state_validate_file "$component_state" "$component_profile"; then
+          declared_profile="$(awk -F= '$1 == "profile" {print $2; exit}' "$component_state" 2>/dev/null || true)"
+          # One state file normally has one schema. hardware.conf is the
+          # exception the registry spells out: its profile is the ASUS model,
+          # chosen from the machine's DMI identity at install time rather than
+          # recorded in the lifecycle state, so both supported models are
+          # accepted here and verify-asus-hardware.sh is what compares the
+          # recorded one with the hardware.
+          component_profile=""
+          IFS=, read -r -a allowed_profiles <<<"$expected_profiles"
+          for allowed_profile in "${allowed_profiles[@]}"; do
+            [[ "$allowed_profile" != "$declared_profile" ]] || component_profile="$allowed_profile"
+          done
+          if [[ -z "$component_profile" ]]; then
+            fail "Enabled capability '$capability' has state for profile '${declared_profile:-none}', not ${expected_profiles//,/ or }: $component_state"
+          elif ! profile_state_validate_file "$component_state" "$component_profile"; then
             fail "Enabled capability '$capability' has corrupt state: $component_state"
           else
             component_status="$(profile_state_read "$component_state" status "$component_profile" 2>/dev/null || true)"
