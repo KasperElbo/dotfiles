@@ -2,6 +2,10 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The mocked bootstrap leaves behind what a real Mason install leaves behind,
+# so common/lib/mason.sh reads it as installed.
+export MASON_MOCK_INSTALL="$repo_root/tests/support/mason-mock-install.sh"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 
@@ -443,20 +447,12 @@ for argument in "$@"; do
   fi
 
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
-    mkdir -p "$XDG_DATA_HOME/nvim/mason/bin"
-    for target in $DOTFILES_MASON_PACKAGES; do
-      # Mason stores a package under its name whether or not the request
-      # carried an "@version" pin.
-      package="${target%%@*}"
-      mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
-      if [[ "$package" == tree-sitter-cli ]]; then
-        cat >"$XDG_DATA_HOME/nvim/mason/bin/tree-sitter" <<'TREEEOF'
-#!/usr/bin/env bash
-exit 0
-TREEEOF
-        chmod +x "$XDG_DATA_HOME/nvim/mason/bin/tree-sitter"
-      fi
-    done
+    # A real install leaves a receipt, a payload and a bin link behind, and
+    # common/lib/mason.sh reads all three; a directory alone is what an
+    # interrupted install leaves, so the mock must not stop there.
+    "${MASON_MOCK_INSTALL:?the suite must export the Mason install fixture}" \
+      "$XDG_DATA_HOME/nvim/mason" \
+      ${DOTFILES_MASON_REPAIR_PACKAGES:-} ${DOTFILES_MASON_PACKAGES:-}
   fi
 done
 EOF

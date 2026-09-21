@@ -5,14 +5,19 @@
 # This library deliberately does not select shell options. Verifier entrypoints
 # own their execution policy; sourcing a common library must never change the
 # caller's errexit, nounset, or pipefail state. It needs version_at_least from
-# lib/common.sh, and sources that itself when the caller has not. Optional
-# capability dispatch reads the installation lifecycle record, so it sources
-# that library too; both are function definitions only, and re-sourcing a
-# library a caller already loaded changes nothing.
+# lib/common.sh and the package identity helpers from lib/mason.sh, and sources
+# either itself when the caller has not. Optional capability dispatch reads the
+# installation lifecycle record and the capability registry, so it sources those
+# two as well; both hold function definitions only, and re-sourcing a library a
+# caller already loaded changes nothing.
 
 if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
   # shellcheck source=common.sh
   source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
+if [[ -z "${DOTFILES_MASON_LOADED:-}" ]]; then
+  # shellcheck source=mason.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/mason.sh"
 fi
 # shellcheck source=install-lifecycle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/install-lifecycle.sh"
@@ -512,16 +517,22 @@ check_user_service_enabled_and_active() {
   verify_service_enabled_and_active user "$1"
 }
 
-# check_mason_inventory <inventory>
+# check_mason_inventory <inventory> [version_pin_file]
 #
 # Every package the tracked Mason inventory lists must be installed under
-# Mason's package root. A package Mason holds that the inventory does not list
-# is a warning rather than a failure: it may be a deliberate local addition,
-# but nothing in this repository owns it.
+# Mason's package root, at its pinned version where one is recorded. "Installed"
+# is lib/mason.sh's business and not a directory that exists: Mason writes a
+# package's receipt only once its files are extracted and its executables
+# linked, so an interrupted install leaves behind a directory this check must
+# report rather than credit. A package Mason holds that the inventory does not
+# list is a warning rather than a failure: it may be a deliberate local
+# addition, but nothing in this repository owns it.
 check_mason_inventory() {
   local inventory="$1"
-  local mason_root="${XDG_DATA_HOME:-$HOME/.local/share}/nvim/mason/packages"
-  local package package_dir listed filtered status=0
+  local pin_file="${2:-$DOTFILES_ROOT/common/mason-package-versions.txt}"
+  local root
+  root="$(mason_root)"
+  local package package_dir listed filtered pin status=0
   local -a packages=()
 
   if [[ ! -e "$inventory" ]]; then
@@ -538,15 +549,14 @@ check_mason_inventory() {
     return 1
   fi
   # macOS's system Bash is 3.2 and has no mapfile, so this reads the inventory
-  # with a loop instead. The sed is unchanged, so the comment and blank-line
-  # filtering and the package order are exactly what they were. Its output is
-  # captured rather than read through a process substitution so its status
-  # survives: the guards above cover every read failure that can be produced on
-  # demand, and this covers the residual one, an I/O error part-way through a
-  # file that was a readable regular file when it was tested. The empty-string
-  # guard below is needed because a here-string of "" still yields one empty
-  # line.
-  filtered="$(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$inventory")" || {
+  # with a loop instead. mason_read_inventory does the comment and blank-line
+  # filtering and preserves the package order. Its output is captured rather
+  # than read through a process substitution so its status survives: the guards
+  # above cover every read failure that can be produced on demand, and this
+  # covers the residual one, an I/O error part-way through a file that was a
+  # readable regular file when it was tested. The empty-string guard below is
+  # needed because a here-string of "" still yields one empty line.
+  filtered="$(mason_read_inventory "$inventory")" || {
     fail "Mason package inventory could not be read: $inventory"
     return 1
   }
@@ -560,16 +570,38 @@ check_mason_inventory() {
     return 1
   fi
 
+  # Reading a receipt needs a JSON parser, and a check that quietly skipped
+  # every package because a tool was missing would report a clean machine.
+  if ! mason_require_jq; then
+    fail "Mason inventory cannot be verified: $MASON_ERROR"
+    return 1
+  fi
+  if ! mason_load_version_pins "$pin_file"; then
+    fail "$MASON_ERROR"
+    return 1
+  fi
+
   for package in "${packages[@]}"; do
-    if [[ -d "$mason_root/$package" ]]; then
-      pass "Mason: $package"
-    else
-      fail "Mason package not installed: $package"
-      status=1
+    pin="$(mason_version_pin "$package")"
+    if mason_package_status "$root" "$package" "$pin"; then
+      pass "Mason: $package ($MASON_PACKAGE_DETAIL)"
+      continue
     fi
+    status=1
+    case "$MASON_PACKAGE_STATE" in
+    absent)
+      fail "Mason package not installed: $package"
+      ;;
+    version-mismatch)
+      fail "Mason package $package does not match its pin: $MASON_PACKAGE_DETAIL"
+      ;;
+    *)
+      fail "Mason package $package is not completely installed: $MASON_PACKAGE_DETAIL"
+      ;;
+    esac
   done
 
-  for package_dir in "$mason_root"/*; do
+  for package_dir in "$root"/packages/*; do
     [[ -d "$package_dir" ]] || continue
     package="${package_dir##*/}"
     for listed in "${packages[@]}"; do
