@@ -579,13 +579,26 @@ if [[ "$tailscale_disposition" == verify || "$tailscale_disposition" == leftover
   fi
 
   if [[ -n "$tailscale_cli" ]]; then
-    if version_output="$("$tailscale_cli" version 2>&1)"; then
+    # Both calls go through the bounded probe in platforms/macos/lib/macos.sh.
+    # The status is taken on the failing branch of the assignment rather than
+    # read after an `if`, which would report the `if` itself.
+    version_output=""
+    version_status=0
+    version_output="$(macos_tailscale_probe "$tailscale_cli" version 2>&1)" ||
+      version_status=$?
+    if ((version_status == 0)); then
       pass "tailscale version: $(printf '%s' "$version_output" | head -n1)"
+    elif macos_tailscale_probe_timed_out "$version_status"; then
+      warning "'tailscale version' did not answer within ${DOTFILES_TAILSCALE_PROBE_TIMEOUT}s, so the CLI was not read; the application may be waiting on a permission prompt"
     else
       fail "tailscale version failed"
     fi
 
-    if status_json="$("$tailscale_cli" status --json 2>/dev/null)"; then
+    status_json=""
+    status_probe=0
+    status_json="$(macos_tailscale_probe "$tailscale_cli" status --json 2>/dev/null)" ||
+      status_probe=$?
+    if ((status_probe == 0)); then
       backend_state="$(printf '%s' "$status_json" | jq -r '.BackendState // "unknown"' 2>/dev/null)"
       case "$backend_state" in
       Running) pass "tailscale status: Running (connected to a tailnet)" ;;
@@ -594,6 +607,8 @@ if [[ "$tailscale_disposition" == verify || "$tailscale_disposition" == leftover
         ;;
       *) warning "tailscale status reported an unrecognized BackendState: ${backend_state:-empty}" ;;
       esac
+    elif macos_tailscale_probe_timed_out "$status_probe"; then
+      warning "'tailscale status --json' did not answer within ${DOTFILES_TAILSCALE_PROBE_TIMEOUT}s; the application may be waiting on a permission prompt"
     else
       warning "'tailscale status --json' did not respond (the daemon may not be running yet)"
     fi
