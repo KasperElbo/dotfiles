@@ -105,9 +105,12 @@ back into the window you were dictating into.
 ### The pinned release artifact
 
 Handy has no Fedora, Terra or Flathub package, so this profile owns one
-upstream artifact rather than a repository. `platforms/fedora/scripts/install-dictation.sh`
-pins the version, the exact file name, and the SHA-256 of that file, and
-refuses to install anything whose digest does not match. The artifact is
+upstream artifact rather than a repository. `platforms/fedora/lib/dictation.sh`
+pins the version, the exact file name, and the SHA-256 of that file; the
+installer refuses to install anything whose digest does not match, and the
+verifier holds the machine to the same three values. Both read that one file,
+which is why a bump cannot leave one of them attesting to a release the other
+never installed. The artifact is
 registered as `handy-release` in `config/network-sources.tsv` at the
 `immutable-verified` tier with `sha256-pinned` integrity — the same treatment
 the pinned Hack Nerd Font archive gets.
@@ -144,13 +147,28 @@ digest, and record all three values together:
 version=0.9.7
 curl -fsSLO "https://github.com/cjpais/Handy/releases/download/v${version}/Handy-${version}-1.x86_64.rpm"
 sha256sum "Handy-${version}-1.x86_64.rpm"
+rpm -qp --queryformat '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' "Handy-${version}-1.x86_64.rpm"
 ```
 
-Then edit `handy_version` and `handy_rpm_sha256` in
-`platforms/fedora/scripts/install-dictation.sh`. `handy_rpm` and the URL are
-derived from the version and need no edit. Rerun
+The third command matters as much as the second. **The published file name and
+the package name inside it are not the same name:** upstream publishes
+`Handy-0.9.7-1.x86_64.rpm` with a capital H, because the Tauri bundler takes
+the file name from the product name, while the `%{NAME}` rpm records — and
+therefore what `rpm -qf` answers with — is `handy` in lower case. The verifier
+compares against the latter, so read it out of the artifact rather than copying
+the file name. If a bump ever changes it, `DICTATION_HANDY_RPM_NAME` changes
+with it.
+
+Then edit `DICTATION_HANDY_VERSION` and `DICTATION_HANDY_SHA256` in
+`platforms/fedora/lib/dictation.sh`. The artifact name and the URL are derived
+from the version and need no edit. Rerun
 `./platforms/fedora/scripts/install-dictation.sh`; it reinstalls because the
-recorded digest no longer matches the pinned one.
+installed rpm is no longer the pinned one.
+
+Until that rerun happens the verifier fails, naming the recorded version and
+the pinned one. That is the intended reading of a bump: the repository states
+what the machine should be running, and a machine that is not running it is
+out of date rather than verified.
 
 To roll back, restore the previous version and digest and rerun the installer.
 
@@ -160,15 +178,28 @@ exists: nothing else here would ever mention one. See
 
 ### Rerunning
 
-The installer is idempotent. It compares the recorded state against the pin
-and skips the download and the dnf transaction entirely when the machine
-already has exactly the pinned artifact. Anything else — a different version
-recorded, a different digest recorded, no state at all, or a missing `handy`
-command — is treated as "not the pinned artifact" and reinstalls.
+The installer is idempotent. It skips the download and the dnf transaction
+entirely when the machine already has exactly the pinned artifact, and that
+question is put to the machine rather than to this profile's own notes. Three
+things must all hold: the recorded version and digest are the pinned ones, the
+`handy` on `PATH` is owned by an rpm whose name-version-release.arch is the
+pinned artifact's, and the declared Wayland packages are still installed.
 
-Ownership is decided from this profile's own recorded state rather than from
-an RPM package name, because the package name in a Tauri-built `.rpm` comes
-from the upstream product name and is not this repository's to assume.
+Anything else is drift and reinstalls — a different version recorded, a
+different digest recorded, no state at all, a missing `handy`, a Handy rpm
+that was removed or upgraded outside this profile, an unpackaged build
+shadowing it on `PATH`, or a dependency that has since been removed. The
+reinstall is the repair: it reinstalls the dependencies and the pinned rpm and
+rewrites the state.
+
+The rpm's name-version-release.arch is derived from the pinned artifact rather
+than assumed: `rpmbuild` names a file `%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}.rpm`,
+so the artifact this repository pins states the identity rpm records when it
+installs that file. Earlier this profile decided ownership from its own
+recorded state alone, on the grounds that a Tauri-built package name was not
+this repository's to assume. That was true of guessing the name; it was not a
+reason to accept whatever the record happened to say, and it meant a machine
+running an unrelated build still reported a digest-verified pinned rpm.
 
 ### Models, state and privacy
 

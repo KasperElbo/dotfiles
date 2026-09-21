@@ -19,6 +19,10 @@ test_root="$TEST_ROOT"
 
 installer="$repo_root/platforms/fedora/scripts/install-dictation.sh"
 verifier="$repo_root/platforms/fedora/scripts/verify-dictation.sh"
+# The one file that states the pin. Both scripts above read it, which is what
+# stops the installer verifying one artifact and the verifier attesting to
+# another; this suite reads it too rather than repeating any of its values.
+dictation_lib="$repo_root/platforms/fedora/lib/dictation.sh"
 sway_config="$repo_root/platforms/fedora/stow/sway/.config/sway/config"
 
 mock_bin="$test_root/bin"
@@ -39,12 +43,28 @@ fixture_sha256="$(sha256sum "$fixture_rpm" | cut -d' ' -f1)"
 tampered_rpm="$test_root/tampered-handy.x86_64.rpm"
 printf 'not really an rpm, and not the pinned one either\n' >"$tampered_rpm"
 
-# The digest this repository actually ships, read back out of the installer so
-# the suite cannot drift from it and so a blanked pin fails here rather than
-# silently reducing coverage.
-shipped_sha256="$(sed -n 's/^handy_rpm_sha256="\([0-9a-f]\{64\}\)"$/\1/p' "$installer")"
+# The pin this repository actually ships, read back out of the library the
+# installer and the verifier both read, so the suite cannot drift from it and
+# so a blanked pin fails here rather than silently reducing coverage.
+shipped_sha256="$(sed -n 's/^DICTATION_HANDY_SHA256="\([0-9a-f]\{64\}\)"$/\1/p' "$dictation_lib")"
 [[ -n "$shipped_sha256" ]] ||
-  _test_die 'the installer must ship a 64-character hexadecimal pinned digest'
+  _test_die 'the dictation library must ship a 64-character hexadecimal pinned digest'
+shipped_version="$(sed -n 's/^DICTATION_HANDY_VERSION="\([0-9][0-9.]*\)"$/\1/p' "$dictation_lib")"
+[[ -n "$shipped_version" ]] ||
+  _test_die 'the dictation library must pin an exact Handy version'
+
+# The two readings above prove the file literally states its pin, which is the
+# shape scripts/check-pin-freshness.sh reads. Sourcing it as well gives the
+# suite the derived values -- the artifact name and the name-version-release.
+# arch triple -- without restating upstream's naming convention a third time.
+# shellcheck source=../platforms/fedora/lib/dictation.sh
+source "$dictation_lib"
+pinned_rpm="$(dictation_pinned_rpm)"
+pinned_nvra="$(dictation_pinned_nvra)"
+assert_eq "$shipped_version" "$(dictation_pinned_version)" \
+  'the library states one version and derives another'
+assert_eq "$shipped_sha256" "$(dictation_pinned_sha256)" \
+  'the library states one digest and derives another'
 
 # dnf is an allow-list, not an unconditional success: an unexpected package
 # transaction has to fail the suite. The staged rpm path is a mktemp directory
@@ -68,10 +88,54 @@ cat >"$mock_bin/sudo" <<'EOF'
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 exec "$@"
 EOF
-cat >"$mock_bin/rpm" <<'EOF'
+# rpm is a read-only model of the package database, not a logged transaction:
+# this profile only ever queries it, and the installer's fast path now has to
+# ask it what is really installed rather than trusting its own state file. The
+# suite drives it through RPM_PRESENT and RPM_HANDY_NVRA.
+#
+# The one query shape the shared library uses is answered and every other is
+# rejected with the suite's strict-stub status, so a library that started
+# asking rpm something else fails here rather than being quietly satisfied.
+read -r -d '' rpm_stub <<'EOF' || true
 #!/usr/bin/env bash
-printf 'rpm %s\n' "$*" >>"$COMMAND_LOG"
+set -u
+case "${1:-}" in
+-q)
+  for present in ${RPM_PRESENT:-}; do
+    [[ "$2" == "$present" ]] && exit 0
+  done
+  exit 1
+  ;;
+-qf)
+  shift
+  if [[ "${1:-}" != --queryformat ]]; then
+    printf 'rpm stub: -qf without the expected --queryformat: %s\n' "$*" >&2
+    exit 96
+  fi
+  if [[ "$2" != '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' ]]; then
+    printf 'rpm stub: unmodelled query format: %s\n' "$2" >&2
+    exit 96
+  fi
+  [[ -n "${RPM_HANDY_NVRA:-}" ]] || exit 1
+  printf '%s' "$RPM_HANDY_NVRA"
+  ;;
+-V)
+  # A package rpm cannot verify at all answers with nothing and a failure,
+  # which is a different thing from an intact package.
+  if [[ "${RPM_VERIFY_UNREADABLE:-false}" == true ]]; then
+    exit 1
+  fi
+  [[ -n "${RPM_VERIFY_OUTPUT:-}" ]] || exit 0
+  printf '%s\n' "$RPM_VERIFY_OUTPUT"
+  exit 1
+  ;;
+*)
+  printf 'rpm stub rejected an unmodelled argv: %s\n' "$*" >&2
+  exit 96
+  ;;
+esac
 EOF
+printf '%s\n' "$rpm_stub" >"$mock_bin/rpm"
 
 # fetch_to_file's curl invocation, reduced to the two things that matter here:
 # where the bytes go, and that the URL was the pinned one.
@@ -95,10 +159,31 @@ EOF
 printf 'ID=fedora\n' >"$test_root/os-release"
 chmod +x "$mock_bin"/*
 
-# `handy` stands in for the installed application: absent before the first
-# install, present afterwards, exactly as rpm ownership would make it.
+# The modelled rpm database. RPM_PRESENT is the set of installed package
+# names; RPM_HANDY_NVRA is the package that owns the handy binary, empty when
+# nothing does. Both default to a healthy machine and a case overrides one for
+# one run, the way RPM_PRESENT already did for the verifier.
+rpm_state_environment() {
+  printf '%s\n' \
+    "RPM_PRESENT=${RPM_PRESENT-gtk-layer-shell wtype}" \
+    "RPM_HANDY_NVRA=${RPM_HANDY_NVRA-}" \
+    "RPM_VERIFY_OUTPUT=${RPM_VERIFY_OUTPUT-}" \
+    "RPM_VERIFY_UNREADABLE=${RPM_VERIFY_UNREADABLE-false}"
+}
+
+read_rpm_state_environment() {
+  local line
+  rpm_env=()
+  while IFS= read -r line; do rpm_env+=("$line"); done < <(rpm_state_environment)
+}
+
+# What a successful install leaves behind, as the machine would then see it:
+# the binary on PATH, owned by the pinned rpm, with the profile's Wayland
+# packages installed beside it. `handy` is absent before the first install.
 install_handy_command() {
   ln -sf /usr/bin/true "$mock_bin/handy"
+  RPM_HANDY_NVRA="$pinned_nvra"
+  RPM_PRESENT="gtk-layer-shell wtype"
 }
 
 base_environment=(
@@ -120,15 +205,19 @@ state_file="$test_root/xdg/dotfiles/dictation.conf"
 # unrecorded, which is how the fail-closed guard is exercised.
 run_installer() {
   local fixture="$1"
+  local -a rpm_env=()
   shift
-  run_capture "${base_environment[@]}" "DOTFILES_TEST_HANDY_RPM=$fixture" \
-    "$installer" "$@"
+  read_rpm_state_environment
+  run_capture "${base_environment[@]}" "${rpm_env[@]}" \
+    "DOTFILES_TEST_HANDY_RPM=$fixture" "$installer" "$@"
 }
 
 # A run with no fixture at all, so the shipped pin and the shipped URL are
 # what the installer uses.
 run_installer_as_shipped() {
-  run_capture "${base_environment[@]}" "$installer" "$@"
+  local -a rpm_env=()
+  read_rpm_state_environment
+  run_capture "${base_environment[@]}" "${rpm_env[@]}" "$installer" "$@"
 }
 
 # A run where the bytes that arrive are not the bytes the pin describes. The
@@ -136,9 +225,11 @@ run_installer_as_shipped() {
 # tampered file while the pin still names the fixture.
 run_installer_serving() {
   local fixture="$1" served="$2"
+  local -a rpm_env=()
   shift 2
-  run_capture "${base_environment[@]}" "DOTFILES_TEST_HANDY_RPM=$fixture" \
-    "FIXTURE_RPM=$served" "$installer" "$@"
+  read_rpm_state_environment
+  run_capture "${base_environment[@]}" "${rpm_env[@]}" \
+    "DOTFILES_TEST_HANDY_RPM=$fixture" "FIXTURE_RPM=$served" "$installer" "$@"
 }
 
 reset_logs() {
@@ -150,12 +241,28 @@ reset_logs
 
 # --- the shipped pin is a real, bumpable pin ------------------------------
 
-grep -Eq '^handy_version="[0-9]+\.[0-9]+\.[0-9]+"$' "$installer" ||
-  _test_die 'the installer must pin an exact Handy version'
-grep -Fq 'handy_rpm="Handy-${handy_version}-1.x86_64.rpm"' "$installer" ||
-  _test_die 'the pinned artifact name must be derived from the pinned version'
-grep -Fq '# network-source: handy-release' "$installer" ||
+grep -Eq '^DICTATION_HANDY_VERSION="[0-9]+\.[0-9]+\.[0-9]+"$' "$dictation_lib" ||
+  _test_die 'the dictation library must pin an exact Handy version'
+assert_eq "Handy-$shipped_version-1.x86_64.rpm" "$pinned_rpm" \
+  'the pinned artifact name must be derived from the pinned version'
+
+# The published file is Handy-<version>-1.x86_64.rpm and the package name
+# inside it is `handy`, lower case; both were read out of the pinned artifact's
+# own header. The identity rpm answers with therefore cannot be the file name
+# with its suffix removed, and a simplification that made it so would match
+# nothing on a real machine while every stub in this suite went on agreeing
+# with it. That is what these two assertions exist to stop.
+assert_eq "handy-$shipped_version-1.x86_64" "$pinned_nvra" \
+  'the expected rpm identity must be the package name rpm records'
+if [[ "${pinned_rpm%.rpm}" == "$pinned_nvra" ]]; then
+  _test_die 'the artifact file name and the rpm identity must be pinned
+separately: upstream publishes Handy-<version>-1.x86_64.rpm and rpm records
+handy-<version>-1.x86_64, so deriving either from the other is wrong'
+fi
+grep -Fq '# network-source: handy-release' "$dictation_lib" ||
   _test_die 'the pinned download must name its registered network source'
+grep -Fq '# network-source: handy-release' "$installer" ||
+  _test_die 'the installer fetch must name its registered network source'
 printf 'PASS: the Handy release is pinned by version and artifact name\n'
 
 # --- dry-run changes nothing and states the provider ----------------------
@@ -246,6 +353,56 @@ assert_eq "$first_state" "$(sha256sum "$state_file")" \
   'a rerun rewrote the dictation state'
 printf 'PASS: a rerun with the pinned artifact already installed is a no-op\n'
 
+# --- a rerun repairs the machine rather than believing its own record -----
+#
+# The state file is this profile's record of what it once did, so on its own it
+# says nothing about what is installed now. Each case below leaves the record
+# exactly as a successful install wrote it and breaks the machine underneath
+# it; the rerun has to notice and reinstall. Before this, each of them reported
+# "already installed from the pinned artifact" and repaired nothing.
+
+assert_repair_ran() {
+  local what="$1"
+  assert_success
+  assert_not_contains "$TEST_OUTPUT" 'already installed from the pinned artifact'
+  assert_file_contains "$command_log" 'sudo dnf install -y gtk-layer-shell wtype'
+  assert_file_contains "$download_log" '.x86_64.rpm'
+  if ! grep -Eq '^sudo dnf install -y /.*/Handy-[0-9.]+-1\.x86_64\.rpm$' "$command_log"; then
+    _test_die "a rerun did not reinstall the pinned rpm after $what:\n$(cat "$command_log")"
+  fi
+  assert_file_line "$state_file" "sha256=$fixture_sha256"
+}
+
+reset_logs
+RPM_HANDY_NVRA='' run_installer "$fixture_rpm"
+assert_repair_ran 'the Handy rpm was removed'
+printf 'PASS: a rerun reinstalls when the rpm is gone but the record survives\n'
+
+reset_logs
+RPM_HANDY_NVRA="unrelated-rpm-99.0-1.x86_64" run_installer "$fixture_rpm"
+assert_repair_ran 'an unrelated package took ownership of handy'
+printf 'PASS: a rerun reinstalls when handy belongs to some other package\n'
+
+reset_logs
+RPM_HANDY_NVRA="Handy-9.9.9-1.x86_64" run_installer "$fixture_rpm"
+assert_repair_ran 'Handy was upgraded away from the pin'
+printf 'PASS: a rerun reinstalls when the installed Handy is not the pinned release\n'
+
+reset_logs
+RPM_PRESENT="wtype" run_installer "$fixture_rpm"
+assert_repair_ran 'a declared Wayland dependency was removed'
+printf 'PASS: a rerun reinstalls when a declared dependency is missing\n'
+
+# And with the machine healthy again it is still a no-op, so the cases above
+# are drift being detected rather than the fast path having been disabled.
+reset_logs
+run_installer "$fixture_rpm"
+assert_success
+assert_contains "$TEST_OUTPUT" 'already installed from the pinned artifact'
+assert_file_empty "$download_log"
+assert_file_empty "$command_log"
+printf 'PASS: the fast path still skips work on a machine that matches the pin\n'
+
 # --- a changed pin reinstalls rather than trusting the old state ----------
 
 reset_logs
@@ -303,43 +460,49 @@ mkdir -p "$verify_bin"
 for command_name in handy wtype; do
   ln -sf /usr/bin/true "$verify_bin/$command_name"
 done
-for command_name in awk bash cat cut dirname env grep head sed sort tr; do
+for command_name in awk bash cat cut dirname env grep head sed sort tr sha256sum; do
   ln -sf "$(command -v "$command_name")" "$verify_bin/$command_name"
 done
 
-# rpm answers for the two declared packages and owns the handy binary; flatpak
-# is deliberately absent, which is the no-duplicate-owner case.
-cat >"$verify_bin/rpm" <<EOF
-#!/usr/bin/env bash
-case "\$1" in
--q)
-  for present in \$RPM_PRESENT; do
-    [[ "\$2" == "\$present" ]] && exit 0
-  done
-  exit 1
-  ;;
--qf)
-  [[ "\${RPM_OWNS_HANDY:-true}" == true ]] || exit 1
-  printf 'Handy-0.0.0-1.x86_64\n'
-  ;;
-esac
-EOF
+# The same model of the package database the installer ran against, so the two
+# halves of the profile are held to one description of the machine. flatpak is
+# deliberately absent, which is the no-duplicate-owner case.
+printf '%s\n' "$rpm_stub" >"$verify_bin/rpm"
 chmod +x "$verify_bin/rpm"
 
 verify_sway_config="$test_root/xdg/sway/config"
 mkdir -p "$(dirname "$verify_sway_config")"
 cp "$sway_config" "$verify_sway_config"
 
+# The verifier is given the same fixture the installer was, so the pin it
+# checks against is the fixture's digest exactly as the installer's was. A
+# verifier that did not honour the seam would be compared against the shipped
+# digest while the state recorded the fixture's, and every case below would
+# fail for that reason rather than for the one it is testing.
 run_verifier() {
+  local -a rpm_env=()
+  read_rpm_state_environment
   run_capture env \
     "HOME=$test_root/home" \
     "XDG_CONFIG_HOME=$test_root/xdg" \
     "PATH=$verify_bin" \
-    "RPM_PRESENT=${RPM_PRESENT:-gtk-layer-shell wtype}" \
-    "RPM_OWNS_HANDY=${RPM_OWNS_HANDY:-true}" \
+    "${rpm_env[@]}" \
     "FLATPAK_HAS_HANDY=${FLATPAK_HAS_HANDY:-false}" \
     "DICTATION_SWAY_CONFIG=$verify_sway_config" \
+    "DOTFILES_TEST_HANDY_RPM=${VERIFIER_FIXTURE-$fixture_rpm}" \
     "$verifier"
+}
+
+# One recorded value replaced for one run. Drift in the record is what several
+# cases below are about, so each edits exactly one line and puts it back.
+with_state_value() {
+  local key="$1" value="$2"
+  cp "$state_file" "$state_file.original"
+  sed -i "s|^$key=.*|$key=$value|" "$state_file"
+}
+
+restore_state() {
+  mv "$state_file.original" "$state_file"
 }
 
 run_verifier
@@ -389,10 +552,103 @@ assert_failure
 assert_contains "$TEST_OUTPUT" 'gtk-layer-shell is not installed'
 printf 'PASS: the verifier reads its packages from the capability manifest\n'
 
-RPM_OWNS_HANDY=false run_verifier
+RPM_HANDY_NVRA='' run_verifier
 assert_failure
 assert_contains "$TEST_OUTPUT" 'owned by no rpm'
 printf 'PASS: an unowned handy binary is reported as a second, unmanaged copy\n'
+
+# --- the verifier establishes the pin rather than restating the record -----
+#
+# Each case below is one the verifier used to pass. The audit that found them
+# supplied all of them at once -- a handy owned by an unrelated package, state
+# recording version 0.0.0 and sixty-four zeroes as a digest -- and the verifier
+# reported a digest-verified rpm and exited zero. They are separated here so a
+# regression names which attestation stopped holding.
+
+RPM_HANDY_NVRA="unrelated-rpm-99.0-1.x86_64" run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" "belongs to unrelated-rpm-99.0-1.x86_64, not the pinned $pinned_nvra"
+assert_not_contains "$TEST_OUTPUT" 'handy is the pinned rpm'
+printf 'PASS: a handy owned by some other package is not the pinned artifact\n'
+
+# The same shape one release out. Nothing about the name is wrong here, only
+# the version, which is the drift a machine actually sees when Handy is
+# upgraded outside this profile.
+RPM_HANDY_NVRA="Handy-9.9.9-1.x86_64" run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" "belongs to Handy-9.9.9-1.x86_64, not the pinned $pinned_nvra"
+printf 'PASS: a differently versioned Handy rpm is not the pinned artifact\n'
+
+# An installed package whose files no longer match what it shipped. The digest
+# checked at download time says nothing about bytes replaced afterwards, so
+# rpm's own per-file record is what answers this.
+RPM_VERIFY_OUTPUT="S.5....T.  /usr/bin/handy" run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'no longer match what the package shipped'
+assert_contains "$TEST_OUTPUT" '/usr/bin/handy'
+printf 'PASS: an altered package is reported even though its download verified\n'
+
+# A configuration file the operator edited is not tampering, and reporting it
+# as such would train the operator to ignore this check.
+RPM_VERIFY_OUTPUT="S.5....T.  c /etc/handy/handy.conf" run_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" 'still matches what it shipped'
+printf 'PASS: an edited configuration file is not reported as an altered package\n'
+
+# rpm answering with nothing and a failure means it could not verify, which is
+# not an intact package and must not be reported as one.
+RPM_VERIFY_UNREADABLE=true run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'could not verify the files'
+printf 'PASS: an unverifiable package is a failure, not a silent pass\n'
+
+# Stale state: the machine is fine, the record is a release behind. Every one
+# of these used to pass, because the record was only ever checked for shape.
+with_state_value version 0.0.0
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" "says Handy 0.0.0, but this repository pins $shipped_version"
+assert_not_contains "$TEST_OUTPUT" 'the release this repository pins'
+restore_state
+printf 'PASS: a recorded version that is not the pinned one is stale, not evidence\n'
+
+with_state_value sha256 0000000000000000000000000000000000000000000000000000000000000000
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'but this repository pins'
+assert_not_contains "$TEST_OUTPUT" "the installed artifact's digest is the pinned one"
+restore_state
+printf 'PASS: a well-formed digest that is not the pinned one is rejected\n'
+
+with_state_value sha256 not-a-digest
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'no usable SHA-256'
+restore_state
+printf 'PASS: a malformed recorded digest is still rejected\n'
+
+with_state_value provider some-other-route
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" "not 'pinned-release-rpm'"
+restore_state
+printf 'PASS: state written by some other route cannot pass as this profile\n'
+
+with_state_value rpm Handy-0.0.0-1.x86_64.rpm
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" "not the pinned $pinned_rpm"
+restore_state
+printf 'PASS: a recorded artifact name that is not the pinned one is rejected\n'
+
+# The negative control for every comparison above: with no pin to compare
+# against, the verifier must say so rather than passing the checks it can
+# still reach. Without this the cases above would be indistinguishable from a
+# verifier that had quietly stopped reading the pin at all.
+VERIFIER_FIXTURE='' run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'states no usable pinned SHA-256'
+printf 'PASS: a verifier with no pin to check against fails rather than attests\n'
 
 mv "$verify_sway_config" "$verify_sway_config.hidden"
 run_verifier
