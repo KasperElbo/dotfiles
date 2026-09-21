@@ -58,7 +58,7 @@ canonical_flag_is_declared() {
     assert_eq "--dev-workflows" "$flag" "$platform capability flag" || return 1
   done
 
-  flag="$(awk -F '\t' '$1 == "dev-workflows" && $2 == "parrot-ctf" { print $15 }' \
+  flag="$(awk -F '\t' '$1 == "dev-workflows" && $2 == "parrot-ctf" { print $16 }' \
     "$manifest")"
   assert_eq "unsupported" "$flag" "parrot-ctf capability status"
 }

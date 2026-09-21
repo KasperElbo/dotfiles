@@ -36,7 +36,7 @@ printf 'PASS: macOS help advertises the AI profile and its subcomponents\n'
 # The help, the manifest and the parser must advertise the same set. A flag in
 # the manifest that the parser does not accept is a capability documented but
 # unreachable; the reverse is one installable but undeclared.
-while IFS=$'\t' read -r capability platform _ cli_flag _ _ _ _ _ _ _ _ _ _ status _; do
+while IFS=$'\t' read -r capability platform _ cli_flag _ _ _ _ _ _ _ _ _ _ _ status _; do
   [[ "$platform" == macos ]] || continue
   case "$capability" in ai | codex | firstmate | gnhf | backpass) ;; *) continue ;; esac
   [[ "$status" == implemented ]] || continue
@@ -108,7 +108,7 @@ printf 'PASS: a subcomponent flag without --ai is rejected\n'
 test_new_root
 demoted="$TEST_ROOT/capabilities.tsv"
 awk -F '\t' 'BEGIN { OFS = "\t" }
-  $1 == "gnhf" && $2 == "macos" { $8 = "unsupported"; $15 = "unsupported" }
+  $1 == "gnhf" && $2 == "macos" { $8 = "unsupported"; $16 = "unsupported" }
   { print }' "$manifest" >"$demoted"
 
 run_capture env "CAPABILITY_MANIFEST=$demoted" \
