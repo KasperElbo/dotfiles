@@ -114,25 +114,22 @@ remove_state() {
 # read out of a whole verifier's output.
 
 disposition_of() {
-  local capability="$1" profile="${2:-$1}" path
-  path="$(state_path "$capability")"
   env "${base_environment[@]}" "DOTFILES_ROOT=$repo_root" bash -c '
     set -u
     source "$1/common/lib/common.sh"
     source "$1/common/lib/verify.sh"
-    verify_optional_capability_disposition "$2" "$3" "$4" || true
-  ' _ "$repo_root" "$capability" "$path" "$profile"
+    verify_optional_capability_disposition "$2" "$3" || true
+  ' _ "$repo_root" "$1" "$2"
 }
 
 # The word, and the status that goes with it: the two dispositions that verify
-# return 0, and the three that do not return non-zero, so a caller that reads
-# the status alone still cannot mistake a missing capability for an absent one.
+# return 0 and the rest return non-zero, so a caller reading the status alone
+# still cannot mistake a selected capability with no state for an absent one.
 assert_disposition() {
-  local expected="$1" capability="$2" profile="${3:-$2}" actual status=0 path
-  path="$(state_path "$capability")"
-  actual="$(disposition_of "$capability" "$profile")"
-  assert_eq "$expected" "$actual" "disposition for $capability"
-  disposition_status "$capability" "$path" "$profile" || status=$?
+  local expected="$1" platform="$2" capability="$3" actual status=0
+  actual="$(disposition_of "$platform" "$capability")"
+  assert_eq "$expected" "$actual" "disposition for $capability on $platform"
+  disposition_status "$platform" "$capability" || status=$?
   case "$expected" in
   verify | leftover) assert_eq 0 "$status" "exit status for $expected" ;;
   *) [[ "$status" -ne 0 ]] ||
@@ -145,31 +142,31 @@ disposition_status() {
     set -u
     source "$1/common/lib/common.sh"
     source "$1/common/lib/verify.sh"
-    verify_optional_capability_disposition "$2" "$3" "$4" >/dev/null
-  ' _ "$repo_root" "$1" "$2" "$3"
+    verify_optional_capability_disposition "$2" "$3" >/dev/null
+  ' _ "$repo_root" "$1" "$2"
 }
 
 record_selection base,hardening
 
 remove_state hardening
-assert_disposition missing hardening
+assert_disposition missing fedora hardening
 
 write_state hardening
-assert_disposition verify hardening
+assert_disposition verify fedora hardening
 
 corrupt_state hardening
-assert_disposition corrupt hardening
+assert_disposition corrupt fedora hardening
 
 record_selection base
 
 remove_state hardening
-assert_disposition absent hardening
+assert_disposition absent fedora hardening
 
 write_state hardening
-assert_disposition leftover hardening
+assert_disposition leftover fedora hardening
 
 corrupt_state hardening
-assert_disposition corrupt hardening
+assert_disposition corrupt fedora hardening
 
 # A machine with no readable installation record must not have a selection
 # invented for it. With nothing left behind it is reported exactly as an
@@ -178,26 +175,42 @@ assert_disposition corrupt hardening
 forget_selection
 
 remove_state hardening
-assert_disposition absent hardening
+assert_disposition absent fedora hardening
 
 write_state hardening
-assert_disposition verify hardening
+assert_disposition verify fedora hardening
 
 printf 'PASS: every cell of the selection/state matrix has its own disposition\n'
 
-# The state file whose profile is a machine model, not the capability. The
-# models it may declare are listed, and a file declaring anything else is a
-# file this checkout cannot read -- a state file must not assert its own type.
+remove_state hardening
+
+# What a state file may declare itself to be comes from the registry's
+# state_profile column, not from the file. hardware.conf is the row that names
+# two: its profile is the ASUS model, chosen from the machine's DMI identity at
+# install time. A hardware.conf declaring anything else is a file this checkout
+# cannot read, because a state file does not get to assert its own type.
 record_selection base,hardware
 write_state hardware
-assert_disposition verify hardware 'ga402xz|ga402rk'
-assert_disposition verify hardware ga402xz
-assert_disposition corrupt hardware ga402rk
-assert_disposition corrupt hardware hardware
+assert_disposition verify fedora hardware
 
-printf 'PASS: hardware.conf is accepted only as a model this checkout knows\n'
-
+{
+  printf 'schema_version=2\n'
+  state_body hardening
+  printf 'status=installed\n'
+} >"$(state_path hardware)"
+assert_disposition corrupt fedora hardware
 remove_state hardware
+
+printf 'PASS: hardware.conf is accepted only as a model the registry names\n'
+
+# A capability whose row records no state of its own cannot be dispatched from
+# state, and saying nothing would be the defect this suite exists for. LaTeX on
+# Fedora is such a row (state="-"): its selection is read straight from the
+# lifecycle record by the verifier's own LaTeX section.
+record_selection base,latex
+assert_disposition unregistered fedora latex
+
+printf 'PASS: a capability the registry records no state for is named, not skipped\n'
 
 # --- Part 2: through the top-level platform verifiers ------------------------
 #

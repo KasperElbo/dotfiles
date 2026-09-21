@@ -298,8 +298,8 @@ if [[ "$verify_latex" == "true" ]]; then
   done
 fi
 
-ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
-ai_disposition="$(verify_optional_capability_disposition ai "$ai_state" ai || true)"
+ai_state="$(verify_optional_capability_state fedora-wsl ai || true)"
+ai_disposition="$(verify_optional_capability_disposition fedora-wsl ai || true)"
 
 section "AI-assisted development profile"
 
@@ -497,8 +497,7 @@ else
   fail "OCaml profile verification failed"
 fi
 
-containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
-verify_optional_capability "Containers (Podman)" containers "$containers_state" containers \
+verify_optional_capability "Containers (Podman)" fedora-wsl containers \
   "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify-containers.sh" \
   --skip-smoke-test
 

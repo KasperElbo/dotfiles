@@ -66,6 +66,11 @@ failure: nothing about it can be verified, and saying nothing would report the
 same clean machine as one that never selected it. Reading the state file alone
 used to do exactly that (issue #344).
 
+Which file holds a capability's state, and which schema that file is allowed to
+declare, come from the `state` and `state_profile` columns of
+`config/capabilities.tsv` — the same pair `./install.sh doctor` reads — so no
+verifier carries its own copy of either.
+
 `scripts/verify.sh` is a deprecated compatibility wrapper for
 `platforms/fedora/scripts/verify.sh`. It still forwards unchanged; use the
 platform path.

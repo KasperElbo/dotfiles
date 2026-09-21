@@ -601,63 +601,49 @@ check_catppuccin_tmux
 # Optional machine hardware
 # ---------------------------------------------------------------------------
 
-hardware_state="$XDG_CONFIG_HOME/dotfiles/hardware.conf"
-
-verify_optional_capability "ASUS hardware" hardware "$hardware_state" 'ga402xz|ga402rk' \
+verify_optional_capability "ASUS hardware" fedora hardware \
   "$DOTFILES_ROOT/platforms/fedora/scripts/verify-asus-hardware.sh"
 
 # ---------------------------------------------------------------------------
 # Optional VM host
 # ---------------------------------------------------------------------------
 
-vm_host_state="$XDG_CONFIG_HOME/dotfiles/vm-host.conf"
-
-verify_optional_capability "VM host" vm-host "$vm_host_state" vm-host \
+verify_optional_capability "VM host" fedora vm-host \
   "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-host.sh"
 
 # ---------------------------------------------------------------------------
 # Optional VM guest
 # ---------------------------------------------------------------------------
 
-vm_guest_state="$XDG_CONFIG_HOME/dotfiles/vm-guest.conf"
-
-verify_optional_capability "VM guest" vm-guest "$vm_guest_state" vm-guest \
+verify_optional_capability "VM guest" fedora vm-guest \
   "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-guest.sh"
 
 # ---------------------------------------------------------------------------
 # Optional security-hardening profile
 # ---------------------------------------------------------------------------
 
-hardening_state="$XDG_CONFIG_HOME/dotfiles/hardening.conf"
-
-verify_optional_capability "Security hardening" hardening "$hardening_state" hardening \
+verify_optional_capability "Security hardening" fedora hardening \
   "$DOTFILES_ROOT/platforms/fedora/scripts/verify-hardening.sh"
 
 # ---------------------------------------------------------------------------
 # Optional desktop tools
 # ---------------------------------------------------------------------------
 
-desktop_tools_state="$XDG_CONFIG_HOME/dotfiles/desktop-tools.conf"
-
-verify_optional_capability "Desktop tools" desktop-tools "$desktop_tools_state" desktop-tools \
+verify_optional_capability "Desktop tools" fedora desktop-tools \
   "$DOTFILES_ROOT/platforms/fedora/scripts/verify-desktop-tools.sh"
 
 # ---------------------------------------------------------------------------
 # Optional dictation profile
 # ---------------------------------------------------------------------------
 
-dictation_state="$XDG_CONFIG_HOME/dotfiles/dictation.conf"
-
-verify_optional_capability "Dictation" dictation "$dictation_state" dictation \
+verify_optional_capability "Dictation" fedora dictation \
   "$DOTFILES_ROOT/platforms/fedora/scripts/verify-dictation.sh"
 
 # ---------------------------------------------------------------------------
 # Optional containers (Podman) profile
 # ---------------------------------------------------------------------------
 
-containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
-
-verify_optional_capability "Containers (Podman)" containers "$containers_state" containers \
+verify_optional_capability "Containers (Podman)" fedora containers \
   "$DOTFILES_ROOT/platforms/fedora/scripts/verify-containers.sh" \
   --skip-smoke-test
 
@@ -665,17 +651,15 @@ verify_optional_capability "Containers (Podman)" containers "$containers_state" 
 # Optional Tailscale networking profile
 # ---------------------------------------------------------------------------
 
-tailscale_state="$XDG_CONFIG_HOME/dotfiles/tailscale.conf"
-
-verify_optional_capability "Tailscale" tailscale "$tailscale_state" tailscale \
+verify_optional_capability "Tailscale" fedora tailscale \
   "$DOTFILES_ROOT/platforms/fedora/scripts/verify-tailscale.sh"
 
 # ---------------------------------------------------------------------------
 # Optional AI-assisted development profile
 # ---------------------------------------------------------------------------
 
-ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
-ai_disposition="$(verify_optional_capability_disposition ai "$ai_state" ai || true)"
+ai_state="$(verify_optional_capability_state fedora ai || true)"
+ai_disposition="$(verify_optional_capability_disposition fedora ai || true)"
 
 section "AI-assisted development profile"
 

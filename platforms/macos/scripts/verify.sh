@@ -356,7 +356,7 @@ check_catppuccin_tmux
 
 section "AI-assisted development profile"
 
-ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
+ai_state="$(verify_optional_capability_state macos ai || true)"
 agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 
@@ -405,7 +405,7 @@ macos_ai_check_no_duplicate_provider() {
   fi
 }
 
-ai_disposition="$(verify_optional_capability_disposition ai "$ai_state" ai || true)"
+ai_disposition="$(verify_optional_capability_disposition macos ai || true)"
 
 case "$ai_disposition" in
 verify | leftover)
@@ -526,9 +526,8 @@ fi
 # that state now; the flags stay, because inside the installer this verifier
 # runs before the lifecycle record is committed, and there the flag is the only
 # statement of selection there is.
-containers_state="$XDG_CONFIG_HOME/dotfiles/macos-containers.conf"
-containers_disposition="$(verify_optional_capability_disposition \
-  containers "$containers_state" podman-machine || true)"
+containers_state="$(verify_optional_capability_state macos containers || true)"
+containers_disposition="$(verify_optional_capability_disposition macos containers || true)"
 if [[ "$verify_containers" == true && "$containers_disposition" == absent ]]; then
   containers_disposition=verify
 fi
@@ -554,9 +553,8 @@ if [[ "$containers_disposition" == verify || "$containers_disposition" == leftov
   fi
 fi
 
-tailscale_state="$XDG_CONFIG_HOME/dotfiles/macos-tailscale.conf"
-tailscale_disposition="$(verify_optional_capability_disposition \
-  tailscale "$tailscale_state" tailscale || true)"
+tailscale_state="$(verify_optional_capability_state macos tailscale || true)"
+tailscale_disposition="$(verify_optional_capability_disposition macos tailscale || true)"
 if [[ "$verify_tailscale" == true && "$tailscale_disposition" == absent ]]; then
   tailscale_disposition=verify
 fi
@@ -629,8 +627,7 @@ section "Optional dictation profile"
 dictation_state="$(dictation_state_file)"
 dictation_app="$(dictation_installed_app)"
 
-dictation_disposition="$(verify_optional_capability_disposition \
-  dictation "$dictation_state" dictation || true)"
+dictation_disposition="$(verify_optional_capability_disposition macos dictation || true)"
 
 # --dictation still forces the checks. Inside the installer this verifier runs
 # before the lifecycle record is committed, so on that one path the flag is the
