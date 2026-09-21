@@ -58,6 +58,7 @@ DICTATION_STATE_RELATIVE_PATH="dotfiles/dictation.conf"
 
 # The provider string the state file records. The verifier asserts it, so state
 # written by some other mechanism cannot pass as this profile's work.
+# shellcheck disable=SC2034 # Read by the installer and verifier that source this file.
 DICTATION_HANDY_PROVIDER="pinned-release-rpm"
 
 # dictation_pinned_version: the release this profile installs.
