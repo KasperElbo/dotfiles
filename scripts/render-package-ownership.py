@@ -19,13 +19,11 @@ Usage:
 
 from __future__ import annotations
 
-import csv
 import pathlib
 import sys
-import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import supported_platforms  # noqa: E402
+from manifests import mise_tools, read_tsv, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CAPABILITIES = ROOT / "config" / "capabilities.tsv"
@@ -73,8 +71,7 @@ PROVENANCE = (
 
 
 def capability_rows() -> list[dict[str, str]]:
-    with CAPABILITIES.open(newline="", encoding="utf-8") as stream:
-        return list(csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE))
+    return read_tsv(CAPABILITIES)
 
 
 def packages(row: dict[str, str]) -> list[str]:
@@ -138,9 +135,7 @@ def render_inventory(rows: list[dict[str, str]]) -> str:
 
 
 def render_mise() -> str:
-    with MISE_CONFIG.open("rb") as stream:
-        config = tomllib.load(stream)
-    tools = config.get("tools", {})
+    tools = mise_tools(MISE_CONFIG)
 
     lines = [
         BEGIN_MISE,

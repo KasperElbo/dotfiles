@@ -6,12 +6,16 @@ set -u
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 # shellcheck source=../../../common/lib/verify.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
+# shellcheck source=../lib/fedora.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
 # shellcheck source=../lib/secure-boot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/secure-boot.sh"
 # shellcheck source=../lib/hardening.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/hardening.sh"
 # shellcheck source=../../../common/lib/install-lifecycle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/install-lifecycle.sh"
+# shellcheck source=../../../common/lib/tool-floors.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/tool-floors.sh"
 
 verify_reset
 
@@ -21,8 +25,14 @@ verify_reset
 
 section "Core commands"
 
+# Every command here is run, not only found on PATH: a binary that resolves but
+# cannot start is a broken install. common/lib/verify.sh owns the probe each
+# command answers. curl, gpg and jq are declared by the base package set, so
+# they are checked here unconditionally rather than only by the optional
+# sections that happen to use them.
 commands=(
   bat
+  curl
   delta
   eza
   fd
@@ -30,6 +40,8 @@ commands=(
   gh
   git
   ghostty
+  gpg
+  jq
   mise
   nvim
   rg
@@ -48,7 +60,7 @@ commands=(
 )
 
 for cmd in "${commands[@]}"; do
-  check_command "$cmd"
+  check_command "$cmd" --probe
 done
 
 # ---------------------------------------------------------------------------
@@ -139,7 +151,7 @@ unknown)
   ;;
 esac
 
-check_system_service_active firewalld.service
+check_system_service_enabled_and_active firewalld.service
 
 case "$(secure_boot_state)" in
 enabled)
@@ -152,6 +164,15 @@ disabled)
   warning "Secure Boot state could not be determined"
   ;;
 esac
+
+# ---------------------------------------------------------------------------
+# Terra trust root (always checked: Terra supplies base packages, and the
+# installer verifies its signing key only once)
+# ---------------------------------------------------------------------------
+
+section "Terra trust root"
+
+verify_terra_trust_root
 
 # ---------------------------------------------------------------------------
 # Login shell
@@ -207,10 +228,10 @@ check_symlink "$HOME/.local/bin/theme" \
 for flavour in latte frappe macchiato mocha; do
   check_symlink \
     "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}.webp" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/theme-assets/"
+    "$DOTFILES_ROOT/theme-assets/"
   check_symlink \
     "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}-lock.webp" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/theme-assets/"
+    "$DOTFILES_ROOT/theme-assets/"
 done
 
 # ---------------------------------------------------------------------------
@@ -356,6 +377,8 @@ if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]];
     "$DOTFILES_ROOT/platforms/fedora/stow/waybar/"
   check_symlink "$HOME/.local/bin/sway-workspace-grid" \
     "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
+  check_symlink "$HOME/.local/bin/sway-output-cycle" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
   check_symlink "$HOME/.local/bin/sway-session-start" \
     "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
 
@@ -465,6 +488,8 @@ if [[ -n "$mise_command" ]]; then
     dotnet-easydotnet
   )
 
+  check_mise_context
+
   for cmd in "${mise_tools[@]}"; do
     check_mise_owned "$cmd"
   done
@@ -484,56 +509,19 @@ fi
 
 section "Neovim tooling"
 
-mason_root="${XDG_DATA_HOME}/nvim/mason/packages"
-mason_inventory="$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
-mason_packages=()
-if [[ -r "$mason_inventory" ]]; then
-  mapfile -t mason_packages < <(
-    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$mason_inventory"
-  )
+check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
+
+# The floor comes from config/tool-floors.tsv like every other enforcer of it,
+# and Neovim itself asserts it, which also proves it starts: a Lua error raised
+# from an Ex command never reaches the exit status, so this check must turn a
+# failed version test into `cquit` itself rather than rely on the error
+# propagating (tests/test-neovim-tool-ownership.sh holds it to that).
+nvim_floor="$(tool_floor nvim)"
+nvim_baseline_lua='+lua if vim.fn.has("nvim-'"$nvim_floor"'") ~= 1 then vim.cmd("cquit 1") end'
+if nvim --headless "$nvim_baseline_lua" +qa >/dev/null 2>&1; then
+  pass "Neovim starts and reports >= $nvim_floor"
 else
-  fail "Mason package inventory missing: $mason_inventory"
-fi
-
-((${#mason_packages[@]} > 0)) || fail "Mason package inventory is empty"
-
-for package in "${mason_packages[@]}"; do
-  if [[ -d "$mason_root/$package" ]]; then
-    pass "Mason: $package"
-  else
-    fail "Mason package not installed: $package"
-  fi
-done
-
-if [[ -d "$mason_root" ]]; then
-  for package_dir in "$mason_root"/*; do
-    [[ -d "$package_dir" ]] || continue
-
-    package="$(basename "$package_dir")"
-    expected="false"
-
-    for expected_package in "${mason_packages[@]}"; do
-      if [[ "$package" == "$expected_package" ]]; then
-        expected="true"
-        break
-      fi
-    done
-
-    if [[ "$expected" == "false" ]]; then
-      warning "Unexpected Mason package (review ownership): $package"
-    fi
-  done
-fi
-
-# A Lua error raised from an Ex command does not become Neovim's exit status,
-# so the baseline check must turn a failed version test into `cquit` itself.
-# Otherwise the trailing +qa would report success on an unsupported Neovim.
-if nvim --headless \
-  '+lua if vim.fn.has("nvim-0.12") ~= 1 then vim.cmd("cquit 1") end' \
-  +qa >/dev/null 2>&1; then
-  pass "Neovim >= 0.12"
-else
-  fail "Neovim startup/version check failed"
+  fail "Neovim startup/version check failed (requires >= $nvim_floor)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -608,162 +596,91 @@ fi
 
 section "Catppuccin tmux"
 
-tmux_theme_dir="$XDG_DATA_HOME/tmux/plugins/catppuccin"
-
-if [[ -f "$tmux_theme_dir/catppuccin.tmux" ]]; then
-  pass "Catppuccin tmux installed"
-else
-  fail "Catppuccin tmux is missing"
-fi
-
-if [[ -d "$tmux_theme_dir/.git" ]]; then
-  expected_tag="v2.3.0"
-
-  installed_commit="$(
-    git -C "$tmux_theme_dir" rev-parse HEAD 2>/dev/null || true
-  )"
-
-  expected_commit="$(
-    git -C "$tmux_theme_dir" rev-list -n 1 "$expected_tag" 2>/dev/null || true
-  )"
-
-  if [[ -n "$installed_commit" && "$installed_commit" == "$expected_commit" ]]; then
-    pass "Catppuccin tmux $expected_tag"
-  else
-    warning "Catppuccin tmux is not at expected $expected_tag"
-  fi
-fi
+# The pinned plugin checkout at $XDG_DATA_HOME/tmux/plugins/catppuccin.
+check_catppuccin_tmux
 
 # ---------------------------------------------------------------------------
 # Optional machine hardware
 # ---------------------------------------------------------------------------
 
-hardware_state="$XDG_CONFIG_HOME/dotfiles/hardware.conf"
-
-if [[ -f "$hardware_state" ]]; then
-  section "ASUS hardware"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-asus-hardware.sh"; then
-    pass "ASUS hardware profile verification completed"
-  else
-    fail "ASUS hardware profile verification failed"
-  fi
-fi
+verify_optional_capability "ASUS hardware" fedora hardware \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-asus-hardware.sh"
 
 # ---------------------------------------------------------------------------
 # Optional VM host
 # ---------------------------------------------------------------------------
 
-vm_host_state="$XDG_CONFIG_HOME/dotfiles/vm-host.conf"
-
-if [[ -f "$vm_host_state" ]]; then
-  section "VM host"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-host.sh"; then
-    pass "Fedora VM-host profile verification completed"
-  else
-    fail "Fedora VM-host profile verification failed"
-  fi
-fi
+verify_optional_capability "VM host" fedora vm-host \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-host.sh"
 
 # ---------------------------------------------------------------------------
 # Optional VM guest
 # ---------------------------------------------------------------------------
 
-vm_guest_state="$XDG_CONFIG_HOME/dotfiles/vm-guest.conf"
-
-if [[ -f "$vm_guest_state" ]]; then
-  section "VM guest"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-guest.sh"; then
-    pass "Fedora VM-guest profile verification completed"
-  else
-    fail "Fedora VM-guest profile verification failed"
-  fi
-fi
+verify_optional_capability "VM guest" fedora vm-guest \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-guest.sh"
 
 # ---------------------------------------------------------------------------
 # Optional security-hardening profile
 # ---------------------------------------------------------------------------
 
-hardening_state="$XDG_CONFIG_HOME/dotfiles/hardening.conf"
-
-if [[ -f "$hardening_state" ]]; then
-  section "Security hardening"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-hardening.sh"; then
-    pass "Fedora hardening profile verification completed"
-  else
-    fail "Fedora hardening profile verification failed"
-  fi
-fi
+verify_optional_capability "Security hardening" fedora hardening \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-hardening.sh"
 
 # ---------------------------------------------------------------------------
 # Optional desktop tools
 # ---------------------------------------------------------------------------
 
-desktop_tools_state="$XDG_CONFIG_HOME/dotfiles/desktop-tools.conf"
+verify_optional_capability "Desktop tools" fedora desktop-tools \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-desktop-tools.sh"
 
-if [[ -f "$desktop_tools_state" ]]; then
-  section "Desktop tools"
+# ---------------------------------------------------------------------------
+# Optional dictation profile
+# ---------------------------------------------------------------------------
 
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-desktop-tools.sh"; then
-    pass "Desktop-tools profile verification completed"
-  else
-    fail "Desktop-tools profile verification failed"
-  fi
-fi
+verify_optional_capability "Dictation" fedora dictation \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-dictation.sh"
 
 # ---------------------------------------------------------------------------
 # Optional containers (Podman) profile
 # ---------------------------------------------------------------------------
 
-containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
-
-if [[ -f "$containers_state" ]]; then
-  section "Containers (Podman)"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-containers.sh" \
-    --skip-smoke-test; then
-    pass "Containers profile verification completed"
-  else
-    fail "Containers profile verification failed"
-  fi
-fi
+verify_optional_capability "Containers (Podman)" fedora containers \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-containers.sh" \
+  --skip-smoke-test
 
 # ---------------------------------------------------------------------------
 # Optional Tailscale networking profile
 # ---------------------------------------------------------------------------
 
-tailscale_state="$XDG_CONFIG_HOME/dotfiles/tailscale.conf"
-
-if [[ -f "$tailscale_state" ]]; then
-  section "Tailscale"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-tailscale.sh"; then
-    pass "Tailscale profile verification completed"
-  else
-    fail "Tailscale profile verification failed"
-  fi
-fi
+verify_optional_capability "Tailscale" fedora tailscale \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-tailscale.sh"
 
 # ---------------------------------------------------------------------------
 # Optional AI-assisted development profile
 # ---------------------------------------------------------------------------
 
-ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
+ai_state="$(verify_optional_capability_state fedora ai || true)"
+ai_disposition="$(verify_optional_capability_disposition fedora ai || true)"
 
-if [[ -f "$ai_state" ]]; then
-  section "AI-assisted development profile"
+section "AI-assisted development profile"
+
+case "$ai_disposition" in
+verify | leftover)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
 
   if "$DOTFILES_ROOT/common/verify-ai.sh"; then
     pass "AI profile verification completed"
   else
     fail "AI profile verification failed"
   fi
-else
-  section "AI-assisted development profile"
-
+  ;;
+missing | corrupt)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
+  ;;
+*)
+  # Not selected, and no state file. The profile owns files outside its own
+  # state, so an unselected machine is still asked whether any of them remain.
   agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
   codex_home="${CODEX_HOME:-$HOME/.codex}"
   is_agents_symlink() {
@@ -782,7 +699,8 @@ else
   else
     pass "AI profile is not installed (not selected)"
   fi
-fi
+  ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Repository hygiene

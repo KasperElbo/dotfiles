@@ -3,10 +3,18 @@ set -euo pipefail
 
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=lib/tool-floors.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/tool-floors.sh"
+# shellcheck source=lib/mason.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/mason.sh"
 
 establish_user_tool_environment
 require_command nvim
 require_command timeout
+# Deciding whether a package is installed means reading its Mason receipt, and
+# a run that could not read one would fall back to trusting a directory, which
+# is what this installer stopped doing.
+require_command jq
 
 profile="workstation"
 
@@ -33,9 +41,7 @@ esac
 
 [[ -r "$inventory_file" ]] || die "Mason package inventory not found: $inventory_file"
 
-mapfile -t mason_packages < <(
-  sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$inventory_file"
-)
+mapfile -t mason_packages < <(mason_read_inventory "$inventory_file")
 ((${#mason_packages[@]} > 0)) || die "Mason package inventory is empty"
 
 for package in "${mason_packages[@]}"; do
@@ -49,42 +55,11 @@ fi
 
 # Optional pins for packages whose registry advertises a build before that
 # build's platform archives exist upstream. Pinned packages are installed at
-# the recorded version; everything else tracks the refreshed registries.
+# the recorded version; everything else tracks the refreshed registries. The
+# pins are parsed by lib/mason.sh so the verifier compares the same file this
+# installer installs from.
 version_pin_file="$DOTFILES_ROOT/common/mason-package-versions.txt"
-mason_version_pins=()
-if [[ -e "$version_pin_file" ]]; then
-  [[ -r "$version_pin_file" ]] ||
-    die "Mason version pin file is not readable: $version_pin_file"
-
-  while IFS= read -r pin_line; do
-    read -r pin_package pin_version pin_extra <<<"$pin_line"
-    [[ -n "${pin_package:-}" ]] || continue
-    [[ -z "${pin_extra:-}" ]] || die "Invalid Mason version pin: $pin_line"
-    [[ "$pin_package" =~ ^[a-z0-9][a-z0-9._-]*$ ]] ||
-      die "Invalid Mason package name in version pins: $pin_package"
-    [[ -n "${pin_version:-}" ]] ||
-      die "Mason version pin is missing a version: $pin_package"
-    [[ "$pin_version" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] ||
-      die "Invalid Mason version pin for $pin_package: $pin_version"
-
-    # The same pin file serves every profile, so a pin for a package this
-    # profile does not install is not an error.
-    printf '%s\n' "${mason_packages[@]}" | grep -Fxq "$pin_package" || continue
-    mason_version_pins+=("$pin_package=$pin_version")
-  done < <(sed -e 's/#.*$//' -e '/^[[:space:]]*$/d' "$version_pin_file")
-fi
-
-mason_version_pin() {
-  local package="$1"
-  local pin
-
-  for pin in ${mason_version_pins[@]+"${mason_version_pins[@]}"}; do
-    if [[ "$pin" == "$package="* ]]; then
-      printf '%s\n' "${pin#*=}"
-      return 0
-    fi
-  done
-}
+mason_load_version_pins "$version_pin_file" || die "$MASON_ERROR"
 
 bootstrap_timeout="${NEOVIM_BOOTSTRAP_TIMEOUT:-20m}"
 [[ "$bootstrap_timeout" =~ ^[1-9][0-9]*[smhd]?$ ]] ||
@@ -106,7 +81,25 @@ fi
 # project's .mise.toml decide which Neovim or which runtimes Mason builds
 # against. Every phase argument is a "+command", never a path, so the neutral
 # working directory changes nothing else.
+#
+# Prepared here rather than below the floor check, because that check is itself
+# a run_mise call and run_mise no longer prepares: only install-time code does.
 mise_context="$(mise_prepare_context)"
+
+# Checked against the Neovim these phases will actually run -- mise's, when
+# mise owns it, not whatever else is on PATH -- and before the first headless
+# phase. Below the floor, Mason fails partway through with a Lua error that
+# names neither Neovim nor a version (vim.uv is 0.10+, vim.iter 0.12+).
+#
+# Asked through run_mise, for the same reason the phases below use the
+# deterministic context (see lib/common.sh): run from the checkout's own
+# directory, `mise exec` resolves this repository's tool configuration and
+# answers nothing, which would refuse a Neovim that is perfectly current.
+nvim_version_probe=(nvim)
+[[ -z "$mise_command" ]] ||
+  nvim_version_probe=(run_mise "$mise_command" exec -- nvim)
+tool_floor_check nvim "${nvim_version_probe[@]}" ||
+  die "Install a newer Neovim first: DNF on Fedora, Homebrew on macOS, or the pinned mise tool on the Parrot CTF guest."
 
 run_nvim_phase() {
   local bootstrap_mode="$1"
@@ -134,8 +127,8 @@ run_nvim_phase() {
 }
 
 mason_plugin="$XDG_DATA_HOME/nvim/lazy/mason.nvim"
-mason_root="$XDG_DATA_HOME/nvim/mason/packages"
-mason_bin="$XDG_DATA_HOME/nvim/mason/bin"
+mason_install_root="$(mason_root)"
+mason_bin="$mason_install_root/bin"
 
 # Restore only Mason while nvim-treesitter is disabled by the bootstrap profile.
 # This gives the blocking installer a usable Mason API without allowing
@@ -144,40 +137,67 @@ mason_bin="$XDG_DATA_HOME/nvim/mason/bin"
 run_nvim_phase 1 "Preparing Mason plugin" '+Lazy! restore mason.nvim' +qa
 [[ -d "$mason_plugin" ]] || die "Mason plugin was not restored: $mason_plugin"
 
-missing_packages=()
+# What to install is decided from Mason's own receipts, never from a package
+# directory: Mason writes the receipt last, so a directory is evidence that an
+# installation was started and not that one finished. A package that exists but
+# is incomplete, or exists at a version the pin file no longer names, is a
+# repair and not a fresh install, and repairs go in their own list because
+# Mason has to be told to force them. Without that it refuses to relink over
+# the links the earlier attempt left behind, and refuses outright while that
+# attempt's staging lock is still on disk -- which is exactly the state an
+# interrupted run leaves. The version pin is applied to both lists, so a
+# package that already exists no longer escapes the pin.
+install_targets=()
+repair_targets=()
 for package in "${mason_packages[@]}"; do
-  [[ -d "$mason_root/$package" ]] || missing_packages+=("$package")
+  pinned_version="$(mason_version_pin "$package")"
+  if mason_package_status "$mason_install_root" "$package" "$pinned_version"; then
+    continue
+  fi
+  install_target="$package"
+  if [[ -n "$pinned_version" ]]; then
+    info "Pinning Mason package $package to $pinned_version"
+    install_target="$package@$pinned_version"
+  fi
+  if [[ "$MASON_PACKAGE_STATE" == absent ]]; then
+    install_targets+=("$install_target")
+  else
+    warn "Repairing Mason package $package: $MASON_PACKAGE_DETAIL"
+    repair_targets+=("$install_target")
+  fi
 done
 
-if ((${#missing_packages[@]} > 0)); then
-  install_targets=()
-  for package in "${missing_packages[@]}"; do
-    pinned_version="$(mason_version_pin "$package")"
-    if [[ -n "$pinned_version" ]]; then
-      info "Pinning Mason package $package to $pinned_version"
-      install_targets+=("$package@$pinned_version")
-    else
-      install_targets+=("$package")
-    fi
-  done
+if ((${#install_targets[@]} > 0 || ${#repair_targets[@]} > 0)); then
+  install_list=""
+  repair_list=""
+  ((${#install_targets[@]} == 0)) || install_list="${install_targets[*]}"
+  ((${#repair_targets[@]} == 0)) || repair_list="${repair_targets[*]}"
 
   # Load Mason directly for this phase. MasonInstall blocks until the complete
   # declared inventory has converged, so tree-sitter-cli has one installer.
   DOTFILES_MASON_PLUGIN="$mason_plugin" \
-    DOTFILES_MASON_PACKAGES="${install_targets[*]}" \
+    DOTFILES_MASON_PACKAGES="$install_list" \
+    DOTFILES_MASON_REPAIR_PACKAGES="$repair_list" \
     run_nvim_phase 1 "Installing Mason editor tools" \
     -u NONE -l "$DOTFILES_ROOT/common/bootstrap-mason.lua"
 else
   info "All intended Mason editor tools are already installed"
 fi
 
-remaining_packages=()
+# Convergence is re-established from the receipts, by the same rule, so a
+# provisioning run cannot report success over a package Mason did not finish.
+unconverged_packages=()
 for package in "${mason_packages[@]}"; do
-  [[ -d "$mason_root/$package" ]] || remaining_packages+=("$package")
+  pinned_version="$(mason_version_pin "$package")"
+  if mason_package_status "$mason_install_root" "$package" "$pinned_version"; then
+    continue
+  fi
+  warn "Mason package did not converge: $package ($MASON_PACKAGE_DETAIL)"
+  unconverged_packages+=("$package")
 done
 
-if ((${#remaining_packages[@]} > 0)); then
-  die "Mason provisioning incomplete; missing: ${remaining_packages[*]}"
+if ((${#unconverged_packages[@]} > 0)); then
+  die "Mason provisioning incomplete; unconverged: ${unconverged_packages[*]}"
 fi
 
 [[ -x "$mason_bin/tree-sitter" ]] ||

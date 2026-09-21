@@ -8,6 +8,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../../../common/lib/profile-state.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
+# shellcheck source=../../../common/lib/capabilities.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/capabilities.sh"
+# shellcheck source=../../../common/lib/tool-floors.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/tool-floors.sh"
 # shellcheck source=../lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
@@ -65,27 +69,40 @@ else
   fail "Zsh login startup failed"
 fi
 
-packages=(
-  bat eza fd-find fontconfig fzf gh git git-delta jq konsole lazygit pipx python3
-  python3-venv ripgrep shellcheck spice-vdagent sqlite3 starship stow tmux
-  xclip xxd xz-utils zoxide zsh qemu-guest-agent
-)
-for package in "${packages[@]}"; do
-  status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)"
-  if [[ "$status" == "install ok installed" ]]; then
-    pass "$package is APT-owned"
-  else
-    fail "APT package missing: $package"
+# The APT packages this guest must own are read from config/capabilities.tsv,
+# the same rows the installers are checked against, so this list cannot drift
+# from what is installed. Both rows are Parrot's: base is the working
+# environment and vm-guest the guest agents. One declared package is not an
+# APT package: mise is installed by its official upstream installer into
+# ~/.local/bin, so dpkg has no record of it. It is excluded by name here, and
+# proven instead by the mise-managed uv and Neovim checks below.
+for capability in base vm-guest; do
+  if ! declared_packages="$(capability_packages parrot-ctf "$capability")"; then
+    fail "config/capabilities.tsv has no parrot-ctf $capability row to verify packages against"
+    continue
   fi
+  while IFS= read -r package; do
+    case "$package" in
+    "" | mise) continue ;;
+    esac
+    status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)"
+    if [[ "$status" == "install ok installed" ]]; then
+      pass "$package is APT-owned"
+    else
+      fail "APT package missing: $package"
+    fi
+  done <<<"$declared_packages"
 done
 
-commands=(bat eza fd fzf gh git jq lazygit nvim pipx python python3 rg sqlite3 starship stow tmux xclip xxd zoxide zsh)
+# Run each command rather than only finding it. xclip and xxd have no
+# --version, so they are checked for resolution only; nvim, bat and fd have
+# their own startup checks below.
+commands=(eza fzf gh git jq lazygit pipx python python3 rg sqlite3 starship stow tmux zoxide zsh)
 for command_name in "${commands[@]}"; do
-  if command_exists "$command_name"; then
-    pass "$command_name is available"
-  else
-    fail "Command missing: $command_name"
-  fi
+  check_command "$command_name" --probe
+done
+for command_name in bat fd nvim xclip xxd; do
+  check_command "$command_name"
 done
 
 for command_name in bat fd; do
@@ -96,6 +113,8 @@ for command_name in bat fd; do
     command_diagnostics "$command_name"
   fi
 done
+
+check_mise_context
 
 mise_command="$(resolve_mise_command 2>/dev/null || true)"
 if [[ -n "$mise_command" ]] &&
@@ -139,12 +158,9 @@ fi
 
 nvim_version=""
 if [[ -n "$mise_command" ]]; then
-  nvim_version="$(
-    run_mise "$mise_command" exec -- nvim --version 2>/dev/null |
-      sed -n '1s/^NVIM v\([0-9][0-9.]*\).*/\1/p'
-  )"
+  nvim_version="$(tool_version nvim run_mise "$mise_command" exec -- nvim)"
 fi
-check_version_at_least "Neovim" "$nvim_version" "0.12"
+check_version_at_least "Neovim" "$nvim_version" "$(tool_floor nvim)"
 
 nvim_log="$(mktemp)"
 if [[ -n "$mise_command" ]] &&
@@ -176,12 +192,25 @@ elif ((plugin_lock_entries == 0)); then
   fail "Parrot LazyVim lockfile is missing or empty: $parrot_lock"
 fi
 
+# Two separate questions about Mason here, and the reduced profile needs both.
+#
+# The set has to match exactly, which is stricter than check_mason_inventory:
+# a package Mason holds that the profile does not list is a failure and not a
+# warning, because this guest is an isolation boundary and must not quietly
+# gain tooling. The inventory read is the deployed copy under XDG_CONFIG_HOME,
+# not the repository's, so it verifies what was actually stowed.
+#
+# Then each listed package has to really be installed, which is lib/mason.sh's
+# rule and the same one every other platform's verifier applies: Mason writes a
+# package's receipt last, so a directory is evidence that an installation was
+# started and never that one finished. Comparing names alone let an empty or
+# interrupted package satisfy the set (#366).
 expected_mason_file="$XDG_CONFIG_HOME/nvim/profiles/parrot-ctf/mason-packages.txt"
-mason_root="$XDG_DATA_HOME/nvim/mason/packages"
-mapfile -t expected_mason < <(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$expected_mason_file" 2>/dev/null | sort)
+parrot_mason_root="$(mason_root)"
+mapfile -t expected_mason < <(mason_read_inventory "$expected_mason_file" | sort)
 mapfile -t actual_mason < <(
-  if [[ -d "$mason_root" ]]; then
-    find "$mason_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+  if [[ -d "$parrot_mason_root/packages" ]]; then
+    find "$parrot_mason_root/packages" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
   fi
 )
 if [[ "${actual_mason[*]}" == "${expected_mason[*]}" && ${#expected_mason[@]} -gt 0 ]]; then
@@ -189,6 +218,12 @@ if [[ "${actual_mason[*]}" == "${expected_mason[*]}" && ${#expected_mason[@]} -g
 else
   fail "Mason inventory mismatch"
   printf '  expected: %s\n  actual:   %s\n' "${expected_mason[*]:-(empty)}" "${actual_mason[*]:-(empty)}" >&2
+fi
+
+if verify_mason_ready; then
+  for mason_package in ${expected_mason[@]+"${expected_mason[@]}"}; do
+    check_mason_package "$parrot_mason_root" "$mason_package" || true
+  done
 fi
 
 for command_name in python python3; do
@@ -299,11 +334,20 @@ else
   fail "Bat is missing Catppuccin themes: ${missing_bat_themes[*]}"
 fi
 
+# The pinned plugin checkout tmux/.tmux.conf runs.
+check_catppuccin_tmux
+
 # verifies: vm-guest
 #
 # The Parrot CTF profile owns the guest agents that config/capabilities.tsv
 # records as the vm-guest capability on this platform; the marker says so in
 # the spelling scripts/validate-capabilities.py checks for.
+#
+# Both are deliberately is-active checks, not enabled-and-active ones. Debian
+# and Parrot ship qemu-guest-agent.service as a static unit that its virtio
+# device activates, so there is no enablement to check, and the guest
+# installer only starts spice-vdagentd.socket, which listens on demand.
+# Requiring either to be enabled would fail a correct installation.
 check_system_service_active qemu-guest-agent.service
 check_system_service_active spice-vdagentd.socket
 

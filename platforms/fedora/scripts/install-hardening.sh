@@ -13,6 +13,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/hardening.sh"
 
 dry_run="false"
 validate_only="false"
+confirm_only="false"
 interactive="true"
 
 usage() {
@@ -24,17 +25,36 @@ Install the optional, conservative Fedora security-hardening profile.
 Options:
   --dry-run          Show the hardening plan without changing anything
   --validate         Validate an existing hardening installation only
+  --confirm          Ask for consent only, change nothing, and report the
+                     answer in the exit status. platforms/fedora/install.sh
+                     asks this way during preflight, so a declined profile
+                     stops the run before anything has been installed.
   --non-interactive  Do not prompt before applying changes
   -h, --help         Show this help
 
-Every change is a small, named, dotfiles-owned drop-in file (sysctl.d,
-sudoers.d, sshd_config.d, faillock.conf.d, audit/rules.d). Nothing is
-mixed into a vendor config file, so it is always safe to delete a
-drop-in to roll a single change back. Does not disable SELinux or
-firewalld, does not install/enable sshd, and does not reboot.
+The rule is that every change is a small, named, dotfiles-owned drop-in
+file (sysctl.d, sudoers.d, sshd_config.d, faillock.conf.d, audit/rules.d),
+so deleting a drop-in rolls that single change back. Three changes are not
+drop-in files:
+
+  - the SELINUX= line of /etc/selinux/config, edited in place only when
+    SELinux is permissive, because SELinux has no drop-in mechanism. The
+    previous file is kept beside it as
+    /etc/selinux/config.dotfiles-<epoch>.bak; roll back with
+    'sudo setenforce 0' and copy that backup over /etc/selinux/config.
+  - the authselect 'with-faillock' feature, which regenerates /etc/pam.d;
+    deleting the faillock drop-in does not undo it. Roll back with
+    'sudo authselect disable-feature with-faillock'.
+  - dnf5-automatic.timer, enabled after installing dnf5-plugin-automatic
+    when it is missing. Roll back with
+    'sudo systemctl disable --now dnf5-automatic.timer', and
+    'sudo dnf remove dnf5-plugin-automatic' if you want the package gone.
+
+Does not disable SELinux or firewalld, does not install/enable sshd, and
+does not reboot.
 
 See docs/profiles/hardening.md for the full rationale, verification
-command, and rollback instructions for each change.
+command, and the per-change rollback table.
 EOF
 }
 
@@ -47,6 +67,10 @@ while (($#)); do
     ;;
   --validate)
     validate_only="true"
+    shift
+    ;;
+  --confirm)
+    confirm_only="true"
     shift
     ;;
   --non-interactive)
@@ -67,6 +91,16 @@ if [[ "$dry_run" == "true" && "$validate_only" == "true" ]]; then
   die "--dry-run and --validate cannot be combined"
 fi
 
+# --confirm asks the question and answers nothing else: pairing it with a mode
+# that shows a plan, validates an existing installation, or declares that
+# nothing may be asked would leave the caller unable to read the answer out of
+# the exit status.
+if [[ "$confirm_only" == "true" ]]; then
+  [[ "$dry_run" != "true" ]] || die "--confirm and --dry-run cannot be combined"
+  [[ "$validate_only" != "true" ]] || die "--confirm and --validate cannot be combined"
+  [[ "$interactive" == "true" ]] || die "--confirm and --non-interactive cannot be combined"
+fi
+
 if [[ "$validate_only" == "true" ]]; then
   exec "$DOTFILES_ROOT/platforms/fedora/scripts/verify-hardening.sh"
 fi
@@ -85,12 +119,15 @@ Verify only, never change:
   - enabled systemd services and listening sockets, against an allow-list
   - permissions on ~/.ssh, ~/.aws, ~/.config/gh, ~/.gnupg
 
-Apply (each as its own removable drop-in file):
+Apply (a removable drop-in file per change, except where noted; see the
+per-change rollback table in docs/profiles/hardening.md):
   1. SELinux: setenforce 1 if currently Permissive
-     /etc/selinux/config (SELINUX= line only)
+     /etc/selinux/config (SELINUX= line only, edited in place, no drop-in;
+     the previous file is kept as /etc/selinux/config.dotfiles-<epoch>.bak)
 
   2. pam_faillock: lock an account after 5 failed attempts for 15 minutes
-     authselect enable-feature with-faillock
+     authselect enable-feature with-faillock (regenerates /etc/pam.d,
+     not a drop-in; undone with 'authselect disable-feature with-faillock')
      /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
 
   3. sudo audit logfile
@@ -109,6 +146,8 @@ Apply (each as its own removable drop-in file):
 
   7. dnf5-automatic.timer: downloads and reports available updates daily
      (apply_updates=no by default), installs nothing automatically
+     installs dnf5-plugin-automatic when missing; no drop-in, undone with
+     'systemctl disable --now dnf5-automatic.timer'
 
 Never done by this profile: disabling SELinux or firewalld, changing
 firewalld zone services, noexec on /tmp, USBGuard, Wi-Fi MAC
@@ -124,11 +163,45 @@ fi
 
 require_fedora
 
-if [[ "$interactive" == "true" ]]; then
+# `confirm` is deliberately three-valued, and this script is a step of
+# platforms/fedora/install.sh's plan rather than a top-level installer: a plan
+# step that exits 0 on anything but a yes reports a profile nobody agreed to
+# install as installed. plan_execute would record `[hardening] completed`,
+# install_lifecycle_commit would add `hardening` to observed_capabilities, and
+# the plan's verify step could not catch it, because
+# platforms/fedora/scripts/verify.sh only runs the hardening verifier when the
+# state file this run never wrote exists. Only ./doctor would notice, much
+# later. So both non-yes statuses stop the run, and they are distinguished the
+# way every other call site distinguishes them: an unparseable answer is a
+# different mistake from a declined one.
+ask_for_consent() {
+  local result
   printf '\n'
   printf 'This installs the optional Fedora hardening profile described above.\n'
   printf 'Run with --dry-run first to see the full plan.\n'
-  confirm "Continue with hardening installation?" "y" || exit 0
+  # The status is read inside the else branch, not after the `if`: an `if`
+  # whose condition is false and which has no else returns 0, so reading $?
+  # after `fi` would report every declined answer as unparseable.
+  if confirm "Continue with hardening installation?" "y"; then :; else
+    result=$?
+    ((result == 1)) || die 'Invalid confirmation response'
+    die 'Hardening installation declined; nothing was changed.'
+  fi
+}
+
+# The plan has no way to skip a step, so a declined profile can only stop the
+# run. Where that stop happens is the whole difference: platforms/fedora/install.sh
+# asks with --confirm from its preflight, before anything has been installed,
+# so declining costs nothing and the answer is known while the plan is still
+# just a list. Run directly, this script has no preflight to ask from, so it
+# still asks here, immediately before its own first change.
+if [[ "$confirm_only" == "true" ]]; then
+  ask_for_consent
+  exit 0
+fi
+
+if [[ "$interactive" == "true" ]]; then
+  ask_for_consent
 fi
 
 state_selinux="$(selinux_mode)"

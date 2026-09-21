@@ -47,17 +47,22 @@ cat >"$tool_bin/starship" <<'EOF'
 #!/usr/bin/env bash
 printf 'export DOTFILES_TEST_STARSHIP_INIT=1\n'
 EOF
-# The real `fzf --zsh` binds Ctrl-R to its own history widget.
+# The real `fzf --zsh` binds Ctrl-R to its own history widget and Alt-C, which
+# the terminal sends as ESC c, to its directory picker.
 cat >"$tool_bin/fzf" <<'EOF'
 #!/usr/bin/env bash
 cat <<'ZSH'
 fzf-history-widget() { :; }
 zle -N fzf-history-widget
 bindkey '^R' fzf-history-widget
+fzf-cd-widget() { :; }
+zle -N fzf-cd-widget
+bindkey '\ec' fzf-cd-widget
 ZSH
 EOF
 printf '#!/usr/bin/env bash\nexit 0\n' >"$tool_bin/eza"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$tool_bin/bat"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$tool_bin/claude"
 chmod +x "$tool_bin"/*
 
 printf '# Catppuccin fzf colors\nexport DOTFILES_TEST_FZF_THEME=1\n' \
@@ -192,6 +197,48 @@ assert_eq '/opt/homebrew/opt/coreutils/libexec/gnubin' \
 assert_contains "$macos_path" '/opt/homebrew/bin'
 printf 'PASS: platform PATH contracts survive the uniqueness policy\n'
 
+# A macOS *login* shell, which is the ordinary shape there: zsh is the
+# registered login shell and terminals start login shells. The order is
+# .zshenv, then /etc/zprofile, then .zshrc -- and /etc/zprofile runs
+# path_helper, which rebuilds PATH from /etc/paths and /etc/paths.d with the
+# system directories in front and everything that was already there after
+# them. Anything .zshenv prepended is demoted, so the startup files have to
+# re-assert the policy after every system file has had its say.
+#
+# path_helper is simulated rather than invoked: it does not exist on Linux, and
+# what matters is its effect on the order, not its implementation.
+macos_login_path="$(
+  env -i HOME="$root/home" XDG_CONFIG_HOME="$root/config" \
+    XDG_DATA_HOME="$root/data" XDG_STATE_HOME="$root/state" \
+    XDG_CACHE_HOME="$root/cache" TERM=xterm-256color PATH="$sandbox_bin" \
+    DOTFILES_TEST_ZSHENV="$zshenv" DOTFILES_TEST_ZSHRC="$zshrc" \
+    DOTFILES_TEST_PLATFORM_ENV="$macos_env" \
+    "$zsh_path" -f -c '
+      source "$DOTFILES_TEST_ZSHENV"
+      source "$DOTFILES_TEST_PLATFORM_ENV"
+      # /etc/zprofile: the system directories from /etc/paths first, then
+      # every entry that was already on PATH, in order. `path` is unique, so
+      # the duplicates this creates collapse exactly as path_helper drops them.
+      path=(/usr/local/bin /usr/bin /bin /usr/sbin /sbin $path)
+      export PATH
+      source "$DOTFILES_TEST_ZSHRC"
+      print -l -- $path
+    '
+)"
+assert_eq "$root/home/.local/bin" \
+  "$(printf '%s\n' "$macos_login_path" | head -n1)" \
+  'user executables must keep the front of PATH in a macOS login shell, after path_helper has reordered it'
+assert_eq '/opt/homebrew/opt/coreutils/libexec/gnubin' \
+  "$(printf '%s\n' "$macos_login_path" | tail -n1)" \
+  'macOS gnubin must stay last in a login shell too'
+login_duplicates="$(printf '%s\n' "$macos_login_path" | sort | uniq -d)"
+[[ -z "$login_duplicates" ]] || {
+  printf 'TEST FAILURE: the login shape duplicated PATH entries:\n%s\n' \
+    "$login_duplicates" >&2
+  exit 1
+}
+printf 'PASS: a macOS login shell keeps ~/.local/bin first after path_helper\n'
+
 # --- Missing optional integrations (#157) -----------------------------------
 
 run_capture run_zsh bare xterm-256color 'print -r -- loaded'
@@ -220,6 +267,45 @@ activated="$(run_zsh full xterm-256color \
   'print -r -- "${DOTFILES_TEST_MISE_ACTIVATED:-no}:${DOTFILES_TEST_STARSHIP_INIT:-no}:${DOTFILES_TEST_FZF_THEME:-no}"')"
 assert_eq '1:1:1' "$activated" 'present integrations must still be activated'
 printf 'PASS: present integrations are activated normally\n'
+
+# --- Claude Code alias ------------------------------------------------------
+#
+# The alias has to earn its place twice: the `ai` capability must be installed,
+# and Claude Code must actually be on PATH. Either one missing leaves the
+# shell without it.
+
+install_state="$root/state/dotfiles/install.conf"
+mkdir -p "${install_state%/*}"
+
+write_install_state() {
+  printf 'schema_version=2\nprofile=install\nstatus=installed\n' >"$install_state"
+  printf 'requested_capabilities=base,ai\nobserved_capabilities=%s\n' "$1" \
+    >>"$install_state"
+}
+
+run_capture run_zsh full xterm-256color 'alias cld'
+assert_status 1
+printf 'PASS: cld is undefined when no install state was ever written\n'
+
+# Requested but not observed: asking for the capability is not having it.
+write_install_state base
+run_capture run_zsh full xterm-256color 'alias cld'
+assert_status 1
+printf 'PASS: cld is undefined when the ai capability is not installed\n'
+
+write_install_state base,ai
+run_capture run_zsh full xterm-256color 'alias cld'
+assert_success
+assert_contains "$TEST_OUTPUT" 'claude --dangerously-skip-permissions'
+printf 'PASS: cld starts Claude Code where the ai capability is installed\n'
+
+# Recorded, then removed by hand: an alias that resolves to nothing is worse
+# than no alias.
+run_capture run_zsh bare xterm-256color 'alias cld'
+assert_status 1
+printf 'PASS: cld is undefined when Claude Code is gone from PATH\n'
+
+rm -f "$install_state"
 
 # Startup itself must leave a clean status behind, or the first prompt of every
 # shell reports a failure the user never caused.
@@ -328,6 +414,14 @@ ctrl_r_full="$(run_zsh full xterm-256color "bindkey -- '^R'")"
 assert_contains "$ctrl_r_full" 'fzf-history-widget'
 printf 'PASS: Ctrl-R remains owned by the fzf history workflow\n'
 
+# Alt-C is fzf's too, and is the one shared binding whose physical key differs
+# per platform: on macOS the terminal has to send Left Option as Meta for this
+# same ESC c to arrive (#257). The shared configuration stays platform-neutral
+# and must not rebind it for any platform.
+alt_c_full="$(run_zsh full xterm-256color "bindkey -- '\ec'")"
+assert_contains "$alt_c_full" 'fzf-cd-widget'
+printf 'PASS: Alt-C remains owned by the fzf directory picker\n'
+
 # --- Archive helpers (#168) -------------------------------------------------
 
 work="$root/archives"
@@ -380,8 +474,9 @@ for suffix in tar tar.gz tar.xz tgz txz; do
   covered+=(".$suffix")
 done
 
+covered_suffixes="$(printf '%s\n' "${covered[@]}")"
 for required in .tar .tar.gz; do
-  printf '%s\n' "${covered[@]}" | grep -Fxq -- "$required" ||
+  grep -Fxq -- "$required" <<<"$covered_suffixes" ||
     _test_die "the archive helpers must be exercised for $required"
 done
 

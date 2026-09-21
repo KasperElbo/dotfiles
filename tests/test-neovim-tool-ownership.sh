@@ -112,6 +112,96 @@ run_nvim_lua_test tests/test-ocaml-dap.lua "DOTFILES_TEST_ROOT=$repo_root" || {
   fail "Neovim OCaml DAP Lua test failed"
 }
 
+# --- The theme reload survives platform overlay merging --------------------
+
+# lazy.nvim merges only opts, dependencies, cmd, event, ft and keys; every
+# other key is overridden by the fragment imported last. Reading the fragments
+# cannot see that, so this resolves the real spec set through lazy.nvim with a
+# platform overlay stowed alongside the shared fragments (#248, RA-36).
+lazy_nvim="${DOTFILES_LAZY_NVIM:-${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/lazy.nvim}"
+[[ -d "$lazy_nvim/lua/lazy" ]] ||
+  fail "lazy.nvim is required to resolve plugin specs; set DOTFILES_LAZY_NVIM to a checkout (looked in $lazy_nvim)"
+
+spec_root="$(mktemp -d)"
+trap 'rm -f -- "$nvim_log" "$lua_output"; rm -rf -- "$spec_root"' EXIT
+
+# Stow in miniature: an overlay's fragments land in the same lua/plugins
+# directory as the shared ones, which is what makes them one lazy.nvim module.
+stow_overlay_config() {
+  local overlay="$1" flavour="$2" destination="$3" replacement="${4:-}"
+
+  rm -rf -- "$destination"
+  mkdir -p "$destination/config" "$destination/xdg/dotfiles" "$destination/home"
+  cp -r "$lazyvim_config/." "$destination/config/"
+  cp "$repo_root"/platforms/*/stow/"$overlay"/.config/nvim/lua/plugins/*.lua \
+    "$destination/config/lua/plugins/"
+  if [[ -n "$replacement" ]]; then
+    cp "$replacement" "$destination/config/lua/plugins/colorscheme.lua"
+  fi
+  printf '%s\n' "$flavour" >"$destination/xdg/dotfiles/theme"
+}
+
+run_theme_reload_test() {
+  local overlay="$1" flavour="$2" destination="$3"
+
+  run_nvim_lua_test tests/test-neovim-theme-reload.lua \
+    "DOTFILES_TEST_NVIM_CONFIG=$destination/config" \
+    "DOTFILES_TEST_LAZY=$lazy_nvim" \
+    "DOTFILES_TEST_SCRATCH=$destination/state" \
+    "DOTFILES_TEST_OVERLAY=$overlay" \
+    "DOTFILES_TEST_FLAVOUR=$flavour" \
+    "XDG_CONFIG_HOME=$destination/xdg" \
+    "XDG_DATA_HOME=$destination/data" \
+    "HOME=$destination/home"
+}
+
+for overlay_case in nvim-macos:latte nvim-wsl:mocha; do
+  overlay="${overlay_case%%:*}"
+  flavour="${overlay_case##*:}"
+  stow_overlay_config "$overlay" "$flavour" "$spec_root/$overlay"
+  run_theme_reload_test "$overlay" "$flavour" "$spec_root/$overlay" || {
+    report_nvim_lua_output
+    fail "refocusing does not reload the theme once the $overlay overlay is stowed"
+  }
+done
+
+# The control. With the reload registered from the contended "LazyVim/LazyVim"
+# init, as it was before #248, the same test must fail: a harness that passes
+# either way proves nothing.
+contended="$repo_root/tests/fixtures/neovim-contended-init/colorscheme.lua"
+stow_overlay_config nvim-macos latte "$spec_root/contended" "$contended"
+if run_theme_reload_test nvim-macos latte "$spec_root/contended"; then
+  report_nvim_lua_output
+  fail "the theme-reload test passes even when the overlay overrides the shared init"
+fi
+grep -Fq 'FocusGained' "$lua_output" || {
+  report_nvim_lua_output
+  fail "the theme-reload failure does not name the missing FocusGained autocmd"
+}
+
+# --- The guard that keeps the contended arrangement from coming back -------
+
+python3 "$repo_root/scripts/validate-neovim-plugin-specs.py" >/dev/null ||
+  fail "the tracked plugin fragments do not pass scripts/validate-neovim-plugin-specs.py"
+
+scratch_tree="$spec_root/validator"
+mkdir -p "$scratch_tree/nvim-lazyvim/.config/nvim/lua/plugins" \
+  "$scratch_tree/platforms/macos/stow/nvim-macos/.config/nvim/lua/plugins"
+cp "$lazyvim_config"/lua/plugins/*.lua "$scratch_tree/nvim-lazyvim/.config/nvim/lua/plugins/"
+cp "$contended" "$scratch_tree/nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua"
+cp "$repo_root"/platforms/macos/stow/nvim-macos/.config/nvim/lua/plugins/*.lua \
+  "$scratch_tree/platforms/macos/stow/nvim-macos/.config/nvim/lua/plugins/"
+
+validator_status=0
+validator_output="$(python3 "$repo_root/scripts/validate-neovim-plugin-specs.py" \
+  --root "$scratch_tree" 2>&1)" || validator_status=$?
+((validator_status != 0)) ||
+  fail "the plugin-spec validator accepts two fragments declaring init on one spec"
+grep -Fq 'LazyVim/LazyVim' <<<"$validator_output" ||
+  fail "the plugin-spec validator does not name the contended plugin: $validator_output"
+grep -Fq 'init' <<<"$validator_output" ||
+  fail "the plugin-spec validator does not name the contended key: $validator_output"
+
 # The verifier's Neovim baseline check runs Lua through an Ex command, where an
 # uncaught error never reaches the exit status. It must convert a failed check
 # into `cquit` rather than relying on the error propagating on its own.
@@ -161,6 +251,7 @@ assert_contains "$repo_root/platforms/fedora/scripts/install-system.sh" '  Shell
 
 mason_inventory_file="$lazyvim_config/mason-packages.txt"
 mapfile -t mason_inventory <"$mason_inventory_file"
+mason_inventory_text="$(printf '%s\n' "${mason_inventory[@]}")"
 
 expected_mason_packages=(
   angular-language-server
@@ -242,21 +333,19 @@ assert_contains "$repo_root/platforms/fedora/install.sh" \
   'common/install-neovim-tools.sh'
 assert_contains "$repo_root/platforms/fedora-wsl/install.sh" \
   'common/install-neovim-tools.sh'
-assert_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
-  'nvim-lazyvim/.config/nvim/mason-packages.txt'
-assert_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
-  "fail \"Mason package not installed: \$package\""
-assert_contains "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
-  'nvim-lazyvim/.config/nvim/mason-packages.txt'
-assert_contains "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+for verifier in platforms/fedora platforms/fedora-wsl platforms/macos; do
+  assert_contains "$repo_root/$verifier/scripts/verify.sh" \
+    'check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"'
+done
+assert_contains "$repo_root/common/lib/verify.sh" \
   "fail \"Mason package not installed: \$package\""
 assert_contains "$repo_root/platforms/parrot-ctf/install.sh" \
   'common/install-neovim-tools.sh" --profile parrot-ctf'
 assert_contains "$repo_root/platforms/parrot-ctf/scripts/verify.sh" \
   'Mason inventory mismatch'
 
-if printf '%s\n' "${mason_inventory[@]}" | grep -Fxq 'ocaml-lsp' ||
-  printf '%s\n' "${mason_inventory[@]}" | grep -Fxq 'ocamlformat'; then
+if grep -Fxq 'ocaml-lsp' <<<"$mason_inventory_text" ||
+  grep -Fxq 'ocamlformat' <<<"$mason_inventory_text"; then
   fail "OCaml switch tooling must not be Mason-managed"
 fi
 
@@ -285,7 +374,7 @@ for tool in "${project_tools[@]}"; do
     fail "project-local tool is declared through mise: $tool"
   fi
 
-  if printf '%s\n' "${mason_inventory[@]}" | grep -Fxq "$tool"; then
+  if grep -Fxq "$tool" <<<"$mason_inventory_text"; then
     fail "project-local tool is declared through Mason: $tool"
   fi
 done

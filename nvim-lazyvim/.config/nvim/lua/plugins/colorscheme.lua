@@ -30,16 +30,19 @@ return {
     "catppuccin/nvim",
     name = "catppuccin",
     priority = 1000,
-  },
 
-  {
-    "LazyVim/LazyVim",
-    opts = {
-      colorscheme = function()
-        vim.cmd.colorscheme(colorscheme())
-      end,
-    },
-
+    -- The `theme` command writes the machine-local flavour while Neovim is
+    -- already running, so open windows pick it up on the next focus.
+    --
+    -- This belongs here rather than on the "LazyVim/LazyVim" spec below,
+    -- where it used to live: both platform overlays
+    -- (platforms/macos/.../plugins/macos.lua and
+    -- platforms/fedora-wsl/.../plugins/wsl.lua) declare `init` on that spec
+    -- for their launch settings, and lazy.nvim merges only `opts`,
+    -- `dependencies`, `cmd`, `event`, `ft` and `keys` -- every other key,
+    -- `init` among them, is overridden by the last fragment imported. No
+    -- fragment competes for this spec's `init`, and
+    -- scripts/validate-neovim-plugin-specs.py fails the lint if one ever does.
     init = function()
       vim.api.nvim_create_autocmd("FocusGained", {
         callback = function()
@@ -51,5 +54,14 @@ return {
         end,
       })
     end,
+  },
+
+  {
+    "LazyVim/LazyVim",
+    opts = {
+      colorscheme = function()
+        vim.cmd.colorscheme(colorscheme())
+      end,
+    },
   },
 }

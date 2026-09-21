@@ -6,7 +6,7 @@ python3 "$repo_root/scripts/validate-capabilities.py"
 python3 "$repo_root/scripts/render-capability-matrix.py" --check
 
 fixture="$(mktemp)"
-trap 'rm -f -- "$fixture" "$fixture".*' EXIT
+trap 'rm -rf -- "$fixture" "$fixture".*' EXIT
 cp "$repo_root/config/capabilities.tsv" "$fixture"
 duplicate_row="$(sed -n '2p' "$fixture")"
 printf '%s\n' "$duplicate_row" >>"$fixture"
@@ -110,6 +110,103 @@ fi
 grep -Fq "vm_guest_packages installs 'xclip', which no fedora capability owns" \
   "$fixture.unowned.log"
 
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "ai" && $2 == "fedora" {$9 = $9 ",totally-fake-nonexistent-package"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.fabricated"
+if CAPABILITY_MANIFEST="$fixture.fabricated" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.fabricated.log"; then
+  printf 'Fabricated AI package fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora/ai: package 'totally-fake-nonexistent-package' is declared but is not requested by common/install-ai.sh" \
+  "$fixture.fabricated.log"
+
+# A mise configuration is parsed rather than searched, so a package is only
+# requested there when it is a declared tool.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "dotnet-debug" && $2 == "fedora" {$9 = "EasyDotnetCli"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.mise"
+if CAPABILITY_MANIFEST="$fixture.mise" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.mise.log"; then
+  printf 'Undeclared mise tool fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora/dotnet-debug: package 'EasyDotnetCli' is declared but is not requested by mise/.config/mise/config.toml" \
+  "$fixture.mise.log"
+
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "dotnet-debug" && $2 == "macos" {$17 = "-"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.installers"
+if CAPABILITY_MANIFEST="$fixture.installers" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.installers.log"; then
+  printf 'Package row without installers unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq 'macos/dotnet-debug: declares packages (EasyDotnet) but names no installers' \
+  "$fixture.installers.log"
+
+# Every capability an installer option selects must be implemented on that
+# platform; deleting its row is not a silent way to drop it (#242).
+awk -F '\t' '!($1 == "hardening" && $2 == "fedora")' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.deleted"
+if CAPABILITY_MANIFEST="$fixture.deleted" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.deleted.log"; then
+  printf 'Deleted implemented capability fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq 'fedora/hardening: selects capability hardening, which has no implemented fedora row' \
+  "$fixture.deleted.log"
+
+# The stow column drives preflight conflict detection, so it must name exactly
+# what the Stow scripts deploy on each platform, in both directions (#242).
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "base" && $2 == "fedora" {sub(/,ghostty,/, ",", $10)} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.stow"
+if CAPABILITY_MANIFEST="$fixture.stow" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.stow.log"; then
+  printf 'Undeclared Stow package fixture unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora: Stow package 'ghostty' is deployed by the Stow scripts but no fedora capability declares it" \
+  "$fixture.stow.log"
+
+# Fedora WSL runs the portable Stow script with --headless, which drops Ghostty.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "base" && $2 == "fedora-wsl" {$10 = $10 ",ghostty"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.headless"
+if CAPABILITY_MANIFEST="$fixture.headless" python3 "$repo_root/scripts/validate-capabilities.py" \
+  2>"$fixture.headless.log"; then
+  printf 'Stow package the headless platform never deploys unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora-wsl: Stow package 'ghostty' is declared in the stow column but no Stow script deploys it" \
+  "$fixture.headless.log"
+
+# The scripts side needs a scratch copy of the repository: the validator reads
+# the Stow scripts next to itself, and this checkout is never modified.
+mkdir -p "$fixture.tree"
+cp -R "$repo_root/." "$fixture.tree/"
+rm -rf -- "$fixture.tree/.git"
+printf 'packages+=(nonexistent)\n' >>"$fixture.tree/platforms/fedora/scripts/stow.sh"
+if python3 "$fixture.tree/scripts/validate-capabilities.py" 2>"$fixture.tree.log"; then
+  printf 'Stow script package no capability declares unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora: Stow package 'nonexistent' is deployed by the Stow scripts but no fedora capability declares it" \
+  "$fixture.tree.log"
+
+# A commented-out array entry installs nothing, so a row may not keep claiming
+# the package. The installer is read as shell rather than as text, which is the
+# only way this fails: `# ripgrep` still contains the word `ripgrep`. Copied
+# with tar so the working trees under .claude are left out.
+mkdir -p "$fixture.commented"
+tar -C "$repo_root" --exclude=.git --exclude=.claude -cf - . |
+  tar -C "$fixture.commented" -xf -
+sed -i 's/^  ripgrep$/  # ripgrep/' \
+  "$fixture.commented/platforms/fedora/scripts/install-system.sh"
+if python3 "$fixture.commented/scripts/validate-capabilities.py" \
+  2>"$fixture.commented.log"; then
+  printf 'Commented-out installer package unexpectedly passed.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora/base: package 'ripgrep' is declared but is not requested by platforms/fedora/scripts/install-system.sh" \
+  "$fixture.commented.log"
+
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
 # shellcheck source=../common/lib/capabilities.sh
@@ -135,8 +232,11 @@ hardware_packages="$(awk -F '\t' '$1=="hardware" && $2=="fedora" {print $9; exit
 [[ ",$hardware_packages," == *,akmods,* ]]
 
 fedora_installer="$repo_root/platforms/fedora/install.sh"
-[[ "$(grep -Fc "\"\$hardware_selected:hardware\"" "$fedora_installer")" -ge 2 ]] || {
-  printf 'Fedora hardware selection is not included in both preflight and lifecycle capability resolution.\n' >&2
+# The selection is resolved by one function, whose every consumer -- the
+# selection check, preflight and the lifecycle record -- calls it.
+grep -Fq "\"\$hardware_selected:hardware\"" "$fedora_installer"
+[[ "$(grep -Fc 'fedora_selected_capabilities' "$fedora_installer")" -ge 4 ]] || {
+  printf 'Fedora hardware selection is not shared by the selection check, preflight and lifecycle capability resolution.\n' >&2
   exit 1
 }
 # The command a failed run prints is rendered from the resolved selection by
@@ -163,21 +263,42 @@ hardware_dry_run="$(
 
 grep -Fq 'config/capabilities.tsv' "$repo_root/docs/capabilities.md"
 
-# The supported platform list is derived from this manifest, not repeated in
-# each generator. Adding a base row must reach the generated pages, and a
-# platform without a human-authored title must stop the render rather than
-# produce an unlabelled column.
-manifest_platforms="$(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
-  "$repo_root/config/capabilities.tsv")"
-helper_platforms="$(PYTHONPATH="$repo_root/scripts/lib" python3 -c \
-  'import manifests; print("\n".join(manifests.supported_platforms()))')"
-[[ "$manifest_platforms" == "$helper_platforms" ]] || {
+# The platform lists are derived from this manifest, not repeated in each
+# generator. Adding a base row must reach the generated pages, and a platform
+# without a human-authored title must stop the render rather than produce an
+# unlabelled column. Two lists come out of the manifest and they are not the
+# same one: every platform it models, and the subset ./install.sh can run.
+manifest_platforms="$(awk -F '\t' 'NR > 1 {print $2}' \
+  "$repo_root/config/capabilities.tsv" | awk '!seen[$0]++')"
+registered_platforms="$(PYTHONPATH="$repo_root/scripts/lib" python3 -c \
+  'import manifests; print("\n".join(manifests.registered_platforms()))')"
+[[ "$manifest_platforms" == "$registered_platforms" ]] || {
   printf 'The shared platform helper disagrees with the manifest.\n' >&2
   exit 1
 }
 
+# The installer's own list is the implemented base rows it has a script for: a
+# platform installed by something other than platforms/<name>/install.sh is
+# registered without being a --platform name.
+installer_platforms=""
+while IFS= read -r candidate; do
+  [[ -f "$repo_root/platforms/$candidate/install.sh" ]] || continue
+  installer_platforms+="${installer_platforms:+$'\n'}$candidate"
+done < <(awk -F '\t' 'NR > 1 && $1 == "base" && $16 == "implemented" {print $2}' \
+  "$repo_root/config/capabilities.tsv")
+helper_platforms="$(PYTHONPATH="$repo_root/scripts/lib" python3 -c \
+  'import manifests; print("\n".join(manifests.supported_platforms()))')"
+[[ "$installer_platforms" == "$helper_platforms" ]] || {
+  printf 'The shared platform helper disagrees with the installers on disk.\n' >&2
+  exit 1
+}
+[[ "$installer_platforms" != *windows* ]] || {
+  printf 'The Windows host has no install.sh under platforms/windows/ to run.\n' >&2
+  exit 1
+}
+
 cp "$repo_root/config/capabilities.tsv" "$fixture.platform"
-printf 'base\tplasma9\tworkstation\t-\tenabled\t-\t-\tdnf\t-\t-\tplatforms/fedora/scripts/verify.sh\t-\tdocs/platforms/fedora.md\tnative\timplemented\n' \
+printf 'base\tplasma9\tworkstation\t-\tenabled\t-\t-\tdnf\t-\t-\tplatforms/fedora/scripts/verify.sh\t-\t-\tdocs/platforms/fedora.md\tnative\timplemented\t-\t-\n' \
   >>"$fixture.platform"
 if CAPABILITY_MANIFEST="$fixture.platform" \
   python3 "$repo_root/scripts/render-capability-matrix.py" --check \
@@ -190,5 +311,376 @@ grep -Fq 'plasma9' "$fixture.platform.log"
 # The matrix legend distinguishes a deliberate absence from a pair the manifest
 # does not model at all; without it both read as an em dash.
 grep -Fq 'not modelled' "$repo_root/docs/reference/capability-matrix.md"
+
+# ---------------------------------------------------------------------------
+# The verify direction
+#
+# Each rule that checks a verifier against its row is proven able to fail: a
+# scratch copy of the repository is broken in exactly the way the rule exists
+# to catch, and the validator in that copy must reject it, naming the item.
+# ---------------------------------------------------------------------------
+
+# Below "$fixture", so the suite's existing EXIT trap removes it.
+scratch_root="$fixture.verify"
+mkdir -p "$scratch_root"
+
+new_scratch() {
+  scratch="$scratch_root/$1"
+  mkdir -p "$scratch"
+  cp -R "$repo_root/." "$scratch/"
+  rm -rf -- "$scratch/.git"
+}
+
+expect_scratch_rejected() {
+  local name="$1" expected="$2"
+  if python3 "$scratch/scripts/validate-capabilities.py" 2>"$scratch_root/$name.log"; then
+    printf '%s: the validator accepted the broken scratch copy.\n' "$name" >&2
+    exit 1
+  fi
+  grep -Fq -- "$expected" "$scratch_root/$name.log" || {
+    printf '%s: expected the validator to report: %s\n' "$name" "$expected" >&2
+    cat "$scratch_root/$name.log" >&2
+    exit 1
+  }
+  printf 'PASS: %s\n' "$name"
+}
+
+# A verifier must check the theme, Mason and tmux components its Stow packages
+# rely on.
+new_scratch components
+sed -i '/^section "Theme"$/,/^section "Neovim tooling"$/{/^section "Neovim tooling"$/!d}' \
+  "$scratch/platforms/macos/scripts/verify.sh"
+expect_scratch_rejected 'a verifier without its theme section is rejected' \
+  "macos/base: Stow package 'starship' relies on theme, but platforms/macos/scripts/verify.sh never checks it"
+
+# A verifier reads its packages from the manifest, never a copy of it.
+new_scratch package-array
+sed -i 's/^for capability in base vm-guest; do$/packages=(bat curl)\n&/' \
+  "$scratch/platforms/parrot-ctf/scripts/verify.sh"
+expect_scratch_rejected 'a verifier with a literal package list is rejected' \
+  'platforms/parrot-ctf/scripts/verify.sh: verifier keeps its own packages=(...) list (bat curl)'
+
+# A verifier, and a verifier it runs, report through the shared library.
+new_scratch library
+sed -i '/common\/lib\/verify\.sh"$/d' "$scratch/platforms/fedora/scripts/verify-vm-host.sh"
+expect_scratch_rejected 'a verifier that does not source the library is rejected' \
+  'platforms/fedora/scripts/verify-vm-host.sh: verifier does not source common/lib/verify.sh'
+
+# A declared verifier must be run by the CI tier that can run it. The Fedora
+# job runs the dev-workflows verifier inside its integration script and the
+# macOS job runs it as a step; with both gone nothing proves it.
+new_scratch real-install
+sed -i '/test-dev-workflows\.sh/d' "$scratch/.github/workflows/real-install.yml"
+python3 "$scratch/scripts/validate-capabilities.py"
+sed -i '/test-dev-workflows\.sh/d' "$scratch/tests/integration/fedora-clean-install.sh"
+expect_scratch_rejected 'a verifier no real installation runs is rejected' \
+  'dev-workflows: verifier scripts/test-dev-workflows.sh is not run by .github/workflows/real-install.yml'
+
+new_scratch mocked-suite
+sed -i '/verify-desktop-tools\.sh/d' "$scratch/tests/test-desktop-tools.sh"
+expect_scratch_rejected 'a mocked verifier its suite never runs is rejected' \
+  'desktop-tools: tests/test-desktop-tools.sh is recorded as the CI evidence for platforms/fedora/scripts/verify-desktop-tools.sh but never runs it'
+
+# A verifier being run is not the capability being installed. These rows all
+# declare a shared platform verifier that every real-install job runs, so the
+# rule above says nothing about them: what has to be true is that some
+# ./install.sh invocation actually *selects* them.
+new_scratch selection-fedora
+sed -i 's/--kde --sway --no-latex/--no-kde --no-latex/g' \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+expect_scratch_rejected 'a Fedora capability the integration script stops selecting is rejected' \
+  'fedora/sway: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --sway'
+
+new_scratch selection-macos
+sed -i 's/--ocaml --tailscale --defaults/--ocaml --no-tailscale --defaults/' \
+  "$scratch/.github/workflows/real-install.yml"
+expect_scratch_rejected 'a macOS capability the workflow stops selecting is rejected' \
+  'macos/tailscale: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --tailscale'
+
+# The escape hatch is a registry value, not silence. Deleting the recorded
+# reason puts the capability straight back under the rule.
+new_scratch selection-exclusion
+sed -i 's/\texcluded:[^\t]*$/\t-/' "$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'a capability whose CI exclusion is deleted is rejected' \
+  "macos/dictation: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --dictation"
+
+# Nor may the reason be anything the schema does not recognise.
+new_scratch selection-scope-value
+sed -i 's/\texcluded:needs a desktop session[^\t]*$/\tnot-in-ci/' \
+  "$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'an unrecognised ci_scope value is rejected' \
+  "macos/dictation: ci_scope must be '-' or 'excluded:<why>'; got 'not-in-ci'"
+
+# An exclusion that stopped being true is a false claim in the registry, so it
+# fails rather than sitting there outranking the workflow.
+new_scratch selection-stale-exclusion
+sed -i 's/^\(sway\tfedora\t.*\)\t-$/\1\texcluded:needs a compositor/' \
+  "$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'a CI exclusion the workflow contradicts is rejected' \
+  'fedora/sway: ci_scope excludes it from CI, but .github/workflows/real-install.yml selects --sway'
+
+# Selection is read out of the invocation, not searched for in the file: the
+# flag written in a step name or a comment is not a machine that installed it.
+new_scratch selection-mention-only
+sed -i 's/--kde --sway --no-latex/--no-kde --no-latex/g' \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+sed -i "s|^      - name: Run clean install, verifier, rerun and state transition\$|      - name: Run clean install with --kde --sway|" \
+  "$scratch/.github/workflows/real-install.yml"
+expect_scratch_rejected 'a flag named only in a step title is not selection' \
+  'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
+
+# The schema a component state file must declare is registry data, because
+# scripts/doctor.sh compares a machine's state files against it (#342). Each of
+# the three rules that keeps it honest is proven able to fail.
+
+# The column is found by its header name, like every reader in this
+# repository: a fixture that edited a fixed position would quietly start
+# breaking a different column if the manifest were ever reordered, and this
+# control would pass on the wrong error.
+set_state_profile() {
+  awk -F '\t' -v capability="$1" -v platform="$2" -v value="$3" 'BEGIN { OFS = "\t" }
+    NR == 1 { for (i = 1; i <= NF; i++) if ($i == "state_profile") column = i
+              if (!column) { print "no state_profile column" >"/dev/stderr"; exit 1 } }
+    NR > 1 && $1 == capability && $2 == platform { $column = value; edited++ }
+    { print }
+    END { if (!edited) { print "no row for " capability "/" platform >"/dev/stderr"; exit 1 } }' \
+    "$repo_root/config/capabilities.tsv"
+}
+
+# A name no schema answers to would make doctor reject a state file every
+# machine writes correctly, so it is caught here rather than on a machine.
+new_scratch state-profile-unknown
+sed -i 's/\tmacos-containers\tpodman-machine\t/\tmacos-containers\tnot-a-schema\t/' \
+  "$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'a state_profile no schema declares is rejected' \
+  "macos/containers: state_profile 'not-a-schema' is not a schema common/lib/profile-state.sh declares"
+
+# One file has one schema. Two rows disagreeing about it would make doctor's
+# verdict depend on which capability it reached first.
+new_scratch state-profile-disagreement
+set_state_profile backpass macos ocaml >"$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'two rows disagreeing about one state file are rejected' \
+  "one state file has one schema"
+
+# The file name and the schema move together: a row that names one without the
+# other leaves doctor comparing a real state file against nothing.
+new_scratch state-profile-missing
+set_state_profile ocaml macos - >"$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'a state file with no declared schema is rejected' \
+  "macos/ocaml: state 'ocaml' and state_profile '-' must either both be '-' or both name something"
+
+# Shell reads every manifest column by name (common/lib/manifest.sh), never by
+# a position stated in shell. Reordering columns must not change what an
+# installer reads, and a header that loses or repeats a column must fail loudly
+# naming it instead of answering from whatever sits at the old position. The
+# fixtures are scratch copies; the checkout's manifests are never edited.
+swap_columns() {
+  awk -F '\t' -v first="$2" -v second="$3" 'BEGIN { OFS = "\t" }
+    NR == 1 { for (i = 1; i <= NF; i++) { if ($i == first) a = i; if ($i == second) b = i } }
+    { value = $a; $a = $b; $b = value; print }' "$1"
+}
+(
+  # shellcheck source=../common/lib/common.sh
+  source "$repo_root/common/lib/common.sh"
+  # shellcheck source=../common/lib/capabilities.sh
+  source "$repo_root/common/lib/capabilities.sh"
+  # shellcheck source=../common/lib/install-selection.sh
+  source "$repo_root/common/lib/install-selection.sh"
+
+  expect_column_failure() {
+    local description="$1" expected="$2" output log
+    shift 2
+    output="$fixture.column.out"; log="$fixture.column.log"
+    if "$@" >"$output" 2>"$log"; then
+      printf '%s unexpectedly answered: %s\n' "$description" "$(cat "$output")" >&2
+      exit 1
+    fi
+    grep -Fq "$expected" "$log" || {
+      printf '%s did not name the offending column (%s):\n' "$description" "$expected" >&2
+      cat "$log" >&2
+      exit 1
+    }
+  }
+
+  swap_columns "$repo_root/config/capabilities.tsv" cli_flag default >"$fixture.swapped"
+  [[ "$(CAPABILITY_MANIFEST="$fixture.swapped" capability_field fedora kde cli_flag)" == --kde &&
+    "$(CAPABILITY_MANIFEST="$fixture.swapped" capability_field fedora kde default)" == auto ]] || {
+    printf 'capability_field read a reordered capability manifest by position.\n' >&2
+    exit 1
+  }
+  sed '1s/\tcli_flag\t/\tcli-flag\t/' "$repo_root/config/capabilities.tsv" >"$fixture.renamed"
+  CAPABILITY_MANIFEST="$fixture.renamed" expect_column_failure \
+    'A capability manifest without cli_flag' "$fixture.renamed has no column: cli_flag" \
+    capability_field fedora kde cli_flag
+  sed '1s/\tdefault\t/\tcli_flag\t/' "$repo_root/config/capabilities.tsv" >"$fixture.repeated"
+  CAPABILITY_MANIFEST="$fixture.repeated" expect_column_failure \
+    'A capability manifest repeating cli_flag' 'repeats column: cli_flag' \
+    capability_field fedora kde status
+  # The status lookup of a selection check must surface a broken header, not
+  # report every capability as merely unimplemented.
+  sed '1s/\tstatus\t/\tstate-of-row\t/' "$repo_root/config/capabilities.tsv" >"$fixture.status"
+  CAPABILITY_MANIFEST="$fixture.status" expect_column_failure \
+    'A selection check against a manifest without status' 'has no column: status' \
+    capability_validate_selection fedora base
+  # Nor may a lost dependencies column read as "no dependencies".
+  sed '1s/\tdependencies\t/\tdeps\t/' "$repo_root/config/capabilities.tsv" >"$fixture.dependencies"
+  CAPABILITY_MANIFEST="$fixture.dependencies" expect_column_failure \
+    'A selection check against a manifest without dependencies' 'has no column: dependencies' \
+    capability_validate_selection fedora base
+
+  # The entry point resolves the platform from the same manifest by name: a
+  # moved status or capability column still finds fedora, and a lost column
+  # stops the installer naming it rather than listing no supported platforms.
+  swap_columns "$repo_root/config/capabilities.tsv" capability status >"$fixture.entry-swapped"
+  CAPABILITY_MANIFEST="$fixture.entry-swapped" "$repo_root/install.sh" --platform fedora --help \
+    >"$fixture.entry.out" 2>&1 || {
+    printf 'The installer entry point read a reordered capability manifest by position:\n' >&2
+    cat "$fixture.entry.out" >&2
+    exit 1
+  }
+  grep -Fq 'fedora (default)' "$fixture.entry.out"
+  CAPABILITY_MANIFEST="$fixture.status" expect_column_failure \
+    'The installer entry point against a manifest without status' 'has no column: status' \
+    "$repo_root/install.sh" --platform fedora --help
+
+  swap_columns "$repo_root/config/install-options.tsv" on_flag off_flag >"$fixture.options-swapped"
+  [[ "$(INSTALL_OPTION_MANIFEST="$fixture.options-swapped" install_option_field fedora kde on_flag)" == --kde &&
+    "$(INSTALL_OPTION_MANIFEST="$fixture.options-swapped" install_option_names fedora)" == "$(install_option_names fedora)" ]] || {
+    printf 'install_option_field read a reordered option manifest by position.\n' >&2
+    exit 1
+  }
+  sed '1s/\tkind\t/\ttype\t/' "$repo_root/config/install-options.tsv" >"$fixture.options-renamed"
+  INSTALL_OPTION_MANIFEST="$fixture.options-renamed" expect_column_failure \
+    'An option manifest without kind' 'has no column: kind' \
+    install_option_exists fedora kde
+
+  swap_columns "$repo_root/config/command-providers.tsv" command provider >"$fixture.providers-swapped"
+  [[ "$(COMMAND_PROVIDER_MANIFEST="$fixture.providers-swapped" capability_preflight_command_specs fedora)" == \
+    "$(capability_preflight_command_specs fedora)" ]] || {
+    printf 'capability_preflight_command_specs read a reordered provider manifest by position.\n' >&2
+    exit 1
+  }
+  sed '1s/\tclassification$/\tclass/' "$repo_root/config/command-providers.tsv" >"$fixture.providers-renamed"
+  COMMAND_PROVIDER_MANIFEST="$fixture.providers-renamed" expect_column_failure \
+    'A provider manifest without classification' 'has no column: classification' \
+    capability_preflight_command_specs fedora
+)
+
+# ---------------------------------------------------------------------------
+# Every platform in the tree is a registered platform
+#
+# The registry is what makes the platforms answerable to one another, so which
+# platforms exist has to come from the tree rather than from a constant in a
+# Python file that can be forgotten. These checks derive the list from the
+# directories under platforms/ and hold the manifest and the validator to it:
+# a new platform fails the build until it is registered, whether or not it is
+# one ./install.sh can run.
+# ---------------------------------------------------------------------------
+
+platform_constant() {
+  python3 - "$1" <<'PY'
+import importlib.util
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location(
+    "validate_capabilities", root / "scripts" / "validate-capabilities.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print("\n".join(sorted(module.PLATFORMS)))
+PY
+}
+
+# Every problem with one checkout's platform registration, one per line.
+platform_registration_problems() {
+  local root="$1" manifest directory platform script named
+  local -a scripts=()
+  manifest="$root/config/capabilities.tsv"
+  for directory in "$root"/platforms/*/; do
+    platform="${directory%/}"
+    platform="${platform##*/}"
+    if ! awk -F '\t' -v p="$platform" \
+      'NR > 1 && $2 == p { found = 1 } END { exit !found }' "$manifest"; then
+      printf '%s: a directory under platforms/ with no row in config/capabilities.tsv\n' \
+        "$platform"
+      continue
+    fi
+    # A platform verifier is the one script a row can declare for the platform
+    # as a whole; the optional profiles' verifiers are declared by their own
+    # rows and are checked by the rules above.
+    scripts=()
+    for script in "${directory}scripts/verify.sh" "${directory}verify.ps1"; do
+      [[ -f "$script" ]] || continue
+      scripts+=("${script#"$root/"}")
+    done
+    ((${#scripts[@]} > 0)) || continue
+    named=false
+    for script in "${scripts[@]}"; do
+      if awk -F '\t' -v p="$platform" -v v="$script" \
+        'NR > 1 && $2 == p && $11 == v && $16 == "implemented" { found = 1 }
+         END { exit !found }' "$manifest"; then
+        named=true
+      fi
+    done
+    [[ "$named" == true ]] || printf \
+      '%s: has a verifier (%s) that no implemented row declares\n' \
+      "$platform" "${scripts[*]}"
+  done
+
+  local directories constant
+  directories="$(for directory in "$root"/platforms/*/; do
+    directory="${directory%/}"
+    printf '%s\n' "${directory##*/}"
+  done | sort)"
+  constant="$(platform_constant "$root")"
+  [[ "$directories" == "$constant" ]] || printf \
+    'scripts/validate-capabilities.py PLATFORMS is %s, but platforms/ holds %s\n' \
+    "$(printf '%s' "$constant" | tr '\n' ' ')" \
+    "$(printf '%s' "$directories" | tr '\n' ' ')"
+}
+
+registration_problems="$(platform_registration_problems "$repo_root")"
+[[ -z "$registration_problems" ]] || {
+  printf 'Platform registration is incomplete:\n%s\n' "$registration_problems" >&2
+  exit 1
+}
+
+# Every platform the tree has must be registered, including the Windows host,
+# which has no install.sh under platforms/windows/ and is therefore absent from
+# the installer's own list above.
+for expected_platform in fedora fedora-wsl macos parrot-ctf windows; do
+  awk -F '\t' -v p="$expected_platform" \
+    'NR > 1 && $2 == p { found = 1 } END { exit !found }' \
+    "$repo_root/config/capabilities.tsv" || {
+    printf 'config/capabilities.tsv has no %s row.\n' "$expected_platform" >&2
+    exit 1
+  }
+done
+awk -F '\t' '$2 == "windows" && $11 != "platforms/windows/verify.ps1" && $16 == "implemented" {
+  printf "An implemented windows row declares %s rather than the Windows verifier.\n", $11
+  bad = 1
+}
+END { exit bad }' "$repo_root/config/capabilities.tsv" || exit 1
+
+# The negative control: a sixth platform directory, with a verifier and no
+# rows, must fail this check until it is registered.
+new_scratch unregistered-platform
+mkdir -p "$scratch/platforms/plasma9/scripts"
+cp "$repo_root/platforms/fedora/scripts/verify.sh" \
+  "$scratch/platforms/plasma9/scripts/verify.sh"
+unregistered="$(platform_registration_problems "$scratch")"
+grep -Fq 'plasma9: a directory under platforms/ with no row in config/capabilities.tsv' \
+  <<<"$unregistered" || {
+  printf 'An unregistered platform directory was not reported:\n%s\n' "$unregistered" >&2
+  exit 1
+}
+grep -Fq 'scripts/validate-capabilities.py PLATFORMS is' <<<"$unregistered" || {
+  printf 'An unregistered platform was not reported against the validator list:\n%s\n' \
+    "$unregistered" >&2
+  exit 1
+}
+printf 'PASS: an unregistered platform directory is rejected\n'
 
 printf 'Capability manifest validation passed.\n'

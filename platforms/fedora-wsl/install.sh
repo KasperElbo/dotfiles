@@ -108,59 +108,97 @@ install_selection_set gnhf "${ai_gnhf:-inherit}"
 install_selection_set backpass "${ai_backpass:-inherit}"
 install_selection="$(install_selection_serialize)"
 
+# The selected capability set is resolved once and reused by the selection
+# check, preflight and the lifecycle record, so those three can never disagree.
+wsl_selected_capabilities() {
+  local selection
+  printf '%s\n' base dotnet-debug
+  for selection in "$install_ocaml:ocaml" "$install_latex:latex" "$install_containers:containers" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
+    [[ "${selection%%:*}" != true ]] || printf '%s\n' "${selection#*:}"
+  done
+}
+# Checked for every run, --dry-run included: a dry run exits before
+# plan_preflight, and it must not show a plan for a capability this platform's
+# manifest does not implement.
+selected_capabilities=()
+while IFS= read -r capability; do selected_capabilities+=("$capability"); done < <(wsl_selected_capabilities)
+capability_validate_selection fedora-wsl "${selected_capabilities[@]}" ||
+  die 'The selected capabilities cannot be installed on fedora-wsl.'
+
+# Each step's command is stated once, as a repository-relative argument vector
+# (see plan_command_run): its apply function runs it and its plan note prints
+# it. Invocation-only controls such as --non-interactive stay with apply.
+wsl_system_command() { printf '%s\n' platforms/fedora-wsl/scripts/install-system.sh; }
+wsl_interop_command() { printf '%s\n' platforms/fedora-wsl/scripts/configure-interop.sh; }
+wsl_ocaml_native_command() { printf '%s\n' platforms/fedora/scripts/install-ocaml.sh --wsl; }
+wsl_latex_command() { printf '%s\n' platforms/fedora/scripts/install-latex.sh; }
+wsl_local_command() { printf '%s\n' common/setup-local.sh fedora-wsl "$theme"; }
+wsl_stow_command() { printf '%s\n' platforms/fedora-wsl/scripts/stow.sh; }
+wsl_mise_command() { printf '%s\n' common/install-mise.sh; }
+wsl_nvim_command() { printf '%s\n' common/install-neovim-tools.sh; }
+wsl_ocaml_command() { printf '%s\n' common/install-ocaml.sh; }
+wsl_containers_command() { printf '%s\n' platforms/fedora-wsl/scripts/install-containers.sh; [[ "$containers_api_socket" != true ]] || printf '%s\n' --api-socket; }
+wsl_tmux_command() { printf '%s\n' common/install-tmux-theme.sh; }
+wsl_ai_command() {
+  printf '%s\n' common/install-ai.sh
+  case "$ai_codex" in true) printf '%s\n' --codex ;; false) printf '%s\n' --no-codex ;; esac
+  case "$ai_firstmate" in true) printf '%s\n' --firstmate ;; false) printf '%s\n' --no-firstmate ;; esac
+  case "$ai_gnhf" in true) printf '%s\n' --gnhf ;; false) printf '%s\n' --no-gnhf ;; esac
+  case "$ai_backpass" in true) printf '%s\n' --backpass ;; false) printf '%s\n' --no-backpass ;; esac
+}
+wsl_verify_command() { printf '%s\n' platforms/fedora-wsl/scripts/verify.sh; [[ "$run_dev_workflows" != true ]] || printf '%s\n' --dev-workflows; [[ "$install_latex" != true ]] || printf '%s\n' --latex; }
+
 preflight_wsl() {
   require_regular_user; require_fedora_wsl
   preflight_platform_command_providers fedora-wsl; preflight_sudo "$interactive"
   [[ "$install_containers" != true ]] || require_wsl_containers_prereqs
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads.
+  preflight_xdg_layout
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
-  local specs=() spec
-  local selected=(base dotnet-debug)
-  for selection in "$install_ocaml:ocaml" "$install_latex:latex" "$install_containers:containers" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
-    [[ "${selection%%:*}" != true ]] || selected+=("${selection#*:}")
-  done
+  preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
+  preflight_disk_space /var/cache/dnf "$PREFLIGHT_SYSTEM_MIN_MB"
+  local specs=() spec capability stow_specs
+  local selected=()
+  while IFS= read -r capability; do selected+=("$capability"); done < <(wsl_selected_capabilities)
   capability_validate_selection fedora-wsl "${selected[@]}"
-  while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs fedora-wsl "${selected[@]}")
+  # A checked substitution, not < <(...): a manifest header without the stow
+  # column must stop preflight, not silently skip the conflict check.
+  stow_specs="$(capability_stow_specs fedora-wsl "${selected[@]}")" || return
+  while IFS= read -r spec; do [[ -z "$spec" ]] || specs+=("$spec"); done <<<"$stow_specs"
   preflight_stow_packages "${specs[@]}"
 }
 
-apply_system() { "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/install-system.sh"; }
-apply_interop() { info 'Ensuring explicit Windows executable interop stays available'; "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/configure-interop.sh"; }
-apply_ocaml_native() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-ocaml.sh" --wsl; }
-apply_latex() { "$DOTFILES_ROOT/platforms/fedora/scripts/install-latex.sh"; }
-apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" "$theme"; }
-apply_stow() { "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/stow.sh"; }
-apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
-apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh"; }
-apply_ocaml() { "$DOTFILES_ROOT/common/install-ocaml.sh"; }
-apply_containers() { local args=(); [[ "$containers_api_socket" != true ]] || args+=(--api-socket); "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/install-containers.sh" "${args[@]}"; }
-apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
-apply_ai() { local args=(); case "$ai_codex" in true) args+=(--codex) ;; false) args+=(--no-codex) ;; esac; case "$ai_firstmate" in true) args+=(--firstmate) ;; false) args+=(--no-firstmate) ;; esac; case "$ai_gnhf" in true) args+=(--gnhf) ;; false) args+=(--no-gnhf) ;; esac; case "$ai_backpass" in true) args+=(--backpass) ;; false) args+=(--no-backpass) ;; esac; [[ "$interactive" == true ]] || args+=(--non-interactive); "$DOTFILES_ROOT/common/install-ai.sh" "${args[@]}"; }
+apply_system() { plan_command_run wsl_system_command; }
+apply_interop() { info 'Ensuring explicit Windows executable interop stays available'; plan_command_run wsl_interop_command; }
+apply_ocaml_native() { plan_command_run wsl_ocaml_native_command; }
+apply_latex() { plan_command_run wsl_latex_command; }
+apply_local() { plan_command_run wsl_local_command; }
+apply_stow() { plan_command_run wsl_stow_command; }
+apply_mise() { plan_command_run wsl_mise_command; }
+apply_nvim() { plan_command_run wsl_nvim_command; }
+apply_ocaml() { plan_command_run wsl_ocaml_command; }
+apply_containers() { plan_command_run wsl_containers_command; }
+apply_tmux() { plan_command_run wsl_tmux_command; }
+apply_ai() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interactive); plan_command_run wsl_ai_command "${args[@]}"; }
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
-verify_wsl() { local args=(); [[ "$run_dev_workflows" != true ]] || args+=(--dev-workflows); [[ "$install_latex" != true ]] || args+=(--latex); "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify.sh" "${args[@]}"; }
+verify_wsl() { plan_command_run wsl_verify_command; }
 
-plan_add system 'Install Fedora command-line prerequisites and Linux-native mise' apply preflight_wsl apply_system : "Set Zsh as the user's default login shell. platforms/fedora-wsl/scripts/install-system.sh"
-plan_add interop 'Preserve explicit Windows executable interop without Windows PATH entries' apply : apply_interop : 'platforms/fedora-wsl/scripts/configure-interop.sh; enabled=true, appendWindowsPath=false'
-[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora OCaml build prerequisites' apply : apply_ocaml_native : 'platforms/fedora/scripts/install-ocaml.sh --wsl'
-[[ "$install_latex" != true ]] || plan_add latex 'Install the optional Fedora-owned LaTeX toolchain' apply : apply_latex : 'platforms/fedora/scripts/install-latex.sh; latexmk, latexindent, Biber'
-plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh $theme"
-plan_add stow 'Deploy portable and Fedora WSL configuration' apply : apply_stow : 'platforms/fedora-wsl/scripts/stow.sh'
-plan_add mise 'Install mise-managed Linux runtimes and developer CLIs' apply : apply_mise : 'common/install-mise.sh'
-plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim : 'common/install-neovim-tools.sh'
-[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch' apply : apply_ocaml : 'common/install-ocaml.sh'
-if [[ "$install_containers" == true ]]; then
-  container_note='platforms/fedora-wsl/scripts/install-containers.sh'
-  [[ "$containers_api_socket" != true ]] || container_note+=' --api-socket'
-  plan_add containers 'Install the optional rootless Podman profile' apply : apply_containers : "$container_note"
-fi
-plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
-if [[ "$install_ai" == true ]]; then
-  ai_note='common/install-ai.sh'; case "$ai_codex" in true) ai_note+=' --codex' ;; false) ai_note+=' --no-codex' ;; esac; case "$ai_firstmate" in true) ai_note+=' --firstmate' ;; false) ai_note+=' --no-firstmate' ;; esac; case "$ai_gnhf" in true) ai_note+=' --gnhf' ;; false) ai_note+=' --no-gnhf' ;; esac; case "$ai_backpass" in true) ai_note+=' --backpass' ;; false) ai_note+=' --no-backpass' ;; esac
-  plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$ai_note"
-fi
-plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme"
-verify_note='platforms/fedora-wsl/scripts/verify.sh'; [[ "$run_dev_workflows" != true ]] || verify_note+=' --dev-workflows'; [[ "$install_latex" != true ]] || verify_note+=' --latex'
-plan_add verify 'Verify WSL detection, Linux command ownership, and runtime startup' verify : verify_wsl : "$verify_note"
+plan_add system 'Install Fedora command-line prerequisites and Linux-native mise' apply preflight_wsl apply_system : "Set Zsh as the user's default login shell. $(plan_command_note wsl_system_command)" 'platforms/fedora-wsl/scripts/install-system.sh'
+plan_add interop 'Preserve explicit Windows executable interop without Windows PATH entries' apply : apply_interop : "$(plan_command_note wsl_interop_command); enabled=true, appendWindowsPath=false" 'platforms/fedora-wsl/scripts/configure-interop.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora OCaml build prerequisites' apply : apply_ocaml_native : "$(plan_command_note wsl_ocaml_native_command)" 'platforms/fedora/scripts/install-ocaml.sh'
+[[ "$install_latex" != true ]] || plan_add latex 'Install the optional Fedora-owned LaTeX toolchain' apply : apply_latex : "$(plan_command_note wsl_latex_command); latexmk, latexindent, Biber" 'platforms/fedora/scripts/install-latex.sh'
+plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "$(plan_command_note wsl_local_command)" 'common/setup-local.sh'
+plan_add stow 'Deploy portable and Fedora WSL configuration' apply : apply_stow : "$(plan_command_note wsl_stow_command)" 'platforms/fedora-wsl/scripts/stow.sh'
+plan_add mise 'Install mise-managed Linux runtimes and developer CLIs' apply : apply_mise : "$(plan_command_note wsl_mise_command)" 'common/install-mise.sh'
+plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim : "$(plan_command_note wsl_nvim_command)" 'common/install-neovim-tools.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch' apply : apply_ocaml : "$(plan_command_note wsl_ocaml_command)" 'common/install-ocaml.sh'
+[[ "$install_containers" != true ]] || plan_add containers 'Install the optional rootless Podman profile' apply : apply_containers : "$(plan_command_note wsl_containers_command)" 'platforms/fedora-wsl/scripts/install-containers.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : "$(plan_command_note wsl_tmux_command)" 'common/install-tmux-theme.sh'
+[[ "$install_ai" != true ]] || plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$(plan_command_note wsl_ai_command)" 'common/install-ai.sh'
+plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme" ''
+plan_add verify 'Verify WSL detection, Linux command ownership, and runtime startup' verify : verify_wsl : "$(plan_command_note wsl_verify_command)" 'platforms/fedora-wsl/scripts/verify.sh'
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
@@ -201,8 +239,14 @@ if [[ "$interactive" == true ]]; then
   fi
 fi
 plan_preflight
-capabilities=base,dotnet-debug
-for selection in "$install_ocaml:ocaml" "$install_latex:latex" "$install_containers:containers" "$install_ai:ai" "$ai_codex:codex" "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do [[ "${selection%%:*}" != true ]] || capabilities+=,"${selection#*:}"; done
+# Then the network, because a local problem is worth reporting without waiting
+# for a probe. The hosts come from config/network-sources.tsv, selected by the
+# scripts this resolved plan will run, so a step added later cannot fetch from
+# a host nothing checked; scripts/validate-plan-network.py holds the two to
+# each other. Nothing has mutated yet at this point.
+plan_scripts | preflight_plan_network
+capabilities=''
+while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(wsl_selected_capabilities)
 DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command fedora-wsl "$install_selection")"
 install_lifecycle_begin fedora-wsl "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else

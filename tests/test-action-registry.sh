@@ -133,6 +133,41 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "sway.launch.terminal: source_pattern no longer matches"
 printf 'PASS: renaming a binding without updating the registry fails\n'
 
+# --- A commented-out binding in the tracked config is caught ----------------
+
+# A `#` line is read by nobody, so a source_pattern that lands on one is no
+# evidence the action exists; the registry and the printed sheet would keep
+# advertising a key that does nothing. `implemented_actions` already reads the
+# Sway config line by line, and this is the same rule for the other direction.
+test_new_root
+scratch="$TEST_ROOT/commented-sway"
+mkdir -p "$scratch"
+cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
+# shellcheck disable=SC2016 # $mod is a literal Sway variable.
+sed -i 's|^bindsym \$mod+Return exec ghostty|# bindsym $mod+Return exec ghostty|' \
+  "$scratch/platforms/fedora/stow/sway/.config/sway/config"
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "sway.launch.terminal: source_pattern no longer matches"
+printf 'PASS: commenting a Sway binding out without updating the registry fails\n'
+
+# The same rule with Lua comment syntax, so the per-suffix comment prefix is
+# exercised rather than assumed.
+test_new_root
+scratch="$TEST_ROOT/commented-lua"
+mkdir -p "$scratch"
+cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
+sed -i 's|^\( *\)lhs = "<leader>tr"|\1-- lhs = "<leader>tr"|' \
+  "$scratch/nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua"
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "nvim.dotnet.run-nearest: source_pattern no longer matches"
+printf 'PASS: commenting a Neovim keymap out without updating the registry fails\n'
+
 # --- An unregistered custom action is caught --------------------------------
 
 test_new_root
@@ -341,18 +376,27 @@ PYTHON
 for sheet_platform in \
   "fedora-wsl:--preserve-wallpaper" "fedora-wsl:swaymsg" "fedora-wsl:Fuzzel" \
   "fedora-wsl:swaylock" "fedora-wsl:ghostty +list-keybinds" \
-  "macos:--preserve-wallpaper" "macos:swaymsg" "macos:Fuzzel" "macos:makoctl" \
+  "macos:swaymsg" "macos:Fuzzel" "macos:makoctl" \
   "parrot-ctf:Ghostty" "parrot-ctf:AeroSpace" "parrot-ctf:Waybar" \
   "parrot-ctf:--preserve-wallpaper"; do
   sheet_name="${sheet_platform%%:*}"
   forbidden="${sheet_platform#*:}"
-  if expand_sheet "$sheet_name" | grep -Fqi -- "$forbidden"; then
+  sheet_text="$(expand_sheet "$sheet_name")"
+  if grep -Fqi -- "$forbidden" <<<"$sheet_text"; then
     _test_die "$sheet_name.tex must not advertise '$forbidden'"
   fi
 done
 
 # The WSL sheet must name the terminal Windows actually runs.
-expand_sheet fedora-wsl | grep -Fq 'Noctty' ||
+#
+# Expanded into a variable first, deliberately. Piping into `grep -Fq` makes
+# grep exit at the first match, and the Python expander is still writing: it
+# takes SIGPIPE, and `pipefail` turns that into a failed pipeline, so the
+# assertion fails exactly when the text it is looking for IS present. Seen
+# once on a loaded machine. Every assertion that expects a match has to read
+# its producer to the end.
+wsl_sheet_text="$(expand_sheet fedora-wsl)"
+grep -Fq 'Noctty' <<<"$wsl_sheet_text" ||
   _test_die 'fedora-wsl.tex must name Noctty as the Windows-side terminal'
 printf 'PASS: no sheet advertises a component its platform does not have\n'
 
@@ -363,10 +407,13 @@ printf 'PASS: the reduced Parrot guest has its own operations sheet\n'
 
 # --- Page budgets are declared for every sheet ------------------------------
 
+# A sheet is a .tex with its own \documentclass; the rest (common-workflow,
+# ghostty-linux-keys) are fragments other sheets \input, and a fragment has no
+# page count of its own to budget.
 for sheet in "$repo_root"/docs/cheatsheets/*.tex; do
   name="${sheet##*/}"
   name="${name%.tex}"
-  [[ "$name" != common-workflow ]] || continue
+  grep -Fq '\documentclass' "$sheet" || continue
   grep -Eq "^  \[$name\]=[0-9]+$" "$repo_root/docs/cheatsheets/verify.sh" ||
     _test_die "docs/cheatsheets/verify.sh declares no page budget for $name"
 done

@@ -7,6 +7,7 @@ internal-executable	755	scripts/doctor.sh	Doctor implementation behind ./doctor
 public-entrypoint	755	scripts/benchmark-shell-startup.sh	Manual shell-startup measurement
 public-entrypoint	755	scripts/test-dev-workflows.sh	Disposable development-workflow smoke tests
 public-entrypoint	755	scripts/update-starship-themes.sh	Generate the tracked Starship configurations
+public-entrypoint	755	scripts/check-pin-freshness.sh	Report which pinned components have newer upstream releases
 public-entrypoint	755	docs/cheatsheets/generate.sh	Render the printable cheat sheets
 public-entrypoint	755	docs/cheatsheets/verify.sh	Verify the printable cheat sheets
 platform-entrypoint	755	platforms/*/install.sh	Platform installer, selected by --platform
@@ -30,10 +31,11 @@ stowed-command	755	platforms/*/stow/*/.local/bin/*	Stowed onto PATH by a platfor
 stowed-config	644	zsh/.zshenv	Sourced by every Zsh
 stowed-config	644	zsh/.config/zsh/*	Sourced by every interactive Zsh
 stowed-config	644	platforms/*/stow/zsh-platform/.config/zsh/*.zsh	Sourced by one platform's Zsh
-stowed-config	644	platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.sh	Sourced by the theme command
+stowed-config	644	platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.sh	Sourced by the theme command; docs/workflows/theming.md states the hook contract
 stowed-data	644	fzf/.config/fzf/themes/*.sh	Sourced fzf colour snippet
 test-entrypoint	755	tests/test-*.sh	Test suite, run by ./scripts/test.sh
 test-entrypoint	755	tests/integration/*.sh	Integration suite, run explicitly
+test-entrypoint	755	tests/support/*.sh	Test fixture helper, run by a suite
 public-entrypoint	644	verify.ps1	Portable Windows verifier, the documented way in
 public-entrypoint	755	scripts/render-action-reference.py	Regenerates the action reference from config/actions.tsv
 public-entrypoint	755	scripts/render-capability-matrix.py	Regenerates the capability matrix from config/capabilities.tsv
@@ -46,10 +48,16 @@ public-entrypoint	755	scripts/render-supply-chain.py	Regenerates the supply-chai
 public-entrypoint	755	scripts/validate-actions.py	Validates config/actions.tsv against its consumers
 public-entrypoint	755	scripts/validate-capabilities.py	Validates network-source provenance against config/capabilities.tsv
 public-entrypoint	755	scripts/validate-docs.py	Validates documentation architecture and cross-references
-public-entrypoint	755	scripts/validate-fedora-dependency-closure.py	Validates the Fedora package dependency closure
+public-entrypoint	755	scripts/validate-install-options.py	Validates each installer argv parser against config/install-options.tsv
+public-entrypoint	755	scripts/validate-library-guards.py	Validates that every shared library sources common/lib/common.sh itself
+public-entrypoint	755	scripts/validate-neovim-plugin-specs.py	Validates Neovim plugin fragments against lazy.nvim's merge rules
+public-entrypoint	755	scripts/validate-command-provider-closure.py	Validates the command-provider dependency closure
 public-entrypoint	755	scripts/validate-network-sources.py	Validates the network-source registry
+public-entrypoint	755	scripts/validate-pin-freshness.py	Validates that every manual-bump source declares how its staleness is noticed
 public-entrypoint	755	scripts/validate-repository-hygiene.py	Validates repository hygiene rules
+public-entrypoint	755	scripts/validate-plan-network.py	Validates each execution-plan step's declared scripts and the sources they reach
 public-entrypoint	755	scripts/validate-shell-file-roles.py	Validates shell/PowerShell/Python file roles and modes
+public-entrypoint	755	scripts/validate-tool-floors.py	Validates the dependency version-floor registry and its enforcement
 platform-entrypoint	644	platforms/windows/install.ps1	Platform installer, the Windows host pieces for Fedora WSL
 internal-executable	644	platforms/windows/verify.ps1	Verifier implementation behind ./verify.ps1
 platform-command	644	platforms/windows/set-noctty-theme.ps1	Windows Noctty theme command; safe to run directly

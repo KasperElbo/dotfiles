@@ -26,6 +26,12 @@ diff and expensive to notice later:
    an index of `docs/`, not the place where a profile is documented, so a
    quoted heading there is a pointer that either already rots or will: the
    citation has to name the document that actually owns the subject.
+7. A workflow step that runs a third-party action at a mutable reference. A
+   tag is whatever its owner last pointed it at, which is the one thing
+   `docs/supply-chain.md` refuses to call a pin anywhere else.
+8. A workflow whitespace check with no range. `git diff --check` alone
+   inspects the working tree, which a runner always leaves clean, so the step
+   reports success on exactly the damage it exists to catch.
 
 Usage:
     scripts/validate-repository-hygiene.py [--root DIR]
@@ -70,6 +76,31 @@ LICENSE_FILENAMES = ("LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING
 NOTICES = pathlib.Path("docs/reference/third-party-notices.md")
 LICENSING = pathlib.Path("docs/reference/licensing.md")
 LICENSE_TEXT_DIR = pathlib.Path("LICENSES")
+
+WORKFLOWS = pathlib.Path(".github/workflows")
+# A `uses:` step, split into the action and the reference it is pinned to, with
+# whatever follows on the line. A tag or a branch is mutable: whoever can move
+# it can replace the code that runs in this repository's CI, which is the same
+# hazard docs/supply-chain.md refuses to accept anywhere else.
+USES_STEP = re.compile(
+    r"^\s*-?\s*uses:\s*(?P<action>[^@\s]+)@(?P<reference>\S+)(?P<rest>.*)$"
+)
+COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+# The tag the SHA was, recorded where a reader and a bump script can both find
+# it: `uses: owner/action@<sha> # v7.0.1`.
+PINNED_TAG_COMMENT = re.compile(r"^\s*#\s*\S")
+# `git diff --check` with nothing after it inspects the working tree, which is
+# clean on every runner. Only a range compares what was committed.
+WHITESPACE_CHECK = re.compile(r"git diff --check(?P<arguments>.*)$")
+
+
+def workflow_files(root: pathlib.Path) -> list[pathlib.Path]:
+    directory = root / WORKFLOWS
+    return sorted(
+        path
+        for suffix in ("*.yml", "*.yaml")
+        for path in directory.glob(suffix)
+    )
 
 STATUS_UNDECIDED = re.compile(r"^\*\*Status: undecided\b", re.MULTILINE)
 STATUS_DECIDED = re.compile(r"^\*\*Status: decided — (?P<license>[^.*]+)\.\*\*", re.MULTILINE)
@@ -241,6 +272,61 @@ def check_python_bytecode(root: pathlib.Path, problems: list[str]) -> None:
             )
 
 
+def check_workflow_action_pins(root: pathlib.Path, problems: list[str]) -> None:
+    """Every third-party action runs at a commit this repository named.
+
+    `actions/checkout@v7` is a tag, and a tag is whatever its owner last
+    pointed it at. docs/supply-chain.md states the position -- a wildcard is
+    never an exact pin -- and the workflows were the one place it was not
+    applied. A local action (`./path`) is this repository's own code and needs
+    no pin; a container action names an image, whose provenance belongs to
+    config/network-sources.tsv.
+    """
+    for workflow in sorted(workflow_files(root)):
+        for number, line in enumerate(workflow.read_text(encoding="utf-8").splitlines(), 1):
+            match = USES_STEP.match(line)
+            if not match:
+                continue
+            action, reference = match.group("action"), match.group("reference")
+            if action.startswith((".", "docker://")):
+                continue
+            where = f"{workflow.relative_to(root)}:{number}"
+            if not COMMIT_SHA.match(reference):
+                problems.append(
+                    f"{where}: {action} is pinned to {reference!r}, which is a "
+                    "mutable reference. Pin it to the full 40-character commit "
+                    "SHA and record the tag in a trailing comment."
+                )
+            elif not PINNED_TAG_COMMENT.match(match.group("rest")):
+                problems.append(
+                    f"{where}: {action} is pinned to a commit with no trailing "
+                    "comment naming the tag it was; a bare SHA cannot be "
+                    "reviewed or bumped."
+                )
+
+
+def check_workflow_whitespace_range(root: pathlib.Path, problems: list[str]) -> None:
+    """A whitespace check that compares nothing can never fail.
+
+    `git diff --check` with no range inspects the working tree, which every
+    runner leaves clean, so the step passed on committed whitespace damage that
+    the ranged form in the same file caught with exit 2.
+    """
+    for workflow in sorted(workflow_files(root)):
+        for number, line in enumerate(workflow.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue
+            match = WHITESPACE_CHECK.search(line)
+            if not match or match.group("arguments").strip():
+                continue
+            problems.append(
+                f"{workflow.relative_to(root)}:{number}: `git diff --check` with "
+                "no range inspects the working tree, which is clean on a runner, "
+                "so this step can never fail. Give it the range against the "
+                "event's base that the other jobs use."
+            )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -259,6 +345,8 @@ def main() -> int:
     check_repository_references(root, problems)
     check_readme_sections(root, problems)
     check_python_bytecode(root, problems)
+    check_workflow_action_pins(root, problems)
+    check_workflow_whitespace_range(root, problems)
 
     for problem in problems:
         print(f"Repository hygiene: {problem}", file=sys.stderr)

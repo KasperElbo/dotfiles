@@ -17,6 +17,11 @@ Installs or validates Fedora WSL without installing or configuring Noctty.
 .PARAMETER SkipNocttyConfiguration
 Installs Noctty without synchronizing Ghostty settings or changing its command.
 
+.PARAMETER Handy
+Additionally installs the Handy offline voice-dictation application from the
+official Scoop extras bucket. Opt-in: dictation is desktop tooling and is never
+a prerequisite for the WSL or terminal bootstrap.
+
 .PARAMETER DryRun
 Prints the planned changes without installing or writing configuration.
 #>
@@ -27,6 +32,7 @@ param(
 
     [switch]$SkipNoctty,
     [switch]$SkipNocttyConfiguration,
+    [switch]$Handy,
     [switch]$DryRun,
 
     [Parameter(DontShow = $true)]
@@ -45,6 +51,7 @@ $ErrorActionPreference = 'Stop'
 $WindowsManifest = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'manifest.psd1')
 $MinimumProvenWslVersion = [version]$WindowsManifest.MinimumProvenWslVersion
 $NocttyBucketUrl = $WindowsManifest.Scoop.NocttyBucket.Url
+$ExtrasBucketUrl = $WindowsManifest.Scoop.ExtrasBucket.Url
 $WslDistributionCatalogUrl = 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json'
 $ManagedBlockStart = '# BEGIN dotfiles Fedora WSL'
 $ManagedBlockEnd = '# END dotfiles Fedora WSL'
@@ -54,6 +61,7 @@ $GhosttyThemes = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\themes'
 $NocttyThemeHelper = Join-Path $PSScriptRoot 'set-noctty-theme.ps1'
 $SelectionStatePath = Join-Path $env:LOCALAPPDATA $WindowsManifest.SelectionStateRelativePath
 . (Join-Path $PSScriptRoot 'lib\wsl-version.ps1')
+. (Join-Path $PSScriptRoot 'lib\scoop.ps1')
 
 function Write-Step {
     param([string]$Message)
@@ -236,7 +244,14 @@ function Invoke-ElevatedPhase {
         [string[]]$ExtraArguments = @(),
 
         [Parameter(Mandatory = $true)]
-        [string]$FailureDescription
+        [string]$FailureDescription,
+
+        # What this phase's caller would have the user run by hand instead.
+        # Each phase has its own: the update path cannot be replaced by a
+        # distribution install, so the hint has to come from the call site
+        # rather than being guessed here.
+        [Parameter(Mandatory = $true)]
+        [string]$ManualEquivalent
     )
 
     # Start-Process -Verb RunAs launches the elevated phase in its own console
@@ -272,6 +287,35 @@ function Invoke-ElevatedPhase {
                 break
             }
             catch {
+                # Declining the prompt is a decision, not the quirk above:
+                # ShellExecute reports ERROR_CANCELLED (1223) as a
+                # Win32Exception. Retrying tells the user their own choice
+                # failed, twice, before giving up. Say what happened instead.
+                #
+                # Start-Process does not hand that Win32Exception back: it
+                # re-throws an InvalidOperationException that only quotes the
+                # original message. Look for the error code anywhere in the
+                # exception chain first, since that is exact wherever it
+                # survives, and fall back to the message only when it does not.
+                $declined = $false
+                for ($inner = $_.Exception; $inner; $inner = $inner.InnerException) {
+                    if ($inner -is [System.ComponentModel.Win32Exception] -and
+                        $inner.NativeErrorCode -eq 1223) {
+                        $declined = $true
+                        break
+                    }
+                }
+                if (-not $declined) {
+                    # Message matching is locale-sensitive, so ask Windows for
+                    # its own text for 1223 rather than hard-coding the English
+                    # one: the quoted message came from the same source.
+                    $cancelled = [System.ComponentModel.Win32Exception]::new(1223).Message
+                    $declined = -not [string]::IsNullOrWhiteSpace($cancelled) -and
+                        ([string]$_.Exception.Message).Contains($cancelled)
+                }
+                if ($declined) {
+                    throw "Administrator approval was declined. $FailureDescription was not started. Re-run this script and approve the prompt, or make the change manually with: $ManualEquivalent"
+                }
                 if ($attempt -ge $maxAttempts) {
                     throw
                 }
@@ -306,7 +350,10 @@ function Invoke-ElevatedWslUpdate {
     }
 
     Write-Step 'The current WSL catalogue does not advertise Fedora; requesting administrator approval to update WSL'
-    Invoke-ElevatedPhase -PhaseSwitch '-ElevatedWslUpdateOnly' -FailureDescription 'The elevated WSL update'
+    Invoke-ElevatedPhase `
+        -PhaseSwitch '-ElevatedWslUpdateOnly' `
+        -FailureDescription 'The elevated WSL update' `
+        -ManualEquivalent 'wsl --update --web-download'
 }
 
 function Get-WslDistributionVersion {
@@ -339,7 +386,8 @@ function Invoke-ElevatedWslInstall {
     Invoke-ElevatedPhase `
         -PhaseSwitch '-ElevatedWslPhase' `
         -ExtraArguments @('-FedoraDistribution', $Distribution) `
-        -FailureDescription 'The elevated WSL installation phase'
+        -FailureDescription 'The elevated WSL installation phase' `
+        -ManualEquivalent "wsl --install $Distribution"
 }
 
 function Install-WslDistribution {
@@ -398,24 +446,6 @@ function Install-WslDistribution {
     }
 }
 
-function Resolve-ScoopCommand {
-    $command = Get-Command scoop -ErrorAction SilentlyContinue
-    if ($command) {
-        return $command.Source
-    }
-
-    foreach ($candidate in @(
-        (Join-Path $env:USERPROFILE 'scoop\shims\scoop.ps1'),
-        (Join-Path $env:USERPROFILE 'scoop\shims\scoop.cmd')
-    )) {
-        if (Test-Path -LiteralPath $candidate) {
-            return $candidate
-        }
-    }
-
-    return $null
-}
-
 function Install-Scoop {
     if ($DryRun) {
         Write-Step 'Would install Scoop for the current Windows user'
@@ -447,14 +477,75 @@ function Install-Scoop {
     return $scoop
 }
 
+function Get-ScoopBucketList {
+    param([Parameter(Mandatory = $true)][string]$Scoop)
+
+    # Listing buckets reads Scoop's own per-user state; it is safe in a dry
+    # run, and it is what keeps `bucket add` idempotent.
+    $bucketList = & $Scoop bucket list 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to list Scoop buckets: $($bucketList -join ' ')"
+    }
+    return $bucketList
+}
+
+function Add-ScoopBucket {
+    param(
+        [Parameter(Mandatory = $true)][string]$Scoop,
+        [AllowEmptyCollection()][object[]]$BucketList = @(),
+        [Parameter(Mandatory = $true)][hashtable]$Bucket,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ($BucketList -match "(?m)^$([regex]::Escape($Bucket.Name))\s") {
+        return
+    }
+
+    if ($DryRun) {
+        Write-Step "Would add the $Label Scoop bucket: $($Bucket.Url)"
+        return
+    }
+
+    Write-Step "Adding the official $Label Scoop bucket"
+    Invoke-NativeCommand -FilePath $Scoop -Arguments @(
+        'bucket', 'add', $Bucket.Name, $Bucket.Url
+    )
+}
+
+function Install-ScoopPackage {
+    param(
+        [Parameter(Mandatory = $true)][string]$Scoop,
+        [Parameter(Mandatory = $true)][hashtable]$Package,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ($DryRun) {
+        Write-Step "Would install $($Package.QualifiedName) for the current Windows user"
+        return
+    }
+
+    Write-Step "Installing $Label"
+    Invoke-NativeCommand -FilePath $Scoop -Arguments @(
+        'install', $Package.QualifiedName
+    )
+}
+
+function Test-ScoopPackageInstalled {
+    param([Parameter(Mandatory = $true)][hashtable]$Package)
+
+    $current = Join-Path $env:USERPROFILE (
+        'scoop\apps\{0}\current\{1}' -f $Package.Name, $Package.Executable
+    )
+    return (
+        ($null -ne (Get-Command $Package.Name -ErrorAction SilentlyContinue)) -or
+        (Test-Path -LiteralPath $current)
+    )
+}
+
 function Install-Noctty {
     $nocttyPackage = $WindowsManifest.Scoop.NocttyPackage
     $nocttyBucket = $WindowsManifest.Scoop.NocttyBucket
-    $nocttyCurrent = Join-Path $env:USERPROFILE (
-        'scoop\apps\{0}\current\{1}' -f $nocttyPackage.Name, $nocttyPackage.Executable
-    )
-    if ((Get-Command noctty -ErrorAction SilentlyContinue) -or
-        (Test-Path -LiteralPath $nocttyCurrent)) {
+    if (Test-ScoopPackageInstalled -Package $nocttyPackage) {
         Write-Step 'Noctty is already installed'
         return
     }
@@ -470,32 +561,37 @@ function Install-Noctty {
         return
     }
 
-    $bucketList = & $scoop bucket list 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to list Scoop buckets: $($bucketList -join ' ')"
+    $bucketList = @(Get-ScoopBucketList -Scoop $scoop)
+    Add-ScoopBucket -Scoop $scoop -BucketList $bucketList -Bucket $nocttyBucket -Label 'Noctty'
+    Install-ScoopPackage -Scoop $scoop -Package $nocttyPackage -Label 'Noctty'
+}
+
+function Install-Handy {
+    # Handy is the offline voice-dictation application. Its manifest lives in
+    # Scoop's official `extras` bucket and is sha256-pinned there, so this
+    # installs per-user through exactly the same Scoop path as Noctty and adds
+    # no second package manager. See docs/profiles/dictation.md.
+    $handyPackage = $WindowsManifest.Scoop.HandyPackage
+    $extrasBucket = $WindowsManifest.Scoop.ExtrasBucket
+    if (Test-ScoopPackageInstalled -Package $handyPackage) {
+        Write-Step 'Handy is already installed'
+        return
     }
 
-    if (-not ($bucketList -match "(?m)^$([regex]::Escape($nocttyBucket.Name))\s")) {
-        if ($DryRun) {
-            Write-Step "Would add the Noctty Scoop bucket: $NocttyBucketUrl"
-        }
-        else {
-            Write-Step 'Adding the official Noctty Scoop bucket'
-            Invoke-NativeCommand -FilePath $scoop -Arguments @(
-                'bucket', 'add', $nocttyBucket.Name, $NocttyBucketUrl
-            )
-        }
+    $scoop = Resolve-ScoopCommand
+    if (-not $scoop) {
+        $scoop = Install-Scoop
     }
 
-    if ($DryRun) {
-        Write-Step "Would install $($nocttyPackage.QualifiedName) for the current Windows user"
+    if ($DryRun -and -not $scoop) {
+        Write-Step "Would add the extras Scoop bucket: $ExtrasBucketUrl"
+        Write-Step "Would install $($handyPackage.QualifiedName) for the current Windows user"
+        return
     }
-    else {
-        Write-Step 'Installing Noctty'
-        Invoke-NativeCommand -FilePath $scoop -Arguments @(
-            'install', $nocttyPackage.QualifiedName
-        )
-    }
+
+    $bucketList = @(Get-ScoopBucketList -Scoop $scoop)
+    Add-ScoopBucket -Scoop $scoop -BucketList $bucketList -Bucket $extrasBucket -Label 'extras'
+    Install-ScoopPackage -Scoop $scoop -Package $handyPackage -Label 'Handy'
 }
 
 function Copy-FileIfChanged {
@@ -632,6 +728,7 @@ function Write-WindowsSelectionState {
             -not $SkipNoctty.IsPresent -and
             -not $SkipNocttyConfiguration.IsPresent
         )
+        HandySelected = $Handy.IsPresent
     }
     $temporaryPath = Join-Path $stateDirectory (
         'windows-selection-{0}.tmp' -f [guid]::NewGuid().ToString('N')
@@ -700,7 +797,7 @@ if ($ElevatedWslPhase) {
 }
 
 if (Test-Administrator) {
-    throw 'Run this script from a normal, non-administrator PowerShell session. It elevates only the WSL installation phase; Scoop and Noctty stay per-user.'
+    throw 'Run this script from a normal, non-administrator PowerShell session. It elevates only the WSL installation phase; Scoop, Noctty and Handy stay per-user.'
 }
 
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
@@ -742,6 +839,10 @@ if (-not $SkipNoctty) {
     if (-not $SkipNocttyConfiguration) {
         Set-NocttyConfiguration -Distribution $selectedFedora
     }
+}
+
+if ($Handy) {
+    Install-Handy
 }
 
 if ($DryRun) {

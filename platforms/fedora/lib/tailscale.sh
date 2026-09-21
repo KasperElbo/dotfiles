@@ -34,6 +34,7 @@ ensure_tailscale_repository() {
   fi
 
   info "Adding the Tailscale package repository ($TAILSCALE_REPO_URL)"
+  # network-source: tailscale-repo
   sudo dnf config-manager addrepo --overwrite \
     --from-repofile="$TAILSCALE_REPO_URL"
 }

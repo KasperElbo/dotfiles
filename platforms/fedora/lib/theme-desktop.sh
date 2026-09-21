@@ -32,25 +32,25 @@ catppuccin_palette() {
     base="eff1f5" mantle="e6e9ef" crust="dce0e8" text="4c4f69"
     subtext1="5c5f77" surface0="ccd0da" surface1="bcc0cc" overlay0="9ca0b0"
     mauve="8839ef" red="d20f39" yellow="df8e1d" green="40a02b"
-    blue="1e66f5" peach="fe640b" teal="179299"
+    blue="1e66f5" peach="fe640b" teal="179299" lavender="7287fd"
     ;;
   frappe)
     base="303446" mantle="292c3c" crust="232634" text="c6d0f5"
     subtext1="b5bfe2" surface0="414559" surface1="51576d" overlay0="737994"
     mauve="ca9ee6" red="e78284" yellow="e5c890" green="a6d189"
-    blue="8caaee" peach="ef9f76" teal="81c8be"
+    blue="8caaee" peach="ef9f76" teal="81c8be" lavender="babbf1"
     ;;
   macchiato)
     base="24273a" mantle="1e2030" crust="181926" text="cad3f5"
     subtext1="b8c0e0" surface0="363a4f" surface1="494d64" overlay0="6e738d"
     mauve="c6a0f6" red="ed8796" yellow="eed49f" green="a6da95"
-    blue="8aadf4" peach="f5a97f" teal="8bd5ca"
+    blue="8aadf4" peach="f5a97f" teal="8bd5ca" lavender="b7bdf8"
     ;;
   mocha)
     base="1e1e2e" mantle="181825" crust="11111b" text="cdd6f4"
     subtext1="bac2de" surface0="313244" surface1="45475a" overlay0="6c7086"
     mauve="cba6f7" red="f38ba8" yellow="f9e2af" green="a6e3a1"
-    blue="89b4fa" peach="fab387" teal="94e2d5"
+    blue="89b4fa" peach="fab387" teal="94e2d5" lavender="b4befe"
     ;;
   *)
     return 1
@@ -122,6 +122,7 @@ EOF
 @define-color blue #$blue;
 @define-color peach #$peach;
 @define-color teal #$teal;
+@define-color lavender #$lavender;
 EOF
 
   cat <<EOF | atomic_write_file "$state_dir/fuzzel.ini"

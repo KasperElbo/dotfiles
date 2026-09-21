@@ -46,6 +46,23 @@ function Assert-FailureContains {
     }
 }
 
+function Assert-Equal {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [object]$Actual,
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [object]$Expected,
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    if ($Actual -ne $Expected) {
+        throw "$Message Expected '$Expected', got '$Actual'."
+    }
+}
+
 function New-CaseFixture {
     param(
         [string]$Name,
@@ -73,7 +90,7 @@ try {
 
     Assert-Success -Name 'healthy baseline' `
         -Result (Invoke-Verifier -Fixture $healthyFixture -TopLevel)
-    Assert-Success -Name 'Noctty selected and present' `
+    Assert-Success -Name 'Noctty and Handy selected and present' `
         -Result (Invoke-Verifier -Fixture $nocttyFixture)
 
     $case = New-CaseFixture -Name 'selected-missing' -Change {
@@ -99,6 +116,54 @@ try {
     Assert-FailureContains -Name 'wrong command owner' `
         -Result (Invoke-Verifier -Fixture $case) `
         -Expected 'Noctty resolves outside Scoop shims'
+
+    # Dictation (Handy) is optional and Scoop-owned. Unselected absence is
+    # clean, selection is verified exactly like Noctty, and neither selection
+    # depends on the other.
+    $case = New-CaseFixture -Name 'handy-unselected' -Change {
+        param($item)
+        $item.State.HandySelected = $false
+        $item.Scoop.ExtrasBucket.Exists = $false
+        $item.Scoop.HandyPackage.Exists = $false
+        $item.Scoop.HandyPackage.CommandPath = $null
+    }
+    Assert-Success -Name 'Handy unselected and absent' `
+        -Result (Invoke-Verifier -Fixture $case)
+
+    $case = New-CaseFixture -Name 'handy-only' -Change {
+        param($item)
+        $item.State.NocttySelected = $false
+        $item.State.NocttyConfigurationSelected = $false
+        $item.Configuration.Files = @()
+    }
+    Assert-Success -Name 'Handy selected without Noctty' `
+        -Result (Invoke-Verifier -Fixture $case)
+
+    $case = New-CaseFixture -Name 'handy-package-missing' -Change {
+        param($item)
+        $item.Scoop.HandyPackage.Exists = $false
+    }
+    Assert-FailureContains -Name 'missing Handy package' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'Declared Scoop package is missing: handy'
+
+    $case = New-CaseFixture -Name 'extras-bucket-missing' -Change {
+        param($item)
+        $item.Scoop.ExtrasBucket.Exists = $false
+    }
+    Assert-FailureContains -Name 'missing Scoop extras bucket' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'Declared Scoop bucket is missing: extras'
+
+    # A Handy installed by any other provider resolves outside Scoop's shims,
+    # which is how duplicate or non-Scoop ownership is caught.
+    $case = New-CaseFixture -Name 'handy-outside-scoop' -Change {
+        param($item)
+        $item.Scoop.HandyPackage.CommandPath = 'C:\Program Files\Handy\handy.exe'
+    }
+    Assert-FailureContains -Name 'Handy owned outside Scoop' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'Handy resolves outside Scoop shims'
 
     $case = New-CaseFixture -Name 'broken-config' -Change {
         param($item)
@@ -133,7 +198,61 @@ try {
         -Result (Invoke-Verifier -Fixture $case) `
         -Expected 'Recorded Fedora WSL distribution is missing: FedoraLinux-44'
 
-    $source = Get-Content -LiteralPath $verifier -Raw
+    # Scoop resolution must not depend on PATH. The Scoop installer runs in a
+    # child PowerShell and a package shim reaches PATH through the registry, so
+    # the session that ran a completely successful install still cannot see
+    # scoop, noctty or handy through Get-Command. Without the shims fallback the
+    # verifier reported three healthy things as missing, two of them with an
+    # empty path, and exited 1.
+    . (Join-Path $repoRoot 'platforms\windows\lib\scoop.ps1')
+
+    $shimProfile = Join-Path $testRoot 'ShimProfile'
+    $shimDirectory = Join-Path $shimProfile 'scoop\shims'
+    [IO.Directory]::CreateDirectory($shimDirectory) | Out-Null
+    foreach ($shim in @('scoop.ps1', 'scoop.cmd', 'noctty.exe', 'handy.exe')) {
+        [IO.File]::WriteAllText((Join-Path $shimDirectory $shim), '')
+    }
+
+    $originalUserProfile = $env:USERPROFILE
+    $originalScoop = $env:SCOOP
+    $originalPath = $env:PATH
+    try {
+        $env:USERPROFILE = $shimProfile
+        $env:SCOOP = ''
+        # Nothing at all on PATH: exactly what the installing session sees.
+        $env:PATH = ''
+
+        Assert-Equal -Actual (Get-ScoopRoot) `
+            -Expected ([IO.Path]::GetFullPath((Join-Path $shimProfile 'scoop'))) `
+            -Message 'The Scoop root was not taken from the Windows user profile.'
+        Assert-Equal -Actual (Resolve-ScoopCommand) `
+            -Expected (Join-Path $shimDirectory 'scoop.ps1') `
+            -Message 'Scoop was not found in its shims directory with PATH empty.'
+        foreach ($package in @('noctty', 'handy')) {
+            Assert-Equal `
+                -Actual (Resolve-ScoopShimCommand -Name $package) `
+                -Expected (Join-Path $shimDirectory "$package.exe") `
+                -Message "$package was not found in its shims directory with PATH empty."
+        }
+        Assert-Equal -Actual (Resolve-ScoopShimCommand -Name 'not-installed') `
+            -Expected $null `
+            -Message 'A command in neither PATH nor the shims directory must not resolve.'
+
+        $env:SCOOP = Join-Path $testRoot 'ExplicitScoop'
+        Assert-Equal -Actual (Get-ScoopRoot) `
+            -Expected ([IO.Path]::GetFullPath($env:SCOOP)) `
+            -Message 'An explicit $env:SCOOP must decide where the shims are looked for.'
+    }
+    finally {
+        $env:USERPROFILE = $originalUserProfile
+        $env:SCOOP = $originalScoop
+        $env:PATH = $originalPath
+    }
+
+    # The helper verify.ps1 dot-sources is held to the same read-only contract
+    # as the verifier itself.
+    $source = (Get-Content -LiteralPath $verifier -Raw) +
+        (Get-Content -LiteralPath (Join-Path $repoRoot 'platforms\windows\lib\scoop.ps1') -Raw)
     foreach ($forbidden in @(
         'Invoke-WebRequest',
         'Invoke-RestMethod',
@@ -147,6 +266,11 @@ try {
         if ($source.Contains($forbidden)) {
             throw "Read-only verifier contains forbidden mutation primitive: $forbidden"
         }
+    }
+
+    # Every application this verifier proves is Scoop-owned, Handy included.
+    if ($source -match '(?i)winget') {
+        throw 'Windows verification must prove Scoop ownership, never WinGet ownership.'
     }
 }
 finally {

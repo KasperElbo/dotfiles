@@ -3,10 +3,11 @@
 Verifies the repository-owned Windows and WSL installation state without mutation.
 
 .DESCRIPTION
-Checks the recorded Windows selection, Scoop ownership for selected Noctty,
-repository-managed Noctty configuration copies, and the Windows-owned WSL
-package/distribution baseline. It never installs, updates, authenticates,
-creates configuration, or launches a WSL distribution.
+Checks the recorded Windows selection, Scoop ownership for selected Noctty and
+selected Handy, repository-managed Noctty configuration copies, and the
+Windows-owned WSL package/distribution baseline. It never installs, updates,
+authenticates, creates configuration, launches a WSL distribution, or starts
+the dictation application.
 #>
 [CmdletBinding()]
 param(
@@ -22,6 +23,7 @@ $ErrorActionPreference = 'Stop'
 $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $Manifest = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'manifest.psd1')
 . (Join-Path $PSScriptRoot 'lib\wsl-version.ps1')
+. (Join-Path $PSScriptRoot 'lib\scoop.ps1')
 
 if (-not $StatePath) {
     if ($FixturePath) {
@@ -212,6 +214,22 @@ function ConvertFrom-WslText {
     )
 }
 
+function Get-StateFlag {
+    param(
+        [AllowNull()]
+        [object]$State,
+        [string]$Name
+    )
+
+    # A selection file written before a flag existed simply does not carry it,
+    # and an absent optional selection means "not selected" rather than an
+    # unreadable state file.
+    if ($null -eq $State) { return $false }
+    $property = $State.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $false }
+    return [bool]$property.Value
+}
+
 function Get-LiveObservation {
     $stateExists = Test-Path -LiteralPath $StatePath -PathType Leaf
     $stateError = $null
@@ -227,31 +245,40 @@ function Get-LiveObservation {
 
     $nocttySelected = $false
     $configurationSelected = $false
+    $handySelected = $false
     $wslRequired = $false
     $distribution = ''
     $schemaVersion = $null
     if ($null -ne $state) {
-        $nocttySelected = [bool]$state.NocttySelected
-        $configurationSelected = [bool]$state.NocttyConfigurationSelected
-        $wslRequired = [bool]$state.WslRequired
+        $nocttySelected = Get-StateFlag -State $state -Name 'NocttySelected'
+        $configurationSelected = Get-StateFlag -State $state -Name 'NocttyConfigurationSelected'
+        $handySelected = Get-StateFlag -State $state -Name 'HandySelected'
+        $wslRequired = Get-StateFlag -State $state -Name 'WslRequired'
         $distribution = [string]$state.FedoraDistribution
         $schemaVersion = $state.SchemaVersion
     }
 
-    $scoopRoot = if ($env:SCOOP) {
-        [IO.Path]::GetFullPath($env:SCOOP)
-    }
-    else {
-        [IO.Path]::GetFullPath((Join-Path $env:USERPROFILE 'scoop'))
-    }
-    $scoopCommand = Get-Command scoop -ErrorAction SilentlyContinue
-    $nocttyCommand = Get-Command noctty -ErrorAction SilentlyContinue
+    # Every command below is resolved through the shared resolver, never
+    # through PATH alone: a package's shim reaches PATH through the registry,
+    # so the session that ran a successful install still cannot see it, and
+    # reporting that as a missing package would fail a healthy machine.
+    $scoopRoot = Get-ScoopRoot
+    $scoopCommandPath = Resolve-ScoopCommand
+    $nocttyCommandPath = Resolve-ScoopShimCommand -Name 'noctty'
     $bucketName = $Manifest.Scoop.NocttyBucket.Name
     $packageName = $Manifest.Scoop.NocttyPackage.Name
     $executableName = $Manifest.Scoop.NocttyPackage.Executable
     $bucketPath = Join-Path $scoopRoot "buckets\$bucketName"
     $packagePath = Join-Path $scoopRoot "apps\$packageName\current"
     $packageExecutable = Join-Path $packagePath $executableName
+
+    $extrasBucketName = $Manifest.Scoop.ExtrasBucket.Name
+    $handyPackageName = $Manifest.Scoop.HandyPackage.Name
+    $handyExecutableName = $Manifest.Scoop.HandyPackage.Executable
+    $handyCommandPath = Resolve-ScoopShimCommand -Name $handyPackageName
+    $extrasBucketPath = Join-Path $scoopRoot "buckets\$extrasBucketName"
+    $handyPackagePath = Join-Path $scoopRoot "apps\$handyPackageName\current"
+    $handyPackageExecutable = Join-Path $handyPackagePath $handyExecutableName
 
     $configurationFiles = @()
     $configDirectory = Join-Path $env:LOCALAPPDATA 'noctty'
@@ -327,13 +354,14 @@ function Get-LiveObservation {
             SchemaVersion = $schemaVersion
             NocttySelected = $nocttySelected
             NocttyConfigurationSelected = $configurationSelected
+            HandySelected = $handySelected
             WslRequired = $wslRequired
             FedoraDistribution = $distribution
         }
         Scoop = [pscustomobject]@{
-            Available = ($null -ne $scoopCommand -and (Test-Path -LiteralPath $scoopRoot -PathType Container))
+            Available = ($null -ne $scoopCommandPath -and (Test-Path -LiteralPath $scoopRoot -PathType Container))
             Root = $scoopRoot
-            CommandPath = if ($scoopCommand) { $scoopCommand.Source } else { $null }
+            CommandPath = $scoopCommandPath
             Bucket = [pscustomobject]@{
                 Name = $bucketName
                 Exists = Test-Path -LiteralPath $bucketPath -PathType Container
@@ -343,7 +371,18 @@ function Get-LiveObservation {
                 Name = $packageName
                 Exists = Test-Path -LiteralPath $packageExecutable -PathType Leaf
                 CurrentPath = $packageExecutable
-                CommandPath = if ($nocttyCommand) { $nocttyCommand.Source } else { $null }
+                CommandPath = $nocttyCommandPath
+            }
+            ExtrasBucket = [pscustomobject]@{
+                Name = $extrasBucketName
+                Exists = Test-Path -LiteralPath $extrasBucketPath -PathType Container
+                Path = $extrasBucketPath
+            }
+            HandyPackage = [pscustomobject]@{
+                Name = $handyPackageName
+                Exists = Test-Path -LiteralPath $handyPackageExecutable -PathType Leaf
+                CurrentPath = $handyPackageExecutable
+                CommandPath = $handyCommandPath
             }
         }
         Configuration = [pscustomobject]@{
@@ -356,6 +395,45 @@ function Get-LiveObservation {
             DistributionPresent = $distributionPresent
             DistributionVersion = $distributionVersion
         }
+    }
+}
+
+function Confirm-ScoopPackageOwnership {
+    param(
+        [string]$DisplayName,
+        [object]$Scoop,
+        [object]$Bucket,
+        [object]$Package
+    )
+
+    if ($Bucket.Exists) {
+        Write-VerificationPass "Declared Scoop bucket exists: $($Bucket.Name)"
+    }
+    else {
+        Write-VerificationFailure "Declared Scoop bucket is missing: $($Bucket.Name)"
+    }
+
+    if ($Package.Exists) {
+        Write-VerificationPass "Declared Scoop package exists: $($Package.Name)"
+    }
+    else {
+        Write-VerificationFailure "Declared Scoop package is missing: $($Package.Name)"
+    }
+
+    $shimRoot = Join-ObservedPath $Scoop.Root 'shims'
+    if (Test-PathWithinRoot -Path $Package.CommandPath -Root $shimRoot) {
+        Write-VerificationPass "$DisplayName resolves through Scoop shims: $($Package.CommandPath)"
+    }
+    else {
+        Write-VerificationFailure "$DisplayName resolves outside Scoop shims: $($Package.CommandPath)"
+    }
+
+    $appsRoot = Join-ObservedPath $Scoop.Root 'apps'
+    if (Test-PathWithinRoot -Path $Package.CurrentPath -Root $appsRoot) {
+        Write-VerificationPass "$DisplayName current executable is Scoop-owned: $($Package.CurrentPath)"
+    }
+    else {
+        Write-VerificationFailure "$DisplayName current executable is outside Scoop ownership: $($Package.CurrentPath)"
     }
 }
 
@@ -391,15 +469,18 @@ if ($null -ne $observation) {
 
     Write-Host ''
     Write-Host 'Scoop ownership'
-    if (-not $observation.State.NocttySelected) {
-        Write-VerificationPass 'Noctty is not selected; Scoop/Noctty absence is allowed'
+    $scoopSelections = @()
+    if ($observation.State.NocttySelected) { $scoopSelections += 'Noctty' }
+    if ($observation.State.HandySelected) { $scoopSelections += 'Handy' }
+    if ($scoopSelections.Count -eq 0) {
+        Write-VerificationPass 'No Scoop-owned application is selected; Scoop absence is allowed'
     }
     else {
         if ($observation.Scoop.Available) {
             Write-VerificationPass "Scoop is available under $($observation.Scoop.Root)"
         }
         else {
-            Write-VerificationFailure 'Noctty is selected, but Scoop is unavailable'
+            Write-VerificationFailure "$($scoopSelections -join ' and ') selected, but Scoop is unavailable"
         }
 
         $scoopShimRoot = Join-ObservedPath $observation.Scoop.Root 'shims'
@@ -410,34 +491,24 @@ if ($null -ne $observation) {
             Write-VerificationFailure "Scoop resolves outside its owned shims: $($observation.Scoop.CommandPath)"
         }
 
-        if ($observation.Scoop.Bucket.Exists) {
-            Write-VerificationPass "Declared Scoop bucket exists: $($observation.Scoop.Bucket.Name)"
-        }
-        else {
-            Write-VerificationFailure "Declared Scoop bucket is missing: $($observation.Scoop.Bucket.Name)"
-        }
-
-        if ($observation.Scoop.Package.Exists) {
-            Write-VerificationPass "Declared Scoop package exists: $($observation.Scoop.Package.Name)"
-        }
-        else {
-            Write-VerificationFailure "Declared Scoop package is missing: $($observation.Scoop.Package.Name)"
+        # verifies: terminal
+        # Noctty is this host's terminal: declared bucket, declared package, a
+        # shim-resolved command and a Scoop-owned current executable.
+        if ($observation.State.NocttySelected) {
+            Confirm-ScoopPackageOwnership -DisplayName 'Noctty' `
+                -Scoop $observation.Scoop `
+                -Bucket $observation.Scoop.Bucket `
+                -Package $observation.Scoop.Package
         }
 
-        $shimRoot = Join-ObservedPath $observation.Scoop.Root 'shims'
-        if (Test-PathWithinRoot -Path $observation.Scoop.Package.CommandPath -Root $shimRoot) {
-            Write-VerificationPass "Noctty resolves through Scoop shims: $($observation.Scoop.Package.CommandPath)"
-        }
-        else {
-            Write-VerificationFailure "Noctty resolves outside Scoop shims: $($observation.Scoop.Package.CommandPath)"
-        }
-
-        $appsRoot = Join-ObservedPath $observation.Scoop.Root 'apps'
-        if (Test-PathWithinRoot -Path $observation.Scoop.Package.CurrentPath -Root $appsRoot) {
-            Write-VerificationPass "Noctty current executable is Scoop-owned: $($observation.Scoop.Package.CurrentPath)"
-        }
-        else {
-            Write-VerificationFailure "Noctty current executable is outside Scoop ownership: $($observation.Scoop.Package.CurrentPath)"
+        # Handy is verified exactly like Noctty: declared bucket, declared
+        # package, a shim-resolved command and a Scoop-owned current
+        # executable. Nothing here launches it or reads its recordings.
+        if ($observation.State.HandySelected) {
+            Confirm-ScoopPackageOwnership -DisplayName 'Handy' `
+                -Scoop $observation.Scoop `
+                -Bucket $observation.Scoop.ExtrasBucket `
+                -Package $observation.Scoop.HandyPackage
         }
     }
 

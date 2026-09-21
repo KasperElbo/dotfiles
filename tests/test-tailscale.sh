@@ -5,6 +5,9 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 
+test_install_cleanup_trap
+test_isolate_path jq sha256sum timeout
+
 new_test_root() {
   local test_root
   test_root="$(mktemp -d)"
@@ -411,6 +414,67 @@ assert_file_not_contains "$test_root/commands.log" 'tailscale login'
 assert_file_contains "$test_root/commands.log" 'tailscale status --json'
 rm -rf -- "$test_root"
 printf 'PASS: verification only reads state; it never authenticates\n'
+
+# --- the macOS verifier's probes are bounded -------------------------------
+#
+# Reading Tailscale's state on macOS runs a binary that talks to the
+# application, and the application can be waiting on a permission prompt that
+# no CI session can answer. The first real installation to reach this profile
+# printed "Tailscale application is installed" and then nothing at all for a
+# hundred minutes, until the job hit its own two-hour limit.
+#
+# The probe is driven here directly, rather than through the verifier, because
+# the paths it resolves (/usr/local/bin/tailscale and the application bundle)
+# are not overridable and faking them would test the faking. What has to hold
+# is the probe's own contract: a command that never returns comes back anyway,
+# and says which of the two it was.
+
+# shellcheck source=../common/lib/common.sh
+source "$repo_root/common/lib/common.sh"
+# shellcheck source=../platforms/macos/lib/macos.sh
+source "$repo_root/platforms/macos/lib/macos.sh"
+
+probe_output=""
+probe_status=0
+probe_output="$(DOTFILES_TAILSCALE_PROBE_TIMEOUT=10 macos_tailscale_probe \
+  echo 'tailscale 1.2.3')" || probe_status=$?
+((probe_status == 0)) ||
+  fail_with_context "A probe of a command that answers returned $probe_status"
+assert_eq 'tailscale 1.2.3' "$probe_output" 'probe output is passed through'
+printf 'PASS: a probe passes through the output and status of a command that answers\n'
+
+probe_status=0
+DOTFILES_TAILSCALE_PROBE_TIMEOUT=6 macos_tailscale_probe sh -c 'exit 3' ||
+  probe_status=$?
+((probe_status == 3)) ||
+  fail_with_context "A failing command should report its own status, got $probe_status"
+printf 'PASS: a probe reports a real failure as a failure, not as a timeout\n'
+
+# The suite bounds its own call as well, so a probe that stopped bounding
+# anything fails this test rather than hanging the run the way the job did.
+# `sleep 3600` is the command no bound would ever let finish.
+probe_status=0
+started="$(date +%s)"
+timeout --signal=TERM --kill-after=5 60 \
+  env DOTFILES_TAILSCALE_PROBE_TIMEOUT=2 bash -c "
+    source '$repo_root/common/lib/common.sh'
+    source '$repo_root/platforms/macos/lib/macos.sh'
+    macos_tailscale_probe sleep 3600
+  " || probe_status=$?
+elapsed=$(($(date +%s) - started))
+((elapsed < 30)) ||
+  fail_with_context "The probe of a command that never returns took ${elapsed}s"
+macos_tailscale_probe_timed_out "$probe_status" ||
+  fail_with_context "A command that never returns should report a timeout, got $probe_status"
+printf 'PASS: a probe of a command that never returns comes back, as a timeout\n'
+
+# What the verifier does with that outcome: a warning naming it, so a machine
+# whose Tailscale cannot answer is reported rather than waited on.
+assert_file_contains "$repo_root/platforms/macos/scripts/verify.sh" \
+  'macos_tailscale_probe_timed_out "$version_status"'
+assert_file_contains "$repo_root/platforms/macos/scripts/verify.sh" \
+  'macos_tailscale_probe_timed_out "$status_probe"'
+printf 'PASS: the macOS verifier handles a probe that did not answer\n'
 
 # --- repository hygiene: no embedded credentials -----------------------
 #

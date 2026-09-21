@@ -9,7 +9,13 @@ config="$home/.config"
 data="$home/.local/share"
 mock_bin="$test_root/bin"
 command_log="$test_root/commands.log"
-font_dir="$data/fonts/HackNerdFont/3.4.0"
+# The pinned font version is read from the installer rather than repeated
+# here, so bumping the pin cannot leave this suite building fixtures under the
+# previous version's directory.
+font_pin="$(sed -n 's/^font_version="\([0-9][0-9.]*\)"$/\1/p' \
+  "$repo_root/platforms/parrot-ctf/scripts/install-terminal.sh")"
+[[ -n "$font_pin" ]] || _test_die 'could not read the Hack Nerd Font pin'
+font_dir="$data/fonts/HackNerdFont/$font_pin"
 bat_theme_dir="$config/bat/themes"
 mkdir -p "$mock_bin" "$home/.local/bin" "$font_dir" "$bat_theme_dir"
 printf 'ID=parrot\n' >"$test_root/os-release"
@@ -81,7 +87,9 @@ first_profile="$(sha256sum "$profile")"
 "${environment[@]}" "$repo_root/platforms/parrot-ctf/scripts/install-terminal.sh" >/dev/null
 [[ "$(sha256sum "$profile")" == "$first_profile" ]]
 
-grep -Fq 'font_version="3.4.0"' \
+grep -Eq '^font_version="[0-9]+\.[0-9]+\.[0-9]+"$' \
+  "$repo_root/platforms/parrot-ctf/scripts/install-terminal.sh"
+grep -Eq '^font_sha256="[0-9a-f]{64}"$' \
   "$repo_root/platforms/parrot-ctf/scripts/install-terminal.sh"
 grep -Fq 'bat_theme_commit="6810349b28055dce54076712fc05fc68da4b8ec0"' \
   "$repo_root/platforms/parrot-ctf/scripts/install-terminal.sh"

@@ -38,7 +38,7 @@ case "$hardware_model" in
   ;;
 esac
 
-"$DOTFILES_ROOT/common/setup-local.sh" "$theme"
+"$DOTFILES_ROOT/common/setup-local.sh" fedora "$theme"
 
 current_theme="$(cat "$XDG_CONFIG_HOME/dotfiles/theme")"
 write_fedora_theme_state "$current_theme"

@@ -73,26 +73,48 @@ install_selection_reset parrot-ctf
 install_selection_set theme "$theme"
 install_selection="$(install_selection_serialize)"
 
+# The reduced guest has no optional capabilities: its selection is fixed, and
+# still resolved in one place for the selection check, preflight and the
+# lifecycle record.
+parrot_selected_capabilities() { printf '%s\n' base vm-guest; }
+# Checked for every run, --dry-run included: a dry run exits before
+# plan_preflight, and it must not show a plan for a capability this platform's
+# manifest does not implement.
+selected_capabilities=()
+while IFS= read -r capability; do selected_capabilities+=("$capability"); done < <(parrot_selected_capabilities)
+capability_validate_selection parrot-ctf "${selected_capabilities[@]}" ||
+  die 'The selected capabilities cannot be installed on parrot-ctf.'
+
 preflight_parrot() {
   require_regular_user
   require_parrot
   require_qemu_vm >/dev/null
   require_guest_channels
-  preflight_commands apt-get awk date find git readlink sudo systemctl
+  preflight_platform_command_providers parrot-ctf
   preflight_sudo "$interactive"
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads.
+  preflight_xdg_layout
   preflight_writable_path "$HOME"
   preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"
   preflight_writable_path "$(profile_state_dir)"
-  local specs=() spec
-  capability_validate_selection parrot-ctf base vm-guest
-  while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs parrot-ctf base vm-guest)
+  preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
+  preflight_disk_space /var/cache/apt "$PREFLIGHT_SYSTEM_MIN_MB"
+  local specs=() spec capability stow_specs
+  local selected=()
+  while IFS= read -r capability; do selected+=("$capability"); done < <(parrot_selected_capabilities)
+  capability_validate_selection parrot-ctf "${selected[@]}"
+  # A checked substitution, not < <(...): a manifest header without the stow
+  # column must stop preflight, not silently skip the conflict check.
+  stow_specs="$(capability_stow_specs parrot-ctf "${selected[@]}")" || return
+  while IFS= read -r spec; do [[ -z "$spec" ]] || specs+=("$spec"); done <<<"$stow_specs"
   preflight_stow_packages "${specs[@]}"
 }
 
 apply_system() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-system.sh"; }
 apply_guest() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-guest-integration.sh"; }
-apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" "$theme"; }
+apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" parrot-ctf "$theme"; }
 apply_stow() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/stow.sh"; }
 apply_terminal() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-terminal.sh"; }
 apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
@@ -101,16 +123,16 @@ apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
 verify_parrot() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/verify.sh"; }
 
-plan_add system 'Install Parrot-owned working-environment prerequisites' apply preflight_parrot apply_system : 'platforms/parrot-ctf/scripts/install-system.sh; security catalogue unchanged'
-plan_add guest 'Install and activate KVM/QEMU guest integration' apply : apply_guest : 'qemu-guest-agent and SPICE; host secrets and shared folders remain disabled'
-plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh $theme"
-plan_add stow 'Deploy the reduced portable and narrow Parrot configuration' apply : apply_stow : 'platforms/parrot-ctf/scripts/stow.sh'
-plan_add terminal 'Install the pinned Nerd Font, bat themes, and Konsole profile' apply : apply_terminal : 'platforms/parrot-ctf/scripts/install-terminal.sh'
-plan_add mise 'Install the narrow mise-managed uv and Neovim runtimes' apply : apply_mise : 'common/install-mise.sh'
-plan_add nvim 'Restore the reduced LazyVim/Mason inventory for Parrot' apply : apply_nvim : 'common/install-neovim-tools.sh --profile parrot-ctf'
-plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
-plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme"
-plan_add verify 'Verify the complete Parrot guest' verify : verify_parrot : 'platforms/parrot-ctf/scripts/verify.sh'
+plan_add system 'Install Parrot-owned working-environment prerequisites' apply preflight_parrot apply_system : 'platforms/parrot-ctf/scripts/install-system.sh; security catalogue unchanged' 'platforms/parrot-ctf/scripts/install-system.sh'
+plan_add guest 'Install and activate KVM/QEMU guest integration' apply : apply_guest : 'qemu-guest-agent and SPICE; host secrets and shared folders remain disabled' 'platforms/parrot-ctf/scripts/install-guest-integration.sh'
+plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh parrot-ctf $theme" 'common/setup-local.sh'
+plan_add stow 'Deploy the reduced portable and narrow Parrot configuration' apply : apply_stow : 'platforms/parrot-ctf/scripts/stow.sh' 'platforms/parrot-ctf/scripts/stow.sh'
+plan_add terminal 'Install the pinned Nerd Font, bat themes, and Konsole profile' apply : apply_terminal : 'platforms/parrot-ctf/scripts/install-terminal.sh' 'platforms/parrot-ctf/scripts/install-terminal.sh'
+plan_add mise 'Install the narrow mise-managed uv and Neovim runtimes' apply : apply_mise : 'common/install-mise.sh' 'common/install-mise.sh'
+plan_add nvim 'Restore the reduced LazyVim/Mason inventory for Parrot' apply : apply_nvim : 'common/install-neovim-tools.sh --profile parrot-ctf' 'common/install-neovim-tools.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh' 'common/install-tmux-theme.sh'
+plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme" ''
+plan_add verify 'Verify the complete Parrot guest' verify : verify_parrot : 'platforms/parrot-ctf/scripts/verify.sh' 'platforms/parrot-ctf/scripts/verify.sh'
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
@@ -151,8 +173,16 @@ if [[ "$interactive" == true ]]; then
 fi
 
 plan_preflight
+# Then the network, because a local problem is worth reporting without waiting
+# for a probe. The hosts come from config/network-sources.tsv, selected by the
+# scripts this resolved plan will run, so a step added later cannot fetch from
+# a host nothing checked; scripts/validate-plan-network.py holds the two to
+# each other. Nothing has mutated yet at this point.
+plan_scripts | preflight_plan_network
 DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command parrot-ctf "$install_selection")"
-install_lifecycle_begin parrot-ctf base,vm-guest "$DOTFILES_RERUN_COMMAND" "$install_selection"
+capabilities=''
+while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(parrot_selected_capabilities)
+install_lifecycle_begin parrot-ctf "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?
   install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"

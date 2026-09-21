@@ -102,7 +102,17 @@ Useful options are:
 
 # Install Noctty but preserve all of its existing configuration.
 .\platforms\windows\install.ps1 -SkipNocttyConfiguration
+
+# Additionally install the optional Handy voice-dictation application.
+.\platforms\windows\install.ps1 -Handy
 ```
+
+`-Handy` is the only optional desktop tooling this script installs. It is
+opt-in, per-user and Scoop-owned like Noctty, and it changes nothing about the
+WSL or terminal bootstrap. See the
+[optional dictation profile](../profiles/dictation.md#windows) for the
+shortcut, the first-run steps, where models and transcript history are kept,
+and how to verify and uninstall it.
 
 If Noctty already has a user-managed `command =` setting, the script retains
 it and omits the managed Fedora command. Otherwise the marked block in
@@ -121,7 +131,9 @@ verifier from the repository root:
 It reads `%LOCALAPPDATA%\dotfiles\windows-selection.json` and reports pass,
 warning, and fail outcomes. A failed repository-owned invariant returns a
 nonzero exit code. When Noctty was selected, verification requires its bucket,
-package, current executable, and resolved command to remain Scoop-owned. It
+package, current executable, and resolved command to remain Scoop-owned, and
+selected Handy is held to the same Scoop ownership through the `extras`
+bucket. It
 also compares every managed Noctty copy to the current checkout and detects
 broken or stale checkout links. The WSL check is limited to Windows ownership:
 the proven WSL package version and the recorded Fedora distribution on WSL 2.
@@ -258,10 +270,28 @@ the Windows browser. Set `WINDOWS_SYSTEM_ROOT` only if Windows is not available
 at the conventional `/mnt/c/Windows` mount. Neovim's `"+` and `"*` registers
 use the same clipboard helpers through a WSL-only LazyVim plugin spec.
 
-`verify.sh`'s "Windows executable interop" section checks the two properties
-separately: the existing Zsh-PATH and per-command checks confirm no Windows
-directory has leaked into `PATH`, and a dedicated check actually runs
-`/mnt/c/Windows/System32/cmd.exe /c echo interop-ok` and confirms it prints
+`verify.sh` checks the two properties separately, and is explicit about which
+evidence proves which.
+
+"no Windows directory in `PATH`" is proved by reading `/etc/wsl.conf` itself
+and asserting `[interop] appendWindowsPath=false` — with the same
+`render_ini_section_keys` that `configure-interop.sh` writes the file with, so
+there is one parser, not two. That setting, not the Zsh hook, is what governs
+every context that is not an interactive Zsh login shell: systemd units,
+`wsl.exe -e`, VS Code's integrated shell, cron. Alongside it the verifier
+samples an **unsanitized** `PATH` (`zsh -f`, no rc files, so the stripper in
+`platform-env.zsh` cannot mask an entry that is really there) and fails naming
+any Windows entry in it; the `.exe` absence lookups run against that same
+sample. The sanitized login `PATH` is still checked, and is still reported —
+but only as proof that the Zsh layer works. It cannot be evidence that Windows
+`PATH` injection is off, because it is the stripper's own output: a machine
+where `/etc/wsl.conf` was written but `wsl --shutdown` never ran shows a
+perfectly clean login `PATH` while every non-interactive context inherits the
+Windows one.
+
+"explicit Windows executables still run" is proved behaviorally: a dedicated
+check actually runs `/mnt/c/Windows/System32/cmd.exe /c echo interop-ok`
+and confirms it prints
 `interop-ok`, rather than trusting `PATH` cleanliness alone or a single
 binfmt handler name (WSL/runtime versions have used more than one). It also
 reports whatever `WSLInterop*` entries it finds under

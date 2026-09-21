@@ -26,14 +26,14 @@ test_stub_install "$test_root" systemctl
 test_stub_allow "$test_root" dnf install -y \
   bat curl eza fd-find fzf firewalld gh git git-delta gnupg2 jq libicu neovim \
   openssh-clients ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow \
-  tmux wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
+  tmux unzip wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
   zsh-syntax-highlighting
 test_stub_allow "$test_root" dnf install -y ghostty mise starship
 test_stub_allow "$test_root" dnf install -y \
   --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise \
   ghostty mise starship
 test_stub_allow "$test_root" dnf install -y \
-  bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config unzip
+  bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config
 test_stub_allow "$test_root" dnf install -y \
   texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent
 test_stub_allow "$test_root" dnf install -y \
@@ -49,14 +49,14 @@ test_stub_allow "$test_root" dnf install -y \
 test_stub_allow "$test_root" sudo dnf install -y \
   bat curl eza fd-find fzf firewalld gh git git-delta gnupg2 jq libicu neovim \
   openssh-clients ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow \
-  tmux wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
+  tmux unzip wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
   zsh-syntax-highlighting
 test_stub_allow "$test_root" sudo dnf install -y ghostty mise starship
 test_stub_allow "$test_root" sudo dnf install -y \
   --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise \
   ghostty mise starship
 test_stub_allow "$test_root" sudo dnf install -y \
-  bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config unzip
+  bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config
 test_stub_allow "$test_root" sudo dnf install -y \
   texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent
 test_stub_allow "$test_root" sudo dnf install -y \
@@ -264,7 +264,7 @@ assert_file_contains "$command_log" \
   'sudo dnf install -y --disablerepo=copr:copr.fedorainfracloud.org:jdxcode:mise ghostty mise starship'
 rm -f -- "$test_root/yum.repos.d/_copr:copr.fedorainfracloud.org:jdxcode:mise.repo"
 assert_file_contains "$command_log" \
-  'sudo dnf install -y bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config unzip'
+  'sudo dnf install -y bzip2 bubblewrap gcc gcc-c++ m4 make opam patch pkgconf-pkg-config'
 assert_file_contains "$command_log" \
   'sudo dnf install -y texlive-scheme-medium latexmk biber texlive-biblatex texlive-latexindent'
 assert_file_contains "$command_log" \

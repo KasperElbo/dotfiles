@@ -66,7 +66,7 @@ assert_contains "$repo_root/scripts/test-dev-workflows.sh" \
 manifest="$repo_root/config/capabilities.tsv"
 macos_latex_row="$(awk -F '\t' '$1 == "latex" && $2 == "macos" { print; exit }' "$manifest")"
 [[ -n "$macos_latex_row" ]] || fail "the capability manifest has no latex/macos row"
-IFS=$'\t' read -r _ _ _ macos_flag _ _ _ macos_provider _ _ _ _ macos_docs _ macos_status \
+IFS=$'\t' read -r _ _ _ macos_flag _ _ _ macos_provider _ _ _ _ _ macos_docs _ macos_status _ \
   <<<"$macos_latex_row"
 [[ "$macos_status" == unsupported ]] ||
   fail "latex/macos claims status $macos_status while no macOS TeX provider exists"

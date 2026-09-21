@@ -2,10 +2,15 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The mocked bootstrap leaves behind what a real Mason install leaves behind,
+# so common/lib/mason.sh reads it as installed.
+export MASON_MOCK_INSTALL="$repo_root/tests/support/mason-mock-install.sh"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
+test_isolate_path git jq sha256sum stow timeout
 test_new_root
 test_root="$TEST_ROOT"
 
@@ -240,7 +245,7 @@ test_environment=(
   env
   "HOME=$home"
   "XDG_CONFIG_HOME=$config"
-  "PATH=$mock_bin:/usr/bin:/bin"
+  "PATH=$mock_bin:$PATH"
   "WSL_DISTRO_NAME=FedoraLinux"
   "OS_RELEASE_FILE=$test_root/os-release"
   "COMMAND_LOG=$command_log"
@@ -254,7 +259,7 @@ assert_contains "$install_system_output" \
   'This Noctty session was started before that change; open a new Noctty/WSL'
 [[ -x "$home/.local/bin/mise" ]]
 [[ -x "$home/.local/bin/starship" ]]
-expected_zsh_path="$(PATH="$mock_bin:/usr/bin:/bin" command -v zsh)"
+expected_zsh_path="$(PATH="$mock_bin:$PATH" command -v zsh)"
 grep -Fq 'sudo dnf install -y bat bzip2 curl eza fd-find fzf gawk' "$command_log"
 grep -Fq 'gh git git-delta jq libicu' "$command_log"
 grep -Fq "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log"
@@ -276,7 +281,7 @@ first_mise="$(sha256sum "$home/.local/bin/mise")"
 [[ "$(grep -Fc "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log")" == 1 ]]
 
 STOW_LOG="$stow_log" HOME="$home" XDG_CONFIG_HOME="$config" \
-  PATH="$mock_bin:/usr/bin:/bin" \
+  PATH="$mock_bin:$PATH" \
   "$repo_root/platforms/fedora-wsl/scripts/stow.sh" >/dev/null
 
 for package in bat bin fzf git lazygit mise nvim-lazyvim starship tmux zsh \
@@ -450,25 +455,42 @@ chmod +x "$bootstrap_bin/mock-command" \
   "$bootstrap_bin/id" "$bootstrap_bin/getent"
 chmod +x "$bootstrap_stub_root/handlers/sudo" "$bootstrap_bin/mktemp"
 
+# The disk preflight must decide on a known figure, never on the free space of
+# the machine running the tests.
+test_stub_roomy_df "$bootstrap_bin"
+
 bootstrap_commands=(
-  ast-grep bat biber curl delta dotnet dotnet-easydotnet eza fd fzf gh
-  latex latexindent latexmk lazygit lualatex neovim-node-host node npm npx
-  pdflatex python rg rpm shellcheck sqlite3 starship tmux tree-sitter uv
-  wslpath xelatex zoxide zsh
+  bat biber curl delta eza fd fzf gh latex latexindent latexmk lualatex
+  pdflatex rg rpm shellcheck sqlite3 starship tmux wslpath xelatex zoxide zsh
 )
 for command_name in "${bootstrap_commands[@]}"; do
   ln -s mock-command "$bootstrap_bin/$command_name"
 done
 
-rm -- "$bootstrap_bin/dotnet-easydotnet"
-cat >"$bootstrap_bin/dotnet-easydotnet" <<'EOF'
+# The runtimes mise owns are installed the way mise installs them: under its
+# installs directory, reached through its shims, and reported by `mise which`.
+# The verifier proves that ownership, so a plain PATH stub would not pass it.
+bootstrap_mise_tools=(
+  ast-grep dotnet dotnet-easydotnet lazygit neovim-node-host node npm npx
+  python tree-sitter uv
+)
+mkdir -p "$bootstrap_data/mise/shims"
+for command_name in "${bootstrap_mise_tools[@]}"; do
+  install_bin="$bootstrap_data/mise/installs/$command_name/latest/bin/$command_name"
+  mkdir -p "$(dirname "$install_bin")"
+  cp "$bootstrap_bin/mock-command" "$install_bin"
+  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$install_bin" \
+    >"$bootstrap_data/mise/shims/$command_name"
+  chmod +x "$install_bin" "$bootstrap_data/mise/shims/$command_name"
+done
+
+cat >"$bootstrap_data/mise/installs/dotnet-easydotnet/latest/bin/dotnet-easydotnet" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == healthcheck ]]; then
   printf '[{"type":"ok","name":"debugger.engine","value":"netcoredbg"},{"type":"ok","name":"debugger.source","value":"bundled"},{"type":"ok","name":"debugger.platform","value":"linux-x64"},{"type":"ok","name":"debugger.path","value":"%s"},{"type":"ok","name":"debugger.version","value":"NET Core debugger test version"}]\n' \
     "$MOCK_EASY_DOTNET_DEBUGGER"
 fi
 EOF
-chmod +x "$bootstrap_bin/dotnet-easydotnet"
 
 cat >"$bootstrap_bin/mise" <<'EOF'
 #!/usr/bin/env bash
@@ -504,38 +526,47 @@ exit 0
 EOF
 cat >"$bootstrap_bin/nvim" <<'EOF'
 #!/usr/bin/env bash
+# The installer checks the Neovim floor before any bootstrap phase. Answer it
+# here, at the floor config/tool-floors.tsv declares, and do not let the probe
+# count as a bootstrap invocation.
+if [[ "${1:-}" == --version ]]; then
+  printf 'NVIM v0.12.5\n'
+  exit 0
+fi
 for argument in "$@"; do
   if [[ "$argument" == '+Lazy! restore mason.nvim' ]]; then
     mkdir -p "$XDG_DATA_HOME/nvim/lazy/mason.nvim"
   fi
 
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
-    mkdir -p "$XDG_DATA_HOME/nvim/mason/bin"
-    for target in $DOTFILES_MASON_PACKAGES; do
-      # Mason stores a package under its name whether or not the request
-      # carried an "@version" pin.
-      package="${target%%@*}"
-      mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
-      if [[ "$package" == tree-sitter-cli ]]; then
-        cat >"$XDG_DATA_HOME/nvim/mason/bin/tree-sitter" <<'TREEEOF'
-#!/usr/bin/env bash
-exit 0
-TREEEOF
-        chmod +x "$XDG_DATA_HOME/nvim/mason/bin/tree-sitter"
-      fi
-    done
+    # A real install leaves a receipt, a payload and a bin link behind, and
+    # common/lib/mason.sh reads all three; a directory alone is what an
+    # interrupted install leaves, so the mock must not stop there.
+    "${MASON_MOCK_INSTALL:?the suite must export the Mason install fixture}" \
+      "$XDG_DATA_HOME/nvim/mason" \
+      ${DOTFILES_MASON_REPAIR_PACKAGES:-} ${DOTFILES_MASON_PACKAGES:-}
   fi
 done
 EOF
 chmod +x "$bootstrap_bin/mise" "$bootstrap_bin/nvim"
 
+test_stub_npm_global "$bootstrap_bin"
+
 rm -- "$bootstrap_bin/zsh"
+# MOCK_LOGIN_PATH_PREFIX models a directory a real login would put ahead of
+# the mise shims, such as a dnf package's /usr/bin copy of a runtime.
+# MOCK_SYSTEM_PATH_PREFIX models what WSL itself prepends before any of this
+# repository's Zsh configuration runs, which is what "zsh -f" (no rc files)
+# samples: it is deliberately not part of the sanitized login PATH above.
 cat >"$bootstrap_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
 printf '\033[H\033[2J\033[3J'
-PATH="$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
+system_path="${MOCK_SYSTEM_PATH_PREFIX:+$MOCK_SYSTEM_PATH_PREFIX:}$PATH"
+PATH="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
 if [[ "$*" == *'printf "%s\\n" "$PATH"'* ]]; then
   printf '%s\n' "$PATH"
+elif [[ "$*" == *'__DOTFILES_VERIFY_SYSTEM_PATH__'* ]]; then
+  printf '\n__DOTFILES_VERIFY_SYSTEM_PATH__%s\n' "$system_path"
 elif [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then
   printf '\n__DOTFILES_VERIFY_PATH__%s\n' "$PATH"
 elif [[ "$*" == *'__DOTFILES_VERIFY_STARSHIP__'* ]]; then
@@ -545,6 +576,15 @@ elif [[ "$*" == *'command -v "$1"'* ]]; then
   command -v "${*: -1}" >/dev/null || exit 1
 elif [[ "$*" == *'claude --version'* ]]; then
   claude --version >/dev/null || exit 1
+elif [[ "$*" == *'login-env:'* ]]; then
+  # A fresh login reads the stowed ~/.zshenv, so the answer has to come from the
+  # file the installer actually deployed rather than from this fixture.
+  # Extracting the exports is enough, and is all this stub can do: .zshenv is
+  # Zsh and this is Bash.
+  while IFS= read -r assignment; do
+    export "${assignment%%=*}=${assignment#*=}"
+  done < <(sed -n 's/^export \([A-Z_][A-Z_0-9]*=[^ ]*\)$/\1/p' "$HOME/.zshenv" 2>/dev/null)
+  bash -c "${*: -1}"
 fi
 printf '\033[H\033[2J\033[3J\n'
 EOF
@@ -602,6 +642,132 @@ grep -Fq 'Ensuring explicit Windows executable interop stays available' \
   "$test_root/bootstrap.log"
 grep -Fq 'explicit Windows executable interop works' "$test_root/bootstrap.log"
 grep -Fq 'sudo install -m 0644' "$bootstrap_command_log"
+grep -Fq 'dotnet is mise-managed via shim' "$test_root/bootstrap.log"
+grep -Fq 'node is mise-managed via shim' "$test_root/bootstrap.log"
+
+# A dnf copy of a mise-owned runtime ahead of the mise shims in the login PATH
+# is Linux-native, so the Windows-path check alone accepted it. The verifier
+# must now name it.
+dnf_shadow="$test_root/dnf-shadow-bin"
+mkdir -p "$dnf_shadow"
+cp "$bootstrap_bin/mock-command" "$dnf_shadow/dotnet"
+if "${bootstrap_environment[@]}" "MOCK_LOGIN_PATH_PREFIX=$dnf_shadow" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/dnf-shadow.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a non-mise dotnet ahead of the mise shim.\n' >&2
+  exit 1
+fi
+grep -Fq "dotnet resolves outside mise in the configured login PATH: $dnf_shadow/dotnet" \
+  "$test_root/dnf-shadow.log"
+if grep -Fq 'node resolves outside mise' "$test_root/dnf-shadow.log"; then
+  printf 'The dotnet shadow fixture unexpectedly failed an unrelated runtime.\n' >&2
+  exit 1
+fi
+printf 'PASS: Fedora WSL verification rejects a non-mise runtime shadowing the mise shim\n'
+
+# /etc/wsl.conf's [interop] appendWindowsPath=false is what keeps Windows
+# directories out of PATH in every context that is not an interactive Zsh
+# login: systemd units, "wsl.exe -e", VS Code's integrated shell, cron. A file
+# that configure-interop.sh has not reached (or that a WSL restart has not been
+# applied to) leaves all of those inheriting the Windows PATH, and nothing in
+# the login shell can reveal that. The verifier must read the file itself.
+missing_append_conf="$test_root/wsl-conf-without-append.conf"
+printf '[boot]\nsystemd=true\n\n[interop]\nenabled=true\n' >"$missing_append_conf"
+if "${bootstrap_environment[@]}" "WSL_CONF_FILE=$missing_append_conf" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/wsl-conf-missing-append.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a wsl.conf without appendWindowsPath=false.\n' >&2
+  exit 1
+fi
+grep -Fq "$missing_append_conf does not set [interop] appendWindowsPath=false" \
+  "$test_root/wsl-conf-missing-append.log"
+# The unrelated [boot] section must not be what the check keyed on.
+grep -Fq 'configure-interop.sh' "$test_root/wsl-conf-missing-append.log"
+printf 'PASS: Fedora WSL verification rejects a wsl.conf without [interop] appendWindowsPath=false\n'
+
+# A wsl.conf this repository did not write may spell the key with spaces, and
+# WSL reads that as false. Comparing the file against the rendered form would
+# report a correctly configured machine as unconfigured, so the check reads the
+# value instead.
+spaced_append_conf="$test_root/wsl-conf-spaced-append.conf"
+printf '[boot]\nsystemd=true\n\n[interop]\nenabled=true\n  appendWindowsPath = false\n' \
+  >"$spaced_append_conf"
+if ! "${bootstrap_environment[@]}" "WSL_CONF_FILE=$spaced_append_conf" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/wsl-conf-spaced-append.log" 2>&1; then
+  printf 'Fedora WSL verification rejected a wsl.conf that sets appendWindowsPath with spaces:\n' >&2
+  sed -n '1,120p' "$test_root/wsl-conf-spaced-append.log" >&2
+  exit 1
+fi
+grep -Fq "$spaced_append_conf sets [interop] appendWindowsPath=false" \
+  "$test_root/wsl-conf-spaced-append.log"
+printf 'PASS: Fedora WSL verification accepts the spaced "appendWindowsPath = false" form\n'
+
+# The opposite of absent: the key is there and switched on. The failure has to
+# name the value it found, not claim the key is missing.
+enabled_append_conf="$test_root/wsl-conf-append-true.conf"
+printf '[interop]\nenabled=true\nappendWindowsPath=true\n' >"$enabled_append_conf"
+if "${bootstrap_environment[@]}" "WSL_CONF_FILE=$enabled_append_conf" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/wsl-conf-append-true.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a wsl.conf with appendWindowsPath=true.\n' >&2
+  exit 1
+fi
+grep -Fq "$enabled_append_conf sets [interop] appendWindowsPath=true" \
+  "$test_root/wsl-conf-append-true.log"
+printf 'PASS: Fedora WSL verification names the value when appendWindowsPath is on\n'
+
+# With the wsl.conf policy in place but WSL still injecting Windows entries
+# (the file was written and never applied by "wsl --shutdown"), the sanitized
+# login PATH looks perfect -- the Zsh stripper removed the entry before the
+# verifier could see it. The unsanitized sample is what observes it, and it
+# must name the entry.
+injected_windows_entry="/mnt/c/Windows/System32"
+if "${bootstrap_environment[@]}" \
+  "MOCK_SYSTEM_PATH_PREFIX=$injected_windows_entry" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/windows-path-injected.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a Windows entry in the unsanitized PATH.\n' >&2
+  exit 1
+fi
+grep -Fq \
+  "The unsanitized system PATH contains a Windows entry: $injected_windows_entry" \
+  "$test_root/windows-path-injected.log"
+if grep -Fq 'does not set [interop] appendWindowsPath=false' \
+  "$test_root/windows-path-injected.log"; then
+  printf 'The injected-PATH fixture unexpectedly failed the wsl.conf check too.\n' >&2
+  exit 1
+fi
+# The sanitized check passed in the same run: on its own it cannot see this.
+grep -Fq 'The Zsh PATH sanitizer leaves only Linux filesystem entries' \
+  "$test_root/windows-path-injected.log"
+printf 'PASS: Fedora WSL verification rejects a Windows entry the Zsh sanitizer hides\n'
+
+wsl_tmux_plugin="$bootstrap_data/tmux/plugins/catppuccin"
+rm -f -- "$wsl_tmux_plugin/catppuccin.tmux"
+if "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/tmux-missing.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a missing Catppuccin tmux plugin.\n' >&2
+  exit 1
+fi
+grep -Fq 'Catppuccin tmux is missing' "$test_root/tmux-missing.log"
+git -C "$wsl_tmux_plugin" checkout -q -- catppuccin.tmux
+printf 'PASS: Fedora WSL verification rejects a missing Catppuccin tmux plugin\n'
+
+git -C "$wsl_tmux_plugin" -c user.name=WSL-Test -c user.email=wsl@example.invalid \
+  commit -q --allow-empty -m 'past the pin'
+if ! "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/tmux-drift.log" 2>&1; then
+  printf 'Fedora WSL verification failed a Catppuccin tmux checkout past the pin:\n' >&2
+  cat "$test_root/tmux-drift.log" >&2
+  exit 1
+fi
+grep -Fq 'Catppuccin tmux is at v2.3.0-1-g' "$test_root/tmux-drift.log"
+grep -Fq 'not the pinned v2.3.0' "$test_root/tmux-drift.log"
+git -C "$wsl_tmux_plugin" checkout -q --detach v2.3.0
+printf 'PASS: Fedora WSL verification warns about a Catppuccin tmux checkout past the pin\n'
 
 bootstrap_identity="$(sha256sum "$bootstrap_config/git/local")"
 bootstrap_notes="$(sha256sum "$bootstrap_home/notes")"

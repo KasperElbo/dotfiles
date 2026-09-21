@@ -12,6 +12,17 @@
 # Transient execution controls (--dry-run, --non-interactive, --help, the
 # development-workflow smoke tests) are deliberately absent from the manifest.
 # They belong to a single invocation, not to the machine's configuration.
+#
+# This library deliberately does not select shell options. It resolves the
+# option manifest from DOTFILES_ROOT and reports through die, both from
+# lib/common.sh, and sources that itself when the caller has not.
+
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
+# shellcheck source=manifest.sh
+source "$(dirname "${BASH_SOURCE[0]}")/manifest.sh"
 
 INSTALL_OPTION_MANIFEST="${INSTALL_OPTION_MANIFEST:-$DOTFILES_ROOT/config/install-options.tsv}"
 
@@ -25,33 +36,37 @@ INSTALL_SELECTION_SCHEMA_VERSION=1
 INSTALL_SELECTION_PLATFORM=""
 declare -A INSTALL_SELECTION_VALUES=()
 
-install_option_field_number() {
-  case "$1" in
-  platform) printf 1 ;; option) printf 2 ;; kind) printf 3 ;;
-  on_flag) printf 4 ;; off_flag) printf 5 ;; default) printf 6 ;;
-  values) printf 7 ;; capability) printf 8 ;; summary) printf 9 ;;
-  *) return 1 ;;
-  esac
-}
-
+# One field of an option row, read by column name (see manifest.sh). Exit 1
+# when the platform declares no such option; a manifest whose header lacks the
+# field fails loudly instead.
 install_option_field() {
-  local platform="$1" option="$2" field="$3" number
-  number="$(install_option_field_number "$field")" || return 1
-  awk -F '\t' -v p="$platform" -v o="$option" -v n="$number" \
-    'NR > 1 && $1 == p && $2 == o { print $n; found=1; exit } END { exit !found }' \
-    "$INSTALL_OPTION_MANIFEST"
+  local platform="$1" option="$2" field="$3"
+  manifest_field "$INSTALL_OPTION_MANIFEST" "$field" \
+    platform "$platform" option "$option"
 }
 
 # Persistent options of a platform, in manifest order. That order is the
 # serialization order too, so an unchanged selection serializes identically.
 install_option_names() {
   local platform="$1"
-  awk -F '\t' -v p="$platform" 'NR > 1 && $1 == p { print $2 }' \
-    "$INSTALL_OPTION_MANIFEST"
+  manifest_values "$INSTALL_OPTION_MANIFEST" option platform "$platform"
 }
 
+# Only an absent row means "no such option"; a broken manifest still reports.
 install_option_exists() {
-  install_option_field "$1" "$2" kind >/dev/null 2>&1
+  install_option_field "$1" "$2" kind >/dev/null
+}
+
+# The permitted values of a value-kind option, one per line: its values
+# column split on "|". For an enumeration such as theme this is the list every
+# runtime check reads, so the manifest cannot document a value the installer
+# rejects. A pattern such as charge-limit's comes back as its branches, which
+# only install_selection_value_is_valid can interpret.
+install_option_values() {
+  local platform="$1" option="$2" values
+  values="$(install_option_field "$platform" "$option" values)" || return 1
+  [[ "$values" != - ]] || return 1
+  tr '|' '\n' <<<"$values"
 }
 
 # Whether a *recorded* value is one this checkout can still interpret.

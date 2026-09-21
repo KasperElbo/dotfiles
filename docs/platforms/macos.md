@@ -61,9 +61,48 @@ mutation; without modern Bash, dry-run reports the prerequisite bootstrap plan
 and explains that rerunning it after the interpreter exists will show the full
 resolved plan.
 
-Apple's Bash 3.2 is supported only for `install.sh` and
+Apple's Bash 3.2 is supported for `install.sh` and
 `scripts/bootstrap-macos.sh`. The real installer and direct platform entry
 point continue to require Bash 4.4 or newer.
+
+The stowed commands are a second execution surface with the same boundary, and
+a different one from the installer's: they are launched from a login shell, a
+key binding or automation, with whatever PATH that environment has, so `env
+bash` may well resolve to Apple's. Each command macOS puts on `PATH` is
+therefore one of two things, and `tests/test-macos-command-surface.sh` enforces
+which:
+
+- **Safe under Apple's Bash as it stands** — it loads no shared library and
+  stays inside the 3.2 dialect. `aerospace-workspace-grid` is this.
+- **Modern-Bash-only, behind the boundary** — it sources
+  `common/lib/modern-bash.sh` and re-executes under a supported Bash before
+  loading anything that needs one. `theme` is this, because it reaches
+  `install-selection.sh`, whose `declare -A` fails at source time under 3.2.
+
+The command list comes from the macOS stow packages in
+`config/capabilities.tsv`, so a new package is audited as soon as it is
+declared. Making every shared script 3.2-compatible is not the goal; the
+repository's Bash 4.4+ baseline is unchanged.
+
+The portable entry points are a third surface with the same problem: `./doctor`
+is `#!/usr/bin/env bash`, which resolves to Apple's Bash whenever Homebrew is
+not ahead of `/bin` on `PATH` — precisely the broken `PATH` that
+[troubleshooting](../troubleshooting.md) sends you to `./doctor` to diagnose.
+`scripts/doctor.sh`, `scripts/lint.sh` and `scripts/test.sh` therefore select a
+supported Bash the way `theme` does, and the same audit covers them and the
+scripts each entry point `exec`s. It admits one further answer there:
+`scripts/install-main.sh` neither stays in the 3.2 dialect nor re-executes, it
+**refuses** before loading anything modern and names the bootstrap that fixes
+it — installing an interpreter is the bootstrap's job, with your consent, not a
+side effect of a health report. That input set is read from the "Portable entry
+point" row of
+[repository conventions](../architecture/repository-conventions.md) and from
+the root-level `public-entrypoint` rows of `config/shell-file-roles.tsv`, so a
+new entry point is audited when it is given its role.
+
+Because `doctor` is a subcommand and not a platform option, `./doctor`,
+`./install.sh doctor` and `./install.sh --platform macos doctor` all reach that
+report, and none of them runs the Homebrew bootstrap.
 
 **Automated:** Preview the exact plan without changing the machine:
 
@@ -142,9 +181,27 @@ Rosetta.
 ## Terminal
 
 The terminal is **Ghostty**, installed from the Brewfile as part of the
-baseline and configured by the portable `ghostty` Stow package. Like the rest
-of the baseline it is not optional and has no flag; Terminal.app and iTerm are
-left untouched.
+baseline and configured by the portable `ghostty` Stow package plus the
+macOS-only `ghostty-macos` package below. Like the rest of the baseline it is
+not optional and has no flag; Terminal.app and iTerm are left untouched.
+
+### Left Option is Alt
+
+The shared shell workflow binds `Alt-C` to fzf's directory picker, alongside
+`Ctrl-R` and `Ctrl-T`. A Mac has no Alt key, and Ghostty does not send Option
+as Meta unless it is told to, so on a Danish layout `Option+C` would type a
+character instead of reaching the widget.
+
+The `ghostty-macos` Stow package sets `macos-option-as-alt = left`, loaded
+through the portable config's `config-file = ?macos.conf`, which resolves to
+nothing on the platforms that do not stow it. **Left Option** therefore reaches
+the shell as Alt/Meta, and **Right Option** is deliberately left alone so it
+still types the symbols a Danish layout puts behind it.
+
+`ghostty +show-config` prints what the installed terminal actually resolved,
+which is what the verifier checks. The
+[keybindings reference](../reference/keybindings.md) and the macOS cheat sheet
+record the physical-key mapping.
 
 ## 4. Development workflows
 
@@ -244,6 +301,23 @@ formula to keep machine-package ownership declarative. If that trade-off causes
 a real stability issue, remove the formula and use the upstream installer
 rather than keeping two copies.
 
+This profile is the one macOS capability no CI job installs, and
+`config/capabilities.tsv` records that in the row's `ci_scope` column. A
+hosted macOS runner is itself a virtual machine, so `vfkit` has no nested
+virtualisation to build the Podman machine on: `podman machine init` writes
+the VM and `podman machine start` then fails with `Error: vfkit exited
+unexpectedly with exit code 1`. Nothing in this repository changes that, so
+the real-install workflow does not select `--containers` on macOS.
+
+Check it by hand on a real Mac instead, after an install that selected it:
+
+```bash
+podman machine list          # one machine, Running
+podman info                  # rootless: true
+podman run --rm docker.io/library/alpine:latest uname -m   # aarch64
+podman-compose version
+```
+
 See [the containers profile guide](../profiles/containers.md) for day-to-day
 use. Rollback:
 
@@ -342,6 +416,139 @@ ownership, the full list of what is intentionally never automated (ACLs, exit
 nodes, subnet routes, Tailscale SSH, `--accept-routes`/`--accept-dns`), and
 normal day-to-day commands. None of that is Fedora-specific; it applies here
 unchanged.
+
+### Optional dictation
+
+```bash
+./install.sh --platform macos --dictation
+```
+
+Local, offline voice dictation: Ghost Pepper, a menu-bar application installed
+from a pinned upstream disk image because no Homebrew cask exists for it. It is
+the one macOS application this installer places in `/Applications` itself, so
+the release tag and its SHA-256 are pinned in
+`platforms/macos/lib/dictation.sh` and bumped by hand.
+
+It needs Microphone and Accessibility approval, both granted by you after the
+install; Accessibility is what makes the global hotkey and the paste work at
+all. Nothing here scripts a privacy prompt, and nothing here touches Gatekeeper
+or SIP: the application is Developer ID signed and Apple-notarized, and the
+verifier asserts that Gatekeeper accepts it as shipped.
+
+Rollback:
+
+```bash
+rm -rf /Applications/GhostPepper.app
+rm ~/.config/dotfiles/macos-dictation.conf
+```
+
+See [the dictation profile guide](../profiles/dictation.md#macos) for the
+decision record, the pin's maintenance cost, the shortcut constraints, where
+models and history live, and what verification proves.
+
+## Desktop wallpaper
+
+`theme <flavour>` sets the desktop wallpaper to the matching Catppuccin image,
+through the macOS theme hook. The images are the tracked ones in the shared
+`theme-assets` package, linked into `~/.local/share/wallpapers`, so switching
+a theme downloads nothing.
+
+**The interface.** `osascript` telling System Events to set the picture of
+every desktop. That is the one documented automation surface Apple offers for
+this. Writing `~/Library/Application Support/com.apple.wallpaper/Store/Index.plist`
+or the older `desktoppicture.db` was rejected: both are undocumented system
+databases a macOS release may change without notice, and both fail silently
+rather than loudly.
+
+**What it depends on**, so a future macOS breaking it is diagnosable rather
+than mysterious:
+
+- Apple Events automation permission. The program running `theme` must be
+  allowed to control System Events, in System Settings > Privacy & Security >
+  Automation. The first run prompts for it; a denied or unapproved caller
+  gets osascript error `-1743`, which the hook reports as that permission
+  rather than as a generic failure.
+- System Events, and the `picture` property of its `desktop` objects. That
+  property is what a macOS release would remove.
+- The image being readable at `~/.local/share/wallpapers/catppuccin-<flavour>.webp`,
+  which is the stowed link. A missing one is refused before osascript is
+  invoked, so an unstowed machine gets an answer rather than an AppleScript
+  error.
+
+**Multi-display and Spaces.** `every desktop` is every attached display, so
+all displays change together; per-display wallpapers are not offered, because
+this repository applies one flavour to the whole desktop. AppleScript exposes
+one desktop object per display and none per Space, so the change lands on
+each display's current Space. A Space that carries its own wallpaper keeps
+it, and a Space created afterwards takes whatever macOS gives a new Space.
+
+**Failure is isolated.** The wallpaper is a named action inside the hook's
+error boundary, so a Mac that refuses the permission still gets its terminal,
+editor and CLI theming, and `theme` reports a partial application with
+`macos:wallpaper` named rather than claiming success.
+
+**Manual acceptance check**, which no CI runner can perform, because none has
+a desktop session:
+
+1. Set a wallpaper of your own in System Settings.
+2. Run `theme latte`, and confirm the desktop shows the Latte image on every
+   display.
+3. Run `theme mocha`, and confirm it changes again.
+4. Set a wallpaper of your own again.
+5. Run `theme frappe --preserve-wallpaper`, and confirm the desktop is
+   untouched while the terminal and editor follow Frappé.
+
+`tests/test-theme-hooks.sh` covers the rest with a stubbed `osascript`: that
+each flavour selects its own asset and invokes the interface once with that
+path, that `--preserve-wallpaper` invokes it not at all, and that a refused
+call is reported. The stub proves the hook's selection and invocation, not
+that macOS accepted the change.
+
+## Lock screen
+
+**macOS does not get a flavour-matched lock screen, and that is a decision
+rather than an omission.** What it gets instead is the desktop wallpaper,
+because that is what the lock screen shows.
+
+**What macOS actually does.** Locking a logged-in session, with Control +
+Command + Q or the Apple menu's Lock Screen, displays the current desktop
+wallpaper. There is no System Settings control that separates the two, and no
+documented user-level interface that sets one without the other. So `theme
+<flavour>` already changes the lock screen: it is the same image, applied by
+the same call described under "Desktop wallpaper" above. Nothing further is
+implemented, because there is nothing further to call.
+
+**What was rejected.** A login window background distinct from the desktop is
+reachable only by writing `lockscreen.png` into
+`/Library/Caches/Desktop Pictures/<user UUID>/`. That is a root-owned system
+cache, its layout is a private implementation detail rather than a documented
+interface, and making it writable means loosening permissions on a directory
+macOS maintains. It is also fragile in ways that matter on a real machine:
+reports have it failing outright with FileVault enabled and with more than one
+account on the Mac. This repository keeps SIP and Gatekeeper on as a stated
+position, and the AeroSpace decision below was taken on the same grounds, so
+buying visual parity with Fedora by editing a system cache would contradict a
+choice already made deliberately. The FileVault pre-boot screen and the
+firmware startup screen are not user-configurable at all.
+
+**Why the `-lock.webp` assets exist anyway.** The shared `theme-assets`
+package tracks a blurred, darkened `-lock` derivative of each flavour. Those
+are Swaylock's, on Fedora, where the lock screen is a separate program with
+its own configuration. macOS has no consumer for them and will not grow one
+while the above holds. `tests/test-macos.sh` fails if the macOS tree starts
+referring to them or to the login-window caches, so the decision is enforced
+rather than merely recorded.
+
+**Manual acceptance check**, which no CI runner can perform:
+
+1. Run `theme mocha`, and confirm the desktop changes.
+2. Press Control + Command + Q.
+3. Confirm the lock screen shows the Mocha wallpaper, not the previous one.
+4. Log back in, run `theme latte`, and lock again to confirm it follows.
+
+If a future macOS separates the two, this section is the place to revisit:
+the test named above will still pass, because it forbids the unsupported
+route rather than requiring the absence of a supported one.
 
 ## 5. AeroSpace decision record
 
@@ -513,12 +720,13 @@ platforms/macos/scripts/verify.sh --defaults
 git diff --check
 ```
 
-Add `--containers` and/or `--tailscale` to verification when those optional
-profiles are installed. The verifier checks arm64, `/opt/homebrew`, the
+Add `--containers`, `--tailscale` and/or `--dictation` to verification when
+those optional profiles are installed. The verifier checks arm64, `/opt/homebrew`, the
 absence of Intel Homebrew, SIP, Gatekeeper, shared/macOS Stow links,
-tools/runtimes, apps, defaults, the Podman machine, and Tailscale (app
-presence, CLI version, and connection state via `tailscale status --json`)
-when selected. An ungranted AeroSpace Accessibility permission and a
+tools (each run as well as found), mise ownership of the managed runtimes,
+the applied theme, the Mason inventory, the Catppuccin tmux plugin, apps,
+defaults, the Podman machine, and Tailscale (app presence, CLI version, and
+connection state via `tailscale status --json`) when selected. An ungranted AeroSpace Accessibility permission and a
 not-yet-installed Tailscale CLI are both reported as warnings with their
 manual remedy, not hard failures, since both are optional interactive steps.
 
@@ -527,7 +735,7 @@ To remove only the Mac desktop layer while leaving common dotfiles intact:
 ```bash
 pkill AeroSpace || true
 brew uninstall --cask nikitabobko/tap/aerospace ghostty
-stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace zsh-platform nvim-macos
+stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace zsh-platform nvim-macos ghostty-macos theme-hooks
 platforms/macos/scripts/apply-defaults.sh --restore
 ```
 

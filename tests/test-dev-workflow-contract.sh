@@ -30,8 +30,11 @@ report() {
 
 check() {
   local description="$1"
+  local failures_before="$TEST_FAILURES"
   shift
-  if "$@"; then
+  # An assertion that failed inside a check fails it even if the check function
+  # still returned 0, so a PASS line never hides a TEST FAILURE.
+  if "$@" && ((TEST_FAILURES == failures_before)); then
     report pass "$description"
   else
     report fail "$description"
@@ -55,7 +58,7 @@ canonical_flag_is_declared() {
     assert_eq "--dev-workflows" "$flag" "$platform capability flag" || return 1
   done
 
-  flag="$(awk -F '\t' '$1 == "dev-workflows" && $2 == "parrot-ctf" { print $15 }' \
+  flag="$(awk -F '\t' '$1 == "dev-workflows" && $2 == "parrot-ctf" { print $16 }' \
     "$manifest")"
   assert_eq "unsupported" "$flag" "parrot-ctf capability status"
 }

@@ -1,7 +1,12 @@
 # XDG-based Zsh configuration
 export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"
 
-# PATH policy for every Zsh, interactive or not.
+# PATH policy for every top-level Zsh, interactive or not.
+#
+# "Top-level" is exact: ZDOTDIR is exported above, and there is no .zshenv in
+# it, so a Zsh started from inside a Zsh reads no .zshenv at all and never
+# re-runs any of this. A nested shell gets what this file exported (PATH below,
+# DISABLE_UPDATES further down), and nothing else here has to reach one.
 #
 # Zsh ties the `path` array to `PATH`; marking the pair unique makes every
 # later prepend or append idempotent, in this file, in platform files, and in
@@ -13,6 +18,23 @@ typeset -gU path PATH
 # User executables
 path=("$HOME/.local/bin" $path)
 export PATH
+
+# Claude Code is installed and updated by mise, as `npm:@anthropic-ai/claude-code`
+# in the optional AI profile. Left to itself it installs a second copy under the
+# mise-managed Node prefix, which then shadows the dedicated npm-backend
+# installation and makes the AI verifier fail on a duplicated provider.
+#
+# `DISABLE_UPDATES` blocks every update path. The more commonly cited
+# `DISABLE_AUTOUPDATER` stops only the background check and leaves `claude
+# update` and `claude install` able to do exactly the same thing, which is not
+# what "mise owns this package" means.
+#
+# Set here rather than behind the AI profile because this file is read by every
+# top-level Zsh, interactive or not, and exported from there into everything
+# that shell starts, which is what makes the setting effective however Claude
+# Code is started. On a machine that never selected the AI profile the variable
+# simply has no reader.
+export DISABLE_UPDATES=1
 
 # Platform environment policy must run before .zshrc executes any commands.
 # Fedora WSL uses this hook to remove inherited Windows PATH entries while

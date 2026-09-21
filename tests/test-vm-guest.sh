@@ -6,6 +6,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
+test_isolate_path curl getent git sha256sum
 test_new_root
 test_root="$TEST_ROOT"
 
@@ -18,9 +19,13 @@ mkdir -p \
   "$test_root/virtio-ports"
 
 test_stub_init "$test_root"
+# The disk preflight decides on a known figure, not on this machine's free space.
+test_stub_roomy_df "$mock_bin"
 for command_name in dnf sudo systemctl; do
   test_stub_install "$test_root" "$command_name"
 done
+# The top-level installer checks cached sudo before it reaches VM detection.
+test_stub_allow "$test_root" sudo -n -v
 test_stub_allow "$test_root" dnf install -y qemu-guest-agent spice-vdagent xclip
 test_stub_allow "$test_root" sudo dnf install -y qemu-guest-agent spice-vdagent xclip
 test_stub_allow "$test_root" sudo systemctl enable --now qemu-guest-agent.service
@@ -63,8 +68,21 @@ EOF
 
 cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
+# A credential probe changes nothing, so it stays out of the mutation log.
+[[ "$*" == '-n -v' ]] && exit 0
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 exec "$@"
+EOF
+
+# The installer refuses root, so pin a regular user rather than inheriting
+# whoever runs the suite (root in the CI container).
+cat >"$mock_bin/id" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  -u) printf '1000\n' ;;
+  -un) printf 'vm-guest-test\n' ;;
+  *) exit 1 ;;
+esac
 EOF
 
 cat >"$mock_bin/ip" <<'EOF'
@@ -159,7 +177,7 @@ if "${test_environment[@]}" \
   printf 'Top-level installer unexpectedly accepted a VM guest on bare metal.\n' >&2
   exit 1
 fi
-grep -Eq 'Refusing to run the user installer as root|must be run inside a detected virtual machine' \
+grep -Fq 'must be run inside a detected virtual machine' \
   "$test_root/top-level-bare-metal.log"
 [[ "$(sha256sum "$command_log")" == "$before_rejection" ]]
 

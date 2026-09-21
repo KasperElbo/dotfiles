@@ -7,12 +7,15 @@ wsl_version_helper="$repo_root/platforms/windows/lib/wsl-version.ps1"
 theme_helper="$repo_root/platforms/windows/set-noctty-theme.ps1"
 windows_manifest="$repo_root/platforms/windows/manifest.psd1"
 windows_verifier="$repo_root/platforms/windows/verify.ps1"
+network_sources="$repo_root/config/network-sources.tsv"
+dictation_doc="$repo_root/docs/profiles/dictation.md"
 
 [[ -f "$installer" ]]
 [[ -f "$wsl_version_helper" ]]
 [[ -f "$theme_helper" ]]
 [[ -f "$windows_manifest" ]]
 [[ -f "$windows_verifier" ]]
+[[ -f "$dictation_doc" ]]
 
 grep -Fq -- "wsl.exe @arguments" "$installer"
 grep -Fq -- "& \$FilePath @Arguments | Out-Host" "$installer"
@@ -79,9 +82,116 @@ if [[ "$(grep -Fc -- "$start_process_call" <<<"$invoke_elevated_phase_body")" -n
   exit 1
 fi
 
+# Scoop resolution is PATH-independent and shared, not duplicated.
+#
+# The Scoop installer runs in a child PowerShell, and a package's shim reaches
+# PATH through the registry, so the session that performed a completely
+# successful install still cannot see either through Get-Command. install.ps1
+# always had a fallback for that; verify.ps1 had none, so verifying in the same
+# session after a successful install reported three healthy things as missing
+# -- two of them with an empty path, because Test-PathWithinRoot answers false
+# for a null path. One helper now answers for both scripts.
+scoop_helper="$repo_root/platforms/windows/lib/scoop.ps1"
+[[ -f "$scoop_helper" ]]
+grep -Fq 'function Get-ScoopRoot' "$scoop_helper"
+grep -Fq 'function Resolve-ScoopShimCommand' "$scoop_helper"
+grep -Fq 'function Resolve-ScoopCommand' "$scoop_helper"
+grep -Fq "Join-Path (Get-ScoopRoot) 'shims'" "$scoop_helper"
+
+for windows_script in "$installer" "$windows_verifier"; do
+  grep -Fq "Join-Path \$PSScriptRoot 'lib\\scoop.ps1'" "$windows_script" || {
+    printf 'Scoop resolution must come from the shared helper: %s\n' \
+      "$windows_script" >&2
+    exit 1
+  }
+  if grep -Fq 'function Resolve-ScoopCommand' "$windows_script"; then
+    printf 'Scoop resolution belongs in platforms/windows/lib/scoop.ps1, not: %s\n' \
+      "$windows_script" >&2
+    exit 1
+  fi
+  if grep -Eq 'Get-Command +(scoop|noctty)\b' "$windows_script"; then
+    printf 'Scoop-owned commands must not be resolved through PATH alone: %s\n' \
+      "$windows_script" >&2
+    exit 1
+  fi
+done
+
 grep -Fq 'https://get.scoop.sh' "$installer"
 grep -Fq 'https://github.com/amanthanvi/scoop-noctty' "$windows_manifest"
 grep -Fq "QualifiedName = 'noctty/noctty'" "$windows_manifest"
+
+# Voice dictation on Windows is Handy, installed per-user from Scoop's
+# official `extras` bucket, where its manifest is sha256-pinned. That is why
+# the Windows bootstrap stays entirely on Scoop and why the `winget install`
+# guard further down is deliberately left as a global prohibition rather than
+# narrowed to Noctty. See docs/profiles/dictation.md.
+grep -Fq 'https://github.com/ScoopInstaller/Extras' "$windows_manifest"
+grep -Fq "Name = 'extras'" "$windows_manifest"
+grep -Fq "QualifiedName = 'extras/handy'" "$windows_manifest"
+grep -Fq "Executable = 'handy.exe'" "$windows_manifest"
+grep -Fq 'scoop-extras-bucket' "$network_sources"
+grep -Fq 'https://github.com/ScoopInstaller/Extras' "$network_sources"
+
+# The manifest is the single source of truth for bucket and package names.
+for hardcoded_scoop_name in 'https://github.com/ScoopInstaller/Extras' 'extras/handy'; do
+  if grep -Fq -- "$hardcoded_scoop_name" "$installer"; then
+    printf 'Scoop names belong in platforms/windows/manifest.psd1, not the installer: %s\n' \
+      "$hardcoded_scoop_name" >&2
+    exit 1
+  fi
+done
+
+# Dictation is opt-in desktop tooling: it must never become a prerequisite of
+# the WSL/terminal bootstrap, so the installer defines Install-Handy and calls
+# it from exactly one guarded call site.
+grep -Fq -- 'function Install-Handy' "$installer"
+# These identifiers belong to PowerShell, not Bash.
+# shellcheck disable=SC2016
+grep -Fq -- '[switch]$Handy' "$installer"
+# shellcheck disable=SC2016
+grep -Fq -- 'if ($Handy) {' "$installer"
+# shellcheck disable=SC2016
+grep -Fq -- 'HandySelected = $Handy.IsPresent' "$installer"
+if [[ "$(grep -Fc -- 'Install-Handy' "$installer")" -ne 2 ]]; then
+  printf 'Install-Handy must be defined once and called from one guarded call site.\n' >&2
+  exit 1
+fi
+
+install_handy_body="$(awk '/^function Install-Handy/,/^}/' "$installer")"
+grep -Fq 'Scoop.ExtrasBucket' <<<"$install_handy_body"
+grep -Fq 'Scoop.HandyPackage' <<<"$install_handy_body"
+# Reuses the shared Scoop helpers instead of duplicating them, stays
+# idempotent, and keeps --DryRun honest.
+grep -Fq 'Test-ScoopPackageInstalled' <<<"$install_handy_body"
+grep -Fq 'Handy is already installed' <<<"$install_handy_body"
+grep -Fq 'Add-ScoopBucket -Scoop' <<<"$install_handy_body"
+grep -Fq 'Install-ScoopPackage -Scoop' <<<"$install_handy_body"
+grep -Fq 'Would install' <<<"$install_handy_body"
+if grep -Fqi 'winget' <<<"$install_handy_body"; then
+  printf 'Handy is a Scoop extras package; it must not be installed through WinGet.\n' >&2
+  exit 1
+fi
+
+# Privacy: Handy keeps its models, settings and any transcription history in
+# the Windows user profile. The installer must create nothing inside the
+# checkout, and no recording, transcript or downloaded model may be tracked.
+if grep -Fq 'RepositoryRoot' <<<"$install_handy_body"; then
+  printf 'The dictation install must not write anything into the checkout.\n' >&2
+  exit 1
+fi
+tracked_media="$(git -C "$repo_root" ls-files -- \
+  '*.wav' '*.mp3' '*.m4a' '*.flac' '*.ogg' '*.gguf' '*.onnx' '*.bin' '*.pt' \
+  '*.safetensors')"
+if [[ -n "$tracked_media" ]]; then
+  printf 'Recorded audio, transcripts and speech models must never be tracked.\n' >&2
+  exit 1
+fi
+
+grep -Fq '## Windows' "$dictation_doc"
+grep -Fq 'extras/handy' "$dictation_doc"
+# The decision record has to say why the issue's WinGet boundary change was
+# investigated and then not made.
+grep -Fqi 'winget' "$dictation_doc"
 grep -Fq "Import-PowerShellDataFile (Join-Path \$PSScriptRoot 'manifest.psd1')" "$installer"
 grep -Fq 'function Write-WindowsSelectionState' "$installer"
 # $selectedFedora belongs to PowerShell, not Bash.
@@ -107,6 +217,8 @@ if grep -Fq '+perform-action' "$theme_helper"; then
   exit 1
 fi
 
+# Deliberately a global prohibition, not a Noctty-only one: every Windows
+# application this repository installs is Scoop-owned, Handy included.
 if grep -Fqi 'winget install' "$installer"; then
   printf 'Windows bootstrap must use the currently supported Noctty Scoop bucket.\n' >&2
   exit 1
@@ -130,7 +242,19 @@ if command -v pwsh >/dev/null 2>&1; then
   # argument; pass the path through the environment instead.
   # The variables in this command belong to PowerShell, not Bash.
   # shellcheck disable=SC2016
-  for powershell_file in "$installer" "$wsl_version_helper" "$theme_helper" "$windows_verifier" "$repo_root/verify.ps1"; do
+  powershell_files=(
+    "$installer"
+    "$wsl_version_helper"
+    "$scoop_helper"
+    "$theme_helper"
+    "$windows_verifier"
+    "$repo_root/verify.ps1"
+    # The Windows-only suites themselves: a parse error in one of them would
+    # otherwise surface only on the Windows runner.
+    "$repo_root/tests/test-windows-bootstrap.ps1"
+    "$repo_root/tests/test-windows-verifier.ps1"
+  )
+  for powershell_file in "${powershell_files[@]}"; do
     POWERSHELL_FILE_TO_PARSE="$powershell_file" pwsh -NoProfile -Command '
       $tokens = $null
       $errors = $null
@@ -145,4 +269,4 @@ if command -v pwsh >/dev/null 2>&1; then
   done
 fi
 
-printf 'Windows Fedora WSL and Noctty bootstrap tests passed.\n'
+printf 'Windows Fedora WSL, Noctty and Handy bootstrap tests passed.\n'

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Validate Fedora command requirements against capability package ownership."""
+"""Validate every bash platform's command requirements against capability package ownership."""
 
 from __future__ import annotations
 
-import csv
 import os
 import pathlib
 import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import ManifestSchemaError, read_tsv  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CAPABILITIES = pathlib.Path(
@@ -14,11 +15,11 @@ CAPABILITIES = pathlib.Path(
 )
 COMMANDS = pathlib.Path(
     os.environ.get(
-        "FEDORA_COMMAND_PROVIDER_MANIFEST",
-        ROOT / "config" / "fedora-command-providers.tsv",
+        "COMMAND_PROVIDER_MANIFEST",
+        ROOT / "config" / "command-providers.tsv",
     )
 )
-PLATFORMS = {"fedora", "fedora-wsl"}
+PLATFORMS = {"fedora", "fedora-wsl", "macos", "parrot-ctf"}
 CLASSIFICATIONS = {
     "bootstrap-prerequisite",
     "baseline-package",
@@ -32,27 +33,26 @@ def split(value: str) -> list[str]:
 
 
 def fail(message: str) -> None:
-    print(f"fedora dependency closure: {message}", file=sys.stderr)
+    print(f"command provider closure: {message}", file=sys.stderr)
 
 
 def main() -> int:
     errors = 0
-    with CAPABILITIES.open(newline="", encoding="utf-8") as stream:
-        capabilities = list(csv.DictReader(stream, delimiter="\t"))
-    with COMMANDS.open(newline="", encoding="utf-8") as stream:
-        reader = csv.DictReader(stream, delimiter="\t")
-        expected_fields = [
-            "platform",
-            "command",
-            "provider",
-            "owner",
-            "required_by",
-            "classification",
-        ]
-        if reader.fieldnames != expected_fields:
-            fail(f"unexpected columns: {reader.fieldnames}")
-            return 1
-        commands = list(reader)
+    capabilities = read_tsv(CAPABILITIES)
+    expected_fields = [
+        "platform",
+        "command",
+        "provider",
+        "owner",
+        "required_by",
+        "classification",
+    ]
+    try:
+        commands = read_tsv(COMMANDS, expected_fields)
+    except ManifestSchemaError as error:
+        for message in error.messages:
+            fail(message)
+        return 1
 
     rows = {
         (row["platform"], row["capability"]): row

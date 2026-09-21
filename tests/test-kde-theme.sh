@@ -34,9 +34,16 @@ test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
 test_stub_install "$test_root" git
 test_stub_install "$test_root" sudo
-test_stub_allow "$test_root" dnf install -y kio-extras
-test_stub_allow "$test_root" sudo dnf install -y kio-extras
-test_stub_allow "$test_root" git clone --branch v0.2.7 --depth 1 \
+for package in kio-extras wget /usr/bin/kpackagetool6; do
+  test_stub_allow "$test_root" dnf install -y "$package"
+  test_stub_allow "$test_root" sudo dnf install -y "$package"
+done
+# The pinned tag is read from the installer rather than repeated here, so
+# bumping the pin cannot leave this stub allowing the previous tag.
+kde_pin="$(sed -n 's/^version="\(v[0-9][0-9.]*\)"$/\1/p' \
+  "$repo_root/platforms/fedora/scripts/install-kde-theme.sh")"
+[[ -n "$kde_pin" ]] || _test_die 'could not read the Catppuccin KDE pin'
+test_stub_allow "$test_root" git clone --branch "$kde_pin" --depth 1 \
   https://github.com/catppuccin/kde.git \
   "$test_root/cache/dotfiles/catppuccin-kde"
 
@@ -46,12 +53,52 @@ printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 exec "$@"
 EOF
 
+# A real `dnf install` puts the command on PATH, and the fixture installer
+# below refuses to run without the ones the pinned upstream installer checks.
+# So this handler has to put them there too: without it the suite would assert
+# that a command was logged and never that the install it stands for had any
+# effect. TEST_KDE_DNF_INERT switches that off, for the negative control at the
+# end.
+cat >"$test_root/handlers/dnf" <<'EOF'
+#!/usr/bin/env bash
+[[ -z "${TEST_KDE_DNF_INERT:-}" ]] || exit 0
+for argument in "$@"; do
+  case "$argument" in
+  wget) installed=wget ;;
+  /usr/bin/kpackagetool6) installed=kpackagetool6 ;;
+  *) continue ;;
+  esac
+  printf '#!/usr/bin/env sh\nexit 0\n' >"$TEST_STUB_ROOT/bin/$installed"
+  chmod +x "$TEST_STUB_ROOT/bin/$installed"
+done
+EOF
+
 cat >"$test_root/handlers/git" <<'EOF'
 #!/usr/bin/env bash
 destination="${*: -1}"
 mkdir -p "$destination"
 cat >"$destination/install.sh" <<'INSTALLER'
 #!/usr/bin/env sh
+# The pinned upstream installer checks its dependencies before installing
+# anything, and a missing one stops it dead -- which is how two scheduled real
+# installations failed in a row, first on wget and then on kpackagetool6.
+# Reproduce those checks, so dropping an install fails this suite instead of
+# only the next Fedora run.
+#
+# Each one insists on the copy the installer put in the stub directory rather
+# than on any copy: the suite runs with the host PATH appended, so accepting
+# whatever `command -v` finds would pass on any machine that happens to have
+# one and prove nothing here.
+for required in wget:"$EXPECTED_WGET" kpackagetool6:"$EXPECTED_KPACKAGETOOL"; do
+  name="${required%%:*}"
+  case "$(command -v "$name" 2>/dev/null)" in
+  "${required#*:}") ;;
+  *)
+    printf "Error: Dependency '%s' is not met.\n" "$name" >&2
+    exit 1
+    ;;
+  esac
+done
 printf '%s\n' "$*" >>"$INSTALL_LOG"
 kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key BorderSizeAuto false
 plasma-apply-lookandfeel -a "Catppuccin-$1"
@@ -103,6 +150,8 @@ install_environment=(
   "INSTALL_LOG=$install_log"
   "SIDE_EFFECT_LOG=$side_effect_log"
   "COMMAND_LOG=$command_log"
+  "EXPECTED_WGET=$mock_bin/wget"
+  "EXPECTED_KPACKAGETOOL=$mock_bin/kpackagetool6"
   "PATH=$mock_bin:$PATH"
 )
 
@@ -110,17 +159,42 @@ install_kde_themes() {
   RPM_PRESENT="${RPM_PRESENT:-}" "${install_environment[@]}" \
     "$repo_root/platforms/fedora/scripts/install-kde-theme.sh" >/dev/null
 }
+# The upstream installer checks unzip on the same unconditional line as wget,
+# and this capability deliberately does not declare it: package ownership is
+# single-owner and unzip is a generic utility the base capability owns. So the
+# declaration that keeps --kde working is base's, and base is what the kde row
+# depends on. Should it leave base's packages, --kde --no-ocaml breaks at the
+# cursor step on any Fedora machine that happens not to have unzip (#360).
+base_packages="$(awk -F '\t' '$1 == "base" && $2 == "fedora" { print $9 }' \
+  "$repo_root/config/capabilities.tsv")"
+[[ -n "$base_packages" ]] ||
+  _test_die 'config/capabilities.tsv has no fedora row for the base capability'
+case ",$base_packages," in
+*,unzip,*) ;;
+*) _test_die 'the fedora base capability must declare unzip; the Catppuccin KDE installer requires it' ;;
+esac
+printf 'PASS: unzip is declared by the base capability the KDE row depends on\n'
+
+for absent in wget kpackagetool6; do
+  [[ ! -e "$mock_bin/$absent" ]] ||
+    _test_die "$absent is already in the stub directory, so installing it proves nothing"
+done
 RPM_PRESENT="" install_kde_themes
 grep -Fq 'sudo dnf install -y kio-extras' "$command_log"
 printf 'PASS: missing kio-extras is installed for Dolphin sftp:// support\n'
+grep -Fq 'sudo dnf install -y wget' "$command_log"
+printf 'PASS: missing wget is installed before the upstream installer runs\n'
+grep -Fq 'sudo dnf install -y /usr/bin/kpackagetool6' "$command_log"
+printf 'PASS: missing kpackagetool6 is installed by the path that provides it\n'
 
 : >"$command_log"
-RPM_PRESENT="kio-extras" install_kde_themes
-if grep -Fq 'kio-extras' "$command_log"; then
-  printf 'kio-extras was reinstalled even though it was already present.\n' >&2
+RPM_PRESENT="kio-extras wget" install_kde_themes
+if [[ -s "$command_log" ]]; then
+  printf 'A package was reinstalled even though it was already present:\n' >&2
+  cat "$command_log" >&2
   exit 1
 fi
-printf 'PASS: an already-present kio-extras is reused, not reinstalled\n'
+printf 'PASS: already-present packages are reused, not reinstalled\n'
 
 for flavour in 1 2 3 4; do
   [[ "$(grep -Fxc "$flavour 4 2 auto" "$install_log")" == 2 ]]
@@ -132,11 +206,61 @@ if [[ -s "$side_effect_log" ]]; then
   exit 1
 fi
 
+# The negative control for the two assertions above: with a dnf that installs
+# nothing, the fixture upstream installer has to fail the way the real one did
+# on the scheduled run. This is what an install-kde-theme.sh that stopped
+# installing wget would look like, so if this passes, those assertions prove
+# nothing.
+# One dependency is withheld at a time, with the others left in place, so each
+# assertion above is shown to fail for its own reason rather than for the
+# first missing command in the list.
+for dependency in wget kpackagetool6; do
+  [[ -x "$mock_bin/$dependency" ]] ||
+    _test_die "$dependency was never installed, so withholding it proves nothing"
+  mv "$mock_bin/$dependency" "$test_root/$dependency.withheld"
+  if negative_output="$(TEST_KDE_DNF_INERT=1 RPM_PRESENT="" install_kde_themes 2>&1)"; then
+    _test_die "the upstream installer ran without $dependency, so a missing one cannot fail this suite"
+  fi
+  unset TEST_KDE_DNF_INERT
+  assert_contains "$negative_output" "Dependency '$dependency' is not met."
+  printf 'PASS: an upstream installer that cannot find %s fails the install\n' "$dependency"
+  mv "$test_root/$dependency.withheld" "$mock_bin/$dependency"
+done
+
+# The negative control for the Plasma preflight. Withholding
+# plasma-apply-lookandfeel leaves a machine with kpackagetool6 and no desktop,
+# which is the state that cleared every dependency check on the 2026-09-21
+# scheduled run and then died at the global theme step. The shim directory
+# hands the upstream installer a plasma-apply-lookandfeel of its own, so
+# without the preflight this run would finish and report success: from inside
+# the install the absent desktop is invisible.
+#
+# The stop has to come before the first write. `rm -rf "$workdir"` is that
+# write, so a sentinel left in the work directory of the successful run above
+# has to still be there afterwards.
+kde_workdir="$test_root/cache/dotfiles/catppuccin-kde"
+[[ -x "$mock_bin/plasma-apply-lookandfeel" ]] ||
+  _test_die 'plasma-apply-lookandfeel is absent already, so withholding it proves nothing'
+[[ -d "$kde_workdir" ]] ||
+  _test_die 'the upstream clone never happened, so its survival proves nothing'
+: >"$kde_workdir/.dotfiles-preflight-sentinel"
+mv "$mock_bin/plasma-apply-lookandfeel" "$test_root/plasma-apply-lookandfeel.withheld"
+if negative_output="$(RPM_PRESENT="kio-extras wget" install_kde_themes 2>&1)"; then
+  _test_die 'the KDE themes installed on a machine with no Plasma desktop'
+fi
+assert_contains "$negative_output" 'no KDE Plasma desktop'
+assert_contains "$negative_output" 'plasma-apply-lookandfeel'
+[[ -e "$kde_workdir/.dotfiles-preflight-sentinel" ]] ||
+  _test_die 'the work directory was wiped before the missing Plasma desktop was reported'
+printf 'PASS: a machine with no Plasma desktop is told so before anything is written\n'
+mv "$test_root/plasma-apply-lookandfeel.withheld" "$mock_bin/plasma-apply-lookandfeel"
+rm -f "$kde_workdir/.dotfiles-preflight-sentinel"
+
 ln -s \
-  "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp" \
+  "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp" \
   "$home/.local/share/wallpapers/catppuccin-macchiato.webp"
 ln -s \
-  "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-macchiato-lock.webp" \
+  "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-macchiato-lock.webp" \
   "$home/.local/share/wallpapers/catppuccin-macchiato-lock.webp"
 
 HOME="$home" \

@@ -27,6 +27,7 @@ Platform guide: [../platforms/fedora.md](../platforms/fedora.md)
 | `hardening` | `--hardening` | `--no-hardening` | `false` | — | Security-hardening profile | `hardening` | [docs/profiles/hardening.md](../profiles/hardening.md) |
 | `desktop-tools` | `--desktop-tools` | `--no-desktop-tools` | `false` | — | Desktop application profile | `desktop-tools` | [docs/profiles/desktop-tools.md](../profiles/desktop-tools.md) |
 | `desktop-tools-force-defaults` | `--desktop-tools-force-defaults` | — | `false` | — | Override existing application defaults | — | — |
+| `dictation` | `--dictation` | `--no-dictation` | `false` | — | Voice dictation profile | `dictation` | [docs/profiles/dictation.md](../profiles/dictation.md) |
 | `containers` | `--containers` | `--no-containers` | `false` | — | Rootless Podman profile | `containers` | [docs/profiles/containers.md](../profiles/containers.md) |
 | `containers-api-socket` | `--containers-api-socket` | — | `false` | — | Rootless Podman API socket | — | — |
 | `tailscale` | `--tailscale` | `--no-tailscale` | `false` | — | Tailscale networking profile | `tailscale` | [docs/profiles/tailscale.md](../profiles/tailscale.md) |
@@ -66,6 +67,7 @@ Platform guide: [../platforms/macos.md](../platforms/macos.md)
 | `ocaml` | `--ocaml` | `--no-ocaml` | `false` | — | OCaml profile | `ocaml` | [docs/workflows/development.md](../workflows/development.md#ocaml-development) |
 | `containers` | `--containers` | `--no-containers` | `false` | — | Podman machine profile | `containers` | [docs/profiles/containers.md](../profiles/containers.md) |
 | `tailscale` | `--tailscale` | `--no-tailscale` | `false` | — | Tailscale networking profile | `tailscale` | [docs/profiles/tailscale.md](../profiles/tailscale.md) |
+| `dictation` | `--dictation` | `--no-dictation` | `false` | — | Local voice dictation profile | `dictation` | [docs/profiles/dictation.md](../profiles/dictation.md#macos) |
 | `defaults` | `--defaults` | `--no-defaults` | `true` | — | Reversible macOS defaults | — | — |
 | `ai` | `--ai` | `--no-ai` | `false` | — | AI-assisted development profile | `ai` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `codex` | `--codex` | `--no-codex` | `inherit` | — | AI subcomponent: Codex CLI | `codex` | [docs/profiles/ai.md](../profiles/ai.md) |

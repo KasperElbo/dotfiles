@@ -101,17 +101,19 @@ records, Git identities, Sway output overrides — lives under
 never tracked. See
 [docs/architecture/file-ownership.md](docs/architecture/file-ownership.md).
 
-Seven manifests under `config/` are the normative contract the code and the
+Nine manifests under `config/` are the normative contract the code and the
 documentation both read:
 
 | Manifest | Owns |
 |---|---|
-| `config/capabilities.tsv` | Which capability exists on which platform, its provider, packages, Stow packages, verifier, state file and documentation |
+| `config/capabilities.tsv` | Which capability exists on which platform, its provider, packages and their installers, Stow packages, verifier, state file and documentation |
 | `config/install-options.tsv` | Every persistent installer option: flag spelling, kind, default, permitted values |
 | `config/network-sources.tsv` | Every network source the repository fetches, its provenance tier, privilege and integrity mechanism |
-| `config/fedora-command-providers.tsv` | The Fedora bootstrap command closure: which capability owns each native command |
+| `config/pin-freshness.tsv` | How a newer release of each manually pinned source would be noticed: what to ask upstream, and where its pinned value lives |
+| `config/command-providers.tsv` | The pre-mutation command closure of every bash platform: which capability owns each native command |
 | `config/actions.tsv` | Every repository-defined user action: binding, platform, source, how it is discoverable, and whether a printable sheet carries it |
 | `config/shell-file-roles.tsv` | Every tracked shell file's role and required file mode |
+| `config/tool-floors.tsv` | The minimum version of every tool the repository requires, and what enforces each floor |
 | `config/terra-keys.tsv` | The reviewed Terra signing-key fingerprint pinned for each Fedora release |
 
 Documentation that states a supported capability, an option, a default or a
@@ -168,6 +170,7 @@ authoritative for what. The usual starting points:
   [VM host](docs/profiles/vm-host.md), [VM guest](docs/profiles/vm-guest.md),
   [hardening](docs/profiles/hardening.md),
   [desktop tools](docs/profiles/desktop-tools.md),
+  [dictation](docs/profiles/dictation.md),
   [Tailscale](docs/profiles/tailscale.md), [AI toolchain](docs/profiles/ai.md)
 - **Daily workflows** — [shell](docs/workflows/shell.md),
   [terminal](docs/workflows/terminal.md), [theming](docs/workflows/theming.md),

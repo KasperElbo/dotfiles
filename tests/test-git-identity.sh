@@ -296,7 +296,7 @@ run_capture env \
   "XDG_DATA_HOME=$machine/home/.local/share" \
   "XDG_STATE_HOME=$machine/home/.local/state" \
   "DOTFILES_GIT_IDENTITY_BACKUP_DIR=$machine/backup" \
-  "$repo_root/common/setup-local.sh" macchiato
+  "$repo_root/common/setup-local.sh" fedora macchiato
 assert_success
 assert_contains "$TEST_OUTPUT" "2 slot(s) migrated"
 assert_not_contains "$TEST_OUTPUT" "$identity_email"
@@ -308,6 +308,41 @@ for slot in local drdk; do
   assert_mode_600 "$slot_path"
 done
 printf 'PASS: setup-local migrates legacy identity links from an explicit backup\n'
+
+# --- the same migration, through a symlinked checkout ----------------------
+#
+# DOTFILES_ROOT is logical: it is built with cd/pwd, so it keeps the symlink the
+# entry point was reached through, while the legacy link resolves physically.
+# Compared as written the two never match, and setup-local would keep the legacy
+# link and then write machine-local Git identities through it, back into the
+# worktree.
+
+new_machine
+linked_repo="$machine/linked-repo"
+ln -s "$repo_root" "$linked_repo"
+mkdir -p "$machine/home/.config/git"
+for slot in local drdk; do
+  ln -s "$repo_root/git/.config/git/$slot" "$machine/home/.config/git/$slot"
+  printf '%s' "$identity_content" >"$machine/backup/$slot"
+done
+
+run_capture env \
+  "HOME=$machine/home" \
+  "XDG_CONFIG_HOME=$machine/home/.config" \
+  "XDG_DATA_HOME=$machine/home/.local/share" \
+  "XDG_STATE_HOME=$machine/home/.local/state" \
+  "DOTFILES_GIT_IDENTITY_BACKUP_DIR=$machine/backup" \
+  "$linked_repo/common/setup-local.sh" fedora macchiato
+assert_success
+assert_contains "$TEST_OUTPUT" "2 slot(s) migrated"
+for slot in local drdk; do
+  slot_path="$machine/home/.config/git/$slot"
+  [[ -f "$slot_path" && ! -L "$slot_path" ]] ||
+    _test_die "a legacy identity link survived a checkout reached through a symlink, so identities would be written into the worktree: $slot_path"
+  assert_identical "$slot_path"
+  assert_mode_600 "$slot_path"
+done
+printf 'PASS: setup-local recognizes legacy identity links from a symlinked checkout\n'
 
 # --- setup-local with no migration source ----------------------------------
 
@@ -323,7 +358,7 @@ run_capture env \
   "XDG_DATA_HOME=$machine/home/.local/share" \
   "XDG_STATE_HOME=$machine/home/.local/state" \
   "DOTFILES_GIT_IDENTITY_BACKUP_DIR=$machine/backup" \
-  "$repo_root/common/setup-local.sh" macchiato
+  "$repo_root/common/setup-local.sh" fedora macchiato
 assert_success
 assert_contains "$TEST_OUTPUT" "need manual action"
 for slot in local drdk; do

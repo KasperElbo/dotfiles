@@ -11,8 +11,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
 require_parrot
 
-font_version="3.4.0"
-font_sha256="1d00a1435638084174516975840854368a45ac30bb0bad2c0c49db713b5925f0"
+font_version="3.5.1"
+font_sha256="cdd389472e10e2261520140ff1b382b4f8a226af5fd0b2735b975d31151d9c3c"
 font_url="https://github.com/ryanoasis/nerd-fonts/releases/download/v${font_version}/Hack.tar.xz"
 font_dir="$XDG_DATA_HOME/fonts/HackNerdFont/$font_version"
 font_file="$font_dir/HackNerdFontMono-Regular.ttf"

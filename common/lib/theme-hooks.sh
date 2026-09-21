@@ -62,6 +62,33 @@ _theme_print_list() {
   done <<<"$1"
 }
 
+# _theme_isolated <command> [arguments...]
+#
+# The error boundary itself: run a command in a subshell and leave its exit
+# status in _theme_status. The subshell keeps a hook's `set -e`, `exit`, `cd` or
+# stray variable from reaching the actions that follow it.
+#
+# The subshell must never be the left side of `||`, or the condition of `if` or
+# `!`. Bash ignores errexit for everything a command in such a context runs,
+# however deep and even after an explicit `set -e`, so a hook whose first
+# statement failed would run on and be reported as applied. Instead errexit is
+# off in this shell only while the subshell runs, and the subshell turns it
+# back on for itself when the caller had it. The boundaries hold only when
+# they are themselves called as plain statements.
+_theme_isolated() {
+  local errexit=false
+  [[ "$-" != *e* ]] || errexit=true
+
+  set +e
+  (
+    [[ "$errexit" != true ]] || set -e
+    "$@"
+  )
+  _theme_status=$?
+  [[ "$errexit" != true ]] || set -e
+  return 0
+}
+
 # theme_action <name> <command> [arguments...]
 #
 # One independent action inside its own error boundary. Always returns 0 so an
@@ -70,11 +97,10 @@ _theme_print_list() {
 theme_action() {
   local name="$1"
   shift
-  local status=0
+  local _theme_status=0 status
 
-  # The subshell keeps a hook's `set -e`, `exit`, `cd` or stray variable from
-  # reaching the actions that follow it.
-  ("$@") || status=$?
+  _theme_isolated "$@"
+  status="$_theme_status"
 
   if ((status == 0)); then
     _theme_record applied "$name"
@@ -91,15 +117,18 @@ theme_action() {
 #
 # For an action whose output everything else depends on. A failure here is
 # fatal: continuing would leave the machine claiming a theme it does not have.
+# Returns 1 on failure, having printed the action's own exit status, so an
+# errexit caller that runs it as a plain statement stops with status 1.
 theme_action_required() {
   local name="$1"
   shift
-  local status=0
+  local _theme_status=0 status
 
-  # Subshelled like an independent action so that an errexit failure inside it
+  # Isolated like an independent action so that an errexit failure inside it
   # is reported through this boundary instead of killing the command before it
   # can say which action failed.
-  ("$@") || status=$?
+  _theme_isolated "$@"
+  status="$_theme_status"
 
   if ((status == 0)); then
     _theme_record applied "$name"
@@ -109,7 +138,7 @@ theme_action_required() {
   _theme_record failed "$name" "exit $status"
   printf 'theme: required action "%s" failed (exit %s); stopping.\n' \
     "$name" "$status" >&2
-  return "$status"
+  return 1
 }
 
 # theme_action_skipped <name> <reason>
@@ -126,9 +155,10 @@ theme_action_skipped() {
 theme_hook() {
   local name="$1"
   shift
-  local status=0
+  local _theme_status=0 status
 
-  ("$@") || status=$?
+  _theme_isolated "$@"
+  status="$_theme_status"
 
   if ((status != 0)); then
     _theme_record failed "$name" "exit $status"

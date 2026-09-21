@@ -5,19 +5,27 @@ set -u
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 # shellcheck source=../../../common/lib/verify.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
+# shellcheck source=../../../common/lib/profile-state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/macos.sh"
+# shellcheck source=../lib/dictation.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/dictation.sh"
+# shellcheck source=../../../common/lib/tool-floors.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/tool-floors.sh"
 
 verify_reset
 verify_defaults="false"
 verify_containers="false"
 verify_tailscale="false"
+verify_dictation="false"
 
 while (($#)); do
   case "$1" in
   --defaults) verify_defaults="true" ;;
   --containers) verify_containers="true" ;;
   --tailscale) verify_tailscale="true" ;;
+  --dictation) verify_dictation="true" ;;
   *) die "Unknown option: $1" ;;
   esac
   shift
@@ -67,8 +75,29 @@ mise_command="$(command -v mise 2>/dev/null || true)"
 if [[ -n "$mise_command" ]]; then
   eval "$("$mise_command" activate bash)"
 fi
-commands=(aerospace ast-grep bat delta dotnet dotnet-easydotnet eza fd fzf gh git jq lazygit mise node npm nvim python rg scp sftp shellcheck sqlite3 ssh starship stow tmux tree-sitter uv zoxide zsh)
-for name in "${commands[@]}"; do check_command "$name"; done
+# Every command is run, not only found: a stale Homebrew link or a binary for
+# the wrong architecture still resolves on PATH. aerospace is checked for
+# resolution only, because its CLI talks to the running window manager, which
+# the AeroSpace checks below report on their own terms.
+commands=(bat delta eza fd fzf gh git jq mise nvim rg scp sftp shellcheck sqlite3 ssh starship stow tmux zoxide zsh)
+for name in "${commands[@]}"; do check_command "$name" --probe; done
+check_command aerospace
+
+section "mise-owned runtimes"
+# mise owns these runtimes on every platform. On macOS a Homebrew formula of
+# the same name is the likely second copy, so each must resolve to the
+# mise-managed one in the PATH a fresh Zsh login configures, not merely exist.
+# shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
+VERIFY_CONFIGURED_LOGIN_PATH="$(
+  zsh -lic 'printf "\n__DOTFILES_VERIFY_PATH__%s\n" "$PATH"' 2>/dev/null |
+    sed -n 's/^__DOTFILES_VERIFY_PATH__//p' |
+    tail -n 1
+)"
+VERIFY_CALLER_PATH="$PATH"
+VERIFY_MISE_COMMAND="$mise_command"
+check_mise_context
+mise_tools=(ast-grep dotnet dotnet-easydotnet lazygit neovim-node-host node npm python tree-sitter uv)
+for name in "${mise_tools[@]}"; do check_mise_owned "$name"; done
 
 # ---------------------------------------------------------------------------
 # SFTP client baseline
@@ -188,10 +217,25 @@ check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git/"
 check_symlink "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise/"
 check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim/"
 check_symlink "$XDG_CONFIG_HOME/nvim/lua/plugins/macos.lua" "$DOTFILES_ROOT/platforms/macos/stow/nvim-macos/"
+check_symlink "$XDG_CONFIG_HOME/ghostty/macos.conf" "$DOTFILES_ROOT/platforms/macos/stow/ghostty-macos/"
 
 # verifies: terminal -- Ghostty is the macOS terminal, installed from the
 # Brewfile with the baseline.
-if [[ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]]; then pass "Ghostty application is installed"; else fail "Ghostty application is missing"; fi
+ghostty_binary=/Applications/Ghostty.app/Contents/MacOS/ghostty
+if [[ -x "$ghostty_binary" ]]; then
+  pass "Ghostty application is installed"
+  # An include chain decides this, not any one tracked file, so ask Ghostty
+  # what it resolved. Left Option has to arrive as Alt for fzf's shared Alt-C
+  # directory picker; Right Option stays a macOS modifier for symbol entry.
+  if "$ghostty_binary" +show-config 2>/dev/null |
+    grep -Eq '^macos-option-as-alt[[:space:]]*=[[:space:]]*left$'; then
+    pass "Ghostty sends Left Option as Alt, leaving Right Option for symbol entry"
+  else
+    fail "Ghostty does not resolve macos-option-as-alt = left; fzf's Alt-C will not reach the shell"
+  fi
+else
+  fail "Ghostty application is missing"
+fi
 if [[ -d /Applications/AeroSpace.app ]]; then pass "AeroSpace application is installed"; else fail "AeroSpace application is missing"; fi
 
 if aerospace list-workspaces --focused >/dev/null 2>&1; then
@@ -212,6 +256,96 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Machine-local theme
+#
+# The installer applies the selected Catppuccin flavour through the portable
+# theme command. Prove the result a new terminal sees: a valid recorded
+# flavour, the Starship configuration for that flavour, the derived Delta,
+# Ghostty and tmux overrides, and a fresh Zsh login that selects the matching
+# Starship configuration and bat theme.
+# ---------------------------------------------------------------------------
+
+section "Theme"
+
+# The hook the portable theme command sources on this platform. It is checked
+# here rather than with the other Stow links because it is theme integration:
+# a Mac missing it is one where `theme` silently does no desktop work.
+check_symlink "$XDG_CONFIG_HOME/dotfiles/theme-hooks.d/macos.sh" \
+  "$DOTFILES_ROOT/platforms/macos/stow/theme-hooks/"
+for flavour in latte frappe macchiato mocha; do
+  check_symlink "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}.webp" \
+    "$DOTFILES_ROOT/theme-assets/"
+done
+
+theme_file="$XDG_CONFIG_HOME/dotfiles/theme"
+current_theme=""
+[[ ! -r "$theme_file" ]] || current_theme="$(tr -d '[:space:]' <"$theme_file")"
+
+case "$current_theme" in
+latte | frappe | macchiato | mocha)
+  pass "Current Catppuccin flavour: $current_theme"
+  ;;
+"")
+  fail "Theme state is missing or empty: $theme_file"
+  ;;
+*)
+  fail "Invalid Catppuccin flavour in $theme_file: $current_theme"
+  current_theme=""
+  ;;
+esac
+
+if [[ -n "$current_theme" ]]; then
+  starship_config="$XDG_CONFIG_HOME/starship/catppuccin-${current_theme}.toml"
+  check_file_contains "Starship configuration selects the $current_theme palette" \
+    "$starship_config" "palette = 'catppuccin_${current_theme}'"
+  check_file_contains "Delta local theme override matches" \
+    "$XDG_CONFIG_HOME/dotfiles/git-theme" "features = catppuccin-${current_theme}"
+  check_file_contains "Ghostty local theme override matches" \
+    "$XDG_CONFIG_HOME/dotfiles/ghostty.conf" "theme = catppuccin-${current_theme}.conf"
+  check_file_contains "tmux local theme override matches" \
+    "$XDG_CONFIG_HOME/dotfiles/tmux-theme.conf" "@catppuccin_flavor \"${current_theme}\""
+
+  bat_theme="Catppuccin $(tr '[:lower:]' '[:upper:]' <<<"${current_theme:0:1}")${current_theme:1}"
+  if bat --list-themes 2>/dev/null | grep -Fxq "$bat_theme"; then
+    pass "bat provides the selected syntax theme: $bat_theme"
+  else
+    fail "bat does not provide the selected syntax theme: $bat_theme"
+  fi
+
+  # shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
+  login_theme="$(
+    zsh -lic 'printf "\n__DOTFILES_VERIFY_THEME__%s|%s\n" "${STARSHIP_CONFIG:-}" "${BAT_THEME:-}"' \
+      2>/dev/null |
+      sed -n 's/^__DOTFILES_VERIFY_THEME__//p' |
+      tail -n 1
+  )"
+  if [[ "${login_theme%%|*}" == "$starship_config" ]]; then
+    pass "Zsh login selects the $current_theme Starship configuration"
+  else
+    fail "Zsh login STARSHIP_CONFIG is ${login_theme%%|*}; expected $starship_config"
+  fi
+  if [[ "${login_theme#*|}" == "$bat_theme" ]]; then
+    pass "Zsh login selects the $bat_theme bat theme"
+  else
+    fail "Zsh login BAT_THEME is ${login_theme#*|}; expected $bat_theme"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Neovim tooling and the Catppuccin tmux theme
+#
+# Both are installed by the macOS installer from the same tracked sources as
+# every other workstation: the Mason inventory and the pinned tmux plugin.
+# ---------------------------------------------------------------------------
+
+section "Neovim tooling"
+check_version_at_least "Neovim" "$(tool_version nvim)" "$(tool_floor nvim)"
+check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
+
+section "Catppuccin tmux"
+check_catppuccin_tmux
+
+# ---------------------------------------------------------------------------
 # Optional AI-assisted development profile
 #
 # The shared installer and verifier own the profile itself; this section adds
@@ -223,7 +357,7 @@ fi
 
 section "AI-assisted development profile"
 
-ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
+ai_state="$(verify_optional_capability_state macos ai || true)"
 agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 
@@ -272,7 +406,12 @@ macos_ai_check_no_duplicate_provider() {
   fi
 }
 
-if [[ -f "$ai_state" ]]; then
+ai_disposition="$(verify_optional_capability_disposition macos ai || true)"
+
+case "$ai_disposition" in
+verify | leftover)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
+
   if "$DOTFILES_ROOT/common/verify-ai.sh"; then
     pass "AI profile verification completed"
   else
@@ -301,18 +440,9 @@ if [[ -f "$ai_state" ]]; then
     macos_ai_check_no_duplicate_provider "$name"
   done
 
-  global_npm="$(npm ls --global --depth=0 --parseable 2>/dev/null || true)"
-  npm_duplicate="false"
-  for package in @anthropic-ai/claude-code @openai/codex gnhf backpass acpx \
-    gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi; do
-    if [[ "$global_npm" == *"/node_modules/$package" ]] ||
-      [[ "$global_npm" == *"/node_modules/$package"$'\n'* ]]; then
-      fail "$package is also installed globally with npm; the AI profile is mise-owned"
-      npm_duplicate="true"
-    fi
-  done
-  [[ "$npm_duplicate" == true ]] ||
-    pass "No AI package is duplicated in a global npm prefix"
+  # The global npm prefix is ruled out by common/verify-ai.sh, which runs on
+  # every platform that selects the AI profile. It used to be checked only
+  # here, which left the same duplicate undetected on Fedora.
 
   # A command that only works because this verifier's process activated mise is
   # not actually installed for the user. Prove it resolves in a fresh login.
@@ -328,7 +458,13 @@ if [[ -f "$ai_state" ]]; then
   else
     fail "Claude Code does not start in a fresh Zsh login"
   fi
-else
+  ;;
+missing | corrupt)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
+  ;;
+*)
+  # Not selected, and no state file. The profile owns files outside its own
+  # state, so an unselected machine is still asked whether any of them remain.
   if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" ||
     -e "$HOME/.local/bin/treehouse" ||
     -d "$XDG_DATA_HOME/firstmate" ]] ||
@@ -340,7 +476,8 @@ else
   else
     pass "AI profile is not installed (not selected)"
   fi
-fi
+  ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Optional OCaml profile
@@ -384,8 +521,23 @@ if [[ "$verify_defaults" == true ]]; then
   done
 fi
 
-if [[ "$verify_containers" == true ]]; then
-  section "Optional Podman machine"
+# The two profiles below record machine-local state their verification never
+# read, so a standalone run described neither however this machine was
+# installed (issue #344). Both are dispatched from the recorded selection and
+# that state now; the flags stay, because inside the installer this verifier
+# runs before the lifecycle record is committed, and there the flag is the only
+# statement of selection there is.
+containers_state="$(verify_optional_capability_state macos containers || true)"
+containers_disposition="$(verify_optional_capability_disposition macos containers || true)"
+if [[ "$verify_containers" == true && "$containers_disposition" == absent ]]; then
+  containers_disposition=verify
+fi
+
+section "Optional Podman machine"
+verify_optional_capability_report "Podman machine profile" "$containers_state" \
+  "$containers_disposition" || true
+
+if [[ "$containers_disposition" == verify || "$containers_disposition" == leftover ]]; then
   if podman info >/dev/null 2>&1; then pass "Podman machine is reachable"; else fail "Podman machine is not reachable"; fi
   rootless="$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null || true)"
   if [[ "$rootless" == true ]]; then
@@ -402,8 +554,17 @@ if [[ "$verify_containers" == true ]]; then
   fi
 fi
 
-if [[ "$verify_tailscale" == true ]]; then
-  section "Optional Tailscale"
+tailscale_state="$(verify_optional_capability_state macos tailscale || true)"
+tailscale_disposition="$(verify_optional_capability_disposition macos tailscale || true)"
+if [[ "$verify_tailscale" == true && "$tailscale_disposition" == absent ]]; then
+  tailscale_disposition=verify
+fi
+
+section "Optional Tailscale"
+verify_optional_capability_report "Tailscale profile" "$tailscale_state" \
+  "$tailscale_disposition" || true
+
+if [[ "$tailscale_disposition" == verify || "$tailscale_disposition" == leftover ]]; then
   if [[ -d /Applications/Tailscale.app ]]; then
     pass "Tailscale application is installed"
   else
@@ -418,13 +579,26 @@ if [[ "$verify_tailscale" == true ]]; then
   fi
 
   if [[ -n "$tailscale_cli" ]]; then
-    if version_output="$("$tailscale_cli" version 2>&1)"; then
+    # Both calls go through the bounded probe in platforms/macos/lib/macos.sh.
+    # The status is taken on the failing branch of the assignment rather than
+    # read after an `if`, which would report the `if` itself.
+    version_output=""
+    version_status=0
+    version_output="$(macos_tailscale_probe "$tailscale_cli" version 2>&1)" ||
+      version_status=$?
+    if ((version_status == 0)); then
       pass "tailscale version: $(printf '%s' "$version_output" | head -n1)"
+    elif macos_tailscale_probe_timed_out "$version_status"; then
+      warning "'tailscale version' did not answer within ${DOTFILES_TAILSCALE_PROBE_TIMEOUT}s, so the CLI was not read; the application may be waiting on a permission prompt"
     else
       fail "tailscale version failed"
     fi
 
-    if status_json="$("$tailscale_cli" status --json 2>/dev/null)"; then
+    status_json=""
+    status_probe=0
+    status_json="$(macos_tailscale_probe "$tailscale_cli" status --json 2>/dev/null)" ||
+      status_probe=$?
+    if ((status_probe == 0)); then
       backend_state="$(printf '%s' "$status_json" | jq -r '.BackendState // "unknown"' 2>/dev/null)"
       case "$backend_state" in
       Running) pass "tailscale status: Running (connected to a tailnet)" ;;
@@ -433,12 +607,140 @@ if [[ "$verify_tailscale" == true ]]; then
         ;;
       *) warning "tailscale status reported an unrecognized BackendState: ${backend_state:-empty}" ;;
       esac
+    elif macos_tailscale_probe_timed_out "$status_probe"; then
+      warning "'tailscale status --json' did not answer within ${DOTFILES_TAILSCALE_PROBE_TIMEOUT}s; the application may be waiting on a permission prompt"
     else
       warning "'tailscale status --json' did not respond (the daemon may not be running yet)"
     fi
   else
     warning "Tailscale CLI is not installed; enable it from the app's Settings if you want the 'tailscale' command"
   fi
+fi
+
+# ---------------------------------------------------------------------------
+# Optional dictation profile
+#
+# Ghost Pepper is the one macOS application this repository installs itself,
+# from a pinned upstream disk image, because no Homebrew cask exists for it.
+# That makes three things this verifier's business that Homebrew would
+# otherwise answer: the installed build is the pinned one, it is the
+# Developer-ID-signed and notarized build Gatekeeper accepts, and no second
+# copy arrived through another provider.
+#
+# Selection is read from the recorded profile state as well as the flag, so a
+# standalone run reaches the same verdict as one inside the installer, and an
+# unselected machine is never failed for not having the application.
+#
+# The two privacy permissions this profile needs -- Microphone and
+# Accessibility -- are deliberately interactive, and macOS keeps their grants
+# in a SIP-protected TCC database no user process may read. There is no safe
+# observable check, so they are reported as not observed rather than guessed
+# at in either direction.
+# ---------------------------------------------------------------------------
+
+section "Optional dictation profile"
+
+dictation_state="$(dictation_state_file)"
+dictation_app="$(dictation_installed_app)"
+
+dictation_disposition="$(verify_optional_capability_disposition macos dictation || true)"
+
+# --dictation still forces the checks. Inside the installer this verifier runs
+# before the lifecycle record is committed, so on that one path the flag is the
+# only statement of selection there is.
+if [[ "$verify_dictation" == true && "$dictation_disposition" == absent ]]; then
+  dictation_disposition=verify
+fi
+
+if [[ "$dictation_disposition" != absent ]]; then
+  # "missing" needs no report of its own: the state check at the end of this
+  # body names the absent file, and the app checks in between are worth running
+  # on a machine that asked for the profile whether or not its state survived.
+  case "$dictation_disposition" in
+  leftover | corrupt)
+    verify_optional_capability_report "Dictation profile" "$dictation_state" \
+      "$dictation_disposition"
+    ;;
+  esac
+
+  if [[ -d "$dictation_app" ]]; then
+    pass "Ghost Pepper is installed: $dictation_app"
+  else
+    fail "Ghost Pepper is missing: $dictation_app"
+  fi
+
+  dictation_version="$(dictation_installed_version "$dictation_app" 2>/dev/null || true)"
+  if [[ "$dictation_version" == "$DICTATION_GHOST_PEPPER_VERSION" ]]; then
+    pass "Ghost Pepper is at the pinned $DICTATION_GHOST_PEPPER_VERSION"
+  else
+    fail "Ghost Pepper reports ${dictation_version:-no version}, not the pinned" \
+      "$DICTATION_GHOST_PEPPER_VERSION; rerun" \
+      "platforms/macos/scripts/install-dictation.sh"
+  fi
+
+  check_arm64_file "Ghost Pepper" \
+    "$dictation_app/Contents/MacOS/${DICTATION_GHOST_PEPPER_APP%.app}"
+
+  # The pinned disk image is the declared provider. Homebrew publishes no
+  # Ghost Pepper cask today; if one appears, a machine must not end up with
+  # both, so the duplicate is named here rather than discovered later.
+  dictation_casks="$("$(homebrew_path)" list --cask 2>/dev/null || true)"
+  if grep -Fqi ghost-pepper <<<"$dictation_casks"; then
+    fail "A Homebrew cask also provides Ghost Pepper; this profile owns the" \
+      "pinned disk image, so remove one of the two copies"
+  else
+    pass "Ghost Pepper has no competing Homebrew cask"
+  fi
+
+  # Signature and notarization. This is the check that lets the profile coexist
+  # with the repository's position that Gatekeeper and SIP stay enabled: the
+  # application is accepted as it ships, with nothing removed or disabled to
+  # make it run.
+  if codesign --verify --strict "$dictation_app" >/dev/null 2>&1; then
+    pass "Ghost Pepper's code signature is intact"
+  else
+    fail "Ghost Pepper's code signature does not verify: $dictation_app"
+  fi
+
+  dictation_signature="$(codesign --display --verbose=4 "$dictation_app" 2>&1 || true)"
+  dictation_team="$(sed -n 's/^TeamIdentifier=//p' <<<"$dictation_signature" | head -n 1)"
+  if [[ "$dictation_team" == "$DICTATION_GHOST_PEPPER_TEAM_ID" ]]; then
+    pass "Ghost Pepper is signed by the pinned Developer ID team $dictation_team"
+  else
+    fail "Ghost Pepper is signed by team ${dictation_team:-unknown}, not the" \
+      "pinned $DICTATION_GHOST_PEPPER_TEAM_ID"
+  fi
+
+  if spctl --assess --type execute "$dictation_app" >/dev/null 2>&1; then
+    pass "Gatekeeper accepts Ghost Pepper (Developer ID signed and notarized)"
+  else
+    fail "Gatekeeper does not accept Ghost Pepper; do not work around this by" \
+      "disabling Gatekeeper or stripping the quarantine attribute"
+  fi
+
+  if [[ -f "$dictation_state" ]]; then
+    dictation_recorded="$(profile_state_read "$dictation_state" version dictation 2>/dev/null || true)"
+    if [[ "$dictation_recorded" == "$DICTATION_GHOST_PEPPER_VERSION" ]]; then
+      pass "Recorded dictation state names the pinned $DICTATION_GHOST_PEPPER_VERSION"
+    else
+      fail "Recorded dictation state names ${dictation_recorded:-no version}," \
+        "not the pinned $DICTATION_GHOST_PEPPER_VERSION: $dictation_state"
+    fi
+  else
+    fail "Dictation profile state is missing: $dictation_state"
+  fi
+
+  not_observed "Microphone and Accessibility consent is interactive and kept in" \
+    "a SIP-protected TCC database; confirm both for Ghost Pepper in System" \
+    "Settings -> Privacy & Security"
+elif [[ -e "$dictation_app" ]]; then
+  # State left behind is "leftover" above, so what is left to discover here is
+  # an application with no state beside it.
+  fail "The dictation profile is not selected, but Ghost Pepper remains" \
+    "($dictation_app); install the profile with --dictation, or remove the" \
+    "application by hand"
+else
+  pass "Dictation profile is not installed (not selected)"
 fi
 
 finish_verification "macOS verification"

@@ -77,6 +77,69 @@ minute proves only that the download was not corrupted in flight; it says
 nothing about what the next machine will get. Where such a digest is recorded,
 it is recorded as an audit record of what ran, and is labelled that way.
 
+### Noticing that a pinned source has moved
+
+The rolling tiers announce their own updates. A package manager, a registry or
+a version line tells the machine that something moved, and `brew upgrade`,
+`sudo dnf upgrade --refresh`, `scoop update` or `mise upgrade` applies it with
+no change to this repository at all. Neovim is the same story with its own
+mechanism: lazy.nvim's update checker is enabled for the workstation profile,
+and `:Lazy update` writes the new commits through the Stow symlink into the
+checkout, so a plugin bump arrives as a `git diff` on `lazy-lock.json`.
+
+`manual-bump` is the cadence with no such mechanism. Those rows are pinned to
+an exact tag, commit or SHA-256 that nothing else would ever mention again, and
+for a long time they were the strongest pins here with the weakest
+notification. The scheduled real-install validation is not that notification:
+it installs from every pin for real, so it catches one that has *broken* — a
+download that 404s, a digest that no longer matches — but a pin three releases
+old and still serving its bytes correctly produces a completely green run.
+
+```bash
+./scripts/check-pin-freshness.sh
+```
+
+asks each of those upstreams what it has now and prints it beside what this
+repository pins. It is a report: it downloads no artifact, writes no file and
+changes no pin. `git ls-remote` reads refs and transfers no objects, so the
+whole thing needs no credential and no API budget.
+`.github/workflows/pin-freshness.yml` runs it monthly and puts the table in the
+run summary. It deliberately does not pass `--fail-on-stale`: a newer tag is a
+prompt to go and review a release, not a defect. It *does* fail when a pin
+could not be read or an upstream could not be reached, because a report that
+silently reached nothing would read as "everything is current".
+
+[`config/pin-freshness.tsv`](../config/pin-freshness.tsv) is what it reads. One
+row per `manual-bump` source says which repository to ask, and which
+`key="value"` assignment in which installer states the pin — read out of the
+installer rather than repeated in the manifest, so a bump cannot leave the
+report comparing against the previous release.
+
+`./scripts/lint.sh` runs `scripts/validate-pin-freshness.py`, which holds the
+two manifests to each other: every `manual-bump` source has exactly one
+freshness row and nothing else does, each probe row names an installer that
+really states its pin once, and a `requested` value that states the pin as a
+literal must equal what that installer actually pins. So a pinned artifact
+cannot be added without saying how a newer release of it would be noticed.
+
+Some pins cannot be asked this way, and that is a row rather than an omission.
+A `none` probe must carry its reason, and the report prints that reason, so a
+source outside the mechanism stays visible in the output instead of quietly
+absent from it. A probed row may carry a note too, and the report prints those
+beside the table: a note there is usually the reason a row will keep reporting
+`BEHIND`, as `netcoredbg-legacy-release` does now that upstream has stopped
+publishing the macOS build this repository consumes. Printing it is what stops
+a standing, explained difference reading as an unexamined one every month. Three are unprobed today: the OCaml compiler version, which is
+resolved through opam rather than named by a git ref; the Neovim plugin set,
+which has lazy.nvim's own checker; and the Fedora validation image, whose
+current digest needs a registry token exchange against two further hosts.
+
+Adopting whatever the report turns up stays a reviewed act, and is the same
+work it always was: take the artifact, take its digest, edit the version and
+the digest together, rerun the installer — which reinstalls precisely because
+the recorded digest no longer matches the pinned one — and rerun the verifier.
+Reviewing the new release is the whole reason the pin exists.
+
 ## Bounded network behaviour
 
 [`common/lib/fetch.sh`](../common/lib/fetch.sh) is the only sanctioned way for
@@ -95,6 +158,18 @@ Retries apply **only** to safe, idempotent GETs into a file. Package manager
 transactions, remote scripts, and anything else whose retry could duplicate a
 side effect are never retried automatically, and must never be routed through
 this library.
+
+The same library carries one operation that is not a transfer:
+`fetch_host_reachable`, the reachability probe a platform preflight runs before
+it changes anything, once per host the resolved plan downloads from. It asks for headers only and discards them, is never
+retried, and counts any HTTP answer as reachable, because only a failure to
+resolve, to connect, to establish a verified TLS session, or to finish within
+its own ceiling proves the network path unusable. It keeps the HTTPS and TLS
+floor above, but is bounded separately and far more tightly
+(`DOTFILES_FETCH_PROBE_TIMEOUT`, `DOTFILES_FETCH_PROBE_MAX_TIME`), so an offline
+machine is refused in seconds rather than after a download budget. Which run
+probes which host, and what the refusal means, is in
+[troubleshooting](troubleshooting.md#the-installer-refuses-to-start).
 
 `scripts/bootstrap-macos.sh` spells the same bounds out inline: it runs under
 Apple's Bash 3.2 before any repository library exists.
@@ -148,6 +223,15 @@ Pinning the fingerprint is what makes this more than trust-on-first-use: a
 later compromise of the distribution host cannot silently substitute a
 different signing key.
 
+The bootstrap runs once: a rerun sees `terra-release` installed and stops
+there. What governs every later Terra package is the repository file
+`terra-release` drops and the key left in the RPM keyring, so
+`platforms/fedora/scripts/verify.sh` re-checks both on every run, read-only
+and without `sudo`. It fails when DNF's effective `gpgcheck` for the `terra`
+repository is not `1`, and when the fingerprint pinned for the running Fedora
+release is missing from the RPM keyring. When the running release has no
+pinned row it warns instead, mirroring the installer.
+
 **The remaining boundary** is a Fedora release newer than the pinned set. There
 is no fingerprint to compare against, so the installer prints the downloaded
 key's fingerprint and refuses to continue unless a human acknowledges it —
@@ -175,6 +259,17 @@ walk at the named directory and excludes that directory itself. The neutral
 working directory gives the same guarantee on a mise too old to know the
 setting, so the isolation does not depend on a version check. Explicit
 `MISE_DATA_DIR` and shim/PATH behaviour is unchanged.
+
+Creating that directory and clearing tool declarations out of it is install-time
+work, done once by `mise_prepare_context`. `run_mise` itself only reads: if the
+context is missing, or has acquired one of the four filenames mise reads as
+directory configuration, it refuses and says so instead of rebuilding. That
+split is what lets a verifier use the same entry point, because
+[verification is read-only](workflows/verification.md) and an inspection that
+rebuilt the context would delete exactly the contamination it exists to report
+and then pass. Every verifier that reaches mise therefore reports the context's
+state as its own check, and the remedy for either diagnostic is to re-run the
+platform installer.
 
 The global config and its `conf.d` fragments still apply — that is exactly the
 manifest a global bootstrap is meant to install. `--dry-run` and verbose output
@@ -225,16 +320,81 @@ present, naming the `--no-<component>` flag that would remove it.
 1. Add a row to `config/network-sources.tsv` with an owner, tier, privilege,
    integrity mechanism, cadence, rollback strategy, and consumers.
 2. Annotate the call site with `# network-source: <id>`, on the line or within
-   the four comment lines above it.
+   the four lines above it.
 3. Run `./scripts/render-supply-chain.py` to refresh the generated inventory.
 
 `./scripts/lint.sh` runs `scripts/validate-network-sources.py`, which fails on
 an unregistered `curl`, `wget`, PowerShell download, remote `git clone`/`fetch`,
-`--repofrompath`, remote release RPM, or container image — and on a registry
-row whose tier and integrity mechanism contradict each other. A construct that
-genuinely reaches no external network (a loopback probe, a request to the
-container under test) is annotated `# network-source: local-only`, which is
-still a deliberate, reviewable act.
+`--repofrompath`, remote release RPM, or container image, and on the two
+constructs that give the machine a new package trust root, a DNF repository
+added with `dnf config-manager addrepo` and a signing key imported with
+`rpm --import`, however their argument is spelled. It also fails on a registry
+row whose tier and integrity mechanism contradict each other, and on one whose
+`integrity` is `image-digest-pinned` while a consumer names some other
+reference — a digest the job does not pull is a claim about a run that never
+happens.
+
+A construct counts however it is written. A clone spelled as an argument
+vector — `vim.fn.system({ "git", "clone", … })`, which is how the Neovim
+bootstrap spawns it — is the same clone as a command line. A container image
+written as Docker Hub shorthand, `parrotsec/core:latest`, pulls the same code
+as `docker.io/parrotsec/core:latest`; shorthand counts when the line puts it in
+a container context (a `docker`/`podman` command, a workflow `container:` or
+`image:` key, a build `FROM`), because `owner/name:tag` outside one is ordinary
+text — a desktop association reads exactly the same.
+
+The scan covers every tracked file outside `tests/` (except
+`tests/integration/`) that is shell, PowerShell, YAML, Python, or Lua by any of
+four signals: its suffix, a known basename (`Brewfile`), a classification in
+[`config/shell-file-roles.tsv`](../config/shell-file-roles.tsv), or a shell or
+Python shebang. An extensionless command such as `./doctor`, a stowed
+`~/.local/bin` helper, editor configuration, and a package manifest are
+therefore all held to the same rule as an installer.
+
+`common/lib/fetch.sh` is scanned like anything else. It performs every
+repository-controlled download, so exempting it would exempt the one file a
+hardcoded URL would do the most damage in. Its primitives take the URL from
+their caller and say so with `# network-source: caller-provided`; the call site
+carries the annotation that names the real source.
+
+An annotation covers the host it names, not whatever construct happens to
+follow it. When a construct writes a host out in full — on its own line or on a
+continuation of it — at least one of the annotations covering it must name a
+source served by that host, so a new download dropped under an existing comment
+inherits nothing. A URL built from a variable names no host the validator can
+check, and is covered by its annotation alone.
+
+A construct that genuinely reaches no external network (a loopback probe, a
+request to the container under test) is annotated
+`# network-source: local-only`, which is still a deliberate, reviewable act.
+That annotation covers loopback hosts only.
+
+## Actions and images CI runs
+
+A workflow downloads and executes code too, and the same position applies to
+it. Every third-party `uses:` step is pinned to a full 40-character commit SHA,
+with the tag it was in a trailing comment, so a reader can see which release is
+running and a bump is a reviewable commit here:
+
+```yaml
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+```
+
+A tag is not a pin. `actions/checkout@v7` is whatever its owner last pointed
+`v7` at, which is exactly what the tier table refuses to call `exact-commit`
+anywhere else. A local action (`uses: ./…`) is this repository's own code and
+carries no pin; a container image names provenance through
+`config/network-sources.tsv` like any other image.
+
+`scripts/validate-repository-hygiene.py` enforces both halves — a mutable
+reference and a bare SHA with no tag comment each fail — and
+`tests/test-repository-hygiene.sh` breaks a fixture workflow once per rule.
+
+The images CI runs are pinned the same way, by digest: the Fedora validation
+container in `validate.yml` and the Parrot boundary image in
+`real-install.yml`. A boundary check that pulls a moving tag proves whatever
+upstream published that morning, and a failure could not be told apart from a
+regression.
 
 ## Authenticating the rate-limited API
 

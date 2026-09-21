@@ -35,6 +35,7 @@ current support contract. A guide never says a capability is "waiting for" or
 - [platforms/fedora-wsl.md](platforms/fedora-wsl.md) — Fedora on WSL, Windows-side bootstrap, interop policy
 - [platforms/macos.md](platforms/macos.md) — Apple Silicon macOS and AeroSpace
 - [platforms/parrot-ctf.md](platforms/parrot-ctf.md) — the disposable Parrot Security Edition CTF guest
+- [platforms/windows.md](platforms/windows.md) — the Windows host of the WSL variant: WSL 2, the terminal, and the optional dictation application
 
 ### Optional profiles
 
@@ -43,6 +44,7 @@ current support contract. A guide never says a capability is "waiting for" or
 - [profiles/vm-guest.md](profiles/vm-guest.md) — Fedora guest integration
 - [profiles/hardening.md](profiles/hardening.md) — conservative Fedora hardening
 - [profiles/desktop-tools.md](profiles/desktop-tools.md) — day-to-day desktop applications
+- [profiles/dictation.md](profiles/dictation.md) — local, offline voice dictation
 - [profiles/tailscale.md](profiles/tailscale.md) — Tailscale networking
 - [profiles/ai.md](profiles/ai.md) — the AI-assisted development toolchain
 

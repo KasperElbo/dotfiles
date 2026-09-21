@@ -1,15 +1,55 @@
 #!/usr/bin/env bash
+
+# The lifecycle health report behind ./doctor. It keeps its own pass, fail and
+# warning helpers on purpose instead of sourcing common/lib/verify.sh:
+#
+#   - It reports lifecycle state (the installation record, component state
+#     files, the remembered --rerun configuration), not capability state, and
+#     is not named in the verifier column of config/capabilities.tsv. It points
+#     at those verifiers instead of repeating them.
+#   - It runs under errexit, where the library's fail(), which returns 1, would
+#     end the report at its first finding instead of listing every one.
+#   - Its closing "Result: N failure(s), M warning(s). No changes made." line
+#     is its own contract (tests/test-doctor.sh), not finish_verification's.
+#
+# `./doctor` is what docs/troubleshooting.md sends a user to when something is
+# wrong, which on macOS is exactly when `env bash` resolves to Apple's 3.2 --
+# so everything down to the modern-Bash guard below stays inside that dialect,
+# and `set -euo pipefail` waits until after it, as bin/.local/bin/theme does.
+
+script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/${BASH_SOURCE[0]##*/}"
+repo_root="$(cd -- "$(dirname -- "$script_path")/.." && pwd)"
+
+# The libraries below are written for the repository's Bash 4.4+ runtime;
+# install-lifecycle.sh reaches install-selection.sh, whose opening `declare -A`
+# fails at source time under Apple's Bash with `declare: -A: invalid option`
+# before any of this report's own output. Choose the interpreter first,
+# re-executing this same file with the original arguments if the one in hand is
+# too old.
+# shellcheck source=../common/lib/modern-bash.sh
+. "$repo_root/common/lib/modern-bash.sh"
+modern_bash_reexec doctor "$script_path" "$@" || exit 2
+
 set -euo pipefail
 
-repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
 # shellcheck source=../common/lib/profile-state.sh
 source "$repo_root/common/lib/profile-state.sh"
 # shellcheck source=../common/lib/install-lifecycle.sh
 source "$repo_root/common/lib/install-lifecycle.sh"
+# shellcheck source=../common/lib/capabilities.sh
+source "$repo_root/common/lib/capabilities.sh"
 
 state="$(profile_state_dir)/install.conf"
+
+# A field of the recorded platform's implemented capability row, or nothing
+# when the capability is absent or not implemented there.
+implemented_capability_field() {
+  manifest_values "$CAPABILITY_MANIFEST" "$2" \
+    capability "$1" platform "$platform" status implemented
+}
+
 failures=0
 warnings=0
 pass() { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
@@ -56,15 +96,44 @@ else
 
     IFS=, read -r -a selected <<<"$capabilities"
     for capability in "${selected[@]}"; do
-      state_id="$(awk -F '\t' -v p="$platform" -v c="$capability" 'NR>1 && $1==c && $2==p && $15=="implemented" {print $12; exit}' "$repo_root/config/capabilities.tsv")"
-      verifier="$(awk -F '\t' -v p="$platform" -v c="$capability" 'NR>1 && $1==c && $2==p && $15=="implemented" {print $11; exit}' "$repo_root/config/capabilities.tsv")"
+      state_id="$(implemented_capability_field "$capability" state)"
+      verifier="$(implemented_capability_field "$capability" verifier)"
       if [[ -n "$state_id" && "$state_id" != - && "$state_id" != install ]]; then
         component_state="$XDG_CONFIG_HOME/dotfiles/$state_id.conf"
+        # Which schema this file is allowed to declare comes from the selected
+        # capability's own row, beside the file name it is paired with, so it
+        # is derived from capability and platform like everything else in this
+        # loop. Reading the file's own `profile=` key and handing it back as
+        # the expected one, which this check used to do, asked the file to
+        # grade itself: it proved the record was internally consistent and
+        # said nothing about whether it belonged to the capability whose state
+        # it is. A valid OCaml record in containers.conf passed that way.
+        expected_profiles="$(implemented_capability_field "$capability" state_profile)"
         if [[ ! -e "$component_state" ]]; then
           fail "Enabled capability '$capability' is missing state: $component_state"
+        elif [[ -z "$expected_profiles" || "$expected_profiles" == - ]]; then
+          # The two columns move together, and
+          # scripts/validate-capabilities.py rejects a row where one names
+          # something and the other does not. Saying so here as well keeps a
+          # manifest this report was pointed at by CAPABILITY_MANIFEST from
+          # turning the check below into a comparison against nothing.
+          fail "Capability '$capability' records state in $component_state, but its row names no expected schema."
         else
-          component_profile="$(awk -F= '$1 == "profile" {print $2; exit}' "$component_state")"
-          if ! profile_state_validate_file "$component_state" "$component_profile"; then
+          declared_profile="$(awk -F= '$1 == "profile" {print $2; exit}' "$component_state" 2>/dev/null || true)"
+          # One state file normally has one schema. hardware.conf is the
+          # exception the registry spells out: its profile is the ASUS model,
+          # chosen from the machine's DMI identity at install time rather than
+          # recorded in the lifecycle state, so both supported models are
+          # accepted here and verify-asus-hardware.sh is what compares the
+          # recorded one with the hardware.
+          component_profile=""
+          IFS=, read -r -a allowed_profiles <<<"$expected_profiles"
+          for allowed_profile in "${allowed_profiles[@]}"; do
+            [[ "$allowed_profile" != "$declared_profile" ]] || component_profile="$allowed_profile"
+          done
+          if [[ -z "$component_profile" ]]; then
+            fail "Enabled capability '$capability' has state for profile '${declared_profile:-none}', not ${expected_profiles//,/ or }: $component_state"
+          elif ! profile_state_validate_file "$component_state" "$component_profile"; then
             fail "Enabled capability '$capability' has corrupt state: $component_state"
           else
             component_status="$(profile_state_read "$component_state" status "$component_profile" 2>/dev/null || true)"
@@ -79,18 +148,22 @@ else
       [[ -z "$verifier" || "$verifier" == none ]] || printf '  Verify %-16s %s\n' "$capability:" "$verifier"
     done
 
+    # Read before the loop, not in a process substitution, so a manifest that
+    # cannot be read stops doctor instead of silently skipping this check.
+    implemented_states="$(manifest_values "$CAPABILITY_MANIFEST" state \
+      platform "$platform" status implemented)"
     while IFS= read -r state_id; do
       [[ -n "$state_id" && "$state_id" != - && "$state_id" != install ]] || continue
       component_state="$XDG_CONFIG_HOME/dotfiles/$state_id.conf"
       [[ -e "$component_state" ]] || continue
       state_is_selected=false
       for capability in "${selected[@]}"; do
-        selected_state="$(awk -F '\t' -v p="$platform" -v c="$capability" 'NR>1 && $1==c && $2==p && $15=="implemented" {print $12; exit}' "$repo_root/config/capabilities.tsv")"
+        selected_state="$(implemented_capability_field "$capability" state)"
         [[ "$selected_state" != "$state_id" ]] || state_is_selected=true
       done
       [[ "$state_is_selected" == true ]] ||
         warning "Residual state is no longer owned by the installed selection: $component_state"
-    done < <(awk -F '\t' -v p="$platform" 'NR>1 && $2==p && $15=="implemented" && $12!="-" {print $12}' "$repo_root/config/capabilities.tsv" | sort -u)
+    done < <(sort -u <<<"$implemented_states")
   else
     fail "Lifecycle state is corrupt or uses an unsupported schema: $state"
   fi

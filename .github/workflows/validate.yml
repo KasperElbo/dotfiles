@@ -40,12 +40,26 @@ jobs:
           install git jq neovim python3 ripgrep ShellCheck stow zsh
 
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Validate shell scripts
         run: ./scripts/lint.sh
+
+      - name: Fetch the lazy.nvim revision the lock file pins
+        env:
+          LAZY_NVIM_DIR: ${{ runner.temp }}/lazy.nvim
+        run: |
+          commit="$(jq -r '."lazy.nvim".commit' \
+            nvim-lazyvim/.config/nvim/lazy-lock.json)"
+          # The Neovim spec-resolution suite resolves the real fragment set
+          # through lazy.nvim itself, at the revision this repository pins.
+          # network-source: lazy-nvim
+          git clone --quiet --filter=blob:none \
+            https://github.com/folke/lazy.nvim.git "$LAZY_NVIM_DIR"
+          git -C "$LAZY_NVIM_DIR" checkout --quiet "$commit"
+          printf 'DOTFILES_LAZY_NVIM=%s\n' "$LAZY_NVIM_DIR" >>"$GITHUB_ENV"
 
       - name: Test bootstrap and installer behavior
         run: ./scripts/test.sh
@@ -87,7 +101,7 @@ jobs:
           install texlive-scheme-medium latexmk poppler-utils
 
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Compile and verify every printable cheat sheet
         run: ./docs/cheatsheets/verify.sh
@@ -107,7 +121,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Test Windows bootstrap helpers
         shell: pwsh
@@ -128,13 +142,17 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whitespace check below compares against the PR's base, which a
+          # shallow clone does not contain.
+          fetch-depth: 0
 
       - name: Install validation dependencies
         run: brew install bash ripgrep shellcheck stow
 
       - name: Install native .NET SDK
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: 10.0.x
 
@@ -148,6 +166,7 @@ jobs:
         run: |
           /bin/bash ./tests/test-execution-plan.sh
           /bin/bash ./tests/test-profile-state.sh
+          /bin/bash ./tests/test-macos-command-surface.sh
           /bin/bash ./install.sh --platform macos \
             --theme macchiato --no-ocaml --no-containers --no-tailscale \
             --no-defaults --dry-run --non-interactive >/dev/null
@@ -163,5 +182,17 @@ jobs:
           /opt/homebrew/bin/bash ./tests/test-macos-ai.sh
           /opt/homebrew/bin/bash ./tests/test-ocaml-verification.sh
 
+      # The same ranged form the repository job runs. Without a range
+      # `git diff --check` inspects the working tree, which is clean on every
+      # runner, so the step passed on committed whitespace damage.
       - name: Check whitespace
-        run: git diff --check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git diff --check "origin/$BASE_REF...HEAD"
+          else
+            git diff --check "$BEFORE_SHA..HEAD"
+          fi

@@ -18,27 +18,92 @@ warning is information (a revision that has moved on, residual state from a
 capability no longer selected, legacy unversioned state); a failure means the
 recorded state disagrees with what an installed machine should look like.
 
+`./install.sh doctor` and `./install.sh --platform <name> doctor` run the same
+report; `doctor` is a subcommand, not a platform option, and none of these
+spellings installs anything. On macOS they work even when `bash` on your PATH
+is Apple's 3.2: the report selects a supported Bash for itself, and says so
+plainly if the machine has none (see
+[the macOS compatibility boundary](platforms/macos.md#system-bash-compatibility-boundary)).
+
 `./doctor` names the verifier to run next — see
 [verification](workflows/verification.md) for what those verifiers prove, and
 the entry below that matches the message you got.
+
+### `doctor` is a Linux and macOS command
+
+There is deliberately no Windows `doctor`, and adding one is not pending work.
+`./doctor` reports the *lifecycle* state of an `./install.sh` run — the
+installation record, the component state files, and the configuration
+`./install.sh --rerun` would reapply. The Windows host has none of those: it is
+installed by `platforms\windows\install.ps1`, which records one selection file
+instead of a lifecycle, and that file is read by a verifier rather than by a
+rerun. The equivalent on Windows is therefore the verifier itself, which is
+read-only and reports the same way:
+
+```powershell
+.\verify.ps1
+```
+
+See the [Windows host guide](platforms/windows.md#verify) for what it proves.
+Inside Fedora on WSL, `./doctor` is the Linux command it always was.
 
 ## The installer refuses to start
 
 Preflight runs before anything is changed, and refuses rather than half-installing:
 
 ```text
-Missing preflight command: xcode-select
+Missing bootstrap-prerequisite command: xcode-select (provider: macos)
 Missing bootstrap-prerequisite command: sudo (provider: sudo)
 Missing supported-base command: awk (provider: gawk)
 Path is not writable: /home/you/.config
+XDG_CONFIG_HOME is /srv/config, but this repository deploys to /home/you/.config.
+Not enough free disk space for /home/you/.local/share: 812 MiB available, 3072 MiB required
+Cannot reach github.com, which this installation downloads from: Catppuccin tmux theme, Mason registry
+Nothing has been changed. Restore network access, or rerun without the steps that need it.
 ```
+
+An `XDG_CONFIG_HOME` or `XDG_DATA_HOME` refusal is a contract, not a missing
+prerequisite: Stow deploys into `$HOME`, so a configuration root anywhere else
+would leave every link where nothing later reads it (see
+[the Stow layout](architecture/file-ownership.md#gnu-stow-layout)). Unset the
+variable, or set it to the path the message names, and rerun. `XDG_STATE_HOME`
+is not restricted.
 
 Install the named command — the message names the package that provides it —
 or fix the ownership of the named path, then rerun. `bootstrap-prerequisite`
 is something the installer needs before it can install anything at all;
 `supported-base` is a command the finished environment is defined to have.
-Both come from `config/fedora-command-providers.tsv`. The installer making no
+Both come from `config/command-providers.tsv`. The installer making no
 changes at all is the intended outcome here, not a failure to recover from.
+
+The disk figures are floors for "certainly not enough" -- one package-manager
+transaction, and the mise runtimes, Mason inventory and LazyVim plugins under
+`XDG_DATA_HOME` -- not an estimate of a full installation. The message names
+the path that was measured: the system figure is taken on the filesystem the
+platform's package manager writes to (`/var/cache/dnf` on Fedora,
+`/var/cache/apt` on Parrot, `/opt/homebrew` on macOS), so a machine with a
+separate `/var` is checked where the transaction actually lands. Free space on
+the named path, then rerun.
+
+The reachability check is connect-level and covers the hosts the resolved plan
+will actually download from, every one of them, named in a single refusal
+rather than one per rerun. The set is derived rather than listed: each step
+declares the repository scripts it runs, `config/network-sources.tsv` says
+which sources each script downloads, and the preflight probes one host per
+matching source. So a run is told in seconds what it cannot reach, instead of
+failing partway through the first mutating step — including the
+package-manager transaction, which is both the largest download and the first
+thing to change the machine.
+
+A step that is not in your plan contributes nothing, so a machine whose plan
+needs nothing from the network still installs offline. The probe uses the same
+proxy settings as the download itself, so a proxy that works for `curl` works
+here.
+
+`scripts/validate-plan-network.py` keeps the derivation honest: it fails the
+build when a step's declaration does not match the scripts it runs, or when a
+script can reach a source whose registry row does not name it. A step cannot
+be added that downloads from a host nothing probes.
 
 ## Stow conflicts
 
@@ -51,6 +116,13 @@ Preflight found something already at a path this repository would link. The
 variants name the cause: an existing real file or directory, a `dangling
 link`, a `link to another package in this checkout`, a `link owned by another
 checkout or source`, or a parent path that `is not a real directory`.
+
+The check runs whichever entry point you used. A platform installer preflights
+every package it plans to deploy, and `common/stow.sh` and each
+`platforms/<platform>/scripts/stow.sh` check their own packages before linking
+anything, adding `Refusing to stow; nothing in $HOME was changed.` A conflict
+therefore never leaves a partly linked `$HOME` behind, whether you ran the
+installer or a Stow script directly.
 
 The remedy is always the same — move the named path aside (or delete it if you
 are sure), then rerun:
@@ -76,6 +148,28 @@ reapply this machine's last successful configuration (preview it with
 options you want. See [rerun and the last-known-good model](workflows/rerun.md),
 which also covers corrupt state, schema migration and the "predates `--rerun`
 support" message.
+
+## `./doctor` says a capability's state is for the wrong profile
+
+```
+✗ Enabled capability 'containers' has state for profile 'ocaml', not containers
+```
+
+Each optional capability keeps a machine-local record under
+`~/.config/dotfiles/`, and every record declares the schema it is written in.
+`./doctor` takes the schema it expects from the capability's own row in
+`config/capabilities.tsv` — see [`state` and
+`state_profile`](capabilities.md) — rather than from the file, so this says the
+file under that name is not the record that capability writes. It is what a
+restored backup, a hand-edited file or a copy made under the wrong name looks
+like.
+
+Nothing reads a mismatched record, so the fix is to reinstall the capability
+and let its installer write the file: `./install.sh --rerun --dry-run` shows
+what this machine last had, and `./install.sh --rerun` reapplies it. Moving the
+file aside first keeps whatever was in it. `has corrupt state` is a different
+finding on the same file: the schema is the right one and the record does not
+satisfy it, and the same rerun is the answer.
 
 ## The first Neovim bootstrap is slow or times out
 
@@ -141,7 +235,7 @@ The `theme` Zsh wrapper normally does this automatically.
 
 ## Neovim does not update immediately after a theme switch
 
-Refocus the Neovim window. The Catppuccin config checks the machine-local theme on `FocusGained`.
+Refocus the Neovim window. The Catppuccin config checks the machine-local theme on `FocusGained`, and `tmux/.tmux.conf` sets `focus-events on` so the event reaches a pane.
 
 ## EasyDotnet warns that its Roslyn LSP is disabled
 

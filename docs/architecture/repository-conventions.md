@@ -23,6 +23,7 @@ Do not commit:
 - machine-local theme state
 - runtime logs
 - nested Git repositories
+- recorded audio, transcription history, or downloaded speech models
 
 Do not leave a package manager's lockfile at the repository root without the
 project it belongs to. `./scripts/lint.sh` rejects a lone root lockfile: it
@@ -63,6 +64,29 @@ exception: `docs/cheatsheets/generate.sh` renders them from tracked LaTeX
 source, but the PDFs are not committed, so there is no output that can go
 stale.
 
+## What a check may conclude from
+
+A gate exists to catch a class of mistake, so it has to be written so that the
+mistake it names cannot get past it. Two rules, both learned from gates that
+failed open on exactly what they existed to catch:
+
+**A check over shell must read shell.** A regex over a file's raw text proves
+nothing about behaviour. `# ripgrep` still contains the word `ripgrep`, so a
+package commented out of an installer array still satisfies a text search; a
+commented-out `bindsym` line still contains its key, so the registry and the
+printed cheat sheet keep advertising a key that does nothing. Drop the comment
+lines before matching (`code_text()` in `scripts/validate-capabilities.py` and
+in `scripts/validate-actions.py`), parse the construct, or run the shell and
+observe what it did. The same holds for the other configuration languages: a
+mise pin and an AeroSpace binding are parsed as TOML, a Waybar click as JSON.
+
+**A check that cannot parse its input must error.** Skipping the line it cannot
+read turns a gate into a suggestion, and that line is the one most likely to be
+wrong. `scripts/validate-plan-network.py` names the file and the line and fails
+the build when a `plan_add` call does not tokenise, rather than dropping the
+step from a check that runs in both directions. No validator may `continue`
+past input it was written to check.
+
 ## Entry points, and what `scripts/` actually is
 
 A file living under `scripts/` is not automatically a public, cross-platform
@@ -80,7 +104,7 @@ required file mode; `./scripts/lint.sh` enforces the match.
 | **Platform entry point** (`platform-entrypoint`) | `platforms/<platform>/install.sh` | Belongs to exactly one platform and is the documented way to install just that platform. |
 | **Platform command** (`platform-command`) | `platforms/<platform>/scripts/*.sh` | Belongs to exactly one platform and says so in its path. Safe to run directly when you want one component. |
 | **Portable wrapper** (`portable-wrapper`) | `scripts/install-ai.sh`, `scripts/install-mise.sh`, `scripts/install-neovim-tools.sh`, `scripts/install-tmux-theme.sh`, `scripts/verify-ai.sh` | A supported alias for the matching `common/` script. Not deprecated: the target really is portable. |
-| **Deprecated compatibility wrapper** (`deprecated-wrapper`) | every other `scripts/*.sh` | A Fedora-only path from before the platform layout existed. Still forwards; see below. |
+| **Deprecated compatibility wrapper** (`deprecated-wrapper`) | every other `scripts/*.sh` | A Fedora-only path from before the platform layout existed. Still forwards; see below. The catch-all is enforced by a body check, not by the pattern alone: a `scripts/*.sh` file that never calls `deprecated_wrapper` fails lint until it is given its own exact row. |
 | **Internal implementation** (`internal-executable`) | `common/*.sh`, `scripts/install-main.sh`, `scripts/bootstrap-macos.sh`, `scripts/doctor.sh` | Called by a documented entry point. Individually rerunnable, but not the documented interface — `scripts/doctor.sh` is the implementation `./doctor` execs into, not something to run directly. |
 | **Sourced library** (`sourced-library`) | `common/lib/*.sh`, `platforms/*/lib/*.sh`, `scripts/lib/*.sh`, `tests/lib/*.sh` | Meant to be sourced, never executed. Never carries the executable bit. |
 | **Stowed command** (`stowed-command`) | `bin/.local/bin/*`, `platforms/*/stow/*/.local/bin/*` | Lands on `PATH` once stowed; a real command a user runs by name. |

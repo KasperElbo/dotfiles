@@ -10,13 +10,12 @@ list of verifiers that drifts the moment one is added.
 
 from __future__ import annotations
 
-import csv
 import os
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import supported_platforms  # noqa: E402
+from manifests import read_tsv, registered_platforms  # noqa: E402
 
 root = pathlib.Path(__file__).resolve().parents[1]
 manifest = pathlib.Path(
@@ -25,23 +24,25 @@ manifest = pathlib.Path(
 target = root / "docs" / "reference" / "verifiers.md"
 
 # Section headings are human-authored; which platforms exist is not. A platform
-# the manifest supports without a heading here fails rather than rendering an
-# unlabelled section.
+# the manifest models without a heading here fails rather than rendering an
+# unlabelled section. Every platform with a row appears, including the Windows
+# host, which this repository installs and verifies without `./install.sh`
+# being able to run it.
 PLATFORM_HEADINGS = {
     "fedora": "Fedora",
     "fedora-wsl": "Fedora WSL",
     "macos": "macOS",
     "parrot-ctf": "Parrot CTF",
+    "windows": "Windows",
 }
 
-platforms = list(supported_platforms(manifest))
+platforms = list(registered_platforms(manifest))
 missing_headings = [platform for platform in platforms if platform not in PLATFORM_HEADINGS]
 if missing_headings:
     print(f"No section heading for platform(s): {', '.join(missing_headings)}", file=sys.stderr)
     raise SystemExit(1)
 
-with manifest.open(newline="", encoding="utf-8") as stream:
-    rows = list(csv.DictReader(stream, delimiter="\t"))
+rows = read_tsv(manifest)
 
 lines = [
     "# Generated verifier reference",
@@ -49,15 +50,18 @@ lines = [
     "Generated from `config/capabilities.tsv`; do not edit these tables by hand.",
     "",
     "Each row is one verifier script, the capabilities it proves on that",
-    "platform, and the installer flags that select those capabilities. The flags",
-    "are what an install asks for — not arguments to the verifier: most verifiers",
-    "read the recorded lifecycle state instead of taking options. See",
+    "platform, and the installer flags that select those capabilities — a",
+    "PowerShell switch of `platforms/windows/install.ps1` on the Windows host,",
+    "whose installer and verifier are both PowerShell. The flags are what an",
+    "install asks for — not arguments to the verifier: most verifiers read the",
+    "recorded lifecycle state instead of taking options. See",
     "[the verification workflow](../workflows/verification.md) for the few that do",
     "take arguments, and for what a failure versus a warning means.",
     "",
-    "A capability with no row here is not verified on that platform because it is",
-    "not supported there; [the capability matrix](capability-matrix.md) says which",
-    "platforms support what, and who owns each deliberate absence.",
+    "A capability with no row here is not verified on that platform, for one of two",
+    "reasons: the manifest records it as deliberately absent there, or the manifest",
+    "has no row for that pair at all. [The capability matrix](capability-matrix.md)",
+    "tells those apart and names who owns each deliberate absence.",
 ]
 for platform in platforms:
     verifiers: dict[str, dict[str, list[str]]] = {}

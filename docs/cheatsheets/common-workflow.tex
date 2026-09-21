@@ -6,8 +6,12 @@
 Ghostty on Fedora and macOS; Noctty on Windows for the WSL profile, from the same tracked \texttt{shared.conf}. Either owns tabs/splits/zoom locally; tmux does not duplicate that.\par
 % The discovery command and the copy/paste keys differ per platform, so each
 % sheet supplies its own line rather than this block naming a binary the WSL
-% runtime does not have. cheatsheet.sty defines an empty default.
+% runtime does not have. cheatsheet.sty defines an empty default, and the
+% same goes for \cstermdefaults: the terminal's own default keys differ
+% between Ghostty on Linux, Ghostty on macOS and Noctty on Windows, so each
+% sheet carries the table that is true of its own terminal.
 \cstermlegend
+\cstermdefaults
 
 \cssection{Shell (Zsh)}
 \begin{cskeys}{0.36\linewidth}
@@ -17,6 +21,7 @@ Ghostty on Fedora and macOS; Noctty on Windows for the WSL profile, from the sam
 \csrow{theme <f>}{switch Catppuccin flavour}
 \csrow{tar A.tar.gz P...}{create an archive from P...}
 \csrow{untar A.tar.gz}{extract an archive}
+\csrow{cld}{Claude Code, prompts off}
 \csrow{shell-integrations}{report optional tools this shell lacks}
 \end{cskeys}
 \csnote{<f> is latte, frappe, macchiato or mocha. Terminal, tmux, Starship, bat and Lazygit follow it everywhere; the desktop half needs a platform theme hook.}
@@ -57,8 +62,29 @@ Ghostty on Fedora and macOS; Noctty on Windows for the WSL profile, from the sam
 \end{cskeys}
 \csnote{Thin by design: persistence/remote sessions only; Ghostty stays the local tab/split manager.}
 
+\cssection{Neovim essentials (upstream Vim defaults)}
+\begin{cskeys}{0.28\linewidth}
+\csrow{i / a / o}{Insert before / after the cursor, open a line below}
+\csrow{Esc}{Leave insert mode, back to normal mode}
+\csrow{:w / :q / :wq / :q!}{Write / quit / write and quit / quit discarding}
+\csrow{h j k l}{Move left / down / up / right}
+\csrow{w / b / e}{Next word / previous word / end of word}
+\csrow{0 / \$}{Start / end of the line}
+\csrow{gg / G}{Top / bottom of the buffer}
+\csrow{Ctrl+U / Ctrl+D}{Half a screen up / down}
+\csrow{yy / dd / p}{Yank / cut / put a line}
+\csrow{ciw / diw}{Change / delete the word under the cursor}
+\csrow{v / V / Ctrl+V}{Character / line / block visual mode}
+\csrow{/pat, then n / N}{Search, then next / previous match}
+\csrow{:\%s/a/b/g}{Replace a with b in the whole buffer}
+\csrow{u / Ctrl+R}{Undo / redo}
+\csrow{.}{Repeat the last change}
+\csrow{gcc / gc + motion}{Toggle a comment on the line / over a motion}
+\end{cskeys}
+\csnote{Vim's own defaults, not dotfiles bindings: they work in any \texttt{nvim}, including one started with \texttt{--clean} or on a machine this repository has never touched. \texttt{:help index} lists every one of them.}
+
 \cssection{LazyVim / Neovim}
-\begin{cskeys}{0.20\linewidth}
+\begin{cskeys}{0.26\linewidth}
 \csrow{Space}{WhichKey menu (discover everything)}
 \csrow{<lead>ff}{find files}
 \csrow{<lead>/}{live grep}
@@ -76,11 +102,41 @@ Ghostty on Fedora and macOS; Noctty on Windows for the WSL profile, from the sam
 \csrow{<lead>du}{toggle debug UI}
 \csrow{<lead>ft}{floating terminal}
 \csrow{<lead>gg}{Lazygit}
+\csrow{<lead>e}{file explorer (Snacks), rooted at the project}
+\csrow{Ctrl+H/J/K/L}{focus the window left/down/up/right}
+\csrow{<lead>- / <lead>\textbar}{split the window below / right}
+\csrow{<lead>wd}{close the window}
+\csrow{<lead>bd}{close the buffer, keep the window}
+\csrow{Ctrl+S}{save the file, from any mode}
+\csrow{Alt+J / Alt+K}{move the line (or selection) down / up}
+\csrow{s}{Flash: jump to any visible position}
+\csrow{<lead>fr}{recent files}
+\csrow{<lead>sk}{search every keymap}
+\csrow{<lead>l}{Lazy: plugin manager}
+\csrow{<lead>qq}{quit all}
 \end{cskeys}
-\csnote{<lead> is the leader key (Space). Full keymap: press Space and read WhichKey.}
+\csnote{<lead> is the leader key (Space). These are LazyVim's own defaults, verified against the commit pinned in \texttt{lazy-lock.json}; \texttt{<lead>cf} is the one whose formatter map this repository extends. Full keymap: press Space and read WhichKey, or \texttt{<lead>sk}.}
 
 \cssection{Lazygit}
 \begin{cskeys}{0.20\linewidth}
 \csrow{lazygit}{open from any Git repo, or <lead>gg in LazyVim}
 \csrow{?}{contextual key-binding help for the current panel}
 \end{cskeys}
+
+\cssection{Herdr --- agent workspaces (optional AI profile)}
+\begin{cskeys}{0.34\linewidth}
+\csrow{herdr}{start or reattach the workspace; agents survive a detach}
+\csrow{Ctrl+B ?}{list every binding}
+\csrow{Ctrl+B c}{new tab}
+\csrow{Ctrl+B v / Ctrl+B -}{split the pane right / down}
+\csrow{Ctrl+B h/j/k/l}{focus the pane left/down/up/right}
+\csrow{Ctrl+B z / Ctrl+B x}{zoom / close the focused pane}
+\csrow{Ctrl+B n / Ctrl+B p}{next / previous tab}
+\csrow{Ctrl+B 1..9}{jump to tab 1-9}
+\csrow{Ctrl+B Shift+N}{new workspace}
+\csrow{Ctrl+B w / Ctrl+B g}{workspace picker / goto picker}
+\csrow{Ctrl+B b}{toggle the agent sidebar (blocked/working/done/idle)}
+\csrow{Ctrl+B [}{copy mode}
+\csrow{Ctrl+B q}{detach; the agents keep running}
+\end{cskeys}
+\csnote{Installed only by \texttt{./install.sh --ai}; these are Herdr's own upstream defaults, and it is mouse-native besides. Its prefix is \texttt{Ctrl+B}, the same key tmux uses --- run one inside the other and the inner multiplexer never sees the prefix. Herdr is for agent panes, tmux for ordinary shell persistence.}

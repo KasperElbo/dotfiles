@@ -5,6 +5,15 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
+# The Fedora hook asks whether there is a graphical session to apply a KDE
+# theme to, because the Plasma commands abort without one. This suite is about
+# what the hook does on a machine that has one, so the fixture declares a
+# session rather than inheriting whatever the runner has -- no CI runner has a
+# desktop session, and inheriting would silently turn every KDE assertion below
+# into a skip.
+export WAYLAND_DISPLAY=wayland-0
+unset DISPLAY
+
 mock_bin="$test_root/bin"
 sandbox_bin="$test_root/sandbox-bin"
 mock_log="$test_root/mock.log"
@@ -92,10 +101,10 @@ chmod +x "$mock_bin"/*
 
 for flavour in latte frappe macchiato mocha; do
   ln -s \
-    "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-$flavour.webp" \
+    "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-$flavour.webp" \
     "$test_root/home/.local/share/wallpapers/catppuccin-$flavour.webp"
   ln -s \
-    "$repo_root/platforms/fedora/stow/theme-assets/.local/share/wallpapers/catppuccin-$flavour-lock.webp" \
+    "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-$flavour-lock.webp" \
     "$test_root/home/.local/share/wallpapers/catppuccin-$flavour-lock.webp"
 done
 
@@ -110,7 +119,8 @@ done
 
 theme_command="$repo_root/bin/.local/bin/theme"
 
-"$theme_command" --help | grep -Fq -- '--preserve-wallpaper'
+theme_help="$("$theme_command" --help)"
+grep -Fq -- '--preserve-wallpaper' <<<"$theme_help"
 
 if "$theme_command" mocha --unknown >"$test_root/invalid.out" 2>&1; then
   printf 'Unknown theme flags must fail.\n' >&2
@@ -271,5 +281,142 @@ grep -Fqx 'swaymsg reload' "$mock_log"
 grep -Fqx -- 'pkill -SIGUSR2 waybar' "$mock_log"
 grep -Fqx 'seat * xcursor_theme catppuccin-mocha-mauve-cursors 24' \
   "$test_root/xdg/dotfiles/sway-theme.conf"
+
+# --- The command chooses its interpreter before loading anything (#255) ------
+
+# macOS ships Bash 3.2, where install-selection.sh's opening `declare -A` fails
+# at source time with `declare: -A: invalid option`, before any of the command's
+# own code runs. common/lib/modern-bash.sh chooses the interpreter first.
+#
+# This container has no Apple Bash to run the command under, so the selection
+# library is exercised directly and the command is checked for calling it in the
+# one place where the call helps -- ahead of every modern-Bash source.
+bash32_root="$test_root/bash32"
+mkdir -p "$bash32_root/bin"
+
+# A `bash` that fails the version probe, which is what Apple's 3.2 does:
+# `BASH_VERSINFO[0] > 4 || …` is false there. An absolute shebang, because this
+# file goes on PATH and `#!/usr/bin/env bash` would find itself.
+cat >"$bash32_root/bin/bash" <<EOF_OLD_BASH
+#!$(command -v bash)
+if [ "\${1:-}" = -c ]; then
+  exit 1
+fi
+printf 'the 3.2 fixture was asked to run: %s\\n' "\$*" >&2
+exit 97
+EOF_OLD_BASH
+chmod +x "$bash32_root/bin/bash"
+
+modern_bash="$(command -v bash)"
+library="$repo_root/common/lib/modern-bash.sh"
+
+# probe <script>: the library sourced and driven in a child shell. `BASH` is
+# assigned inside that shell rather than in its environment, because Bash sets
+# BASH to the running interpreter at startup and would overwrite an exported
+# value; the assignment is what lets these cases stand in for a login that
+# reached the command through Apple's Bash.
+probe() {
+  "$modern_bash" -c "
+    . '$library'
+    $1
+  " probe "${@:2}" 2>&1
+}
+
+output="$(probe "modern_bash_is_supported '$modern_bash' && echo supported")"
+[[ "$output" == supported ]] ||
+  { printf 'A modern Bash was not recognised: %s\n' "$output" >&2; exit 1; }
+output="$(probe "modern_bash_is_supported '$bash32_root/bin/bash' || echo rejected")"
+[[ "$output" == rejected ]] ||
+  { printf 'The 3.2 fixture was accepted as supported: %s\n' "$output" >&2; exit 1; }
+output="$(probe "modern_bash_is_supported '$test_root/no-such-bash' || echo rejected")"
+[[ "$output" == rejected ]] ||
+  { printf 'A missing interpreter was accepted: %s\n' "$output" >&2; exit 1; }
+printf 'PASS: the version probe accepts 4.4+ and rejects 3.2 and absent\n'
+
+# Re-exec: the fixture is what the shell believes it is running under, so the
+# library must move to the supported one and hand it the original arguments.
+argv_probe="$test_root/argv-probe"
+cat >"$argv_probe" <<'EOF_ARGV'
+#!/usr/bin/env bash
+printf 'argv:'
+printf ' [%s]' "$@"
+printf '\n'
+EOF_ARGV
+chmod +x "$argv_probe"
+
+output="$(probe "
+  BASH='$bash32_root/bin/bash'
+  DOTFILES_MODERN_BASH='$modern_bash'
+  DOTFILES_BOOTSTRAP_TRACE=true
+  modern_bash_reexec theme '$argv_probe' mocha --preserve-wallpaper
+")"
+grep -Fq 're-executing with' <<<"$output" ||
+  { printf 'No re-exec happened under an unsupported Bash:\n%s\n' "$output" >&2; exit 1; }
+grep -Fq 'argv: [mocha] [--preserve-wallpaper]' <<<"$output" ||
+  { printf 'Arguments did not survive the re-exec:\n%s\n' "$output" >&2; exit 1; }
+printf 'PASS: an unsupported Bash re-execs, and every argument survives\n'
+
+# An already-supported Bash must return rather than re-exec, which is what keeps
+# Linux behaviour unchanged: no second process, no trace line.
+output="$(probe "
+  DOTFILES_BOOTSTRAP_TRACE=true
+  modern_bash_reexec theme '$argv_probe' mocha && echo continued
+")"
+[[ "$output" == continued ]] ||
+  { printf 'A supported Bash did not continue in place: %s\n' "$output" >&2; exit 1; }
+printf 'PASS: a supported Bash continues in place, creating no new process\n'
+
+# With nothing supported to move to, the caller gets the cause and the fix.
+output="$(probe "
+  BASH='$bash32_root/bin/bash'
+  DOTFILES_MODERN_BASH='$bash32_root/bin/bash'
+  PATH='$bash32_root/bin'
+  modern_bash_reexec theme '$argv_probe' mocha || echo refused
+")"
+grep -Fq 'theme requires Bash 4.4 or newer' <<<"$output" ||
+  { printf 'A missing modern Bash produced no diagnostic:\n%s\n' "$output" >&2; exit 1; }
+grep -Fq './install.sh --platform macos' <<<"$output" ||
+  { printf 'The diagnostic does not name the remediation:\n%s\n' "$output" >&2; exit 1; }
+grep -Fq refused <<<"$output" ||
+  { printf 'The caller was not told to refuse:\n%s\n' "$output" >&2; exit 1; }
+if grep -Fq 'declare' <<<"$output"; then
+  printf 'A declare error reached the user:\n%s\n' "$output" >&2
+  exit 1
+fi
+printf 'PASS: no supported Bash gives a focused diagnostic, not a declare error\n'
+
+# The guard only helps if it runs before the first modern-Bash source, so that
+# ordering is asserted rather than left to the next edit of the file.
+theme_command="$repo_root/bin/.local/bin/theme"
+guard_line="$(grep -n '^modern_bash_reexec ' "$theme_command" | head -n 1 | cut -d: -f1)"
+first_modern_source="$(grep -n '^source "\$repo_root/common/lib/' "$theme_command" | head -n 1 | cut -d: -f1)"
+[[ -n "$guard_line" && -n "$first_modern_source" ]] ||
+  { printf 'The theme command no longer has both a guard and a library source\n' >&2; exit 1; }
+((guard_line < first_modern_source)) ||
+  { printf 'The modern-Bash guard runs after a library source (%s vs %s)\n' \
+      "$guard_line" "$first_modern_source" >&2; exit 1; }
+printf 'PASS: the guard runs before the first modern-Bash library source\n'
+
+# The dialect claim is checkable, so it is checked: nothing above the guard, and
+# nothing in the library it sources, may use syntax Apple's Bash lacks -- that
+# code would fail before the guard could help.
+# `[[ ]]` and `(( ))` are 3.2 syntax and are not listed; what 3.2 lacks is
+# associative arrays, mapfile and case-converting expansions. Comments are
+# stripped first, so prose naming a construct is not mistaken for using it.
+check_bash32_dialect() {
+  local label="$1" text="$2" pattern
+  text="$(sed -e 's/^[[:space:]]*#.*$//' <<<"$text")"
+  for pattern in 'declare -[Aa]' 'local -[Aa]' '\bmapfile\b' '\breadarray\b' \
+    '\$\{[A-Za-z_][A-Za-z_0-9]*,,?\}' '\$\{[A-Za-z_][A-Za-z_0-9]*\^\^?\}'; do
+    if grep -Eq -- "$pattern" <<<"$text"; then
+      printf '%s uses %s, which Apple Bash 3.2 does not have\n' "$label" "$pattern" >&2
+      exit 1
+    fi
+  done
+}
+check_bash32_dialect 'common/lib/modern-bash.sh' "$(cat "$library")"
+check_bash32_dialect 'the theme command above its modern-Bash guard' \
+  "$(sed -n "1,${guard_line}p" "$theme_command")"
+printf 'PASS: the guard and its library stay inside the Bash 3.2 dialect\n'
 
 printf 'Theme parsing and desktop wallpaper preservation tests passed.\n'

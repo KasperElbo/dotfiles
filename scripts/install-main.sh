@@ -13,9 +13,27 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [[ "${1:-}" == doctor ]]; then
-  shift
-  exec "$BASH" "$repo_root/scripts/doctor.sh" "$@"
+# doctor is a subcommand rather than a platform option, and it is recognised
+# wherever it stands in the argument vector rather than as $1 alone: the macOS
+# compatibility bootstrap forwards the original vector unchanged, so
+# ./install.sh --platform macos doctor arrives here with the selector first.
+# Only the value of --platform is skipped, so --platform doctor still names a
+# (nonexistent) platform and is reported as one.
+subcommand=""
+skip_argument=false
+for argument in "$@"; do
+  if [[ "$skip_argument" == true ]]; then
+    skip_argument=false
+    continue
+  fi
+  case "$argument" in
+  --platform) skip_argument=true ;;
+  doctor) subcommand="doctor" ;;
+  esac
+done
+
+if [[ "$subcommand" == doctor ]]; then
+  exec "$BASH" "$repo_root/scripts/doctor.sh"
 fi
 
 platform="fedora"
@@ -136,11 +154,25 @@ if [[ "$rerun" == true && "$help_requested" != true ]]; then
   forwarded_args=("${remembered_args[@]}" "${transient_args[@]}")
 fi
 
+# The supported names are config/capabilities.tsv's implemented base rows that
+# this entry point can actually run, read by column name (see
+# common/lib/manifest.sh). A header that lacks a column stops here, naming it,
+# instead of reporting no supported platforms. The manifest registers one
+# platform more than this list: the Windows host has a base row, a provider and
+# a verifier, but its installer is platforms/windows/install.ps1, so the exec
+# below would name a script that does not exist. Requiring that script here is
+# what keeps "supported" meaning "runnable from here" (scripts/lib/manifests.py
+# draws the same line for the generators).
+# shellcheck source=../common/lib/manifest.sh
+source "$repo_root/common/lib/manifest.sh"
+supported_platform_rows="$(manifest_values \
+  "${CAPABILITY_MANIFEST:-$repo_root/config/capabilities.tsv}" platform \
+  capability base status implemented)" || exit 1
 supported_platform_names=()
 while IFS= read -r supported_platform_name; do
+  [[ -f "$repo_root/platforms/$supported_platform_name/install.sh" ]] || continue
   supported_platform_names+=("$supported_platform_name")
-done < <(awk -F '\t' 'NR > 1 && $1 == "base" && $15 == "implemented" {print $2}' \
-  "$repo_root/config/capabilities.tsv" | sort -u)
+done < <(printf '%s\n' "$supported_platform_rows" | sed '/^$/d' | sort -u)
 supported_platforms="$(
   IFS='|'
   printf '%s' "${supported_platform_names[*]}"
@@ -153,9 +185,11 @@ for supported_platform_name in "${supported_platform_names[@]}"; do
   [[ "$supported_platform_name" != "$default_platform" ]] || entry+=" (default)"
   supported_platforms_sentence+="${supported_platforms_sentence:+, }$entry"
 done
-if ! awk -F '\t' -v platform="$platform" \
-  'NR > 1 && $1 == "base" && $2 == platform && $15 == "implemented" {found=1} END {exit !found}' \
-  "$repo_root/config/capabilities.tsv"; then
+platform_supported=false
+for supported_platform_name in "${supported_platform_names[@]}"; do
+  [[ "$supported_platform_name" != "$platform" ]] || platform_supported=true
+done
+if [[ "$platform_supported" != true ]]; then
   printf 'ERROR: Unsupported platform: %s (expected one of %s)\n' \
     "$platform" "$supported_platforms" >&2
   exit 1
@@ -184,7 +218,7 @@ for forwarded_arg in "${forwarded_args[@]}"; do
     cat <<EOF
 Usage: ./install.sh [--platform NAME|--platform=NAME] [options]
        ./install.sh --rerun [--dry-run] [--non-interactive]
-       ./install.sh doctor
+       ./install.sh [--platform NAME] doctor
 
 Options (platform '$platform'):
   --platform NAME    Target platform: selects which platforms/NAME/install.sh

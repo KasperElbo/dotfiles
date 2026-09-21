@@ -20,6 +20,28 @@ assert_contains() {
   }
 }
 
+# The three searches below are negative assertions: they pass when ripgrep
+# prints nothing. `|| true` made "nothing" and "could not search" the same
+# answer, so with rg missing its exit 127 was swallowed and every one of them
+# passed on a tree that violated them. ripgrep exits 1 when it matched
+# nothing and 2 or more when it failed; only the first is an answer.
+command -v rg >/dev/null 2>&1 || {
+  printf 'ripgrep is required: without it the searches below report nothing and pass.\n' >&2
+  exit 1
+}
+
+rg_matches() {
+  local output status=0
+  # The status is captured on the failing branch rather than read afterwards:
+  # an `if` whose condition is false and which has no `else` returns 0.
+  output="$(rg "$@")" || status=$?
+  ((status <= 1)) || {
+    printf 'ripgrep could not search (exit %d): rg %s\n' "$status" "$*" >&2
+    exit 1
+  }
+  printf '%s\n' "$output"
+}
+
 # Only GitHub-hosted runners may treat an unobservable SIP state as an
 # evidence-boundary outcome. Self-hosted Actions machines are real hosts and
 # must retain the normal invariant check.
@@ -44,6 +66,22 @@ assert_contains "$dry_run" 'Podman machine'
 assert_contains "$dry_run" 'AI tooling profile: false'
 assert_contains "$dry_run" 'No changes were made.'
 
+# The containers profile is the one macOS capability no CI job installs. A
+# hosted macOS runner is itself a virtual machine, so vfkit has no nested
+# virtualisation and `podman machine start` exits 1 there whatever this
+# repository does. That has to be a recorded decision with its reason and a
+# manual check standing in for it, not a flag quietly dropped from the
+# workflow, so the registry says so and names where the check lives.
+containers_scope="$(awk -F '\t' '$1 == "containers" && $2 == "macos" { print $18 }' \
+  "$repo_root/config/capabilities.tsv")"
+[[ -n "$containers_scope" ]] ||
+  _test_die 'config/capabilities.tsv has no macos row for the containers capability'
+case "$containers_scope" in
+excluded:*) ;;
+*) _test_die "the macos containers row must record its CI exclusion, got: $containers_scope" ;;
+esac
+assert_contains "$containers_scope" 'docs/platforms/macos.md#optional-containers'
+
 no_defaults="$("$repo_root"/install.sh --platform macos --dry-run --no-defaults)"
 assert_contains "$no_defaults" 'macOS defaults:     false'
 if [[ "$no_defaults" == *'Apply reversible Dock'* ]]; then
@@ -65,8 +103,9 @@ assert_contains "$tailscale_dry_run" \
   'Install the optional Tailscale profile (Homebrew cask, interactive login).'
 grep -Fq -- '--cask tailscale-app' "$macos_root/scripts/install-tailscale.sh"
 grep -Fq -- '--tailscale' "$macos_root/scripts/verify.sh"
-if rg -n 'systemctl|tailscaled\.service' "$macos_root/scripts/install-tailscale.sh" \
-  "$macos_root/scripts/verify.sh" | grep -q .; then
+systemd_references="$(rg_matches -n 'systemctl|tailscaled\.service' \
+  "$macos_root/scripts/install-tailscale.sh" "$macos_root/scripts/verify.sh")"
+if [[ -n "$systemd_references" ]]; then
   printf 'macOS Tailscale profile reuses Fedora systemd/tailscaled assumptions.\n' >&2
   exit 1
 fi
@@ -91,7 +130,8 @@ for package in lazygit node python dotnet uv; do
 done
 
 # The selected manager is exclusive and preserves the Sway mental model.
-if rg -l -i 'yabai|skhd' "$macos_root" --glob '!docs/**' | grep -q .; then
+unselected_managers="$(rg_matches -l -i 'yabai|skhd' "$macos_root" --glob '!docs/**')"
+if [[ -n "$unselected_managers" ]]; then
   printf 'macOS implementation contains an unselected window manager.\n' >&2
   exit 1
 fi
@@ -167,6 +207,23 @@ check_grid 2 up 8
 check_grid 8 down 2
 check_grid 5 right 6
 
+# The same refusal, in the same words, as sway-workspace-grid: config/actions.tsv
+# describes the two bindings identically, so they must behave identically.
+refusal="$test_root/aerospace.err"
+: >"$command_log"
+status=0
+MOCK_WORKSPACE=10 COMMAND_LOG="$command_log" PATH="$mock_bin:$PATH" \
+  "$grid" right 2>"$refusal" || status=$?
+((status == 1)) || {
+  printf 'aerospace-workspace-grid exited %s outside the grid, expected 1.\n' "$status" >&2
+  exit 1
+}
+grep -Fqx 'Focused workspace is not in the 1-9 grid: 10' "$refusal"
+[[ ! -s "$command_log" ]] || {
+  printf 'aerospace-workspace-grid switched workspace despite refusing.\n' >&2
+  exit 1
+}
+
 # Defaults are inspectable and reversible without changing this Linux runner.
 apply_plan="$("$macos_root"/scripts/apply-defaults.sh --dry-run)"
 restore_plan="$("$macos_root"/scripts/apply-defaults.sh --restore --dry-run)"
@@ -196,7 +253,8 @@ nvim_macos_plugin="$macos_root/stow/nvim-macos/.config/nvim/lua/plugins/macos.lu
   exit 1
 }
 grep -Fq 'vim.g.vimtex_view_general_viewer = "open"' "$nvim_macos_plugin"
-if rg -l 'xdg-open' "$macos_root" | grep -q .; then
+xdg_open_references="$(rg_matches -l 'xdg-open' "$macos_root")"
+if [[ -n "$xdg_open_references" ]]; then
   printf 'macOS implementation references the Linux-only xdg-open.\n' >&2
   exit 1
 fi
@@ -257,6 +315,36 @@ if grep -Fq -- '--ocaml' "$macos_verifier"; then
   exit 1
 fi
 
+# The macOS installer applies a theme, restores the Mason inventory and
+# installs the pinned Catppuccin tmux plugin, so the verifier must check all
+# three, and must prove mise ownership of the runtimes mise manages rather than
+# accept whichever copy PATH finds. tests/test-macos-verification.sh runs these
+# sections against a mocked machine; this asserts they stay in the file.
+grep -Fq 'section "Theme"' "$macos_verifier" || {
+  printf 'macOS verifier has no theme section.\n' >&2
+  exit 1
+}
+# shellcheck disable=SC2016 # Matching the literal path expression in verify.sh.
+grep -Fq 'theme_file="$XDG_CONFIG_HOME/dotfiles/theme"' "$macos_verifier" || {
+  printf 'macOS verifier does not read the machine-local theme state.\n' >&2
+  exit 1
+}
+# shellcheck disable=SC2016 # Matching the literal call in verify.sh.
+grep -Fq 'check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"' \
+  "$macos_verifier" || {
+  printf 'macOS verifier does not iterate the tracked Mason inventory.\n' >&2
+  exit 1
+}
+grep -Fq 'check_catppuccin_tmux' "$macos_verifier" || {
+  printf 'macOS verifier does not check the pinned Catppuccin tmux plugin.\n' >&2
+  exit 1
+}
+# shellcheck disable=SC2016 # Matching the literal loop in verify.sh.
+grep -Fq 'for name in "${mise_tools[@]}"; do check_mise_owned "$name"; done' "$macos_verifier" || {
+  printf 'macOS verifier does not prove mise ownership of its runtimes.\n' >&2
+  exit 1
+}
+
 # ---------------------------------------------------------------------------
 # Platform consistency
 #
@@ -272,7 +360,7 @@ macos_installer="$macos_root/install.sh"
 # and a redirection plus a nested read of the same file is a lint hazard.
 manifest_rows="$(cat "$manifest")"
 
-while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ verifier _ docs _ status; do
+while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ verifier _ _ docs _ status _; do
   [[ "$platform" == macos ]] || continue
 
   if [[ "$status" != implemented ]]; then
@@ -312,5 +400,43 @@ while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ ve
       "${selection[*]}" >&2; exit 1; }
 done <<<"$manifest_rows"
 printf 'macOS manifest, help, parser and dry run advertise one capability set.\n'
+
+# --- The lock screen is the desktop wallpaper, and stays that way ---------
+#
+# macOS shows the desktop wallpaper when a logged-in session locks, and offers
+# no documented user-level way to set the two separately. The only route to a
+# distinct login-window image is writing into /Library/Caches/Desktop Pictures,
+# a root-owned system cache whose layout is private; taking it would mean
+# loosening permissions macOS maintains, which contradicts this platform's
+# stated position on SIP and Gatekeeper. docs/platforms/macos.md records that
+# under "Lock screen".
+#
+# A decision recorded only in prose is a decision the next change can walk
+# past, so this is the guard. It forbids the rejected route rather than
+# requiring that no lock-screen support ever exist: if a future macOS grows a
+# supported interface, taking it will not trip this.
+lock_screen_reach="$(
+  grep -rInE 'Desktop Pictures|lockscreen\.png|-lock\.webp' \
+    "$macos_root" || true
+)"
+[[ -z "$lock_screen_reach" ]] || {
+  printf 'The macOS tree reaches for the login-window cache or the Swaylock\n' >&2
+  printf 'assets. Both were rejected; see the "Lock screen" section of\n' >&2
+  printf 'docs/platforms/macos.md before changing this.\n%s\n' \
+    "$lock_screen_reach" >&2
+  exit 1
+}
+
+# The rejection is only meaningful while the reasoning is on file, and while
+# the assets it talks about still exist to be reached for.
+grep -Fq '## Lock screen' "$repo_root/docs/platforms/macos.md" ||
+  { printf 'docs/platforms/macos.md no longer records the lock-screen policy.\n' >&2
+    exit 1; }
+for flavour in latte frappe macchiato mocha; do
+  [[ -f "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-$flavour-lock.webp" ]] ||
+    { printf 'The %s lock asset is gone, so the macOS policy describes\n' "$flavour" >&2
+      printf 'files that no longer exist.\n' >&2; exit 1; }
+done
+printf 'macOS leaves the lock screen to the desktop wallpaper.\n'
 
 printf 'macOS profile configuration checks passed.\n'

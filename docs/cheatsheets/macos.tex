@@ -58,6 +58,7 @@
 \csrow{Ctrl+Opt+Shift+Tab}{Move window to next display}
 \csrow{Ctrl+Opt+Cmd+Tab}{Move workspace to next display}
 \end{cskeys}
+\csnote{Shift is the window tier and Cmd the workspace tier, as with the numbered workspaces. The cycle wraps; Control+Option+H/J/K/L already crosses display boundaries without it.}
 
 \cssection{System}
 \begin{cskeys}{0.34\linewidth}
@@ -73,9 +74,39 @@
 \end{cskeys}
 \csnote{Screenshot destination is managed to \textasciitilde/Pictures/Screenshots by the installer's deliberate defaults; the shortcuts themselves are unmodified macOS defaults.}
 
-\renewcommand{\cstermlegend}{\cslegend{\texttt{ghostty +list-keybinds --default} $\to$ exact tab/split/zoom/reload keys. Copy/paste: \texttt{Cmd+C/V}.}}
+\renewcommand{\cstermlegend}{\cslegend{The keys below are Ghostty's own macOS defaults --- Cmd where Linux uses Ctrl+Shift. \texttt{ghostty +list-keybinds --default} prints what the installed version actually has.}}
+% Ghostty sets no `keybind =` in this repository, so every row is an unmodified
+% upstream default taken from Ghostty's own macOS defaults; each is registered
+% in config/actions.tsv as origin=upstream.
+\renewcommand{\cstermdefaults}{%
+\begin{cskeys}{0.30\linewidth}
+\csrow{Cmd+C / Cmd+V}{Copy / paste}
+\csrow{Cmd+T / Cmd+W}{New tab / close the focused surface}
+\csrow{Cmd+Shift+[ / ]}{Previous / next tab}
+\csrow{Cmd+1..8, Cmd+9}{Go to tab 1-8, last tab}
+\csrow{Cmd+D / Cmd+Shift+D}{Split right / down}
+\csrow{Cmd+[ / Cmd+]}{Previous / next split}
+\csrow{Cmd+Opt+arrows}{Focus the split in that direction}
+\csrow{Cmd+Shift+Enter}{Zoom the focused split}
+\csrow{Cmd+Enter}{Toggle fullscreen}
+\csrow{Cmd+Shift+P}{Command palette}
+\csrow{Cmd+K / Cmd+A}{Clear the screen / select all}
+\csrow{Cmd+Shift+Up / Down}{Jump to the previous / next shell prompt}
+\csrow{Cmd+Plus / Minus / 0}{Grow / shrink / reset the font}
+\csrow{Cmd+, / Cmd+Shift+,}{Open / reload the configuration}
+\end{cskeys}}
+% The shared workflow block prints fzf's Alt+C, and Alt is not a key a Mac
+% has: Ghostty is configured to send Left Option as Alt so that row works here.
+% csprose: ghostty.macos.option-as-alt
+\csnote{Where the shared blocks below say \texttt{Alt}, press \textbf{Left Option}: Ghostty sends it to the shell as Alt/Meta. \textbf{Right Option} is left alone, so it still types the symbols a Danish layout puts behind it.}
+% csprose: theme.preserve-wallpaper
+\csnote{\texttt{theme <f>} below also replaces the desktop wallpaper; \texttt{--preserve-wallpaper} changes the flavour and keeps yours.}
 \input{common-workflow}
 
+% The columns now reach the bottom of the last page, so \csfoot's \vfill would
+% push the footer onto a page of its own; \csfootflow ends the last column
+% instead. docs/cheatsheets/verify.sh fails the orphaned-footer case.
+\csfootflow{Full keybindings reference: docs/reference/keybindings.md. AeroSpace config: platforms/macos/stow/aerospace, docs/platforms/macos.md \#6. Regenerate: docs/cheatsheets/generate.sh.}
+
 \end{multicols}
-\csfoot{Full keybindings reference: docs/reference/keybindings.md. AeroSpace config: platforms/macos/stow/aerospace, docs/platforms/macos.md \#6. Regenerate: docs/cheatsheets/generate.sh.}
 \end{document}

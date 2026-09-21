@@ -27,13 +27,16 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$script_dir"
 
-# sheet:maximum-pages. One page wherever the profile's own material and the
-# shared terminal/development block fit together; two for the desktop sheets,
-# whose window-manager tables fill a page before the shared block starts.
+# sheet:maximum-pages. Every sheet that prints a terminal/editor keymap costs
+# one page more than its own profile material: the shared block now carries
+# Neovim's and LazyVim's defaults and Herdr's prefix keys, and each sheet adds
+# its own terminal's defaults on top. The desktop sheets, whose window-manager
+# tables already filled a page on their own, are three; the Parrot guest sheet
+# prints no keymap it does not own and stays at one.
 declare -A page_budget=(
-  [fedora-kde]=1
-  [fedora-sway]=2
-  [fedora-wsl]=1
+  [fedora-kde]=2
+  [fedora-sway]=3
+  [fedora-wsl]=2
   [macos]=2
   [parrot-ctf]=1
 )

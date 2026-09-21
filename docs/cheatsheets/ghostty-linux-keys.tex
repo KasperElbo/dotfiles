@@ -1,0 +1,25 @@
+% Ghostty's own default keys on Linux/GTK, \input by the two Fedora desktop
+% sheets (the WSL sheet runs Noctty and the macOS sheet uses Cmd chords, so
+% each of those carries its own table instead).
+%
+% This repository sets no `keybind =`, so every row here is an unmodified
+% upstream default, taken from Ghostty's own `Keybinds.init` defaults rather
+% than from a third-party list. They are registered in config/actions.tsv as
+% origin=upstream; `ghostty +list-keybinds --default` prints what the
+% installed version actually has, which is the list to trust after an upgrade.
+\begin{cskeys}{0.30\linewidth}
+\csrow{Ctrl+Shift+C / V}{Copy / paste}
+\csrow{Ctrl+Shift+T / W}{New / close tab}
+\csrow{Ctrl+Tab / Ctrl+Shift+Tab}{Next / previous tab}
+\csrow{Alt+1..8, Alt+9}{Go to tab 1-8, last tab}
+\csrow{Ctrl+Shift+O / E}{Split right / down}
+\csrow{Ctrl+Alt+arrows}{Focus the split in that direction}
+\csrow{Ctrl+Shift+Enter}{Zoom the focused split}
+\csrow{Ctrl+Enter}{Toggle fullscreen}
+\csrow{Ctrl+Shift+P}{Command palette}
+\csrow{Ctrl+Shift+F}{Search the scrollback (Esc leaves)}
+\csrow{Ctrl+Shift+Up / Down}{Jump to the previous / next shell prompt}
+\csrow{Shift+PgUp / PgDn}{Scroll the viewport a page}
+\csrow{Ctrl+Plus / Minus / 0}{Grow / shrink / reset the font}
+\csrow{Ctrl+, / Ctrl+Shift+,}{Open / reload the configuration}
+\end{cskeys}

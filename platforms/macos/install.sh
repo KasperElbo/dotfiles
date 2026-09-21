@@ -25,7 +25,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/macos.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/install-actions.sh"
 
 theme="$THEME_DEFAULT_FLAVOUR"; theme_explicit=false; install_ocaml=false; install_containers=false
-install_tailscale=false; apply_defaults=true; run_dev_workflows=false
+install_tailscale=false; install_dictation=false
+apply_defaults=true; run_dev_workflows=false
 install_ai=false
 # Empty means the sub-flag was omitted. common/install-ai.sh treats that as
 # additive -- keep whatever is already installed -- so it must stay
@@ -44,6 +45,7 @@ while (($#)); do
   --ocaml) install_ocaml=true; shift ;; --no-ocaml) install_ocaml=false; shift ;;
   --containers) install_containers=true; shift ;; --no-containers) install_containers=false; shift ;;
   --tailscale) install_tailscale=true; shift ;; --no-tailscale) install_tailscale=false; shift ;;
+  --dictation) install_dictation=true; shift ;; --no-dictation) install_dictation=false; shift ;;
   --defaults) apply_defaults=true; shift ;; --no-defaults) apply_defaults=false; shift ;;
   --dev-workflows) run_dev_workflows=true; shift ;; --no-dev-workflows) run_dev_workflows=false; shift ;;
   --ai) install_ai=true; shift ;; --no-ai) install_ai=false; shift ;;
@@ -85,7 +87,7 @@ theme_source="$THEME_RESOLVED_SOURCE"
 # cleaned up.
 macos_require_implemented_capability() {
   local flag="$1" capability="$2" status
-  status="$(capability_field macos "$capability" status 2>/dev/null || printf 'undeclared')"
+  status="$(capability_field macos "$capability" status || printf 'undeclared')"
   [[ "$status" != implemented ]] || return 0
   die "$flag is not supported on Apple Silicon macOS.
 config/capabilities.tsv declares the '$capability' capability '$status' for
@@ -107,11 +109,19 @@ macos_selected_capabilities() {
   local selection
   printf '%s\n' base dotnet-debug
   for selection in "$install_ocaml:ocaml" "$install_containers:containers" \
-    "$install_tailscale:tailscale" "$install_ai:ai" "$ai_codex:codex" \
+    "$install_tailscale:tailscale" "$install_dictation:dictation" \
+    "$install_ai:ai" "$ai_codex:codex" \
     "$ai_firstmate:firstmate" "$ai_gnhf:gnhf" "$ai_backpass:backpass"; do
     [[ "${selection%%:*}" != true ]] || printf '%s\n' "${selection#*:}"
   done
 }
+# Checked for every run, --dry-run included: a dry run exits before
+# plan_preflight, and it must not show a plan for a capability this platform's
+# manifest does not implement.
+selected_capabilities=()
+while IFS= read -r capability; do selected_capabilities+=("$capability"); done < <(macos_selected_capabilities)
+capability_validate_selection macos "${selected_capabilities[@]}" ||
+  die 'The selected capabilities cannot be installed on macos.'
 
 # The note the plan and dry-run show for the AI step, and the exact argument
 # vector apply_ai passes, are built from one function so a dry-run can never
@@ -130,6 +140,7 @@ install_selection_set theme "$theme"
 install_selection_set ocaml "$install_ocaml"
 install_selection_set containers "$install_containers"
 install_selection_set tailscale "$install_tailscale"
+install_selection_set dictation "$install_dictation"
 install_selection_set defaults "$apply_defaults"
 install_selection_set ai "$install_ai"
 # Tristates: an omitted AI sub-flag is remembered as "inherit", so a rerun
@@ -144,7 +155,9 @@ install_selection="$(install_selection_serialize)"
 preflight_macos() {
   require_regular_user
   require_apple_silicon_macos
-  preflight_commands awk date find git readlink xcode-select
+  # config/command-providers.tsv owns this list, including curl and sudo, which
+  # every supported macOS ships even when this run turns out not to need them.
+  preflight_platform_command_providers macos
   xcode-select -p >/dev/null 2>&1 || die "Apple Command Line Tools are required; run 'xcode-select --install'."
   # Both things this profile needs sudo for are decided here, before the plan
   # runs: installing Homebrew, and moving the account's login shell to a
@@ -153,22 +166,24 @@ preflight_macos() {
   # the Homebrew case, so a Mac with Homebrew and a non-Zsh login shell still
   # stopped at a sudo password prompt inside the system step.
   local needs_sudo=false
-  if [[ ! -x "$(homebrew_path)" ]]; then
-    preflight_commands curl
-    needs_sudo=true
-  fi
+  [[ -x "$(homebrew_path)" ]] || needs_sudo=true
   ! macos_login_shell_change_required || needs_sudo=true
-  if [[ "$needs_sudo" == true ]]; then
-    preflight_commands sudo
-    preflight_sudo "$interactive"
-  fi
+  [[ "$needs_sudo" != true ]] || preflight_sudo "$interactive"
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads.
+  preflight_xdg_layout
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
-  local specs=() spec capability
+  preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
+  preflight_disk_space /opt/homebrew "$PREFLIGHT_SYSTEM_MIN_MB"
+  local specs=() spec capability stow_specs
   local selected=()
   while IFS= read -r capability; do selected+=("$capability"); done < <(macos_selected_capabilities)
   capability_validate_selection macos "${selected[@]}"
-  while IFS= read -r spec; do specs+=("$spec"); done < <(capability_stow_specs macos "${selected[@]}")
+  # A checked substitution, not < <(...): a manifest header without the stow
+  # column must stop preflight, not silently skip the conflict check.
+  stow_specs="$(capability_stow_specs macos "${selected[@]}")" || return
+  while IFS= read -r spec; do [[ -z "$spec" ]] || specs+=("$spec"); done <<<"$stow_specs"
   preflight_stow_packages "${specs[@]}"
 }
 
@@ -178,7 +193,8 @@ apply_system() {
 apply_ocaml_native() { "$DOTFILES_ROOT/platforms/macos/scripts/install-ocaml.sh"; }
 apply_containers() { "$DOTFILES_ROOT/platforms/macos/scripts/install-containers.sh"; }
 apply_tailscale() { "$DOTFILES_ROOT/platforms/macos/scripts/install-tailscale.sh"; }
-apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" "$theme"; }
+apply_dictation() { "$DOTFILES_ROOT/platforms/macos/scripts/install-dictation.sh"; }
+apply_local() { "$DOTFILES_ROOT/common/setup-local.sh" macos "$theme"; }
 apply_stow() { "$DOTFILES_ROOT/platforms/macos/scripts/stow.sh"; }
 apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
 apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh"; }
@@ -195,35 +211,37 @@ apply_dev_workflows() { local args=(--all); [[ "$install_ocaml" != true ]] || ar
 apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
 apply_aerospace() { open -a AeroSpace || warn 'Open AeroSpace manually from /Applications'; }
 verify_macos() {
-  macos_run_verifier "$apply_defaults" "$install_containers" "$install_tailscale"
+  macos_run_verifier "$apply_defaults" "$install_containers" "$install_tailscale" \
+    "$install_dictation"
 }
 
-plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' apply preflight_macos apply_system : 'Install native Homebrew at /opt/homebrew, Brewfile machine tools, Ghostty, and AeroSpace. Sets a registered Zsh as the login shell when the account does not already use one.'
-[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Homebrew OCaml prerequisites' apply : apply_ocaml_native : 'platforms/macos/scripts/install-ocaml.sh'
-[[ "$install_containers" != true ]] || plan_add containers 'Install and start a rootless Podman machine' apply : apply_containers : 'Run an ARM64 smoke test with the Podman machine.'
-[[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale profile (Homebrew cask, interactive login).' apply : apply_tailscale : 'Authentication and Network Extension approval remain interactive.'
-plan_add local 'Initialize local Git and theme state' apply : apply_local : "common/setup-local.sh $theme"
-plan_add stow 'Deploy shared and macOS configuration' apply : apply_stow : 'platforms/macos/scripts/stow.sh'
-plan_add mise 'Install mise-managed runtimes' apply : apply_mise : 'common/install-mise.sh'
-plan_add nvim 'Restore LazyVim and Mason tools' apply : apply_nvim : 'common/install-neovim-tools.sh'
-plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh'
-[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and platform tools' apply : apply_ocaml : 'common/install-ocaml.sh'
+plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' apply preflight_macos apply_system : 'Install native Homebrew at /opt/homebrew, Brewfile machine tools, Ghostty, and AeroSpace. Sets a registered Zsh as the login shell when the account does not already use one.' 'platforms/macos/scripts/install-system.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Homebrew OCaml prerequisites' apply : apply_ocaml_native : 'platforms/macos/scripts/install-ocaml.sh' 'platforms/macos/scripts/install-ocaml.sh'
+[[ "$install_containers" != true ]] || plan_add containers 'Install and start a rootless Podman machine' apply : apply_containers : 'Run an ARM64 smoke test with the Podman machine.' 'platforms/macos/scripts/install-containers.sh'
+[[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale profile (Homebrew cask, interactive login).' apply : apply_tailscale : 'Authentication and Network Extension approval remain interactive.' 'platforms/macos/scripts/install-tailscale.sh'
+[[ "$install_dictation" != true ]] || plan_add dictation 'Install the optional dictation profile (pinned Ghost Pepper disk image).' apply : apply_dictation : 'Microphone and Accessibility approval remain interactive.' 'platforms/macos/scripts/install-dictation.sh'
+plan_add local 'Initialize local Git and theme state' apply : apply_local : "common/setup-local.sh macos $theme" 'common/setup-local.sh'
+plan_add stow 'Deploy shared and macOS configuration' apply : apply_stow : 'platforms/macos/scripts/stow.sh' 'platforms/macos/scripts/stow.sh'
+plan_add mise 'Install mise-managed runtimes' apply : apply_mise : 'common/install-mise.sh' 'common/install-mise.sh'
+plan_add nvim 'Restore LazyVim and Mason tools' apply : apply_nvim : 'common/install-neovim-tools.sh' 'common/install-neovim-tools.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh' 'common/install-tmux-theme.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and platform tools' apply : apply_ocaml : 'common/install-ocaml.sh' 'common/install-ocaml.sh'
 if [[ "$install_ai" == true ]]; then
   # After mise: the shared installer resolves every AI tool through the mise
   # environment this platform has just activated, so macOS adds no Homebrew or
   # global-npm copy of anything.
   ai_note='common/install-ai.sh'
   while IFS= read -r ai_argument; do ai_note+=" $ai_argument"; done < <(macos_ai_args)
-  plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$ai_note"
+  plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$ai_note" 'common/install-ai.sh'
 fi
-[[ "$apply_defaults" != true ]] || plan_add defaults 'Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults' apply : apply_macos_defaults : 'platforms/macos/scripts/apply-defaults.sh'
+[[ "$apply_defaults" != true ]] || plan_add defaults 'Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults' apply : apply_macos_defaults : 'platforms/macos/scripts/apply-defaults.sh' 'platforms/macos/scripts/apply-defaults.sh'
 if [[ "$run_dev_workflows" == true ]]; then
   dev_workflows_note='scripts/test-dev-workflows.sh --all'; [[ "$install_ocaml" != true ]] || dev_workflows_note+=' --ocaml'
-  plan_add dev-workflows 'Run the disposable development workflow smoke tests' verify : apply_dev_workflows : "$dev_workflows_note"
+  plan_add dev-workflows 'Run the disposable development workflow smoke tests' verify : apply_dev_workflows : "$dev_workflows_note" 'scripts/test-dev-workflows.sh'
 fi
-plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme"
-plan_add aerospace 'Launch AeroSpace' apply : apply_aerospace : 'macOS may request Accessibility access.'
-plan_add verify 'Verify installation and native architecture' verify : verify_macos : 'platforms/macos/scripts/verify.sh'
+plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme" ''
+plan_add aerospace 'Launch AeroSpace' apply : apply_aerospace : 'macOS may request Accessibility access.' ''
+plan_add verify 'Verify installation and native architecture' verify : verify_macos : 'platforms/macos/scripts/verify.sh' 'platforms/macos/scripts/verify.sh'
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
@@ -236,6 +254,7 @@ macOS defaults:     $apply_defaults
 OCaml profile:      $install_ocaml
 Containers profile: $install_containers
 Tailscale profile:  $install_tailscale
+Dictation profile:  $install_dictation
 Development workflow smoke tests: $run_dev_workflows  (this run only)
 AI tooling profile: $install_ai
 AI Codex subcomponent:     ${ai_codex:-inherit}
@@ -259,6 +278,12 @@ if [[ "$interactive" == true ]]; then
   fi
 fi
 plan_preflight
+# Then the network, because a local problem is worth reporting without waiting
+# for a probe. The hosts come from config/network-sources.tsv, selected by the
+# scripts this resolved plan will run, so a step added later cannot fetch from
+# a host nothing checked; scripts/validate-plan-network.py holds the two to
+# each other. Nothing has mutated yet at this point.
+plan_scripts | preflight_plan_network
 capabilities=''
 while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(macos_selected_capabilities)
 DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command macos "$install_selection")"

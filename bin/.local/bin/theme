@@ -1,4 +1,36 @@
 #!/usr/bin/env bash
+
+# Everything down to the modern-Bash guard may run under Apple's Bash 3.2, so it
+# stays inside that dialect: no associative arrays and no `mapfile`.
+# `set -euo pipefail` waits until after the guard for the same reason the
+# sources do -- nothing modern runs before the interpreter has been chosen.
+
+# Resolve the dotfiles repository from this script's symlink without GNU-only
+# readlink flags: <repo>/bin/.local/bin/theme
+script_path="${BASH_SOURCE[0]}"
+while [ -L "$script_path" ]; do
+  script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
+  link_target="$(readlink "$script_path")"
+
+  case "$link_target" in
+  /*) script_path="$link_target" ;;
+  *) script_path="$script_dir/$link_target" ;;
+  esac
+done
+
+script_path="$(cd -P "$(dirname "$script_path")" && pwd)/$(basename "$script_path")"
+repo_root="$(cd "$(dirname "$script_path")/../../.." && pwd)"
+
+# The shared libraries below are written for the repository's Bash 4.4+
+# runtime; install-lifecycle.sh reaches install-selection.sh, whose opening
+# `declare -A` fails at source time under Apple's Bash with `declare: -A:
+# invalid option` before any of this command's own code runs. Choose the
+# interpreter first, re-executing this same file with the original arguments if
+# the one in hand is too old.
+# shellcheck source=../../../common/lib/modern-bash.sh
+. "$repo_root/common/lib/modern-bash.sh"
+modern_bash_reexec theme "$script_path" "$@" || exit 2
+
 set -euo pipefail
 
 usage() {
@@ -61,22 +93,6 @@ case "$flavour" in
     ;;
 esac
 
-# Resolve the dotfiles repository from this script's symlink without GNU-only
-# readlink flags: <repo>/bin/.local/bin/theme
-script_path="${BASH_SOURCE[0]}"
-while [[ -L "$script_path" ]]; do
-  script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
-  link_target="$(readlink "$script_path")"
-
-  if [[ "$link_target" == /* ]]; then
-    script_path="$link_target"
-  else
-    script_path="$script_dir/$link_target"
-  fi
-done
-
-script_path="$(cd -P "$(dirname "$script_path")" && pwd)/$(basename "$script_path")"
-repo_root="$(cd "$(dirname "$script_path")/../../.." && pwd)"
 # shellcheck source=../../../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
 # shellcheck source=../../../common/lib/theme-shared-state.sh
@@ -93,7 +109,10 @@ echo "Switching to Catppuccin $flavour..."
 
 # The shared state files are what every other consumer reads. If they cannot
 # be written there is nothing meaningful left to do, so this one is required.
-theme_action_required shared-state write_theme_state "$flavour" || exit 1
+# It is a plain statement, not `... || exit 1`: in an `||` list bash ignores
+# errexit inside the action, so a write that failed partway would run on. A
+# failure returns 1, which this script's errexit turns into exit status 1.
+theme_action_required shared-state write_theme_state "$flavour"
 
 # Reload an existing tmux server.
 # shellcheck disable=SC2329 # Invoked indirectly through theme_action.

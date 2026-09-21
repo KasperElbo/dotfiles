@@ -2,6 +2,14 @@
 
 # Versioned machine-local profile state. This file intentionally does not set
 # shell options: sourcing a library must not alter its caller's policy.
+#
+# It needs atomic_write_file and die from lib/common.sh, and sources that
+# itself, so it is correct sourced standalone.
+
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
 
 PROFILE_STATE_SCHEMA_VERSION=2
 
@@ -27,6 +35,14 @@ profile_state_allowed_keys() {
   ocaml) printf '%s\n' switch compiler ;;
   ga402xz | ga402rk) printf '%s\n' secure_boot charge_limit ;;
   containers) printf '%s\n' runtime mode compose_provider api_socket user ;;
+  # The optional dictation profile, whose application differs per platform.
+  # Every platform records the pinned upstream artifact the machine was
+  # installed from (version/sha256, plus artifact or rpm for the file name),
+  # so a machine can be audited against the pin without redownloading. macOS
+  # adds bundle_id/team_id/path for the signing identity its verifier
+  # asserts; Fedora adds paste_backend and toggle for the Wayland route and
+  # the compositor-owned key.
+  dictation) printf '%s\n' application provider version artifact rpm sha256 bundle_id team_id path paste_backend toggle ;;
   desktop-tools) printf '%s\n' image_viewer image_editor pdf_viewer pdf_tool archive_manager media_player scanner force_defaults ;;
   hardening) printf '%s\n' selinux_mode faillock sudo_logfile auditd sysctl_ptrace_scope sysctl_kptr_restrict sysctl_dmesg_restrict ssh dnf_automatic ;;
   tailscale) printf '%s\n' repo service variant ;;
@@ -45,6 +61,10 @@ profile_state_required_keys() {
   ocaml) printf '%s\n' switch compiler ;;
   ga402xz | ga402rk) printf '%s\n' secure_boot charge_limit ;;
   containers) printf '%s\n' runtime mode api_socket ;;
+  # What every platform's dictation state must carry. The per-platform extras
+  # are allowed above and asserted by each platform's own suite, because a key
+  # required here would have to exist on all of them.
+  dictation) printf '%s\n' application provider version ;;
   desktop-tools) printf '%s\n' image_viewer image_editor pdf_viewer pdf_tool ;;
   hardening) printf '%s\n' selinux_mode faillock auditd ;;
   tailscale) printf '%s\n' variant ;;
@@ -77,6 +97,10 @@ profile_state_validate_value() {
   status) [[ "$value" == applying || "$value" == installed || "$value" == failed ]] ;;
   rootful | force_defaults) [[ "$value" == true || "$value" == false ]] ;;
   secure_boot | api_socket) [[ "$value" == enabled || "$value" == disabled || "$value" == required || "$value" == not-required || "$value" == true || "$value" == false ]] ;;
+  # The checkout's git remote, recorded verbatim. Real remotes use characters
+  # the narrow charset below rejects (git@host:~user/repo.git), and the only
+  # bytes that break this file format, a newline or '=', were refused above.
+  repository) return 0 ;;
   *) [[ "$value" =~ ^[[:alnum:]._/@:+,\ -]+$ ]] ;;
   esac
 }
@@ -158,16 +182,21 @@ profile_state_read() {
 profile_state_write() {
   local path="$1" profile="$2" status="$3"
   shift 3
-  local entry key value
-  local -a keys=(schema_version profile status)
+  local entry key value allowed_output
+  local -a keys=(schema_version profile status) allowed=()
 
-  profile_state_allowed_keys "$profile" >/dev/null || die "Unknown state profile: $profile"
+  # Read the key list once, in this shell. Membership is decided by the same
+  # helper the file validator uses: piping the list into a reader that stops at
+  # the first match leaves the writer to be killed by SIGPIPE, which under the
+  # callers' pipefail rejected a key the list contains.
+  allowed_output="$(profile_state_allowed_keys "$profile")" || die "Unknown state profile: $profile"
+  while IFS= read -r key; do allowed+=("$key"); done <<<"$allowed_output"
   profile_state_validate_value status "$status" || die "Invalid profile state status: $status"
   for entry in "$@"; do
     [[ "$entry" == *=* ]] || die "Invalid state entry: $entry"
     key="${entry%%=*}"; value="${entry#*=}"
     profile_state_key_is_listed "$key" "${keys[@]}" && die "Duplicate state key: $key"
-    profile_state_allowed_keys "$profile" | grep -Fxq "$key" || die "Unknown state key for $profile: $key"
+    profile_state_key_is_listed "$key" "${allowed[@]}" || die "Unknown state key for $profile: $key"
     profile_state_validate_value "$key" "$value" || die "Invalid state value for $key"
     keys+=("$key")
   done

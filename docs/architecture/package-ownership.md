@@ -40,18 +40,19 @@ unsupported on a platform install nothing there and are omitted.
 |---|---|---|---|
 | `ai` | `--ai` | `mise` | `claude-code` `herdr` |
 | `backpass` | `--backpass` | `mise-npm` | `acpx` `backpass` `lavish-axi` |
-| `base` | always | `dnf+terra` | `ShellCheck` `bat` `curl` `eza` `fd-find` `firewalld` `fzf` `gh` `ghostty` `git` `git-delta` `gnupg2` `jq` `libicu` `mise` `neovim` `openssh-clients` `ripgrep` `shadow-utils` `sqlite` `sqlite-devel` `starship` `stow` `tmux` `wl-clipboard` `xdg-utils` `zoxide` `zsh` `zsh-autosuggestions` `zsh-syntax-highlighting` |
+| `base` | always | `dnf+terra` | `ShellCheck` `bat` `curl` `eza` `fd-find` `firewalld` `fzf` `gh` `ghostty` `git` `git-delta` `gnupg2` `jq` `libicu` `mise` `neovim` `openssh-clients` `ripgrep` `shadow-utils` `sqlite` `sqlite-devel` `starship` `stow` `tmux` `unzip` `wl-clipboard` `xdg-utils` `zoxide` `zsh` `zsh-autosuggestions` `zsh-syntax-highlighting` |
 | `codex` | `--codex` | `mise-npm` | `@openai/codex` |
 | `containers` | `--containers` | `dnf` | `podman` `podman-compose` |
 | `desktop-tools` | `--desktop-tools` | `dnf+rpmfusion` | `gimp` `mpv` `pdfarranger` `skanpage` |
+| `dictation` | `--dictation` | `dnf+pinned-rpm` | `gtk-layer-shell` `wtype` |
 | `dotnet-debug` | always | `mise-easydotnet` | `EasyDotnet` |
 | `firstmate` | `--firstmate` | `mise+upstream-scripts` | `chrome-devtools-axi` `firstmate` `gh-axi` `lavish-axi` `no-mistakes` `quota-axi` `tasks-axi` `treehouse` |
 | `gnhf` | `--gnhf` | `mise-npm` | `gnhf` |
 | `hardening` | `--hardening` | `dnf` | `audit` `dnf5-plugin-automatic` |
 | `hardware` | `--hardware` | `dnf+copr` | `akmod-nvidia` `akmods` `amd-gpu-firmware` `asusctl` `asusctl-rog-gui` `fwupd` `kmodtool` `mesa-dri-drivers` `mesa-va-drivers` `mesa-vulkan-drivers` `mokutil` `openssl` `pciutils` `xorg-x11-drv-nvidia-cuda` |
-| `kde` | `--kde` | `dnf+upstream-theme` | `kio-extras` |
+| `kde` | `--kde` | `dnf+upstream-theme` | `kio-extras` `kpackagetool6` `wget` |
 | `latex` | `--latex` | `dnf` | `biber` `latexmk` `texlive-biblatex` `texlive-latexindent` `texlive-scheme-medium` |
-| `ocaml` | `--ocaml` | `dnf+opam` | `bubblewrap` `bzip2` `gcc` `gcc-c++` `m4` `make` `opam` `patch` `pkgconf-pkg-config` `unzip` |
+| `ocaml` | `--ocaml` | `dnf+opam` | `bubblewrap` `bzip2` `gcc` `gcc-c++` `m4` `make` `opam` `patch` `pkgconf-pkg-config` |
 | `sway` | `--sway` | `dnf` | `blueman` `brightnessctl` `cliphist` `dex-autostart` `fuzzel` `grim` `libnotify` `lxqt-policykit` `mako` `nm-connection-editor` `pavucontrol` `playerctl` `slurp` `swappy` `sway` `sway-systemd` `swaybg` `swayidle` `swaylock` `waybar` `wireplumber` `xdg-desktop-portal-gtk` `xdg-desktop-portal-wlr` |
 | `tailscale` | `--tailscale` | `dnf-tailscale` | `tailscale` |
 | `vm-guest` | `--vm-guest` | `dnf` | `qemu-guest-agent` `spice-vdagent` `xclip` |
@@ -81,6 +82,7 @@ unsupported on a platform install nothing there and are omitted.
 | `base` | always | `homebrew` | `aerospace` `bash` `bat` `coreutils` `eza` `fd` `fzf` `gh` `ghostty` `git` `git-delta` `jq` `mise` `neovim` `ripgrep` `shellcheck` `sqlite` `starship` `stow` `tmux` `zoxide` `zsh-autosuggestions` `zsh-syntax-highlighting` |
 | `codex` | `--codex` | `mise-npm` | `@openai/codex` |
 | `containers` | `--containers` | `homebrew` | `podman` `podman-compose` |
+| `dictation` | `--dictation` | `upstream-dmg` | `ghost-pepper` |
 | `dotnet-debug` | always | `mise-easydotnet` | `EasyDotnet` |
 | `firstmate` | `--firstmate` | `mise+upstream-scripts` | `chrome-devtools-axi` `firstmate` `gh-axi` `lavish-axi` `no-mistakes` `quota-axi` `tasks-axi` `treehouse` |
 | `gnhf` | `--gnhf` | `mise-npm` | `gnhf` |
@@ -353,12 +355,13 @@ Packages normally track whatever version their registry advertises.
 installed are ignored, so one file serves every Neovim profile.
 
 `roslyn` is pinned. It is served by the third-party
-`github:Crashdummyy/mason-registry`, whose daily release points at the matching
-`roslynLanguageServer` release. That upstream release is created before its
-per-platform archives are uploaded, so the registry can advertise a version
-whose downloads return 404 on every platform and fail a real installation. Bump
-the pin after confirming the newer release actually carries its platform
-archives.
+`github:Crashdummyy/mason-registry`, registered as `mason-registry-crashdummyy`
+in [`config/network-sources.tsv`](../../config/network-sources.tsv). Its daily
+release points at the matching `roslynLanguageServer` release. That upstream
+release is created before its per-platform archives are uploaded, so the
+registry can advertise a version whose downloads return 404 on every platform
+and fail a real installation. Bump the pin after confirming the newer release
+actually carries its platform archives.
 
 ## Project-local tooling
 

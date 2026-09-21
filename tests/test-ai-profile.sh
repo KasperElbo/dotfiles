@@ -6,8 +6,19 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
+test_isolate_path git jq sha256sum
 test_new_root
 test_root="$TEST_ROOT"
+
+# A component that failed may have written no profile file at all, which is
+# the stronger outcome rather than a reason to skip the check. Naming it here
+# is what lets assert_file_not_contains stay strict everywhere else, where a
+# missing file means the assertion stopped checking anything.
+assert_not_recorded() {
+  local conf="$1"
+  local entry="$2"
+  [[ ! -e "$conf" ]] || assert_file_not_contains "$conf" "$entry"
+}
 
 mock_bin="$test_root/bin"
 home="$test_root/home"
@@ -824,7 +835,7 @@ if dangling_output="$(env \
 fi
 assert_contains "$dangling_output" \
   'No Mistakes target does not resolve to an existing file'
-assert_file_not_contains "$dangling_home/.config/dotfiles/ai.conf" 'no_mistakes=installed'
+assert_not_recorded "$dangling_home/.config/dotfiles/ai.conf" 'no_mistakes=installed'
 printf 'PASS: a launcher symlink with no binary behind it fails the component\n'
 
 # --- The API credential an upstream installer is offered --------------------
@@ -932,7 +943,7 @@ staged_failure_case() {
   # Nothing may be left claiming success: no Treehouse binary, and no state
   # file recording the component as installed.
   assert_path_missing "$case_home/.local/bin/treehouse"
-  assert_file_not_contains "$case_home/.config/dotfiles/ai.conf" 'treehouse=installed'
+  assert_not_recorded "$case_home/.config/dotfiles/ai.conf" 'treehouse=installed'
   printf 'PASS: %s\n' "$description"
 }
 
@@ -1029,7 +1040,8 @@ assert_contains "$dry_run_output" "$dry_home/.codex/AGENTS.md"
 assert_contains "$dry_run_output" "$dry_home/.config/opencode/AGENTS.md"
 assert_contains "$dry_run_output" 'No changes were made.'
 
-if find "$dry_home" -mindepth 1 -print -quit | grep -q .; then
+dry_run_residue="$(find "$dry_home" -mindepth 1 -print -quit)"
+if [[ -n "$dry_run_residue" ]]; then
   printf 'AI profile dry-run mutated state under %s\n' "$dry_home" >&2
   exit 1
 fi

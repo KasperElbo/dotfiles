@@ -20,13 +20,11 @@ Usage:
 
 from __future__ import annotations
 
-import csv
 import pathlib
-import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import supported_platforms  # noqa: E402
+from manifests import read_tsv, stow_packages, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CAPABILITIES = ROOT / "config" / "capabilities.tsv"
@@ -43,9 +41,6 @@ PLATFORM_TITLES = {
     "macos": "Apple Silicon macOS",
     "parrot-ctf": "Parrot Security Edition CTF guest",
 }
-
-PACKAGES_ARRAY = re.compile(r"^\s*packages=\((?P<names>[^)]*)\)", re.MULTILINE)
-PACKAGES_APPEND = re.compile(r"^\s*packages\+=\((?P<names>[^)]*)\)", re.MULTILINE)
 
 # Files written outside a capability's own component state. Each entry names
 # the code that writes it, so the claim stays checkable by reading one file.
@@ -77,17 +72,6 @@ UNTRACKED_FILES = [
 ]
 
 
-def stow_packages(script: pathlib.Path) -> list[str]:
-    text = script.read_text(encoding="utf-8")
-    names: list[str] = []
-    for pattern in (PACKAGES_ARRAY, PACKAGES_APPEND):
-        for match in pattern.finditer(text):
-            names.extend(match.group("names").split())
-    if not names:
-        raise SystemExit(f"No packages=( … ) array found in {script}")
-    return names
-
-
 def render_stow() -> str:
     lines = [
         BEGIN_STOW,
@@ -108,15 +92,35 @@ def render_stow() -> str:
     names = " ".join(f"`{name}`" for name in sorted(portable))
     lines.append(f"| Portable (`common/stow.sh`) | {names} |")
 
+    # A package a platform names may still live at the top of the checkout,
+    # because its contents are not that platform's: theme-assets is one set of
+    # images every platform that wants them links. Resolving the root here is
+    # the same rule capability_stow_package_root applies at install time, so
+    # this table cannot claim a package sits somewhere it does not.
+    shared: dict[str, list[str]] = {}
     for platform in supported_platforms():
         script = ROOT / "platforms" / platform / "scripts" / "stow.sh"
-        names = " ".join(f"`{name}`" for name in sorted(stow_packages(script)))
+        owned = []
+        for name in sorted(stow_packages(script)):
+            if name in portable or not (ROOT / name).is_dir():
+                owned.append(name)
+                continue
+            shared.setdefault(name, []).append(platform)
+        names = " ".join(f"`{name}`" for name in owned)
         lines.append(
             f"| {PLATFORM_TITLES[platform]} (`platforms/{platform}/stow/`) | {names} |"
         )
 
+    for name in sorted(shared):
+        deployed = ", ".join(PLATFORM_TITLES[platform] for platform in shared[name])
+        lines.append(f"| Shared (repository root, deployed by {deployed}) | `{name}` |")
+
     lines.extend(
         [
+            "",
+            "A shared row is a package at the repository root that `common/stow.sh`",
+            "does not deploy: the platforms named there link it, and there is one",
+            "copy of its contents rather than one per platform.",
             "",
             "Not every package in a row is deployed on every run: `common/stow.sh",
             "--headless` omits the GUI terminal package for the WSL composition,",
@@ -131,8 +135,7 @@ def render_stow() -> str:
 
 
 def component_state() -> list[tuple[str, str]]:
-    with CAPABILITIES.open(newline="", encoding="utf-8") as stream:
-        rows = list(csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE))
+    rows = read_tsv(CAPABILITIES)
 
     owners: dict[str, set[str]] = {}
     for row in rows:

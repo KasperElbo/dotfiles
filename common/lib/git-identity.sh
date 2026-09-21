@@ -26,6 +26,15 @@
 # poor place to keep private state: objects reachable in a public repository
 # are readable by anyone who clones it, and a shallow clone may not have them
 # at all. See docs/reference/git-identity.md.
+#
+# It needs XDG_STATE_HOME, atomic_write_file, command_exists and the reporting
+# helpers from lib/common.sh, and sources that itself, so it is correct sourced
+# standalone.
+
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
 
 # Identity slots the repository's own git config includes.
 # Public state consumed by sourcing scripts.
@@ -36,6 +45,11 @@ GIT_IDENTITY_NAMES=(local drdk)
 # Public state consumed by sourcing scripts and tests.
 # shellcheck disable=SC2034
 GIT_IDENTITY_OUTCOME_MIGRATED="migrated"
+# Part of this library's interface rather than of its implementation:
+# common/setup-local.sh assigns it when a slot needs no migration. Only
+# visible to ShellCheck now that the guard below gives it a source to
+# follow; the other two tokens happen to be assigned here as well.
+# shellcheck disable=SC2034
 GIT_IDENTITY_OUTCOME_NONE="nothing-to-migrate"
 GIT_IDENTITY_OUTCOME_MANUAL="manual-action-required"
 GIT_IDENTITY_OUTCOME=""

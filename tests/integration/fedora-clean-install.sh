@@ -70,6 +70,33 @@ docker exec "$container" systemctl daemon-reload
 docker exec "$container" systemctl enable --now dbus-broker.service >/dev/null
 docker exec "$container" systemctl enable --now firewalld.service >/dev/null
 
+# The same rule again, for the KDE capability. --kde installs each Catppuccin
+# global theme with `kpackagetool6 -t Plasma/LookAndFeel -i`, which needs the
+# KPackage package structure plugin of that type, and that plugin arrives with
+# the Plasma desktop rather than with the tool. A Fedora KDE workstation owns
+# it; this transport image owns nothing of Plasma, so the first flavour died at
+# "Could not load package structure Plasma/LookAndFeel" on the 2026-09-21
+# scheduled run.
+#
+# It is seeded here rather than declared in the capability's packages because
+# --kde themes an existing desktop and must not install one: a machine without
+# Plasma is told to install Plasma, and this is where CI becomes such a
+# machine. plasma-workspace is the package to name -- the structure plugin and
+# plasma-apply-lookandfeel both arrive with it or with something it requires --
+# and it is a large transaction, which is part of why this job is slow.
+docker exec "$container" dnf --assumeyes install plasma-workspace >/dev/null
+
+# Dolphin, for the same reason and from the same rule. The KDE capability
+# exists to make Dolphin's sftp:// locations work, so the Fedora verifier
+# requires the file manager on a machine that selected --kde -- and the
+# capability declares kio-extras rather than Dolphin, because it must no more
+# install the file manager than it installs Plasma.
+#
+# That check had never run here. It is gated on plasmashell, which nothing in
+# this container provided until plasma-workspace was seeded above, so the SFTP
+# baseline was quietly skipped rather than verified.
+docker exec "$container" dnf --assumeyes install dolphin >/dev/null
+
 # sudo approves an account through pam_unix, which shells out to the setuid
 # unix_chkpwd helper whenever it cannot read the shadow entry itself. That
 # helper does not work inside a privileged Fedora container on a GitHub-hosted
@@ -162,7 +189,12 @@ run_as_negative_user() {
     "$container" bash -lc "$1"
 }
 
-install_command='./install.sh --platform fedora --no-kde --no-latex --non-interactive'
+# --kde and --sway are selected rather than left to detection so this sequence
+# is the real-installation evidence config/capabilities.tsv claims for them:
+# a capability that is never selected here is never installed or verified end
+# to end, whatever its verifier mentions. --latex stays off and says so in the
+# registry's ci_scope column, because TeX Live is gigabytes on every run.
+install_command='./install.sh --platform fedora --kde --sway --no-latex --non-interactive'
 
 printf '\n==> Invalid package must fail through the real installer\n'
 set +e
@@ -187,20 +219,20 @@ run_as_user "$install_command"
 printf '\n==> Independent Fedora verifier\n'
 run_as_user './platforms/fedora/scripts/verify.sh'
 
-# The JSON workflow is the one editor capability that can be proved end to end
-# here: this is a real installed Neovim with its real Mason inventory, so
-# filetype detection, jsonls diagnostics and Conform formatting are exercised
-# against the tools the installer actually provisioned. The other workflows
-# need language ecosystems this container does not install and report SKIP.
-printf '\n==> Installed JSON editing, validation and formatting workflow\n'
-run_as_user './scripts/test-dev-workflows.sh --json'
+# The declared verifier of the dev-workflows capability, run against the real
+# installation: .NET, Angular/TypeScript, Python and JSON with the mise
+# runtimes, Neovim and Mason inventory the installer actually provisioned. It
+# runs from a fresh Zsh login, the environment a user runs it from, because
+# a workflow whose toolchain is not on PATH reports SKIP rather than running.
+printf '\n==> Installed development workflow smoke tests\n'
+run_as_user "zsh -lic './scripts/test-dev-workflows.sh --all'"
 
 printf '\n==> Idempotent rerun\n'
 run_as_user "$install_command"
 run_as_user './platforms/fedora/scripts/verify.sh'
 
 printf '\n==> Selected-state transition (theme macchiato -> mocha)\n'
-run_as_user './install.sh --platform fedora --theme mocha --no-kde --no-latex --non-interactive'
+run_as_user './install.sh --platform fedora --theme mocha --kde --sway --no-latex --non-interactive'
 run_as_user "grep -Fxq mocha \"\${XDG_CONFIG_HOME:-\$HOME/.config}/dotfiles/theme\""
 run_as_user './platforms/fedora/scripts/verify.sh'
 

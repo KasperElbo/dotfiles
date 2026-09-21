@@ -18,10 +18,15 @@ manifest for the first; each platform's `stow.sh` is for the second.
 | Tree | Packages |
 |---|---|
 | Portable (`common/stow.sh`) | `bat` `bin` `fzf` `ghostty` `git` `lazygit` `mise` `nvim-lazyvim` `starship` `tmux` `zsh` |
-| Fedora workstation (`platforms/fedora/stow/`) | `sway` `theme-assets` `theme-hooks` `waybar` `zsh-platform` |
+| Fedora workstation (`platforms/fedora/stow/`) | `sway` `theme-hooks` `waybar` `zsh-platform` |
 | Fedora on WSL (`platforms/fedora-wsl/stow/`) | `interop` `nvim-wsl` `theme-hooks` `zsh-platform` |
-| Apple Silicon macOS (`platforms/macos/stow/`) | `aerospace` `nvim-macos` `zsh-platform` |
+| Apple Silicon macOS (`platforms/macos/stow/`) | `aerospace` `ghostty-macos` `nvim-macos` `theme-hooks` `zsh-platform` |
 | Parrot Security Edition CTF guest (`platforms/parrot-ctf/stow/`) | `command-shims` `mise-ctf` `neovim-profile` `zsh-platform` |
+| Shared (repository root, deployed by Fedora workstation, Apple Silicon macOS) | `theme-assets` |
+
+A shared row is a package at the repository root that `common/stow.sh`
+does not deploy: the platforms named there link it, and there is one
+copy of its contents rather than one per platform.
 
 Not every package in a row is deployed on every run: `common/stow.sh
 --headless` omits the GUI terminal package for the WSL composition,
@@ -32,6 +37,17 @@ with `--sway`.
 <!-- END GENERATED STOW PACKAGES -->
 
 Stow is run with `--no-folding`, and never with `--adopt`.
+
+Stow is also given one target, `$HOME`. A package's `.config` tree is linked
+into `$HOME/.config` and its `.local/share` tree into `$HOME/.local/share`,
+which is where the shell, the installers and the verifiers read them from. So
+`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are supported at their default values
+only, and preflight refuses any other root before anything is linked, naming
+the variable and the path this repository deploys to. A separate root would
+otherwise leave every link somewhere nothing later looks — Stow would report
+success and the shell would come up unconfigured. `XDG_STATE_HOME` is free to
+point anywhere: nothing is stowed under `.local/state`, and everything this
+repository writes there it reads back through the variable.
 
 Because linking is the only thing Stow is allowed to do here, a path that
 already exists where a tracked file would be linked is a conflict, not
@@ -78,9 +94,11 @@ for a flag again. The manifest's `state` column is what names them:
 | `~/.config/dotfiles/ai.conf` | `ai`, `backpass`, `codex`, `firstmate`, `gnhf` |
 | `~/.config/dotfiles/containers.conf` | `containers` |
 | `~/.config/dotfiles/desktop-tools.conf` | `desktop-tools` |
+| `~/.config/dotfiles/dictation.conf` | `dictation` |
 | `~/.config/dotfiles/hardening.conf` | `hardening` |
 | `~/.config/dotfiles/hardware.conf` | `hardware` |
 | `~/.config/dotfiles/macos-containers.conf` | `containers` |
+| `~/.config/dotfiles/macos-dictation.conf` | `dictation` |
 | `~/.config/dotfiles/macos-tailscale.conf` | `tailscale` |
 | `~/.config/dotfiles/ocaml.conf` | `ocaml` |
 | `~/.config/dotfiles/parrot-ctf.conf` | `vm-guest` |

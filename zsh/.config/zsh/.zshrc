@@ -10,6 +10,22 @@
 # PATH by re-sourcing, and so mise/opam activation stays idempotent.
 typeset -gU path PATH
 
+# .zshenv puts ~/.local/bin first, but a login shell runs /etc/zprofile between
+# the two files, and on macOS that runs path_helper, which rebuilds PATH with
+# the system directories in front and everything else after them. ~/.local/bin
+# then sits eighth on a normal Mac, and a terminal window is a login shell, so
+# that is the ordinary shape rather than an edge case. Re-assert it here, after
+# every system file has had its say. The tied array is unique, so this is a
+# no-op in the shells where ~/.local/bin is already first: Zsh keeps the
+# leftmost occurrence and drops the later duplicate, moving nothing else.
+#
+# This is what the command shims depend on -- the Parrot profile's ~/.local/bin
+# wrappers for bat and fd only work if they win over anything with the same
+# name -- and it is deliberately a prepend here rather than a change to
+# path_helper's own inputs, which belong to the operating system.
+path=("$HOME/.local/bin" $path)
+export PATH
+
 HISTFILE="${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history"
 mkdir -p "${HISTFILE:h}"
 
@@ -56,6 +72,26 @@ _dotfiles_integration() {
   fi
 
   DOTFILES_SHELL_MISSING+=("$tool — $consequence")
+  return 1
+}
+
+# Answer whether the installer recorded a capability as present on this
+# machine. `observed_capabilities` is what was actually installed, as opposed
+# to the `requested_capabilities` that were asked for. A missing or unreadable
+# state file means no optional capability is active, which is the right answer
+# for a machine that never ran the installer and for one that is mid-install.
+_dotfiles_capability() {
+  local state="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/install.conf"
+  local line
+
+  [[ -r "$state" ]] || return 1
+
+  while IFS= read -r line; do
+    [[ "$line" == observed_capabilities=* ]] || continue
+    [[ ",${line#observed_capabilities=}," == *",$1,"* ]]
+    return
+  done <"$state"
+
   return 1
 }
 
@@ -158,6 +194,20 @@ fi
 
 if _dotfiles_integration bat 'cat is the plain system cat'; then
   alias cat='bat'
+fi
+
+# `cld` starts Claude Code with permission prompts disabled. The flag is the
+# only way in: a `permissions.defaultMode` of `bypassPermissions` is ignored
+# when it comes from repo-level settings, and the mode cannot be raised once
+# the session is running.
+#
+# Gated on the `ai` capability rather than `_dotfiles_integration`: that
+# capability is opt-in and off by default, so an absent Claude Code is a
+# deliberate choice, not the reduced functionality `shell-integrations`
+# reports. The command check keeps a recorded-but-since-removed install from
+# leaving behind an alias that resolves to nothing.
+if _dotfiles_capability ai && command -v claude >/dev/null 2>&1; then
+  alias cld='claude --dangerously-skip-permissions'
 fi
 
 # --- Archive helpers --------------------------------------------------------

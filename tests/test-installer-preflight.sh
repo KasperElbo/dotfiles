@@ -40,6 +40,43 @@ if preflight_stow_packages "$package_root::three" 2>"$test_root/wrong-checkout";
 fi
 grep -Fq 'link owned by another checkout or source' "$test_root/wrong-checkout"
 
+# A checkout reached through a symlink. DOTFILES_ROOT is logical, because it is
+# built with cd/pwd and keeps the links the caller walked through, while a
+# resolved link target is physical. Comparing the two spellings reported every
+# correctly stowed link as owned by another checkout, so every rerun of
+# ./install.sh and common/stow.sh refused to proceed.
+physical_checkout="$test_root/physical-checkout"
+linked_checkout="$test_root/linked-checkout"
+linked_home="$test_root/linked-home"
+mkdir -p "$physical_checkout/stow/app/.config/app" "$linked_home/.config/app"
+printf 'app\n' >"$physical_checkout/stow/app/.config/app/file"
+ln -s "$physical_checkout" "$linked_checkout"
+ln -s "$linked_checkout/stow/app/.config/app/file" "$linked_home/.config/app/file"
+if ! (
+  HOME="$linked_home"
+  DOTFILES_ROOT="$linked_checkout"
+  preflight_stow_packages "$linked_checkout/stow::app"
+) 2>"$test_root/symlinked-checkout"; then
+  printf 'A link this checkout already owns was reported as a conflict because the checkout is reached through a symlink:\n' >&2
+  cat "$test_root/symlinked-checkout" >&2
+  exit 1
+fi
+
+# ... and canonicalizing must not make every link look owned: a link into a
+# genuinely different source is still a conflict.
+ln -s "$test_root/other-checkout/file" "$linked_home/.config/app/other"
+printf 'other\n' >"$physical_checkout/stow/app/.config/app/other"
+if (
+  HOME="$linked_home"
+  DOTFILES_ROOT="$linked_checkout"
+  preflight_stow_packages "$linked_checkout/stow::app"
+) 2>"$test_root/symlinked-foreign"; then
+  printf 'A link into another source passed under a symlinked checkout.\n' >&2
+  exit 1
+fi
+grep -Fq 'link owned by another checkout or source' "$test_root/symlinked-foreign"
+printf 'PASS: a checkout reached through a symlink recognizes the links it owns\n'
+
 rm -rf "$HOME/.config"
 printf 'parent\n' >"$HOME/.config"
 if preflight_stow_packages "$package_root::one" 2>"$test_root/parent"; then
@@ -50,16 +87,23 @@ grep -Fq 'parent path is not a real directory' "$test_root/parent"
 # A conflict in the final Fedora Stow package must stop before DNF or lifecycle
 # state. This exercises the top-level ordering, not only the inspector helper.
 integration_home="$test_root/integration-home"
-integration_config="$test_root/integration-config"
+# Under $HOME, because that is the only configuration root this repository
+# deploys to and preflight now refuses any other (issue #343).
+integration_config="$integration_home/.config"
 mock_bin="$test_root/bin"
 mkdir -p "$integration_home" "$integration_config" "$mock_bin"
+# Every installer run below decides on a stubbed figure, never on the free
+# space of the machine running the tests; the cases that mean to exercise a
+# full disk replace this stub and restore it afterwards.
+stub_roomy_df() { test_stub_roomy_df "$mock_bin"; }
+stub_roomy_df
 test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
 test_stub_install "$test_root" sudo
 test_stub_install "$test_root" systemctl
 test_stub_allow "$test_root" sudo -n -v
-late_source="$(find "$repo_root/platforms/fedora/stow/theme-assets" -type f | head -n 1)"
-late_relative="${late_source#"$repo_root/platforms/fedora/stow/theme-assets/"}"
+late_source="$(find "$repo_root/theme-assets" -type f | head -n 1)"
+late_relative="${late_source#"$repo_root/theme-assets/"}"
 mkdir -p "$(dirname "$integration_home/$late_relative")"
 printf 'user-owned-late-conflict\n' >"$integration_home/$late_relative"
 cat >"$mock_bin/id" <<'EOF'
@@ -99,4 +143,596 @@ grep -Fq 'Stow conflict [theme-assets]' "$test_root/integration"
 assert_file_empty "$test_root/logs/dnf.log"
 [[ ! -e "$test_root/integration-state/dotfiles/install.conf" ]]
 grep -Fqx 'user-owned-late-conflict' "$integration_home/$late_relative"
+
+# The same late conflict against a manifest whose header lost the stow column
+# must stop preflight naming the column, not skip the conflict check and apply.
+sed '1s/\tstow\t/\tstow_packages\t/' "$repo_root/config/capabilities.tsv" >"$test_root/stow-renamed.tsv"
+if HOME="$integration_home" XDG_CONFIG_HOME="$integration_config" \
+  XDG_STATE_HOME="$test_root/stow-renamed-state" PATH="$mock_bin:$PATH" \
+  OS_RELEASE_FILE="$test_root/os-release" CAPABILITY_MANIFEST="$test_root/stow-renamed.tsv" \
+  "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
+  >"$test_root/stow-renamed" 2>&1; then
+  printf 'A capability manifest without a stow column unexpectedly passed preflight.\n' >&2; exit 1
+fi
+grep -Fq 'has no column: stow' "$test_root/stow-renamed"
+assert_file_empty "$test_root/logs/dnf.log"
+[[ ! -e "$test_root/stow-renamed-state/dotfiles/install.conf" ]]
+grep -Fqx 'user-owned-late-conflict' "$integration_home/$late_relative"
 printf 'Complete non-mutating Stow preflight passed.\n'
+
+# The retired-link migration exists for machines still carrying the top-level
+# sway and waybar links and the wallpaper links the Sway package owned before
+# theme-assets did. Each of those dangles or points into this checkout, so the
+# preflight has to exempt the links the apply loop removes. The Stow script's
+# call is covered by tests/test-idempotency.sh; this covers the installer's own
+# call, which is the entry point most users actually run, and which was
+# previously free to lose its exemption argument with the suite still green.
+
+# retired_link_home <name>: a HOME carrying all three retired links.
+retired_link_home() {
+  local home="$test_root/$1"
+  local stow_dir="$repo_root/platforms/fedora/stow"
+  mkdir -p "$home/.config/sway" "$home/.config/waybar" \
+    "$home/.local/share/wallpapers"
+  ln -s "$repo_root/sway/.config/sway/config" "$home/.config/sway/config"
+  ln -s "$repo_root/waybar/.config/waybar/style.css" \
+    "$home/.config/waybar/style.css"
+  ln -s "$stow_dir/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
+    "$home/.local/share/wallpapers/catppuccin-macchiato.webp"
+  printf '%s\n' "$home"
+}
+
+# run_migrating_install <installer> <home> <log>: the Fedora installer against a
+# migrating HOME. It is expected to get past preflight and stop at the first
+# planned command, which the strict stub refuses; preflight is what is under
+# test, so the exit status is deliberately not asserted.
+run_migrating_install() {
+  local installer="$1" home="$2" log="$3"
+  HOME="$home" XDG_CONFIG_HOME="$home/.config" \
+    XDG_DATA_HOME="$home/.local/share" XDG_STATE_HOME="$test_root/$(basename "$log")-state" \
+    PATH="$mock_bin:$PATH" OS_RELEASE_FILE="$test_root/os-release" \
+    "$installer" --platform fedora --sway --no-kde --no-latex --non-interactive \
+    >"$log" 2>&1 || true
+}
+
+migrating_home="$(retired_link_home migrating-home)"
+run_migrating_install "$repo_root/install.sh" "$migrating_home" "$test_root/migrating"
+if grep -Fq 'Stow conflict' "$test_root/migrating"; then
+  printf 'The Fedora installer refused a HOME carrying the retired links:\n' >&2
+  grep -F 'Stow conflict' "$test_root/migrating" >&2
+  exit 1
+fi
+# Reaching the execution plan is what proves preflight ran and passed, rather
+# than the absence of a message proving only that preflight never got there.
+grep -Fq 'Install Fedora system packages' "$test_root/migrating" || {
+  printf 'The Fedora installer never reached its execution plan:\n' >&2
+  tail -n 20 "$test_root/migrating" >&2
+  exit 1
+}
+printf 'PASS: the Fedora installer preflight exempts the retired links\n'
+
+# The negative control is the point of the case, so it is asserted rather than
+# checked once by hand: against a copy of the checkout whose installer has lost
+# the exemption argument, the same HOME must be refused, naming all three links.
+sabotaged_tree="$test_root/sabotaged-tree"
+mkdir -p "$sabotaged_tree"
+tar -C "$repo_root" --exclude=.git -cf - . | tar -C "$sabotaged_tree" -xf -
+python3 - "$sabotaged_tree/platforms/fedora/install.sh" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+call = '  preflight_stow_packages ${replaced[@]+"${replaced[@]}"} "${specs[@]}"'
+if call not in text:
+    raise SystemExit(
+        "the Fedora installer no longer makes the preflight_stow_packages call "
+        "this negative control sabotages; update the test with the call"
+    )
+path.write_text(text.replace(call, '  preflight_stow_packages "${specs[@]}"', 1),
+                encoding="utf-8")
+PYTHON
+
+sabotaged_home="$(retired_link_home sabotaged-home)"
+run_migrating_install "$sabotaged_tree/install.sh" "$sabotaged_home" \
+  "$test_root/sabotaged"
+for retired in 'Stow conflict [sway]' 'Stow conflict [waybar]' \
+  'Stow conflict [theme-assets]'; do
+  grep -Fq "$retired" "$test_root/sabotaged" || {
+    printf 'Removing the exemption argument did not produce %s:\n' "$retired" >&2
+    tail -n 20 "$test_root/sabotaged" >&2
+    exit 1
+  }
+done
+printf 'PASS: removing the exemption argument makes that preflight refuse\n'
+
+# Each installer resolves its selected capability set in one function, read by
+# the selection check, preflight and the lifecycle record that ./doctor and
+# --rerun trust (issue #243). A second hand-written "$flag:capability" loop
+# could drop a capability from the record alone, and doctor would then report
+# that capability's installed state as residual.
+assert_single_capability_selection() {
+  local installer="$1" function="$2" loops readers
+  loops="$(grep -c 'for selection in' "$installer" || true)"
+  readers="$(grep -cF "< <($function)" "$installer" || true)"
+  grep -q "^$function() " "$installer" || {
+    printf '%s does not define %s.\n' "$installer" "$function"
+    return 1
+  }
+  ((loops <= 1)) || {
+    printf '%s resolves its selected capabilities in %d loops; resolve them once, in %s.\n' \
+      "$installer" "$loops" "$function"
+    return 1
+  }
+  ((readers == 3)) || {
+    printf '%s reads %s %d times; the selection check, preflight and the lifecycle record must each read it.\n' \
+      "$installer" "$function" "$readers"
+    return 1
+  }
+}
+for platform_selection in fedora:fedora_selected_capabilities fedora-wsl:wsl_selected_capabilities \
+  macos:macos_selected_capabilities parrot-ctf:parrot_selected_capabilities; do
+  assert_single_capability_selection "$repo_root/platforms/${platform_selection%%:*}/install.sh" \
+    "${platform_selection#*:}"
+done
+
+# Negative control: restore the second, record-only loop in a scratch copy.
+duplicated_installer="$test_root/fedora-install-with-second-selection.sh"
+python3 - "$repo_root/platforms/fedora/install.sh" "$duplicated_installer" <<'EOF'
+import sys
+source = open(sys.argv[1], encoding="utf-8").read()
+reader = 'while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(fedora_selected_capabilities)'
+loop = ('capabilities="base,dotnet-debug"; for selection in "$bool_kde:kde" "$install_ai:ai"; do '
+        '[[ "${selection%%:*}" != true ]] || capabilities+=",${selection#*:}"; done')
+assert source.count(reader) == 1, "lifecycle record reader not found"
+open(sys.argv[2], "w", encoding="utf-8").write(source.replace(reader, loop))
+EOF
+if assert_single_capability_selection "$duplicated_installer" fedora_selected_capabilities \
+  >"$test_root/duplicated-selection" 2>&1; then
+  printf 'A second capability selection loop unexpectedly passed.\n' >&2; exit 1
+fi
+grep -Fq "$duplicated_installer resolves its selected capabilities in 2 loops" "$test_root/duplicated-selection"
+printf 'Single capability selection guard passed.\n'
+# The preflight, capability and installer-selection libraries are each correct
+# sourced alone, without lib/common.sh first. preflight.sh used to report a
+# present command as missing, because command_exists lives in common.sh.
+standalone_providers="$test_root/standalone-providers.tsv"
+printf 'platform\tcommand\tprovider\towner\trequired_by\tclassification\n' >"$standalone_providers"
+printf 'fedora\tls\tcoreutils\tbase\tbase\tsupported-base\n' >>"$standalone_providers"
+run_standalone() {
+  local library="$1" probe="$2"
+  run_capture env COMMAND_PROVIDER_MANIFEST="$standalone_providers" \
+    bash -c 'set -euo pipefail; source "$1"; eval "$2"' standalone \
+    "$repo_root/common/lib/$library" "$probe"
+  assert_not_contains "$TEST_OUTPUT" 'command not found'
+  assert_not_contains "$TEST_OUTPUT" 'unbound variable'
+}
+run_standalone preflight.sh 'preflight_platform_command_providers fedora'
+assert_success
+assert_not_contains "$TEST_OUTPUT" 'Missing'
+run_standalone capabilities.sh 'printf "%s\n" "$CAPABILITY_MANIFEST"; capability_field fedora base provider'
+assert_success
+assert_eq "$repo_root/config/capabilities.tsv"$'\n'"dnf+terra" "$TEST_OUTPUT"
+run_standalone install-selection.sh 'printf "%s\n" "$INSTALL_OPTION_MANIFEST"; install_selection_set theme mocha'
+assert_status 1
+assert_contains "$TEST_OUTPUT" "$repo_root/config/install-options.tsv"
+assert_contains "$TEST_OUTPUT" 'install_selection_set requires install_selection_reset first'
+
+# Every other library the guard checker names is exercised the same way, and
+# through a function that actually reaches common.sh rather than by sourcing
+# alone: an undefined function inside a test expression evaluates false, so a
+# library can source cleanly and still answer wrongly. Each probe below calls a
+# common.sh symbol, so removing that library's guard breaks this case.
+standalone_home="$test_root/standalone-home"
+mkdir -p "$standalone_home"
+
+# plan_add dies through common.sh's die when handed the wrong arity.
+run_standalone execution-plan.sh 'plan_reset; plan_add one'
+assert_failure
+assert_contains "$TEST_OUTPUT" 'plan_add requires id, label, phase'
+
+# Refusing a non-HTTPS URL is fetch.sh reaching common.sh's die.
+run_standalone fetch.sh \
+  'fetch_to_file http://example.invalid/x "'"$standalone_home"'/x" "the probe"'
+assert_failure
+assert_contains "$TEST_OUTPUT" 'Refusing a non-HTTPS download for the probe'
+
+run_standalone git-identity.sh \
+  'git_identity_write_manual_placeholder "'"$standalone_home"'/identity" local; cat "'"$standalone_home"'/identity"'
+assert_success
+assert_contains "$TEST_OUTPUT" 'No Git identity was migrated into this file.'
+
+# An unknown profile is profile-state.sh reaching common.sh's die.
+run_standalone profile-state.sh \
+  'profile_state_write "'"$standalone_home"'/state.conf" not-a-profile complete'
+assert_failure
+assert_contains "$TEST_OUTPUT" 'Unknown state profile: not-a-profile'
+
+run_standalone theme-shared-state.sh \
+  'HOME="'"$standalone_home"'"; XDG_CONFIG_HOME="$HOME/.config"; write_theme_state macchiato; cat "$XDG_CONFIG_HOME/dotfiles/theme"'
+assert_success
+assert_contains "$TEST_OUTPUT" macchiato
+
+printf 'Standalone preflight, capability and selection libraries passed.\n'
+
+# Disk space and reachability are checked before any mutating step, and only
+# for a download the run is certain to make.
+probe_bin="$test_root/probe-bin"
+mkdir -p "$probe_bin"
+cat >"$probe_bin/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/full-disk 102400000 102398976 1024 100%% /\n'
+EOF
+chmod +x "$probe_bin/df"
+run_preflight_probe() {
+  run_capture env PATH="$probe_bin:$PATH" bash -c \
+    'set -uo pipefail; source "$1"; shift; "$@"' probe \
+    "$repo_root/common/lib/preflight.sh" "$@"
+}
+
+run_preflight_probe preflight_disk_space "$test_root/not-created-yet" 2048
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "Not enough free disk space for $test_root/not-created-yet: 1 MiB available, 2048 MiB required"
+rm -- "$probe_bin/df"
+run_preflight_probe preflight_disk_space "$test_root" 1
+assert_success
+
+# The floor is stated in MiB but df answers in its own block size, and the two
+# implementations this repository installs on disagree about which one -P
+# selects: GNU df honours a block-size flag, while Apple's df documents -P as
+# overriding the block size to 512-byte counts. Each stub answers the flags the
+# way its real implementation does, so the same free space must produce the
+# same decision from both; a run that asks for a unit only one of them honours
+# reads 500 MiB as gigabytes on the other and never refuses.
+stub_df() {
+  local posix_unit="$1"
+  cat >"$probe_bin/df" <<EOF
+#!/usr/bin/env bash
+unit=$posix_unit
+for argument in "\$@"; do
+  case "\$argument" in
+  -*k*) unit=1024 ;;
+  ${2:-}
+  esac
+done
+printf 'Filesystem blocks Used Available Capacity Mounted on\n'
+printf '/dev/stub 0 0 %s 50%% /\n' "\$((\${PROBE_FREE_MIB:?} * unit))"
+EOF
+  chmod +x "$probe_bin/df"
+}
+stub_df_gnu() { stub_df 1024 '-*m*) unit=1 ;;'; }
+stub_df_apple() { stub_df 2048; }
+
+for shape in gnu apple; do
+  "stub_df_$shape"
+  PROBE_FREE_MIB=500 run_preflight_probe preflight_disk_space "$test_root" 2048
+  assert_failure
+  assert_contains "$TEST_OUTPUT" '500 MiB available, 2048 MiB required'
+  PROBE_FREE_MIB=500 run_preflight_probe preflight_disk_space "$test_root" 400
+  assert_success
+done
+rm -- "$probe_bin/df"
+
+cat >"$probe_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+exit "${PROBE_CURL_STATUS:?}"
+EOF
+chmod +x "$probe_bin/curl"
+# 7 is curl's "could not connect": no network path to the host.
+PROBE_CURL_STATUS=7 run_preflight_probe preflight_network \
+  https://example.invalid/installer.sh 'the example installer'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'Cannot reach the example installer, which this installation downloads from: https://example.invalid/installer.sh'
+# 60 is curl's "peer certificate did not verify": the TLS session the real
+# download needs cannot be established, so the run must refuse here rather
+# than fail partway through the first mutating step.
+PROBE_CURL_STATUS=60 run_preflight_probe preflight_network \
+  https://example.invalid/installer.sh 'the example installer'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'Cannot reach the example installer, which this installation downloads from: https://example.invalid/installer.sh'
+# 22 is an HTTP error answer, which still proves the network path works.
+PROBE_CURL_STATUS=22 run_preflight_probe preflight_network \
+  https://example.invalid/installer.sh 'the example installer'
+assert_success
+
+# A host that connects at once and answers slowly is reachable, not refused.
+# The probe's connect bound and its total ceiling are separate budgets: this
+# curl honours the ones it is handed, the way the real one does -- --max-time
+# bounds the whole operation, so an answer that arrives within the ceiling
+# passes even though it took far longer than the connect bound allows.
+cat >"$probe_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+max_time=0
+while (($#)); do
+  [[ "$1" != --max-time ]] || max_time="$2"
+  shift
+done
+delay="${PROBE_RESPONSE_DELAY:?}"
+if ((delay > max_time)); then
+  sleep "$max_time"
+  exit 28
+fi
+sleep "$delay"
+EOF
+chmod +x "$probe_bin/curl"
+PROBE_RESPONSE_DELAY=3 DOTFILES_FETCH_PROBE_TIMEOUT=1 DOTFILES_FETCH_PROBE_MAX_TIME=10 \
+  run_preflight_probe preflight_network \
+  https://example.invalid/installer.sh 'the example installer'
+assert_success
+# The ceiling still bounds the probe: a host whose answer does not complete
+# within it exits 28, so an offline machine is still refused in seconds.
+PROBE_RESPONSE_DELAY=5 DOTFILES_FETCH_PROBE_TIMEOUT=1 DOTFILES_FETCH_PROBE_MAX_TIME=2 \
+  run_preflight_probe preflight_network \
+  https://example.invalid/installer.sh 'the example installer'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'Cannot reach the example installer, which this installation downloads from: https://example.invalid/installer.sh'
+
+# The same failure stops the top-level plan before DNF or lifecycle state.
+cat >"$mock_bin/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/full-disk 102400000 102398976 1024 100%% /\n'
+EOF
+chmod +x "$mock_bin/df"
+if HOME="$integration_home" XDG_CONFIG_HOME="$integration_config" \
+  XDG_STATE_HOME="$test_root/disk-state" PATH="$mock_bin:$PATH" \
+  OS_RELEASE_FILE="$test_root/os-release" \
+  "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
+  >"$test_root/disk" 2>&1; then
+  printf 'A full disk unexpectedly passed preflight.\n' >&2; exit 1
+fi
+grep -Fq 'Not enough free disk space' "$test_root/disk"
+assert_file_empty "$test_root/logs/dnf.log"
+[[ ! -e "$test_root/disk-state/dotfiles/install.conf" ]]
+stub_roomy_df
+printf 'Disk-space and reachability preflight passed.\n'
+
+# The system floor is measured where the package-manager transaction and its
+# download cache land, not on the filesystem carrying the user's data. A
+# supported split-/var layout, roomy where this run's HOME lives and full where
+# DNF caches, must still be refused before the first mutating step. The answer
+# is chosen by this run's own root rather than by a /var prefix, because
+# TMPDIR itself is under /var on macOS and on any host that sets /var/tmp.
+cat >"$mock_bin/df" <<EOF
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+case "\${!#}" in
+"$test_root"/*) printf '/dev/home-volume 102400000 20480000 81920000 20%% /home\n' ;;
+*) printf '/dev/var-volume 102400000 102398976 1024 100%% /var\n' ;;
+esac
+EOF
+chmod +x "$mock_bin/df"
+if HOME="$integration_home" XDG_CONFIG_HOME="$integration_config" \
+  XDG_STATE_HOME="$test_root/var-state" \
+  XDG_DATA_HOME="$integration_home/.local/share" \
+  PATH="$mock_bin:$PATH" \
+  OS_RELEASE_FILE="$test_root/os-release" \
+  "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
+  >"$test_root/var-disk" 2>&1; then
+  printf 'A full /var unexpectedly passed preflight on a roomy home.\n' >&2; exit 1
+fi
+grep -Fq 'Not enough free disk space for /var/cache/dnf: 1 MiB available' "$test_root/var-disk"
+assert_file_empty "$test_root/logs/dnf.log"
+[[ ! -e "$test_root/var-state/dotfiles/install.conf" ]]
+stub_roomy_df
+printf 'System disk floor is measured on the package-manager filesystem.\n'
+
+# The network half refuses the same way, and it refuses for every host the
+# resolved plan will download from rather than only for the bootstrap
+# installer this platform happens to fetch. An unreachable host must stop the
+# run ahead of install_lifecycle_begin and the first DNF transaction rather
+# than partway through it.
+#
+# `rpm -q terra-release` succeeds here on purpose. Before this, every probe was
+# guarded by a "do I already have this tool" test, so a machine that was
+# bootstrapped already probed nothing at all and passed preflight with no
+# network route; that is the case this asserts.
+cat >"$mock_bin/rpm" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat >"$mock_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+exit 7
+EOF
+chmod +x "$mock_bin/rpm" "$mock_bin/curl"
+# Its own HOME, because $integration_home deliberately carries the user-owned
+# file the late-conflict cases above assert survives. The network probe runs
+# after the local checks -- a full disk is worth reporting without waiting on
+# a probe -- so a HOME with a planted Stow conflict never reaches it.
+offline_home="$test_root/offline-home"
+mkdir -p "$offline_home/.config"
+if HOME="$offline_home" XDG_CONFIG_HOME="$offline_home/.config" \
+  XDG_DATA_HOME="$offline_home/.local/share" \
+  XDG_STATE_HOME="$test_root/offline-state" PATH="$mock_bin:$PATH" \
+  OS_RELEASE_FILE="$test_root/os-release" \
+  "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
+  >"$test_root/offline" 2>&1; then
+  printf 'An unreachable network unexpectedly passed preflight.\n' >&2; exit 1
+fi
+
+# The package-manager transaction is the first mutating step and the largest
+# download, and nothing probed it before: the Terra probe was skipped on this
+# already-bootstrapped machine and the run reached `dnf install`.
+grep -Fq 'Cannot reach mirrors.fedoraproject.org' "$test_root/offline"
+
+# github.com is the host every run certainly downloads from -- the tmux step
+# clones or fetches the pinned Catppuccin theme on every invocation -- and no
+# preflight probed it at all.
+grep -Fq 'Cannot reach github.com' "$test_root/offline"
+grep -Fq 'Catppuccin tmux theme' "$test_root/offline"
+
+# Terra is still covered, now because the terra step runs a script the registry
+# names as a consumer rather than because this platform hand-wrote the probe.
+grep -Fq 'Cannot reach repos.fyralabs.com' "$test_root/offline"
+
+# Every unreachable host at once, not one per run: a machine with no route
+# should be told what it cannot reach in a single refusal.
+[[ "$(grep -c 'Cannot reach ' "$test_root/offline")" -ge 3 ]] || {
+  printf 'Only one host was named; the refusal should list them all:\n' >&2
+  grep 'Cannot reach ' "$test_root/offline" >&2
+  exit 1
+}
+grep -Fq 'Nothing has been changed.' "$test_root/offline"
+assert_file_empty "$test_root/logs/dnf.log"
+[[ ! -e "$test_root/offline-state/dotfiles/install.conf" ]]
+printf 'Every host the resolved plan downloads from refuses before anything changes.\n'
+
+# A plan that asks nothing of the network still installs offline. The probe set
+# is derived, so this needs no exemption: a plan contributing no script matches
+# no registry row and probes nothing.
+probe_plan_hosts() {
+  env -u NETWORK_SOURCE_MANIFEST DOTFILES_ROOT="$repo_root" bash -c '
+    source "$1/common/lib/network-sources.sh"
+    printf "%s\n" "${@:2}" | network_sources_hosts
+  ' _ "$repo_root" "$@"
+}
+[[ -z "$(probe_plan_hosts)" ]] || {
+  printf 'A plan with no scripts probed something:\n%s\n' "$(probe_plan_hosts)" >&2
+  exit 1
+}
+[[ -z "$(probe_plan_hosts common/setup-local.sh platforms/macos/scripts/stow.sh)" ]] || {
+  printf 'A plan of purely local steps probed something.\n' >&2
+  exit 1
+}
+printf 'A plan that downloads nothing probes nothing.\n'
+
+# The tmux step is in every platform's plan, so github.com is in every
+# platform's probe set. This is the claim the issue was filed about.
+for platform in fedora fedora-wsl macos parrot-ctf; do
+  scripts="$(
+    sed -n "s/^.*plan_add tmux .*'\([^']*\)'$/\1/p" \
+      "$repo_root/platforms/$platform/install.sh"
+  )"
+  [[ -n "$scripts" ]] || { printf 'No tmux step declared on %s\n' "$platform" >&2; exit 1; }
+  probed_hosts="$(probe_plan_hosts $scripts)"
+  grep -Fq 'github.com' <<<"$probed_hosts" || {
+    printf 'The %s tmux step does not probe github.com\n' "$platform" >&2
+    exit 1
+  }
+done
+printf 'Every platform probes github.com for its tmux step.\n'
+
+# --- One configuration root, or a refusal before anything moves (issue #343) --
+#
+# Stow is given one target, $HOME, while the shell, the installers and the
+# verifiers resolve configuration through XDG_CONFIG_HOME and XDG_DATA_HOME.
+# With a separate root Stow used to succeed and put every link where nothing
+# later looked for it. The contract is now that the default layout works and
+# any other root is refused before a single path is touched.
+
+test_new_root
+xdg_root="$TEST_ROOT"
+
+# The default layout still deploys, and the representative packages land where
+# the consumers read them. This is also the control for the refusal cases: it
+# is what "nothing was created" has to be measured against.
+default_home="$xdg_root/default-home"
+mkdir -p "$default_home"
+(
+  unset XDG_CONFIG_HOME XDG_DATA_HOME
+  HOME="$default_home" "$repo_root/common/stow.sh" --headless
+) >"$xdg_root/default.log" 2>&1 ||
+  _test_die "the default XDG layout was refused:\n$(cat "$xdg_root/default.log")"
+
+for link in .config/git/config .config/mise/config.toml .config/nvim/init.lua \
+  .config/zsh/.zshrc; do
+  [[ -L "$default_home/$link" ]] ||
+    _test_die "the default layout did not link $link into \$HOME"
+  resolved="$(resolve_existing_path "$default_home/$link")"
+  [[ "$resolved" == "$repo_root/"* ]] ||
+    _test_die "$link resolved outside the checkout: $resolved"
+done
+default_paths="$(cd "$default_home" && find . -mindepth 1 | sort)"
+[[ -n "$default_paths" ]] ||
+  _test_die 'the default layout created nothing, so the refusal cases below prove nothing'
+printf 'PASS: the default XDG layout deploys Git, mise, Neovim and shell configuration into $HOME\n'
+
+# Each root, each Stow entry point: refused, with the variable named, and with
+# neither HOME nor the separate root touched.
+stow_entry_points=(
+  "common:$repo_root/common/stow.sh:--headless"
+  "fedora:$repo_root/platforms/fedora/scripts/stow.sh:"
+  "fedora-wsl:$repo_root/platforms/fedora-wsl/scripts/stow.sh:"
+  "macos:$repo_root/platforms/macos/scripts/stow.sh:"
+  "parrot-ctf:$repo_root/platforms/parrot-ctf/scripts/stow.sh:"
+)
+
+for variable in XDG_CONFIG_HOME XDG_DATA_HOME; do
+  for entry in "${stow_entry_points[@]}"; do
+    label="${entry%%:*}"; rest="${entry#*:}"
+    script="${rest%%:*}"; option="${rest#*:}"
+
+    case_home="$xdg_root/refuse-$variable-$label/home"
+    case_elsewhere="$xdg_root/refuse-$variable-$label/elsewhere"
+    mkdir -p "$case_home" "$case_elsewhere"
+
+    set +e
+    (
+      unset XDG_CONFIG_HOME XDG_DATA_HOME
+      export HOME="$case_home" "$variable=$case_elsewhere"
+      exec "$script" ${option:+"$option"}
+    ) >"$xdg_root/refuse.log" 2>&1
+    status=$?
+    set -e
+
+    ((status != 0)) ||
+      _test_die "$label Stow accepted $variable pointing outside \$HOME"
+    refusal="$(cat "$xdg_root/refuse.log")"
+    assert_contains "$refusal" "$variable is $case_elsewhere"
+    assert_contains "$refusal" 'nothing has been changed'
+
+    # Mutation-free is the whole point of refusing in preflight: neither the
+    # home it would have stowed into nor the root it was pointed at may have
+    # gained anything.
+    touched_home="$(cd "$case_home" && find . -mindepth 1)"
+    [[ -z "$touched_home" ]] ||
+      _test_die "$label Stow changed \$HOME before refusing $variable:\n$touched_home"
+    touched_elsewhere="$(cd "$case_elsewhere" && find . -mindepth 1)"
+    [[ -z "$touched_elsewhere" ]] ||
+      _test_die "$label Stow changed $variable before refusing it:\n$touched_elsewhere"
+  done
+  printf 'PASS: all %d Stow entry points refuse a %s outside $HOME without touching either root\n' \
+    "${#stow_entry_points[@]}" "$variable"
+done
+
+# The top-level installer refuses for the same reason, and refuses early: no
+# package manager transaction, and no lifecycle state written.
+xdg_install_home="$xdg_root/install-home"
+mkdir -p "$xdg_install_home"
+if HOME="$xdg_install_home" XDG_CONFIG_HOME="$xdg_root/install-elsewhere" \
+  XDG_STATE_HOME="$xdg_root/install-state" PATH="$mock_bin:$PATH" \
+  OS_RELEASE_FILE="$test_root/os-release" \
+  "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
+  >"$xdg_root/install.log" 2>&1; then
+  printf 'The installer accepted an XDG_CONFIG_HOME outside $HOME.\n' >&2
+  exit 1
+fi
+install_refusal="$(cat "$xdg_root/install.log")"
+assert_contains "$install_refusal" "XDG_CONFIG_HOME is $xdg_root/install-elsewhere"
+assert_contains "$install_refusal" 'nothing has been changed'
+assert_file_empty "$test_root/logs/dnf.log"
+[[ ! -e "$xdg_root/install-state/dotfiles/install.conf" ]] ||
+  _test_die 'the installer recorded lifecycle state before refusing the XDG root'
+[[ -z "$(cd "$xdg_install_home" && find . -mindepth 1)" ]] ||
+  _test_die 'the installer changed $HOME before refusing the XDG root'
+printf 'PASS: the installer refuses an unsupported configuration root before any package or state is written\n'
+
+# The spelling of the default must not be read as an override.
+for spelling in '$HOME/.config' '$HOME/.config/' '$HOME/.config//' '$HOME//.config'; do
+  accepted_home="$xdg_root/spelling/home"
+  mkdir -p "$accepted_home"
+  (
+    unset XDG_DATA_HOME
+    export HOME="$accepted_home"
+    export XDG_CONFIG_HOME="${spelling/\$HOME/$accepted_home}"
+    preflight_xdg_layout
+  ) 2>"$xdg_root/spelling.log" ||
+    _test_die "preflight rejected the default config root written as '$spelling':\n$(cat "$xdg_root/spelling.log")"
+done
+printf 'PASS: the default configuration root is accepted however it is spelled\n'

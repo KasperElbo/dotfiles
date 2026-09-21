@@ -5,6 +5,8 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 
+test_install_cleanup_trap
+
 fail_with_context() {
   local message="$1"
   local file="${2:-}"
@@ -80,6 +82,54 @@ $second"
 printf 'PASS: render_ini_section_keys is idempotent\n'
 
 # =============================================================================
+# ini_section_key_value: pure-function coverage
+# =============================================================================
+
+# The verifier asks this what /etc/wsl.conf actually says, so it has to agree
+# with the renderer above about what a key line is -- including the spaced
+# form, which WSL reads as a value and the renderer rewrites in place. A reader
+# that missed it would fail a correctly configured machine.
+
+run_read() {
+  local content="$1"
+  bash -c '
+    source "'"$repo_root"'/common/lib/common.sh"
+    source "'"$repo_root"'/platforms/fedora-wsl/lib/wsl.sh"
+    ini_section_key_value "$1" "$2" "$3"
+  ' _ "$content" "$2" "$3"
+}
+
+result="$(run_read $'[interop]\nappendWindowsPath=false' interop appendWindowsPath)"
+[[ "$result" == "false" ]] ||
+  fail_with_context "plain key=value: expected false, got: '$result'"
+printf 'PASS: ini_section_key_value reads a plain key=value pair\n'
+
+result="$(run_read $'[boot]\nsystemd=true\n\n[interop]\n  appendWindowsPath =  false  ' interop appendWindowsPath)"
+[[ "$result" == "false" ]] ||
+  fail_with_context "spaced key = value: expected false, got: '$result'"
+printf 'PASS: ini_section_key_value reads the spaced "key = value" form WSL also accepts\n'
+
+result="$(run_read $'[interop]\nenabled=true' interop appendWindowsPath)"
+[[ -z "$result" ]] ||
+  fail_with_context "absent key: expected nothing, got: '$result'"
+printf 'PASS: ini_section_key_value returns nothing for a key the section lacks\n'
+
+result="$(run_read $'[boot]\nappendWindowsPath=false\n\n[interop]\nenabled=true' interop appendWindowsPath)"
+[[ -z "$result" ]] ||
+  fail_with_context "key in another section: expected nothing, got: '$result'"
+printf 'PASS: ini_section_key_value ignores the same key in another section\n'
+
+result="$(run_read $'[interop]\nappendWindowsPath=true\nappendWindowsPath=false' interop appendWindowsPath)"
+[[ "$result" == "false" ]] ||
+  fail_with_context "repeated key: expected the last assignment, got: '$result'"
+printf 'PASS: ini_section_key_value takes the last assignment, as the WSL parser does\n'
+
+result="$(run_read $'[interop]\n# appendWindowsPath=false' interop appendWindowsPath)"
+[[ -z "$result" ]] ||
+  fail_with_context "commented key: expected nothing, got: '$result'"
+printf 'PASS: ini_section_key_value does not read a commented-out key\n'
+
+# =============================================================================
 # configure-interop.sh: script-level coverage
 # =============================================================================
 
@@ -104,7 +154,26 @@ EOF
   cat >"$test_root/handlers/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
-exec "$@"
+# DOTFILES_TEST_SUDO is what the `cat` shim below reads to tell a privileged
+# read from an unprivileged one; the real sudo has actual privilege instead.
+DOTFILES_TEST_SUDO=1 exec "$@"
+EOF
+  # A root-owned /etc/wsl.conf the invoking user cannot read. The suite cannot
+  # produce one with chmod, because a root test runner reads every file
+  # regardless of mode, so the denial is modelled at the read itself: this
+  # shim refuses exactly the protected path, and only when the caller did not
+  # come through sudo.
+  cat >"$mock_bin/cat" <<EOF
+#!/usr/bin/env bash
+if [[ -n "\${DOTFILES_TEST_UNREADABLE_FILE:-}" && -z "\${DOTFILES_TEST_SUDO:-}" ]]; then
+  for argument in "\$@"; do
+    if [[ "\$argument" == "\$DOTFILES_TEST_UNREADABLE_FILE" ]]; then
+      printf 'cat: %s: Permission denied\n' "\$argument" >&2
+      exit 1
+    fi
+  done
+fi
+exec $(command -v cat) "\$@"
 EOF
   cat >"$mock_bin/mktemp" <<'EOF'
 #!/usr/bin/env bash
@@ -208,6 +277,62 @@ expected=$'[boot]\nsystemd=true\n\n[wsl2]\nmemory=4GB\n\n[interop]\nenabled=true
   fail_with_context "Unrelated sections were not preserved" "$test_root/wsl.conf"
 grep -Fq 'sudo install -m 0644' "$test_root/commands.log"
 printf 'PASS: a real run preserves unrelated existing sections ([boot], [wsl2])\n'
+rm -rf -- "$test_root"
+
+# --- a file this user cannot read is read with sudo, never treated as empty --
+#
+# The write below this read is sudo-backed and can replace a file the reader
+# could not open. Reading an unreadable /etc/wsl.conf as "" would therefore
+# replace the whole file with just [interop], dropping [boot] systemd=true --
+# the exact precondition lib/containers.sh refuses to install containers
+# without -- with no copy of it anywhere in this repository.
+
+test_root="$(new_test_root)"
+mapfile -t test_environment < <(base_environment "$test_root")
+test_environment+=("DOTFILES_TEST_UNREADABLE_FILE=$test_root/wsl.conf")
+printf '[boot]\nsystemd=true\n\n[user]\ndefault=kasper\n' >"$test_root/wsl.conf"
+test_stub_allow "$test_root" sudo cat -- "$test_root/wsl.conf"
+
+if ! env "${test_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/configure-interop.sh" \
+  >"$test_root/run.log" 2>&1; then
+  cat "$test_root/run.log" >&2
+  fail_with_context \
+    'configure-interop.sh must read an unreadable /etc/wsl.conf through sudo, not fail or start from an empty document' \
+    "$test_root/wsl.conf"
+fi
+
+expected=$'[boot]\nsystemd=true\n\n[user]\ndefault=kasper\n\n[interop]\nenabled=true\nappendWindowsPath=false'
+[[ "$(cat "$test_root/wsl.conf")" == "$expected" ]] ||
+  fail_with_context \
+    'A /etc/wsl.conf this user cannot read was rewritten from an empty document: [boot] systemd=true and [user] default= were lost' \
+    "$test_root/wsl.conf"
+grep -Fq 'sudo cat -- ' "$test_root/commands.log" ||
+  fail_with_context 'The unreadable file was never read through sudo' \
+    "$test_root/commands.log"
+printf 'PASS: a /etc/wsl.conf this user cannot read is read through sudo, with every section preserved\n'
+rm -rf -- "$test_root"
+
+# --- the existing mode survives the rewrite --------------------------------
+
+test_root="$(new_test_root)"
+mapfile -t test_environment < <(base_environment "$test_root")
+printf '[boot]\nsystemd=true\n' >"$test_root/wsl.conf"
+chmod 0600 "$test_root/wsl.conf"
+test_stub_allow "$test_root" sudo install -m 0600 \
+  "$test_root/generated-wsl.conf" "$test_root/wsl.conf"
+
+if ! env "${test_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/configure-interop.sh" \
+  >"$test_root/run.log" 2>&1; then
+  cat "$test_root/run.log" >&2
+  fail_with_context 'configure-interop.sh failed against a mode 0600 wsl.conf'
+fi
+
+observed_mode="$(stat -c '%a' -- "$test_root/wsl.conf")"
+[[ "$observed_mode" == "600" ]] ||
+  fail_with_context "The existing mode was not preserved: expected 600, got $observed_mode"
+printf 'PASS: a restricted /etc/wsl.conf keeps its mode instead of being reset to 0644\n'
 rm -rf -- "$test_root"
 
 # --- rerunning is a no-op: no sudo call, file untouched ---------------------

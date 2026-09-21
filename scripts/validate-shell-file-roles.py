@@ -19,13 +19,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
-import fnmatch
 import pathlib
 import subprocess
 import sys
 
-MANIFEST = pathlib.Path("config") / "shell-file-roles.tsv"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from manifests import SHELL_FILE_ROLES_MANIFEST as MANIFEST  # noqa: E402
+from manifests import role_pattern_matches as matches  # noqa: E402
+from manifests import ManifestSchemaError, read_tsv  # noqa: E402
+
 FIELDS = ["role", "mode", "pattern", "description"]
 
 
@@ -58,28 +60,13 @@ def governed(name: str) -> bool:
     return name in {"doctor", "zsh/.zshenv"} or name.startswith("zsh/.config/zsh/")
 
 
-def matches(pattern: str, name: str) -> bool:
-    """Path-aware globbing: `*` stays inside one path segment, `**` spans them.
-
-    fnmatch alone would let `common/*.sh` claim `common/lib/common.sh`, which
-    is exactly the ambiguity this inventory exists to remove.
-    """
-    pattern_parts = pattern.split("/")
-    name_parts = name.split("/")
-    if pattern_parts and pattern_parts[-1] == "**":
-        return (
-            len(name_parts) > len(pattern_parts) - 1
-            and all(
-                fnmatch.fnmatchcase(actual, expected)
-                for expected, actual in zip(pattern_parts[:-1], name_parts)
-            )
-        )
-    if len(pattern_parts) != len(name_parts):
+def is_deprecated_wrapper(path: pathlib.Path) -> bool:
+    """A deprecated wrapper is a file that announces itself as one."""
+    try:
+        body = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
         return False
-    return all(
-        fnmatch.fnmatchcase(actual, expected)
-        for expected, actual in zip(pattern_parts, name_parts)
-    )
+    return 'deprecated_wrapper "' in body
 
 
 def is_exact(pattern: str) -> bool:
@@ -94,12 +81,12 @@ def main() -> int:
     arguments = parser.parse_args()
     root = arguments.root.resolve()
 
-    with (root / MANIFEST).open(newline="", encoding="utf-8") as stream:
-        reader = csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE)
-        if reader.fieldnames != FIELDS:
-            print(f"shell-file roles: unexpected columns: {reader.fieldnames}", file=sys.stderr)
-            return 1
-        rules = list(reader)
+    try:
+        rules = read_tsv(root / MANIFEST, FIELDS)
+    except ManifestSchemaError as error:
+        for message in error.messages:
+            print(f"shell-file roles: {message}", file=sys.stderr)
+        return 1
 
     problems: list[str] = []
     for rule in rules:
@@ -130,6 +117,19 @@ def main() -> int:
             continue
         for item in applicable:
             used.add(item["pattern"])
+        # The `scripts/*.sh` catch-all would otherwise classify any new helper
+        # as a deprecated wrapper -- a false claim, in the authoritative
+        # inventory, that marks the file for deletion. A role that describes
+        # what a file *does* has to be checked against what it does.
+        if rule["role"] == "deprecated-wrapper" and not is_deprecated_wrapper(root / name):
+            roles = ", ".join(sorted({item["role"] for item in rules}))
+            problems.append(
+                f"{name}: matched the {rule['pattern']!r} catch-all and is therefore "
+                f"classified {rule['role']!r}, but it never calls deprecated_wrapper. "
+                f"Give it its own exact row in {MANIFEST} with the role it really has "
+                f"(available roles: {roles})"
+            )
+            continue
         actual = oct((root / name).stat().st_mode & 0o777)[2:]
         if actual != rule["mode"]:
             problems.append(

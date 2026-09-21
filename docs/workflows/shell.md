@@ -28,8 +28,8 @@ without reordering. Nothing sorts `PATH`, and deliberate precedence survives:
 - mise-managed tools keep the precedence mise's own activation gives them;
 - on macOS, Homebrew's coreutils `gnubin` stays **last**, so it supplies the
   GNU tools macOS does not ship (`timeout`, used by the shared Neovim
-  bootstrap) without shadowing Apple's `ls`, `date` or `cp` — the contract
-  contract this repository settles deliberately;
+  bootstrap) without shadowing Apple's `ls`, `date` or `cp` — the trade-off
+  this repository settles deliberately;
 - on Fedora WSL, the platform hook still removes inherited `/mnt/<drive>/…`
   entries before any tool runs;
 - on Parrot, the distro's `/usr/local/sbin:/usr/sbin:/sbin` search order is
@@ -62,10 +62,9 @@ correct order. **Autosuggestions and syntax highlighting themselves are not
 in `.zshrc`** — each platform's own `platform.zsh`
 (`platforms/*/stow/zsh-platform/.config/zsh/platform.zsh`) sources its
 packaged `zsh-autosuggestions`/`zsh-syntax-highlighting` plugin files from
-that platform's package path. On Fedora and Parrot this is guarded
-(`[[ -r ... ]] ||`), so a machine missing the packages still starts cleanly;
-on macOS and Fedora WSL it is unconditional, because both platforms always
-install those packages as part of the base profile.
+that platform's package path. Every platform guards that source
+(`[[ -r ... ]] ||`), so a machine whose packages are missing or mid-install
+still starts cleanly — the same rule the optional integrations below follow.
 
 ## Optional tooling degrades, it does not break the shell
 
@@ -116,6 +115,10 @@ Ctrl+←/→  move one word backward/forward
 z foo     zoxide ranked directory jump
 zi        interactive zoxide selection
 ```
+
+On macOS, `Alt` is **Left Option**: Ghostty is configured to send it to the
+shell as Alt/Meta, while Right Option keeps typing symbols. See
+[the macOS platform guide](../platforms/macos.md#left-option-is-alt).
 
 Every editing key is bound to its `terminfo` sequence *and* to the documented
 xterm, application-cursor and vt220/rxvt fallbacks, so the same keys work in

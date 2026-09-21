@@ -5,6 +5,7 @@
     "SchemaVersion": 1,
     "NocttySelected": true,
     "NocttyConfigurationSelected": true,
+    "HandySelected": true,
     "WslRequired": true,
     "FedoraDistribution": "FedoraLinux-44"
   },
@@ -17,11 +18,22 @@
       "Exists": true,
       "Path": "C:\\Users\\fixture\\scoop\\buckets\\noctty"
     },
+    "ExtrasBucket": {
+      "Name": "extras",
+      "Exists": true,
+      "Path": "C:\\Users\\fixture\\scoop\\buckets\\extras"
+    },
     "Package": {
       "Name": "noctty",
       "Exists": true,
       "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\noctty\\current\\noctty.exe",
       "CommandPath": "C:\\Users\\fixture\\scoop\\shims\\noctty.exe"
+    },
+    "HandyPackage": {
+      "Name": "handy",
+      "Exists": true,
+      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\handy\\current\\handy.exe",
+      "CommandPath": "C:\\Users\\fixture\\scoop\\shims\\handy.exe"
     }
   },
   "Configuration": {

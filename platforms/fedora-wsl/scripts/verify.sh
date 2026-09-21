@@ -8,6 +8,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 # shellcheck source=../lib/wsl.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/wsl.sh"
+# shellcheck source=../../../common/lib/tool-floors.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/tool-floors.sh"
 
 verify_reset
 run_dev_workflows="false"
@@ -34,17 +36,17 @@ while (($#)); do
   shift
 done
 
+# check_linux_command <name> [--probe [arguments]]: check_command, after first
+# refusing a command that resolves to a Windows executable.
 check_linux_command() {
   local command_name="$1"
   local command_path
 
   command_path="$(command -v "$command_name" 2>/dev/null || true)"
-  if [[ -z "$command_path" ]]; then
-    fail "$command_name not found"
-  elif is_windows_path "$command_path"; then
+  if [[ -n "$command_path" ]] && is_windows_path "$command_path"; then
     fail "$command_name resolves to a Windows executable: $command_path"
   else
-    pass "$command_name: $command_path"
+    check_command "$@"
   fi
 }
 
@@ -52,7 +54,7 @@ check_windows_path_command_absent() {
   local command_name="$1"
   local command_path
 
-  command_path="$(PATH="$login_path" command -v "$command_name" 2>/dev/null || true)"
+  command_path="$(PATH="$system_path" command -v "$command_name" 2>/dev/null || true)"
   if [[ -z "$command_path" ]]; then
     pass "$command_name is not inherited through PATH"
   else
@@ -87,6 +89,89 @@ else
   fail "Default login shell is not Zsh: ${login_shell:-unknown}"
 fi
 
+section "Windows PATH injection policy"
+
+# This is the check that decides whether Windows directories reach PATH at all.
+# appendWindowsPath=false is a WSL-level setting: it governs every context on
+# the machine -- systemd units, "wsl.exe -e", VS Code's integrated shell, cron,
+# any script -- whereas the Zsh hook in platform-env.zsh only ever runs in an
+# interactive Zsh login shell. A machine where configure-interop.sh wrote the
+# file but nobody ran "wsl --shutdown" still injects the Windows PATH into all
+# of those, and only reading the file can see it.
+#
+# The value is read, not the file's formatting compared: a wsl.conf this
+# repository did not write may spell the key "appendWindowsPath = false", and
+# WSL reads that as false, so reporting it as unset would fail a machine that
+# is correctly configured. ini_section_key_value shares its key-line shape with
+# the renderer configure-interop.sh writes with.
+wsl_conf_file="${WSL_CONF_FILE:-/etc/wsl.conf}"
+wsl_conf_remedy="run platforms/fedora-wsl/scripts/configure-interop.sh, then 'wsl --shutdown' from Windows PowerShell (this affects every WSL distribution, not just this one) and reopen this distribution"
+
+if [[ -r "$wsl_conf_file" ]]; then
+  wsl_conf_content="$(cat "$wsl_conf_file")"
+  append_windows_path="$(
+    ini_section_key_value "$wsl_conf_content" "interop" "appendWindowsPath"
+  )"
+  case "$append_windows_path" in
+  false)
+    pass "$wsl_conf_file sets [interop] appendWindowsPath=false, so no context inherits the Windows PATH"
+    ;;
+  "")
+    fail "$wsl_conf_file does not set [interop] appendWindowsPath=false, so every non-interactive context (systemd units, 'wsl.exe -e', VS Code, cron) still inherits the Windows PATH: $wsl_conf_remedy"
+    ;;
+  *)
+    fail "$wsl_conf_file sets [interop] appendWindowsPath=$append_windows_path, so every non-interactive context (systemd units, 'wsl.exe -e', VS Code, cron) still inherits the Windows PATH: $wsl_conf_remedy"
+    ;;
+  esac
+else
+  fail "Cannot read $wsl_conf_file, so [interop] appendWindowsPath=false is unverified: $wsl_conf_remedy"
+fi
+
+section "Inherited Windows PATH isolation"
+
+# What the system actually hands a process, before any configuration in this
+# repository acts on it. "zsh -f" reads no user rc files, so platform-env.zsh's
+# stripper does not run and cannot mask an entry that is really there. This is
+# the PATH sample that can fail; the sanitized one below cannot, by
+# construction.
+#
+# It is still sampled from this process's own environment, so it reports what
+# reached the verifier. The /etc/wsl.conf assertion above, not this, is what
+# proves the contexts the verifier cannot start from are clean.
+system_path="$(
+  zsh -fc \
+    'printf "\n__DOTFILES_VERIFY_SYSTEM_PATH__%s\n" "$PATH"' 2>/dev/null |
+    sed -n 's/^__DOTFILES_VERIFY_SYSTEM_PATH__//p' |
+    tail -n 1
+)"
+if [[ -z "$system_path" ]]; then
+  fail "Could not inspect the unsanitized system PATH"
+else
+  system_path_has_windows_entry="false"
+  IFS=: read -r -a system_path_entries <<<"$system_path"
+  for path_entry in "${system_path_entries[@]}"; do
+    if is_windows_path "$path_entry"; then
+      fail "The unsanitized system PATH contains a Windows entry: $path_entry ($wsl_conf_remedy)"
+      system_path_has_windows_entry="true"
+    fi
+  done
+
+  if [[ "$system_path_has_windows_entry" == "false" ]]; then
+    pass "The unsanitized system PATH contains only Linux filesystem entries"
+  fi
+fi
+
+# Without a system PATH these lookups would run against an empty PATH and
+# report vacuous passes. The probe failure is already recorded above.
+if [[ -n "$system_path" ]]; then
+  for command_name in node.exe dotnet.exe python.exe claude.exe codex.exe; do
+    check_windows_path_command_absent "$command_name"
+  done
+  pass "Explicit .exe lookup was checked in the unsanitized system PATH"
+else
+  warn "Skipping explicit .exe lookup: the unsanitized system PATH could not be inspected"
+fi
+
 section "Linux-native commands"
 
 login_path="$(
@@ -98,31 +183,22 @@ login_path="$(
 if [[ -z "$login_path" ]]; then
   fail "Could not inspect the Zsh login PATH"
 else
+  # This sample has already been through platform-env.zsh's stripper, so a
+  # Windows entry here means that stripper is broken -- it is not, and cannot
+  # be, evidence that WSL stopped injecting one. Interop policy is proved
+  # above.
   path_has_windows_entry="false"
   IFS=: read -r -a login_path_entries <<<"$login_path"
   for path_entry in "${login_path_entries[@]}"; do
     if is_windows_path "$path_entry"; then
-      fail "Zsh PATH still contains a Windows entry: $path_entry"
+      fail "The Zsh PATH sanitizer left a Windows entry in the login PATH: $path_entry"
       path_has_windows_entry="true"
     fi
   done
 
   if [[ "$path_has_windows_entry" == "false" ]]; then
-    pass "Zsh PATH contains only Linux filesystem entries"
+    pass "The Zsh PATH sanitizer leaves only Linux filesystem entries in the login PATH (proof that the Zsh layer works, not that Windows PATH injection is off)"
   fi
-fi
-
-section "Inherited Windows PATH isolation"
-
-# Without a login PATH these lookups would run against an empty PATH and report
-# vacuous passes. The probe failure is already recorded above.
-if [[ -n "$login_path" ]]; then
-  for command_name in node.exe dotnet.exe python.exe claude.exe codex.exe; do
-    check_windows_path_command_absent "$command_name"
-  done
-  pass "Explicit .exe lookup was checked in the fresh Zsh login PATH"
-else
-  warn "Skipping explicit .exe lookup: the Zsh login PATH could not be inspected"
 fi
 
 selected_theme="macchiato"
@@ -157,42 +233,64 @@ else
   fail "mise not found"
 fi
 
+# System commands come from dnf, an upstream installer or this repository.
+# Each is run as well as found, because a resolved path is not a working
+# command.
 commands=(
-  ast-grep
   bat
   delta
-  dotnet
-  dotnet-easydotnet
   eza
   fd
   fzf
   gh
   git
-  lazygit
   mise
-  neovim-node-host
-  node
-  npm
-  npx
   nvim
-  python
   rg
   shellcheck
   sqlite3
   starship
   stow
   tmux
-  tree-sitter
-  uv
-  wsl-copy
-  wsl-open
-  wsl-paste
   zoxide
   zsh
 )
 
 for command_name in "${commands[@]}"; do
+  check_linux_command "$command_name" --probe
+done
+
+# The interop helpers are this repository's own scripts, and running one
+# would reach Windows, so they are checked for resolution only.
+for command_name in wsl-copy wsl-open wsl-paste; do
   check_linux_command "$command_name"
+done
+
+# mise owns these runtimes, so being Linux-native is not enough: a dnf package
+# of the same name earlier on PATH is exactly the second copy check_mise_owned
+# exists to catch. It resolves them in the PATH the fresh Zsh login above
+# reported, which is what a new terminal will use.
+VERIFY_CONFIGURED_LOGIN_PATH="$login_path"
+VERIFY_CALLER_PATH="$PATH"
+VERIFY_MISE_COMMAND="$mise_command"
+mise_tools=(
+  ast-grep
+  dotnet
+  dotnet-easydotnet
+  lazygit
+  neovim-node-host
+  node
+  npm
+  npx
+  python
+  tree-sitter
+  uv
+)
+
+check_mise_context
+
+for command_name in "${mise_tools[@]}"; do
+  check_mise_owned "$command_name"
 done
 
 if [[ "$verify_latex" == "true" ]]; then
@@ -202,10 +300,14 @@ if [[ "$verify_latex" == "true" ]]; then
   done
 fi
 
-ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
+ai_state="$(verify_optional_capability_state fedora-wsl ai || true)"
+ai_disposition="$(verify_optional_capability_disposition fedora-wsl ai || true)"
 
-if [[ -f "$ai_state" ]]; then
-  section "AI-assisted development profile"
+section "AI-assisted development profile"
+
+case "$ai_disposition" in
+verify | leftover)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
 
   if "$DOTFILES_ROOT/common/verify-ai.sh"; then
     pass "AI profile verification completed"
@@ -255,9 +357,13 @@ if [[ -f "$ai_state" ]]; then
       pass "$command_name is Linux-native: $command_path"
     fi
   done
-else
-  section "AI-assisted development profile"
-
+  ;;
+missing | corrupt)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
+  ;;
+*)
+  # Not selected, and no state file. The profile owns files outside its own
+  # state, so an unselected machine is still asked whether any of them remain.
   agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
   codex_home="${CODEX_HOME:-$HOME/.codex}"
   is_agents_symlink() {
@@ -276,7 +382,8 @@ else
   else
     pass "AI profile is not installed (not selected)"
   fi
-fi
+  ;;
+esac
 
 section "Windows executable interop"
 
@@ -349,37 +456,12 @@ fi
 
 section "Neovim tooling"
 
-mason_root="${XDG_DATA_HOME}/nvim/mason/packages"
-mason_inventory="$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
-mason_packages=()
-if [[ -r "$mason_inventory" ]]; then
-  mapfile -t mason_packages < <(
-    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$mason_inventory"
-  )
-else
-  fail "Mason package inventory missing: $mason_inventory"
-fi
+check_version_at_least "Neovim" "$(tool_version nvim)" "$(tool_floor nvim)"
+check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
 
-((${#mason_packages[@]} > 0)) || fail "Mason package inventory is empty"
+section "Catppuccin tmux"
 
-for package in "${mason_packages[@]}"; do
-  if [[ -d "$mason_root/$package" ]]; then
-    pass "Mason: $package"
-  else
-    fail "Mason package not installed: $package"
-  fi
-done
-
-if [[ -d "$mason_root" ]]; then
-  for package_dir in "$mason_root"/*; do
-    [[ -d "$package_dir" ]] || continue
-
-    package="$(basename "$package_dir")"
-    if ! printf '%s\n' "${mason_packages[@]}" | grep -Fxq "$package"; then
-      warning "Unexpected Mason package (review ownership): $package"
-    fi
-  done
-fi
+check_catppuccin_tmux
 
 section "Configuration links"
 
@@ -417,17 +499,9 @@ else
   fail "OCaml profile verification failed"
 fi
 
-containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
-if [[ -f "$containers_state" ]]; then
-  section "Containers (Podman)"
-
-  if "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify-containers.sh" \
-    --skip-smoke-test; then
-    pass "Containers profile verification completed"
-  else
-    fail "Containers profile verification failed"
-  fi
-fi
+verify_optional_capability "Containers (Podman)" fedora-wsl containers \
+  "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify-containers.sh" \
+  --skip-smoke-test
 
 if [[ "$run_dev_workflows" == "true" ]]; then
   section "Development workflow smoke tests"

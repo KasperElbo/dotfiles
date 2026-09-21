@@ -118,6 +118,14 @@ homebrew_path() {
   printf '%s\n' "${HOMEBREW_BIN:-/opt/homebrew/bin/brew}"
 }
 
+# The directory macOS keeps applications in. A real run never sets the
+# override; it exists so the one profile that writes an application bundle
+# itself, rather than handing the job to Homebrew, can be exercised against a
+# fixture directory the way HOMEBREW_BIN and SHELLS_FILE already allow.
+macos_applications_dir() {
+  printf '%s\n' "${MACOS_APPLICATIONS_DIR:-/Applications}"
+}
+
 activate_homebrew_path() {
   export PATH="/opt/homebrew/opt/coreutils/libexec/gnubin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 }
@@ -131,4 +139,116 @@ require_native_homebrew() {
   prefix="$($brew_bin --prefix)"
   [[ "$prefix" == /opt/homebrew ]] ||
     die "Expected Apple Silicon Homebrew prefix /opt/homebrew, got: $prefix"
+}
+
+# ---------------------------------------------------------------------------
+# Desktop wallpaper
+#
+# The interface is `osascript` telling System Events to set the picture of
+# every desktop, which is the one documented automation surface Apple offers
+# for this. The alternatives were rejected deliberately: writing
+# ~/Library/Application Support/com.apple.wallpaper/Store/Index.plist or the
+# older desktoppicture.db is undocumented manipulation of a system database
+# that a macOS release may change without notice, and it is the kind of thing
+# that fails silently rather than loudly.
+#
+# What it depends on, so that a future macOS breaking it is diagnosable:
+#
+#   - Apple Events automation permission. The process running `theme` must be
+#     allowed to control System Events (System Settings > Privacy & Security >
+#     Automation). The first run prompts; a denied or unapproved caller gets
+#     osascript error -1743, which macos_set_wallpaper reports as itself
+#     rather than as a generic failure.
+#   - System Events itself, and the `picture` property of its `desktop`
+#     objects. That property is what a macOS release would remove.
+#   - The image existing at the path given, readable by the user.
+#
+# Multi-display and Spaces, decided rather than left to be discovered:
+# `every desktop` is every attached display, so all displays change together.
+# AppleScript exposes one desktop object per display and none per Space, so
+# the change lands on each display's current Space. A Space that carries its
+# own wallpaper keeps it, and a Space created afterwards takes whatever macOS
+# gives a new Space. Per-display wallpapers are not offered; this repository
+# applies one flavour to the whole desktop.
+# ---------------------------------------------------------------------------
+
+# macos_wallpaper_for_flavour <flavour>: the stowed asset for that flavour.
+# One copy of each image, from the shared theme-assets package.
+macos_wallpaper_for_flavour() {
+  printf '%s/.local/share/wallpapers/catppuccin-%s.webp\n' "$HOME" "$1"
+}
+
+# macos_set_wallpaper <path>: point every display at that image.
+macos_set_wallpaper() {
+  local path="$1" output status=0
+
+  [[ -r "$path" ]] || {
+    printf 'Wallpaper is missing or unreadable: %s\n' "$path" >&2
+    return 1
+  }
+  command_exists osascript || {
+    printf 'osascript is unavailable; cannot set the desktop wallpaper.\n' >&2
+    return 1
+  }
+
+  output="$(
+    osascript -e 'on run argv
+  tell application "System Events" to set picture of every desktop to (item 1 of argv)
+end run' -- "$path" 2>&1
+  )" || status=$?
+
+  ((status == 0)) || {
+    # -1743 is "not authorised to send Apple events", which is a permission to
+    # grant rather than a bug to report, so it is named.
+    if [[ "$output" == *-1743* ]]; then
+      printf 'Not permitted to control System Events, so the wallpaper was not changed.\n' >&2
+      printf 'Allow it in System Settings > Privacy & Security > Automation for the program running "theme", then run "theme" again.\n' >&2
+    else
+      printf 'Setting the desktop wallpaper failed: %s\n' "${output:-no output}" >&2
+    fi
+    return "$status"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Tailscale probes
+#
+# Reading Tailscale's state on macOS means running a binary that talks to the
+# application, and the application can be sitting on a permission prompt that
+# nobody is there to answer. The first real installation ever to reach this
+# profile sat inside one of those calls for a hundred minutes and took the
+# whole job with it, having printed nothing since the line before.
+#
+# So every probe is bounded and "did not answer" is one of the outcomes the
+# caller handles, beside running, needs-login and no-CLI-at-all. None of this
+# judges whether the command would eventually have returned: an unbounded call
+# to another process is the defect on its own.
+# ---------------------------------------------------------------------------
+
+# The bound, in seconds. Overridable so a test can drive it without waiting.
+: "${DOTFILES_TAILSCALE_PROBE_TIMEOUT:=15}"
+
+# macos_tailscale_probe <command> [argument...]: run it under that bound.
+#
+# Passes the command's own output and status through, except that a command
+# the bound had to stop returns 124, or 137 if it ignored the term signal --
+# GNU timeout's own codes, so a caller can tell "did not answer" apart from
+# "answered with a failure". Without a GNU timeout there is nothing to bound
+# it with, so that reports as a timeout rather than running it anyway.
+macos_tailscale_probe() {
+  local status=0
+
+  command_exists timeout || {
+    printf 'GNU timeout is unavailable, so this probe cannot be bounded.\n' >&2
+    return 124
+  }
+
+  timeout --signal=TERM --kill-after=5 \
+    "$DOTFILES_TAILSCALE_PROBE_TIMEOUT" "$@" || status=$?
+  return "$status"
+}
+
+# macos_tailscale_probe_timed_out <status>: true for the two codes above.
+macos_tailscale_probe_timed_out() {
+  [[ "$1" == 124 || "$1" == 137 ]]
 }

@@ -3,6 +3,14 @@
 # Lightweight ordered plan shared by dry-run, preflight, apply and verify.
 # Callers register shell function names, keeping component scripts independently
 # useful while eliminating a second hand-maintained dry-run orchestration.
+#
+# It needs DOTFILES_ROOT, ensure_dir and the reporting helpers from
+# lib/common.sh, and sources that itself, so it is correct sourced standalone.
+
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
 
 PLAN_IDS=()
 PLAN_LABELS=()
@@ -11,6 +19,7 @@ PLAN_PREFLIGHTS=()
 PLAN_APPLIES=()
 PLAN_VERIFIES=()
 PLAN_NOTES=()
+PLAN_SCRIPTS=()
 PLAN_COMPLETED=()
 PLAN_COUNT=0
 PLAN_COMPLETED_COUNT=0
@@ -25,12 +34,22 @@ plan_log() {
 
 plan_reset() {
   PLAN_IDS=(); PLAN_LABELS=(); PLAN_PHASES=(); PLAN_PREFLIGHTS=()
-  PLAN_APPLIES=(); PLAN_VERIFIES=(); PLAN_NOTES=(); PLAN_COMPLETED=()
+  PLAN_APPLIES=(); PLAN_VERIFIES=(); PLAN_NOTES=(); PLAN_SCRIPTS=()
+  PLAN_COMPLETED=()
   PLAN_COUNT=0; PLAN_COMPLETED_COUNT=0; PLAN_CURRENT_INDEX=-1
 }
 
+# The eighth field is the repository scripts the step runs, space-separated
+# and relative to the checkout, or the empty string for a step that runs none.
+#
+# It is what the network preflight derives its probe set from: a source in
+# config/network-sources.tsv is probed when a step that runs one of its
+# consumers is in the resolved plan. A step could declare this wrongly, so
+# scripts/validate-plan-network.py holds every declaration against the scripts
+# the step's apply path actually runs; the declaration is data the installer
+# reads, and the check is where being wrong about it is caught.
 plan_add() {
-  [[ $# -eq 7 ]] || die "plan_add requires id, label, phase, preflight, apply, verify and note"
+  [[ $# -eq 8 ]] || die "plan_add requires id, label, phase, preflight, apply, verify, note and scripts"
   local i existing
 
   # macOS still ships Bash 3.2. With nounset enabled, expanding an empty array
@@ -44,8 +63,51 @@ plan_add() {
   done
   PLAN_IDS+=("$1"); PLAN_LABELS+=("$2"); PLAN_PHASES+=("$3")
   PLAN_PREFLIGHTS+=("$4"); PLAN_APPLIES+=("$5"); PLAN_VERIFIES+=("$6")
-  PLAN_NOTES+=("$7")
+  PLAN_NOTES+=("$7"); PLAN_SCRIPTS+=("$8")
   PLAN_COUNT=$((PLAN_COUNT + 1))
+}
+
+# plan_scripts: every repository script the resolved plan will run, one per
+# line and without repetition. Only the steps that were actually added are
+# walked, so an optional capability nobody selected contributes nothing.
+plan_scripts() {
+  local i script seen=""
+  local -a declared
+  for ((i=0; i<PLAN_COUNT; i++)); do
+    [[ -n "${PLAN_SCRIPTS[i]}" ]] || continue
+    read -ra declared <<<"${PLAN_SCRIPTS[i]}"
+    for script in "${declared[@]}"; do
+      case " $seen " in *" $script "*) continue ;; esac
+      seen="${seen:+$seen }$script"
+      printf '%s\n' "$script"
+    done
+  done
+}
+
+# A step whose work is one repository script states that command once, in a
+# function printing its argument vector one argument per line, starting with
+# the script's path relative to the checkout. The step's apply function runs
+# the vector through plan_command_run and its note prints it through
+# plan_command_note, so a dry-run can never describe a different script or
+# different arguments than the ones apply runs.
+
+# plan_command_note <command-function>: the vector as the plan shows it.
+plan_command_note() {
+  local argument note=""
+  while IFS= read -r argument; do note+="${note:+ }$argument"; done < <("$1")
+  printf '%s\n' "$note"
+}
+
+# plan_command_run <command-function> [argument]...: run the vector from this
+# checkout. Extra arguments belong to this invocation only, not to the planned
+# command, such as --non-interactive or --preflight.
+plan_command_run() {
+  local command_function="$1" argument
+  local -a command=()
+  shift
+  while IFS= read -r argument; do command+=("$argument"); done < <("$command_function")
+  ((${#command[@]} > 0)) || die "Plan command function printed no command: $command_function"
+  "$DOTFILES_ROOT/${command[0]}" "${command[@]:1}" "$@"
 }
 
 plan_render() {
@@ -102,6 +164,19 @@ plan_execute() {
     info "[${PLAN_IDS[i]}] ${PLAN_LABELS[i]}"
     plan_log "start id=${PLAN_IDS[i]} phase=${PLAN_PHASES[i]}"
     if [[ -n "$action" && "$action" != : ]]; then
+      # The contract for a plan action: it runs with errexit suppressed, so it
+      # must handle its own failures explicitly.
+      #
+      # Bash ignores errexit for an `if` condition and for everything that
+      # condition runs, however deep — the same trap theme-hooks.sh documents
+      # for its own boundary. The boundary there can be a subshell; this one
+      # cannot, because an action such as macOS's activate_homebrew_path
+      # mutates PATH for the steps that follow and has to run in this shell.
+      # Every construct that captures a failure without aborting suppresses
+      # errexit the same way, so the contract is explicit rather than
+      # inherited: an action whose fallible command is not its last statement
+      # must write `|| return` on that command, or the step reports as
+      # completed after it failed.
       if "$action"; then
         exit_code=0
       else

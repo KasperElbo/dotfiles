@@ -77,6 +77,13 @@
 % nothing rather than another platform's claim.
 \newcommand{\cstermlegend}{}
 
+% The shared terminal block's table of the terminal emulator's own default
+% keys. Ghostty on Linux, Ghostty on macOS and Noctty on Windows each ship a
+% different default set, so the table belongs to the sheet rather than to the
+% shared block; a sheet that does not define one prints no terminal keys at
+% all rather than another platform's.
+\newcommand{\cstermdefaults}{}
+
 \newcommand{\cs@footrule}[1]{%
   {\footnotesize\color{cs@rule}\hrule height 0.4pt\vspace{2pt}#1}%
 }

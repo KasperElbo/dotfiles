@@ -5,7 +5,8 @@
 #
 # This library deliberately does not select shell options: sourcing a shared
 # library must never change the caller's errexit/nounset/pipefail policy. It
-# expects lib/common.sh to have been sourced first for info/warn/die.
+# needs info/warn/die and ensure_dir from lib/common.sh, and sources that
+# itself, so it is correct sourced standalone.
 #
 # Scope and safety boundary
 # -------------------------
@@ -15,7 +16,21 @@
 # duplicate a side effect are never retried by this library, and must never be
 # routed through it.
 
+if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+  # shellcheck source=common.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+fi
+
 DOTFILES_FETCH_CONNECT_TIMEOUT="${DOTFILES_FETCH_CONNECT_TIMEOUT:-10}"
+# A reachability probe is not a transfer: it is bounded far more tightly, so
+# an offline machine is told in seconds rather than after a download budget.
+# The two bounds are separate on purpose. The connect bound is what decides
+# "this host does not answer"; the total ceiling bounds the whole operation,
+# the connection included, and is set well above the connect bound so that a
+# host which answers slowly still finishes the probe rather than being called
+# unreachable.
+DOTFILES_FETCH_PROBE_TIMEOUT="${DOTFILES_FETCH_PROBE_TIMEOUT:-5}"
+DOTFILES_FETCH_PROBE_MAX_TIME="${DOTFILES_FETCH_PROBE_MAX_TIME:-20}"
 DOTFILES_FETCH_MAX_TIME="${DOTFILES_FETCH_MAX_TIME:-120}"
 DOTFILES_FETCH_ATTEMPTS="${DOTFILES_FETCH_ATTEMPTS:-3}"
 DOTFILES_FETCH_RETRY_DELAY="${DOTFILES_FETCH_RETRY_DELAY:-2}"
@@ -70,6 +85,8 @@ fetch_to_file() {
       die "Could not create a private staging file: $destination"
 
     status=0
+    # The URL is the caller's; the call site names the registered source.
+    # network-source: caller-provided
     curl --fail --show-error --silent --location \
       --proto '=https' --tlsv1.2 \
       --connect-timeout "$DOTFILES_FETCH_CONNECT_TIMEOUT" \
@@ -98,6 +115,43 @@ fetch_to_file() {
     sleep "$delay"
     delay=$((delay * 2))
   done
+}
+
+# fetch_host_reachable <url>
+#
+# True when a connection to the URL's host can be established. Nothing is
+# transferred: the request asks for headers only and the body goes nowhere, so
+# this is safe to run before a decision and repeat. Only a failure to resolve,
+# to connect, to establish a verified TLS session, or to finish the
+# headers-only request within the probe ceiling counts as unreachable -- an
+# HTTP answer of any status means the network path works, and the real
+# download reports its own error. curl is used rather than a raw socket
+# precisely because it applies the same proxy and TLS settings the download
+# will, so anything rejected here would have failed the download too.
+#
+# Exit status: 0 reachable, 1 unreachable.
+fetch_host_reachable() {
+  local url="$1"
+  local status=0
+
+  # The URL is the caller's; the call site names the registered source.
+  # network-source: caller-provided
+  curl --silent --show-error --head --location \
+    --proto '=https' --tlsv1.2 \
+    --connect-timeout "$DOTFILES_FETCH_PROBE_TIMEOUT" \
+    --max-time "$DOTFILES_FETCH_PROBE_MAX_TIME" \
+    --output /dev/null \
+    -- "$url" >/dev/null 2>&1 || status=$?
+
+  # 5/6 name resolution, 7 connection refused or no route, 28 the connect
+  # bound expired, or the probe as a whole outran the total ceiling,
+  # 35 the TLS handshake itself failed, which a captive portal produces, and
+  # 60 the peer's certificate did not verify, which an intercepting proxy
+  # whose CA the trust store does not carry produces.
+  case "$status" in
+  5 | 6 | 7 | 28 | 35 | 60) return 1 ;;
+  *) return 0 ;;
+  esac
 }
 
 # fetch_verify_sha256 <path> <expected> <label>: hard-fail on mismatch.

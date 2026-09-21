@@ -62,7 +62,7 @@ follows, and component scripts stay individually callable and safe to rerun.
 
 ### Fedora workstation
 
-`platforms/fedora/install.sh`, 23 steps:
+`platforms/fedora/install.sh`, 24 steps:
 
 | # | Step | Phase | When | What it does |
 |---|---|---|---|---|
@@ -75,20 +75,21 @@ follows, and component scripts stay individually callable and safe to rerun.
 | 7 | `vm-guest` | `apply` | conditional | Install the explicit Fedora KVM/QEMU VM-guest profile |
 | 8 | `hardening` | `apply` | conditional | Install the optional conservative security-hardening profile |
 | 9 | `desktop-tools` | `apply` | conditional | Install the optional day-to-day desktop application profile |
-| 10 | `containers` | `apply` | conditional | Install the optional rootless Podman profile |
-| 11 | `tailscale` | `apply` | conditional | Install the optional Tailscale networking profile |
-| 12 | `local` | `apply` | always | Initialize machine-local configuration |
-| 13 | `stow` | `apply` | always | Deploy tracked configuration with GNU Stow |
-| 14 | `mise` | `apply` | always | Install mise-managed runtimes and developer tools |
-| 15 | `nvim` | `apply` | always | Restore LazyVim and install the Mason inventory |
-| 16 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
-| 17 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch and Platform tools |
-| 18 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
-| 19 | `kde` | `apply` | conditional | Install all four Catppuccin KDE themes |
-| 20 | `latex` | `apply` | conditional | Install LaTeX toolchain |
-| 21 | `theme` | `apply` | always | Apply Catppuccin `<theme>` |
-| 22 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
-| 23 | `verify` | `verify` | always | Verify installation |
+| 10 | `dictation` | `apply` | conditional | Install the optional voice-dictation profile |
+| 11 | `containers` | `apply` | conditional | Install the optional rootless Podman profile |
+| 12 | `tailscale` | `apply` | conditional | Install the optional Tailscale networking profile |
+| 13 | `local` | `apply` | always | Initialize machine-local configuration |
+| 14 | `stow` | `apply` | always | Deploy tracked configuration with GNU Stow |
+| 15 | `mise` | `apply` | always | Install mise-managed runtimes and developer tools |
+| 16 | `nvim` | `apply` | always | Restore LazyVim and install the Mason inventory |
+| 17 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
+| 18 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch and Platform tools |
+| 19 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
+| 20 | `kde` | `apply` | conditional | Install all four Catppuccin KDE themes |
+| 21 | `latex` | `apply` | conditional | Install LaTeX toolchain |
+| 22 | `theme` | `apply` | always | Apply Catppuccin `<theme>` |
+| 23 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
+| 24 | `verify` | `verify` | always | Verify installation |
 
 ### Fedora on WSL
 
@@ -113,7 +114,7 @@ follows, and component scripts stay individually callable and safe to rerun.
 
 ### Apple Silicon macOS
 
-`platforms/macos/install.sh`, 16 steps:
+`platforms/macos/install.sh`, 17 steps:
 
 | # | Step | Phase | When | What it does |
 |---|---|---|---|---|
@@ -121,18 +122,19 @@ follows, and component scripts stay individually callable and safe to rerun.
 | 2 | `ocaml-native` | `apply` | conditional | Install Homebrew OCaml prerequisites |
 | 3 | `containers` | `apply` | conditional | Install and start a rootless Podman machine |
 | 4 | `tailscale` | `apply` | conditional | Install the optional Tailscale profile (Homebrew cask, interactive login). |
-| 5 | `local` | `apply` | always | Initialize local Git and theme state |
-| 6 | `stow` | `apply` | always | Deploy shared and macOS configuration |
-| 7 | `mise` | `apply` | always | Install mise-managed runtimes |
-| 8 | `nvim` | `apply` | always | Restore LazyVim and Mason tools |
-| 9 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
-| 10 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch and platform tools |
-| 11 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
-| 12 | `defaults` | `apply` | conditional | Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults |
-| 13 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
-| 14 | `theme` | `apply` | always | Apply the selected theme |
-| 15 | `aerospace` | `apply` | always | Launch AeroSpace |
-| 16 | `verify` | `verify` | always | Verify installation and native architecture |
+| 5 | `dictation` | `apply` | conditional | Install the optional dictation profile (pinned Ghost Pepper disk image). |
+| 6 | `local` | `apply` | always | Initialize local Git and theme state |
+| 7 | `stow` | `apply` | always | Deploy shared and macOS configuration |
+| 8 | `mise` | `apply` | always | Install mise-managed runtimes |
+| 9 | `nvim` | `apply` | always | Restore LazyVim and Mason tools |
+| 10 | `tmux` | `apply` | always | Install the pinned Catppuccin tmux theme |
+| 11 | `ocaml` | `apply` | conditional | Create the opam-owned OCaml switch and platform tools |
+| 12 | `ai` | `apply` | conditional | Install the optional AI-assisted development profile |
+| 13 | `defaults` | `apply` | conditional | Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults |
+| 14 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
+| 15 | `theme` | `apply` | always | Apply the selected theme |
+| 16 | `aerospace` | `apply` | always | Launch AeroSpace |
+| 17 | `verify` | `verify` | always | Verify installation and native architecture |
 
 ### Parrot Security Edition CTF guest
 
@@ -152,6 +154,33 @@ follows, and component scripts stay individually callable and safe to rerun.
 | 10 | `verify` | `verify` | always | Verify the complete Parrot guest |
 
 <!-- END GENERATED INSTALL FLOWS -->
+
+## What a plan action may assume
+
+`plan_execute` runs each step's action as the condition of an `if`, so it can
+report which step failed and what was left pending rather than letting the
+whole installer abort at the point of failure. Bash ignores `errexit` for an
+`if` condition and for everything that condition runs, however deep, so **an
+action runs with `errexit` suppressed and must handle its own failures
+explicitly.**
+
+In practice that means an action whose fallible command is its last statement
+needs nothing — its status is the function's status, which is the ordinary
+shape and the one nearly every action uses. An action that runs anything
+*after* a fallible command has to write `|| return` on that command, or the
+failure is discarded and the step is reported as completed.
+
+The boundary cannot be a subshell, which is how
+[`common/lib/theme-hooks.sh`](../../common/lib/theme-hooks.sh) solves the same
+problem for theme hooks: an action such as macOS's `activate_homebrew_path`
+mutates `PATH` for the steps that follow and has to run in the installer's own
+shell. Every construct that captures a failure without aborting suppresses
+`errexit` the same way, so the contract is stated rather than enforced by the
+boundary.
+
+`tests/test-execution-plan.sh` covers both shapes, and holds a negative control
+that fails if the boundary ever starts propagating on its own — so this section
+cannot quietly go stale.
 
 The historical `scripts/*.sh` paths remain thin compatibility entry points for
 Fedora; see [repository conventions](repository-conventions.md#deprecated-wrappers).

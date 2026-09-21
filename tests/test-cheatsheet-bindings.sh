@@ -90,6 +90,53 @@ PYTHON
 printf 'PASS: %d registered Sway/AeroSpace bindings match both the config and the sheet\n' \
   "$checked"
 
+# --- Both window managers offer the same three display operations -----------
+#
+# The registry sweep above proves each display binding is printed on its own
+# sheet. It cannot prove the two platforms still offer the *same* operations: a
+# display action added to one window manager and forgotten on the other passes
+# it, and the sheets then quietly disagree about what a multi-monitor setup can
+# do. Compare the sway.display.* and aerospace.display.* rows as sets, by the
+# sentence the registry uses for each, which is also the sentence the reference
+# prints. The key text is deliberately not compared — the modifiers differ by
+# platform on purpose.
+python3 - "$repo_root" <<'PYTHON' || fail "the Sway and AeroSpace display actions have drifted apart"
+import csv, pathlib, sys
+
+root = pathlib.Path(sys.argv[1])
+actions = {"sway": {}, "aerospace": {}}
+with (root / "config" / "actions.tsv").open(newline="", encoding="utf-8") as stream:
+    for row in csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE):
+        component, _, rest = row["id"].partition(".display.")
+        if rest and component in actions:
+            actions[component][rest] = row["action"]
+
+if not actions["sway"]:
+    sys.exit("no sway.display.* rows in config/actions.tsv")
+if actions["sway"] != actions["aerospace"]:
+    for operation in sorted(set(actions["sway"]) | set(actions["aerospace"])):
+        sway = actions["sway"].get(operation)
+        aerospace = actions["aerospace"].get(operation)
+        if sway != aerospace:
+            print(
+                f"display.{operation}: sway says {sway!r}, aerospace says {aerospace!r}",
+                file=sys.stderr,
+            )
+    sys.exit(1)
+print(
+    "PASS: %d display operations are described identically on Sway and AeroSpace"
+    % len(actions["sway"])
+)
+PYTHON
+
+# Each sheet prints them under a section a reader scanning for monitors finds.
+require_in "$sway_tex" '\cssection{Displays}' "Sway cheat sheet"
+require_in "$macos_tex" '\cssection{Displays}' "macOS cheat sheet"
+# Directional focus and move cross display boundaries on both, which is the
+# part a reader would otherwise have to discover by trying it.
+require_in "$sway_tex" 'across displays' "Sway cheat sheet"
+require_in "$macos_tex" 'across displays' "macOS cheat sheet"
+
 # --- Waybar's keyboard-layout indicator matches what the Sway sheet claims ---
 require_in "$waybar_config" '"sway/language"' "Waybar config"
 require_in "$waybar_config" '"format": "{short}"' "Waybar config"
@@ -120,13 +167,48 @@ require_in "$wsl_tex" 'appendWindowsPath=false' "Fedora WSL cheat sheet"
 
 # --- The shared terminal block leaves its platform-dependent line to the sheet --
 require_in "$cheatsheets_dir/common-workflow.tex" '\cstermlegend' "shared workflow block"
+require_in "$cheatsheets_dir/common-workflow.tex" '\cstermdefaults' "shared workflow block"
 if grep -Fq 'ghostty +list-keybinds' "$cheatsheets_dir/common-workflow.tex"; then
   fail "common-workflow.tex: the Ghostty discovery command belongs to the sheets that have it"
 fi
 for tex in "$kde_tex" "$sway_tex" "$macos_tex" "$wsl_tex"; do
   require_in "$tex" '\renewcommand{\cstermlegend}' "$(basename "$tex")"
 done
-require_in "$macos_tex" 'Cmd+C/V' "macOS cheat sheet"
+
+# --- Each sheet prints its own terminal's defaults, never another platform's --
+#
+# The registry proves each printed key is claimed; what it cannot say is that
+# the three default sets stay apart. Ghostty splits right with Ctrl+Shift+O on
+# Linux and Cmd+D on macOS, and Noctty on Windows documents Ctrl+Shift+\ --- so
+# a sheet carrying the wrong one of those three is carrying the wrong table.
+ghostty_linux_keys="$cheatsheets_dir/ghostty-linux-keys.tex"
+[[ -f "$ghostty_linux_keys" ]] ||
+  fail "missing tracked file: $ghostty_linux_keys"
+require_in "$ghostty_linux_keys" 'Ctrl+Shift+O / E' "shared Ghostty/Linux key table"
+for tex in "$kde_tex" "$sway_tex"; do
+  require_in "$tex" '\input{ghostty-linux-keys}' "$(basename "$tex")"
+  if grep -Fq 'Cmd+D' "$tex"; then
+    fail "$(basename "$tex"): prints Ghostty's macOS split key on a Linux sheet"
+  fi
+done
+require_in "$macos_tex" 'Cmd+D / Cmd+Shift+D' "macOS cheat sheet"
+require_in "$macos_tex" 'Cmd+C / Cmd+V' "macOS cheat sheet"
+if grep -Fq 'Ctrl+Shift+O' "$macos_tex"; then
+  fail "macOS cheat sheet: prints Ghostty's Linux split key"
+fi
+require_in "$wsl_tex" 'noctty +list-keybinds' "Fedora WSL cheat sheet"
+grep -Fq 'Ctrl+Shift+\textbackslash' "$wsl_tex" ||
+  fail "Fedora WSL cheat sheet: must print Noctty's own Ctrl+Shift+\\ split key"
+if grep -Fq 'ghostty +list-keybinds' "$wsl_tex"; then
+  fail "Fedora WSL cheat sheet: names a ghostty command its runtime does not have"
+fi
+
+# --- Herdr is printed as the optional profile it is ------------------------
+#
+# Every other tool on the sheets is installed by a default ./install.sh; Herdr
+# is not, so a sheet that prints its keys has to say which flag installs it.
+require_in "$cheatsheets_dir/common-workflow.tex" 'Herdr' "shared workflow block"
+require_in "$cheatsheets_dir/common-workflow.tex" './install.sh --ai' "shared workflow block"
 
 # --- The Fedora guide documents the layout switch the KDE sheet prints ---
 require_in "$kde_layout_doc" 'Meta+Alt+K' "docs/platforms/fedora.md"
@@ -149,9 +231,11 @@ done
 # --- Discovery mechanisms stay prominent rather than static tables drifting ---
 for phrase in \
   'ghostty +list-keybinds --default' \
+  'noctty +list-keybinds' \
   'WhichKey' \
   'Lazygit' \
   '<prefix> ?' \
+  'Ctrl+B ?' \
   'System Settings'; do
   grep -Fq "$phrase" "$keybindings_doc" ||
     fail "docs/reference/keybindings.md: expected discovery reference '$phrase'"
@@ -159,8 +243,8 @@ done
 
 # --- Every cheat sheet input file referenced actually exists ---
 for f in "$sway_tex" "$kde_tex" "$wsl_tex" "$macos_tex" "$parrot_tex" \
-  "$cheatsheets_dir/common-workflow.tex" "$cheatsheets_dir/cheatsheet.sty" \
-  "$cheatsheets_dir/generate.sh"; do
+  "$cheatsheets_dir/common-workflow.tex" "$cheatsheets_dir/ghostty-linux-keys.tex" \
+  "$cheatsheets_dir/cheatsheet.sty" "$cheatsheets_dir/generate.sh"; do
   [[ -f "$f" ]] || fail "missing tracked file: $f"
 done
 [[ -x "$cheatsheets_dir/generate.sh" ]] ||

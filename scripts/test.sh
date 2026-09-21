@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
-set -uo pipefail
 
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd -- "$script_dir/.." && pwd)"
+# A portable entry point, so it may be started under Apple's Bash 3.2: on macOS
+# `env bash` resolves to /bin/bash whenever Homebrew is not ahead of it on PATH.
+# Everything down to the modern-Bash guard therefore stays inside that dialect,
+# and `set -uo pipefail` waits until after it, as bin/.local/bin/theme does.
+# The runner itself, and the libraries it loads below, are written for the
+# repository's documented Bash 4.4+ runtime.
+
+script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/${BASH_SOURCE[0]##*/}"
+repo_root="$(cd -- "$(dirname -- "$script_path")/.." && pwd)"
+
+# shellcheck source=../common/lib/modern-bash.sh
+. "$repo_root/common/lib/modern-bash.sh"
+modern_bash_reexec ./scripts/test.sh "$script_path" "$@" || exit 2
+
+set -uo pipefail
 cd -- "$repo_root" || exit 1
 
 usage() {
@@ -26,6 +38,11 @@ Dependency policy:
   Commands in DOTFILES_TEST_REQUIRED_COMMANDS are always runner requirements.
   Missing runner requirements are an error before any suite runs; they are never
   silently treated as test success.
+
+Environment:
+  DOTFILES_TEST_SUITE_TIMEOUT  Seconds a single suite may run before it is
+                               killed and counted as failed (default 900).
+                               0 disables the per-suite timeout.
 EOF_USAGE
 }
 
@@ -60,14 +77,19 @@ done
 
 default_tests=(
   tests/test-verifier.sh
+  tests/test-path-resolution.sh
   tests/test-test-support.sh
   tests/test-test-runner.sh
+  tests/test-registry-schema.sh
   tests/test-capabilities.sh
+  tests/test-tool-floors.sh
+  tests/test-install-option-parsers.sh
   tests/test-repository-hygiene.sh
   tests/test-documentation.sh
   tests/test-compat-wrappers.sh
-  tests/test-fedora-dependency-closure.sh
+  tests/test-command-provider-closure.sh
   tests/test-supply-chain.sh
+  tests/test-pin-freshness.sh
   tests/test-profile-state.sh
   tests/test-execution-plan.sh
   tests/test-cli-contract.sh
@@ -78,6 +100,7 @@ default_tests=(
   tests/test-secure-boot.sh
   tests/test-power-profiles.sh
   tests/test-installer-options.sh
+  tests/test-installer-plan-commands.sh
   tests/test-platform-boundary.sh
   tests/test-local-state.sh
   tests/test-git-identity.sh
@@ -87,6 +110,7 @@ default_tests=(
   tests/test-starship-themes.sh
   tests/test-kde-theme.sh
   tests/test-sway-config.sh
+  tests/test-ghostty-config.sh
   tests/test-cheatsheet-bindings.sh
   tests/test-action-registry.sh
   tests/test-shell-startup.sh
@@ -107,15 +131,19 @@ default_tests=(
   tests/test-mocked-installs.sh
   tests/test-sftp-baseline.sh
   tests/test-ai-profile.sh
+  tests/test-firstmate-backend.sh
   tests/test-ai-transitions.sh
   tests/test-mise-context.sh
+  tests/test-optional-capability-dispatch.sh
   tests/test-vm-host.sh
   tests/test-vm-guest.sh
   tests/test-hardening.sh
   tests/test-desktop-tools.sh
+  tests/test-dictation-fedora.sh
   tests/test-containers.sh
   tests/test-containers-wsl.sh
   tests/test-tailscale.sh
+  tests/test-dictation-macos.sh
   tests/test-wsl-interop.sh
   tests/test-wsl-open.sh
   tests/test-fedora-wsl.sh
@@ -126,8 +154,10 @@ default_tests=(
   tests/test-windows-bootstrap.sh
   tests/test-macos-bootstrap.sh
   tests/test-macos.sh
+  tests/test-macos-verification.sh
   tests/test-macos-ai.sh
   tests/test-macos-login-shell.sh
+  tests/test-macos-command-surface.sh
 )
 
 if ((${#selected_tests[@]} > 0)); then
@@ -140,7 +170,17 @@ required_commands=()
 if [[ -n "${DOTFILES_TEST_REQUIRED_COMMANDS:-}" ]]; then
   read -r -a required_commands <<<"$DOTFILES_TEST_REQUIRED_COMMANDS"
 elif ((${#selected_tests[@]} == 0)); then
-  required_commands=(awk bash find git grep jq mktemp nvim python3 rg sed stow timeout zsh)
+  # Every host command the default suites reach for, not only the obvious
+  # ones. A command missing from here does not go unnoticed: it surfaces as a
+  # suite failure somewhere in the middle of the run, naming the tool but not
+  # the policy, which is the opposite of the promise above. scp, sftp and ssh
+  # belong to the idempotency, SFTP-baseline and verifier suites, getent and
+  # unlink to the isolated-PATH ones, and curl and sha256sum to every suite
+  # that mocks a download.
+  required_commands=(
+    awk bash curl find getent git grep jq mktemp nvim python3 rg scp sed
+    sftp sha256sum ssh stow timeout unlink zsh
+  )
 fi
 
 missing_commands=()
@@ -154,9 +194,52 @@ if ((${#missing_commands[@]} > 0)); then
   exit 2
 fi
 
+# Presence is not enough. A tool below its documented floor fails later, inside
+# whichever suite first uses the feature it lacks, with a diagnostic that names
+# neither the tool nor a version. The floors come from config/tool-floors.tsv,
+# and which tools have one is the table's business, not a list repeated here.
+# shellcheck source=../common/lib/tool-floors.sh
+source "$repo_root/common/lib/tool-floors.sh"
+
+unsatisfied_floor=()
+if ((${#required_commands[@]} > 0)); then
+  # A checked substitution, not < <(...): a manifest that cannot be read, or
+  # whose header lost the tool column, must stop the runner rather than leave
+  # every floor silently unenforced while the suites report success.
+  floor_tools="$(manifest_values "$TOOL_FLOOR_MANIFEST" tool)" || {
+    printf 'ERROR: could not read the version floors from %s\n' "$TOOL_FLOOR_MANIFEST" >&2
+    printf 'Policy: runner dependencies must meet config/tool-floors.tsv; no suites were run or credited as skipped.\n' >&2
+    exit 2
+  }
+  while IFS= read -r floor_tool; do
+    [[ -n "$floor_tool" ]] || continue
+    for command_name in "${required_commands[@]}"; do
+      [[ "$command_name" == "$floor_tool" ]] || continue
+      tool_floor_check "$floor_tool" || unsatisfied_floor+=("$floor_tool")
+    done
+  done <<<"$floor_tools"
+fi
+
+# The reason is tool_floor_check's to state -- below the floor, unparseable, or
+# no probe at all -- so this names the tools without asserting which it was.
+if ((${#unsatisfied_floor[@]} > 0)); then
+  printf 'ERROR: test dependencies did not satisfy their documented floor: %s\n' "${unsatisfied_floor[*]}" >&2
+  printf 'Policy: runner dependencies must meet config/tool-floors.tsv; no suites were run or credited as skipped.\n' >&2
+  exit 2
+fi
+
 passed=()
 failed=()
 skipped=()
+
+# The aggregate preflight requires `timeout`, and this is what it requires it
+# for: a suite that hangs -- waiting on a prompt, a lock, or a socket that will
+# never answer -- otherwise stalls the whole run until the job's own limit
+# kills it, with no summary and no failing suite named. A killed suite is a
+# failed suite, counted and reported like any other. Targeted mode does not
+# preflight the toolchain, so it runs without a limit when `timeout` is absent
+# rather than refusing to run at all.
+suite_timeout="${DOTFILES_TEST_SUITE_TIMEOUT:-900}"
 
 run_suite() {
   local test_script="$1"
@@ -168,10 +251,17 @@ run_suite() {
     return 127
   fi
 
+  local -a limit=()
+  if ((suite_timeout > 0)) && command -v timeout >/dev/null 2>&1; then
+    # --kill-after gives a suite that traps TERM a moment to remove its
+    # temporary directories before SIGKILL ends the argument.
+    limit=(timeout --signal=TERM --kill-after=30 "$suite_timeout")
+  fi
+
   if [[ -x "$test_path" ]]; then
-    "$test_path"
+    "${limit[@]}" "$test_path"
   else
-    bash "$test_path"
+    "${limit[@]}" bash "$test_path"
   fi
 }
 
@@ -183,7 +273,11 @@ for ((index = 0; index < ${#tests[@]}; index++)); do
     passed+=("$test_script")
   else
     status=$?
-    failed+=("$test_script (exit $status)")
+    if ((status == 124)); then
+      failed+=("$test_script (timed out after ${suite_timeout}s)")
+    else
+      failed+=("$test_script (exit $status)")
+    fi
     if [[ "$fail_fast" == true ]]; then
       for ((remaining = index + 1; remaining < ${#tests[@]}; remaining++)); do
         skipped+=("${tests[remaining]} (fail-fast)")

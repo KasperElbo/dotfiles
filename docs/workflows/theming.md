@@ -69,6 +69,9 @@ action with its own error boundary:
   the others, and leaves the command with status 3 and a summary of what
   applied and what did not.
 
+A boundary stops at the first statement that fails inside it, so an action or
+hook never runs on past its own failure and is never reported as applied.
+
 ```text
 Catppuccin mocha was applied only partially.
 Applied:
@@ -95,7 +98,7 @@ The last run's records stay in `~/.local/state/dotfiles/theme-actions.log`.
 | Layer | What it is | What it does |
 |---|---|---|
 | `theme` command | `bin/.local/bin/theme`, on `PATH` as `~/.local/bin/theme` | Writes the shared state files, runs the installed platform hooks, and reports what applied |
-| Platform theme hook | `~/.config/dotfiles/theme-hooks.d/*.sh`, stowed per platform | Applies the desktop half: KDE/Sway/Waybar/Fuzzel/Mako/swaylock and the wallpaper on Fedora, the Noctty bridge on Fedora WSL. macOS and the Parrot guest install no hook |
+| Platform theme hook | `~/.config/dotfiles/theme-hooks.d/*.sh`, stowed per platform | Applies the desktop half: KDE/Sway/Waybar/Fuzzel/Mako/swaylock and the wallpaper on Fedora, the Noctty bridge on Fedora WSL, the desktop wallpaper on macOS. The Parrot guest installs none |
 | Zsh `theme` function | `zsh/.config/zsh/.zshrc` | **Re-execs the shell** (`exec zsh`) after a successful or partially successful run, so this shell picks up the new `DOTFILES_THEME` and its fzf/bat/Lazygit/Starship selections |
 
 The re-exec is the shell wrapper's doing, not the command's. Running
@@ -105,6 +108,15 @@ wrapper re-execs on status 0 and on status 3 — a partially applied theme still
 leaves this shell's own theming correct — and deliberately does not on any
 other status, where the shared state was not written and restarting would only
 hide the failure.
+
+That re-exec reaches one shell, not every shell. `LG_CONFIG_FILE`,
+`BAT_THEME`, `STARSHIP_CONFIG` and the sourced fzf palette are per-shell
+environment set once by `.zshrc`, so already-open shells and tmux panes keep
+the old flavour until each one re-execs or is replaced — `exec zsh` in a pane
+is enough. Consumers that read a shared state file instead, delta through
+`~/.config/dotfiles/git-theme`, follow at once, as does tmux, whose running
+server the command reloads; Ghostty is the one consumer that needs a full
+restart (see [Terminal restart requirements](#terminal-restart-requirements)).
 
 ## Hooks only apply what is installed
 
@@ -117,7 +129,13 @@ for the chosen flavour is actually present:
   present and even if KDE themes are left over from an earlier install;
 - selected but assets missing (a machine that predates the capability record)
   → still skipped, and the Fedora verifier reports it;
-- no recorded installation at all → the assets alone decide.
+- no recorded installation at all → the assets alone decide;
+- everything installed but no graphical session running (a TTY, an SSH
+  session, a CI container) → skipped with that reason, because
+  `lookandfeeltool` and the `plasma-apply-*` commands are Qt GUI programs that
+  abort rather than return without one. The flavour is recorded, so it applies
+  at the next login; rerun `theme <flavour>` from inside the session to apply
+  it now.
 
 The Fedora verifier checks exactly what the installed capability owns: with
 KDE selected it requires `kio-extras` and the global theme for the current
@@ -128,13 +146,99 @@ The Parrot CTF guest deliberately installs no desktop theme hooks: it is a
 reduced lab profile, not a workstation, and parity is not a reason to give it
 desktop theming it has no use for.
 
+macOS installs a hook that sets the desktop wallpaper to the flavour's image
+from the shared `theme-assets` package, reported as the `macos:wallpaper`
+action. `theme <flavour> --preserve-wallpaper` skips that mutation entirely
+rather than snapshotting and restoring anything, and says so, so a desktop
+deliberately left alone does not read like one where the wallpaper failed.
+The interface, what it depends on and the multi-display and Spaces behaviour
+are in [the macOS platform guide](../platforms/macos.md#desktop-wallpaper).
+
+## Writing a theme hook
+
+A platform hook is the supported way to add a desktop effect without putting a
+platform check in the portable command. Everything below is the contract the
+command actually implements, in `bin/.local/bin/theme` and
+`common/lib/theme-hooks.sh`.
+
+**Where it goes.** `~/.config/dotfiles/theme-hooks.d/<name>.sh`, stowed from
+`platforms/<platform>/stow/theme-hooks/.config/dotfiles/theme-hooks.d/`. The
+file is mode 644 and needs no shebang, because it is sourced rather than
+executed. `config/shell-file-roles.tsv` carries the role and the mode, so a new
+hook is added there in the same change.
+
+**When it runs.** After the shared state files are written and the tmux reload
+has been attempted, and before the generic Ghostty guidance. Every readable
+`*.sh` in the directory runs, in filename order; an unreadable file is skipped
+silently. Do not rely on the order between two hooks — no supported platform
+installs more than one.
+
+**How it runs.** The command sources the file inside a subshell of its own, so
+the boundary is around the whole hook:
+
+- `return` ends the hook. So does `exit`: it leaves the subshell, not the
+  `theme` command.
+- `cd`, variables, functions, traps and `set` options do not escape. The
+  Fedora WSL hook still unsets its two helpers, which is habit rather than
+  necessity.
+- **The hook runs under `errexit`.** The command sets `-euo pipefail` and the
+  boundary turns errexit back on inside the subshell, so an unchecked statement
+  that fails ends the hook there. Write `|| true` or `|| return 0` where a
+  failure is expected and the rest of the hook should still run.
+- A hook that ends nonzero is reported as `hook:<name>` and the command
+  continues with the remaining hooks, finishing with exit status 3.
+
+**What is in scope.** The command has already sourced `common/lib/common.sh`,
+`common/lib/theme-shared-state.sh`, `common/lib/install-lifecycle.sh` and
+`common/lib/theme-hooks.sh`, so their functions are available without sourcing
+anything. It also sets:
+
+| Variable | Value |
+|---|---|
+| `flavour` | the chosen flavour, already validated: `latte`, `frappe`, `macchiato` or `mocha` |
+| `preserve_wallpaper` | `true` when `--preserve-wallpaper` was passed, `false` otherwise |
+| `DOTFILES_ROOT` | this repository's checkout, for sourcing a platform library of your own |
+
+ShellCheck cannot see where those come from, so a hook needs a
+`# shellcheck disable=SC2154` above its first use, as all three existing hooks
+have.
+
+**The boundary functions.** Put each effect a user can see in its own named
+action, so the summary can name it:
+
+| Function | Use it for |
+|---|---|
+| `theme_action <name> <command> [args...]` | one independent effect; a failure is reported and the hook continues |
+| `theme_action_required <name> <command> [args...]` | nothing in a hook. It is the shared-state write's boundary, and a hook that must stop should `return 1` |
+| `theme_action_skipped <name> <reason>` | an effect deliberately not run, so "not installed here" stays distinct from "failed" |
+| `theme_capability_permits <capability>` | true unless the install state positively records the capability as absent — the question to ask before applying an identifier |
+| `theme_capability_known_absent <capability>` | true only when the state records it as absent, for wording the skip reason |
+| `theme_note_ghostty_handled` | when the hook owns the terminal's theme, suppressing the command's generic Ghostty guidance |
+
+Name an action `<platform>:<effect>` — `fedora:kde`, `fedora:generated-state` —
+so the summary reads sensibly next to the portable actions.
+
+**What a hook must not do.** It must not apply an identifier for assets that
+were never installed; see the section above. It must not write the shared
+state files, which are the portable command's own required action. And it must
+not assume a large `PATH`: `theme` is run from desktop keybindings and from the
+Zsh wrapper alike.
+
+`platforms/fedora/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh`
+is the full example, with the capability questions and several named actions;
+`platforms/fedora-wsl/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora-wsl.sh`
+is the minimal one.
+`platforms/macos/stow/theme-hooks/.config/dotfiles/theme-hooks.d/macos.sh` sits
+between them: one wallpaper action, and `--preserve-wallpaper` handled as a
+`theme_action_skipped` rather than as an absence.
+
 ## Terminal restart requirements
 
 Ghostty applies a changed `theme` only on a **full restart**; a configuration
 reload does not change an already-set theme. Nothing in this repository claims
 otherwise. On Fedora the hook still requests a reload (it is worth doing for
-the rest of the configuration) and then says a restart is required; on a
-profile with no hook of its own — macOS — the portable command prints the same
+the rest of the configuration) and then says a restart is required; on macOS
+the hook does not claim the terminal, so the portable command prints the same
 guidance. On Fedora WSL, Windows owns the terminal, so the Noctty bridge is
 what changes the theme and no Ghostty guidance is printed at all.
 
@@ -193,6 +297,9 @@ Available colorschemes:
 ```
 
 Neovim reads the machine-local theme state on startup and checks it again on `FocusGained`.
+Inside tmux that works because the tracked `tmux/.tmux.conf` sets
+`focus-events on`; tmux defaults it off, and with it off no pane ever sees
+a focus change.
 
 ## Starship
 

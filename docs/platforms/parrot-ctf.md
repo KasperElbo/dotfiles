@@ -96,7 +96,7 @@ cd ~/src/dotfiles
 The first install makes the invoking non-root account's registered Zsh the
 login shell. Konsole inherits that account shell naturally; its managed
 `Dotfiles-Parrot-CTF.profile` deliberately has no `Command=` override. The
-profile installs pinned Hack Nerd Font Mono 3.4.0 user-locally, selects it in
+profile installs pinned Hack Nerd Font Mono 3.5.1 user-locally, selects it in
 Konsole, and installs the four pinned Catppuccin bat themes referenced by the
 shared Git/Delta configuration. It does not install Ghostty or apply general
 KDE theming.
@@ -109,11 +109,18 @@ user-locally, selects it in the managed `Dotfiles-Parrot-CTF.profile`, and
 installs the pinned Catppuccin bat themes. Ghostty is deliberately not
 installed here, and no general KDE theming is applied.
 
+The managed profile sets the font and nothing else. It declares no
+`ColorScheme=`, and this guest has no theme hook, so the terminal's palette
+stays whatever Parrot ships and the selected Catppuccin flavour does not reach
+it — which is why `config/capabilities.tsv` records this capability's provider
+as `repository+upstream-font-only` rather than as a themed terminal.
+
 The final rerun is the idempotency check. Without `--theme`, it preserves an
 existing valid flavour; an explicit `--theme FLAVOUR` changes it. The guest
 verifier checks observable guest state: Parrot and KVM/QEMU detection, both
 virtio channels, account shell, Zsh startup, APT ownership and command
-resolution, guest services, portable links, exact reduced Mason inventory,
+resolution, guest services, portable links, the exact reduced Mason inventory
+and the installed state of every package in it,
 Neovim version/profile, unique PATH entries, font/glyph coverage, effective
 Konsole profile, bat themes, and Starship compatibility. Its state file is a
 record of installer intent, not proof of host isolation.

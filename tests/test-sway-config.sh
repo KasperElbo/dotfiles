@@ -6,10 +6,11 @@ fedora_stow="$repo_root/platforms/fedora/stow"
 config="$fedora_stow/sway/.config/sway/config"
 waybar="$fedora_stow/waybar/.config/waybar/config.jsonc"
 grid="$fedora_stow/sway/.local/bin/sway-workspace-grid"
+cycle="$fedora_stow/sway/.local/bin/sway-output-cycle"
 session_start="$fedora_stow/sway/.local/bin/sway-session-start"
 portal_config="$fedora_stow/sway/.config/xdg-desktop-portal/sway-portals.conf"
 theme_hook="$fedora_stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh"
-wallpaper_package="$fedora_stow/theme-assets/.local/share/wallpapers"
+wallpaper_package="$repo_root/theme-assets/.local/share/wallpapers"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -29,7 +30,10 @@ for shortcut in \
   'bindsym $mod+f fullscreen toggle' \
   'bindsym $mod+$alt+k input type:keyboard xkb_switch_layout next' \
   'bindsym $mod+Shift+s exec sway-screenshot region' \
-  'bindsym $mod+Ctrl+$left exec sway-workspace-grid left'; do
+  'bindsym $mod+Ctrl+$left exec sway-workspace-grid left' \
+  'bindsym $mod+Tab exec sway-output-cycle focus next' \
+  'bindsym $mod+Shift+Tab exec sway-output-cycle move-window next' \
+  'bindsym $mod+Ctrl+Tab exec sway-output-cycle move-workspace next'; do
   grep -Fq "$shortcut" "$config"
 done
 
@@ -56,7 +60,8 @@ grep -Fq 'for_window [class="^xwaylandvideobridge$"] move scratchpad' "$config"
 
 grep -Fq "timeout 600" "$config"
 grep -Fq "timeout 900" "$config"
-if grep -Ev '^[[:space:]]*#' "$config" | grep -Eq 'suspend|hibernate'; then
+config_code="$(grep -Ev '^[[:space:]]*#' "$config" || true)"
+if grep -Eq 'suspend|hibernate' <<<"$config_code"; then
   printf 'Sway config must not suspend or hibernate automatically.\n' >&2
   exit 1
 fi
@@ -106,6 +111,7 @@ HOME="$stow_home" \
 [[ -L "$stow_home/.config/xdg-desktop-portal/sway-portals.conf" ]]
 [[ -L "$stow_home/.config/waybar/config.jsonc" ]]
 [[ -L "$stow_home/.local/bin/sway-workspace-grid" ]]
+[[ -L "$stow_home/.local/bin/sway-output-cycle" ]]
 [[ -L "$stow_home/.local/bin/sway-session-start" ]]
 [[ -L "$stow_home/.local/share/wallpapers/catppuccin-macchiato.webp" ]]
 [[ "$(readlink -f "$stow_home/.config/sway/config")" == "$config" ]]
@@ -164,6 +170,159 @@ assert_grid 7 down 1
 assert_grid 5 right 6
 assert_grid 5 up 2
 
+# Outside the 1-9 grid the script refuses instead of teleporting the user in
+# from an invented origin, matching aerospace-workspace-grid word for word
+# (the action registry describes both with the same sentence).
+refusal="$test_root/state/refusal"
+: >"$test_root/state/result"
+status=0
+CURRENT_WORKSPACE=10 \
+  GRID_RESULT="$test_root/state/result" \
+  PATH="$test_root/bin:$PATH" \
+  "$grid" right 2>"$refusal" || status=$?
+((status == 1)) || {
+  printf 'sway-workspace-grid exited %s outside the grid, expected 1.\n' "$status" >&2
+  exit 1
+}
+grep -Fqx 'Focused workspace is not in the 1-9 grid: 10' "$refusal"
+[[ ! -s "$test_root/state/result" ]] || {
+  printf 'sway-workspace-grid switched workspace despite refusing.\n' >&2
+  exit 1
+}
+
+# A leading zero is a decimal workspace number, never octal.
+status=0
+CURRENT_WORKSPACE=08 \
+  GRID_RESULT="$test_root/state/result" \
+  PATH="$test_root/bin:$PATH" \
+  "$grid" right 2>"$refusal" || status=$?
+((status == 1)) || {
+  printf 'sway-workspace-grid accepted the out-of-grid workspace 08.\n' >&2
+  exit 1
+}
+
+# --- sway-output-cycle: the display operations, proved against a stub Sway ---
+#
+# Sway's own focus/move output commands take a direction and wrap along that
+# axis only, so a vertically stacked pair is unreachable with "right". The
+# script walks the sorted output list instead, which is what lets
+# config/actions.tsv describe the Sway and AeroSpace display actions with the
+# same three sentences. Its own bin directory keeps the real jq — a runner
+# requirement in scripts/test.sh — ahead of the grid's stub above.
+mkdir -p "$test_root/cycle-bin"
+cat >"$test_root/cycle-bin/swaymsg" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == '-t get_outputs -r' ]]; then
+  printf '%s\n' "$OUTPUTS_JSON"
+else
+  printf '%s\n' "$*" >"$CYCLE_RESULT"
+fi
+EOF
+chmod +x "$test_root/cycle-bin/swaymsg"
+
+cycle_result="$test_root/state/cycle-result"
+cycle_error="$test_root/state/cycle-error"
+
+run_cycle() {
+  local outputs="$1"
+  shift
+  : >"$cycle_result"
+  : >"$cycle_error"
+  cycle_status=0
+  OUTPUTS_JSON="$outputs" \
+    CYCLE_RESULT="$cycle_result" \
+    PATH="$test_root/cycle-bin:$PATH" \
+    "$cycle" "$@" 2>"$cycle_error" || cycle_status=$?
+}
+
+assert_cycle() {
+  local outputs="$1"
+  local expected="$2"
+  shift 2
+
+  run_cycle "$outputs" "$@"
+  ((cycle_status == 0)) || {
+    printf 'sway-output-cycle %s exited %s: %s\n' \
+      "$*" "$cycle_status" "$(cat "$cycle_error")" >&2
+    exit 1
+  }
+  grep -Fqx "$expected" "$cycle_result" || {
+    printf 'sway-output-cycle %s ran %s, expected %s\n' \
+      "$*" "$(cat "$cycle_result")" "$expected" >&2
+    exit 1
+  }
+}
+
+# Three side-by-side outputs with the middle one focused.
+three_outputs='[
+  {"name":"DP-1","active":true,"focused":false,"rect":{"x":0,"y":0}},
+  {"name":"eDP-1","active":true,"focused":true,"rect":{"x":1920,"y":0}},
+  {"name":"HDMI-A-1","active":true,"focused":false,"rect":{"x":3840,"y":0}}
+]'
+assert_cycle "$three_outputs" 'focus output "HDMI-A-1"' focus next
+assert_cycle "$three_outputs" 'focus output "DP-1"' focus prev
+# AeroSpace moves the window with --focus-follows-window; Sway has to say so.
+assert_cycle "$three_outputs" \
+  'move container to output "HDMI-A-1"; focus output "HDMI-A-1"' move-window next
+assert_cycle "$three_outputs" 'move workspace to output "HDMI-A-1"' move-workspace next
+# next is the default, matching the three bindings in the Sway config.
+assert_cycle "$three_outputs" 'focus output "HDMI-A-1"' focus
+
+# The cycle wraps at the last output, as --wrap-around does.
+assert_cycle '[
+  {"name":"DP-1","active":true,"focused":false,"rect":{"x":0,"y":0}},
+  {"name":"eDP-1","active":true,"focused":true,"rect":{"x":1920,"y":0}}
+]' 'focus output "DP-1"' focus next
+
+# The case Sway'"'"'s own "focus output right" cannot reach: a vertical stack.
+assert_cycle '[
+  {"name":"TOP","active":true,"focused":true,"rect":{"x":0,"y":0}},
+  {"name":"BOTTOM","active":true,"focused":false,"rect":{"x":0,"y":1080}}
+]' 'focus output "BOTTOM"' focus next
+
+# A disconnected output is not a place to send a window to. It sits after the
+# focused one, so leaving the filter out would land on it instead of wrapping.
+assert_cycle '[
+  {"name":"DP-1","active":true,"focused":false,"rect":{"x":0,"y":0}},
+  {"name":"eDP-1","active":true,"focused":true,"rect":{"x":1920,"y":0}},
+  {"name":"HDMI-A-1","active":false,"focused":false,"rect":{"x":3840,"y":0}}
+]' 'focus output "DP-1"' focus next
+
+# One output makes every operation a no-op rather than an error.
+assert_cycle '[
+  {"name":"eDP-1","active":true,"focused":true,"rect":{"x":0,"y":0}}
+]' 'focus output "eDP-1"' focus next
+
+# An unknown operation or direction is a usage error, and nothing runs.
+for bogus in "sideways next" "focus sideways"; do
+  # shellcheck disable=SC2086
+  run_cycle "$three_outputs" $bogus
+  ((cycle_status == 2)) || {
+    printf 'sway-output-cycle %s exited %s, expected 2.\n' "$bogus" "$cycle_status" >&2
+    exit 1
+  }
+  [[ ! -s "$cycle_result" ]] || {
+    printf 'sway-output-cycle %s ran a command despite refusing.\n' "$bogus" >&2
+    exit 1
+  }
+done
+
+# Sway answering with no focused output is a refusal, not a guess at one.
+run_cycle '[
+  {"name":"DP-1","active":true,"focused":false,"rect":{"x":0,"y":0}},
+  {"name":"eDP-1","active":true,"focused":false,"rect":{"x":1920,"y":0}}
+]' focus next
+((cycle_status == 1)) || {
+  printf 'sway-output-cycle exited %s with no focused output, expected 1.\n' \
+    "$cycle_status" >&2
+  exit 1
+}
+grep -Fqx 'No focused output among the active ones: DP-1 eDP-1' "$cycle_error"
+[[ ! -s "$cycle_result" ]] || {
+  printf 'sway-output-cycle moved focus despite refusing.\n' >&2
+  exit 1
+}
+
 for flavour in latte frappe macchiato mocha; do
   wallpaper="$wallpaper_package/catppuccin-$flavour.webp"
   lock_wallpaper="$wallpaper_package/catppuccin-$flavour-lock.webp"
@@ -172,6 +331,7 @@ for flavour in latte frappe macchiato mocha; do
 done
 
 bash -n "$grid"
+bash -n "$cycle"
 bash -n "$fedora_stow/sway/.local/bin/sway-screenshot"
 bash -n "$fedora_stow/sway/.local/bin/power-profile-status"
 bash -n "$session_start"
@@ -207,4 +367,63 @@ if [[ -z "$waybar_reload_line" || -z "$sway_reload_line" ]] ||
   exit 1
 fi
 
-printf 'Sway configuration and 3x3 workspace navigation tests passed.\n'
+# Every colour the Waybar stylesheet names must be one the theme integration
+# actually defines. GTK's CSS parser errors on an undefined @name and drops the
+# whole declaration, so a missing one is not a fallback: it is a logged parse
+# error at every Waybar start and at every SIGUSR2 reload -- which the Fedora
+# theme hook sends on every `theme` run -- and the widget renders in whatever it
+# inherits. The two files are set-differenced rather than spot-checked, so a
+# colour added to the stylesheet later cannot go undefined either.
+waybar_style="$fedora_stow/waybar/.config/waybar/style.css"
+theme_state_root="$test_root/theme-state"
+mkdir -p "$theme_state_root"
+env HOME="$theme_state_root" XDG_CONFIG_HOME="$theme_state_root/.config" \
+  bash -c '
+    set -euo pipefail
+    source "$1/common/lib/common.sh"
+    source "$1/platforms/fedora/lib/theme-desktop.sh"
+    write_fedora_theme_state macchiato >/dev/null
+  ' _ "$repo_root"
+
+generated_css="$theme_state_root/.config/dotfiles/waybar-theme.css"
+[[ -f "$generated_css" ]] || {
+  printf 'The Fedora theme integration wrote no waybar-theme.css.\n' >&2
+  exit 1
+}
+
+# `@define-color` and `@import` are CSS at-rules, not colour references.
+defined_colours="$(grep -o '^@define-color [a-zA-Z0-9_-]*' "$generated_css" |
+  awk '{ print $2 }' | sort -u)"
+used_colours="$(grep -o '@[a-zA-Z0-9_-]*' "$waybar_style" |
+  sed 's/^@//' | grep -Ev '^(import|define-color|media|keyframes|supports)$' |
+  sort -u)"
+undefined_colours="$(comm -23 <(printf '%s\n' "$used_colours") \
+  <(printf '%s\n' "$defined_colours"))"
+[[ -z "$undefined_colours" ]] || {
+  printf 'Waybar stylesheet uses colours write_fedora_theme_state never defines: %s\n' \
+    "$(printf '%s' "$undefined_colours" | tr '\n' ' ')" >&2
+  exit 1
+}
+[[ -n "$used_colours" ]] || {
+  printf 'No Waybar colour references were found; the check is not testing anything.\n' >&2
+  exit 1
+}
+
+# Every flavour has to carry every colour: a palette that defines one only for
+# some flavours would leave the others with an empty `@define-color name #;`.
+for flavour in latte frappe macchiato mocha; do
+  env HOME="$theme_state_root" XDG_CONFIG_HOME="$theme_state_root/.config" \
+    bash -c '
+      set -euo pipefail
+      source "$1/common/lib/common.sh"
+      source "$1/platforms/fedora/lib/theme-desktop.sh"
+      write_fedora_theme_state "$2" >/dev/null
+    ' _ "$repo_root" "$flavour"
+  ! grep -Eq '^@define-color [a-zA-Z0-9_-]+ #;' "$generated_css" || {
+    printf 'The %s palette leaves a Waybar colour empty.\n' "$flavour" >&2
+    exit 1
+  }
+done
+printf 'PASS: every Waybar colour reference is defined by the Fedora theme integration\n'
+
+printf 'Sway configuration, 3x3 workspace navigation and display cycling tests passed.\n'

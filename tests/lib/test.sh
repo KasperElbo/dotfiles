@@ -4,11 +4,20 @@
 # own shell policy; sourcing this file intentionally does not change options.
 
 TEST_ROOTS=()
+# Isolated PATH directories are not test roots: they must stay resolvable for
+# the whole suite, so only the exit trap removes them, after everything else.
+TEST_PATH_ROOTS=()
 TEST_ROOT=""
 TEST_OUTPUT=""
 TEST_STATUS=0
+# Every failed assertion in this shell, whatever the suite's shell policy.
+TEST_FAILURES=0
+TEST_EXIT_HOOK=""
 
+# Assertions count the failure and still return 1, so an errexit suite aborts
+# at the first one and the exit trap fails any suite that carried on.
 _test_die() {
+  TEST_FAILURES=$((TEST_FAILURES + 1))
   printf 'TEST FAILURE: %s\n' "$*" >&2
   return 1
 }
@@ -32,8 +41,86 @@ test_cleanup() {
   TEST_ROOT=""
 }
 
+# test_install_cleanup_trap [hook]: on exit, run the optional suite-owned hook
+# (for example restoring a tracked file a negative case edited in place), remove
+# every test root, and fail the suite if any assertion failed.
+#
+# The failure check is what makes an assertion binding on a suite that runs
+# without errexit, swallows an assertion status, or ends on an unrelated
+# command that succeeds. Give extra cleanup to the hook; a replacement EXIT
+# trap would drop the check.
 test_install_cleanup_trap() {
-  trap test_cleanup EXIT INT TERM
+  TEST_EXIT_HOOK="${1:-}"
+  trap _test_exit_trap EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
+_test_exit_trap() {
+  local status=$?
+  if [[ -n "$TEST_EXIT_HOOK" ]]; then
+    "$TEST_EXIT_HOOK"
+  fi
+  test_cleanup
+  # Last, and in one rm: these directories hold rm itself.
+  if ((${#TEST_PATH_ROOTS[@]} > 0)); then
+    rm -rf -- "${TEST_PATH_ROOTS[@]}"
+  fi
+  if ((status == 0 && TEST_FAILURES > 0)); then
+    printf 'TEST FAILURE: %d failed assertion(s); failing a suite that would have exited 0\n' \
+      "$TEST_FAILURES" >&2
+    exit 1
+  fi
+}
+
+# Host commands every isolated suite may resolve: the portable part of the
+# supported-base commands in config/command-providers.tsv plus the basic
+# userland the suites themselves use, all present on both the pinned Fedora
+# validation image and macOS. Anything else a suite needs from the host, such as
+# git, jq, zsh or the Linux-only getent, is named explicitly by that suite.
+TEST_HOST_COMMANDS=(
+  awk basename bash cat chmod comm cp cut date dirname echo env find grep head id
+  install ln ls mkdir mktemp mv paste pwd readlink realpath rm rmdir sed sh
+  sleep sort stat sync tail tee touch tr uname uniq wc xargs
+)
+
+# df is deliberately not in that list. It was, and linking the host's df into
+# every isolated PATH made the disk preflight answer from the free space of the
+# machine running the tests. Four suites then carried a byte-identical roomy-df
+# heredoc to undo it, and RA-33 had to add that copy in three separate review
+# rounds because a different suite was missed each time. Left out, a suite that
+# reaches preflight_disk_space without stubbing df fails deterministically with
+# "Could not determine the free disk space" instead of depending on the host.
+# Suites that want the roomy figure call test_stub_roomy_df; a suite that wants
+# the real df names it in its own test_isolate_path call.
+
+# test_isolate_path [command ...]: replace PATH with one directory that links
+# only TEST_HOST_COMMANDS and the named commands, resolved from the current
+# PATH.
+#
+# Without this, a tool installed on the machine running the tests (a real
+# opam, mise or tailscale, or a workstation PATH full of agents) satisfies a
+# lookup the suite meant to mock or to find absent, and the same suite passes in
+# CI and fails on a workstation. Suites put their mocks in front, as in
+# PATH="$mock_bin:$PATH", and never append /usr/bin or /bin. A missing host
+# command is a test failure, never a silently narrower PATH. bash links to the
+# running interpreter so `#!/usr/bin/env bash` scripts run under the suite's
+# own Bash.
+test_isolate_path() {
+  local bin name resolved
+  bin="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-test-path.XXXXXX")" || return 1
+  TEST_PATH_ROOTS+=("$bin")
+  for name in "${TEST_HOST_COMMANDS[@]}" "$@"; do
+    if [[ "$name" == bash ]]; then
+      resolved="$BASH"
+    else
+      resolved="$(type -P -- "$name")" ||
+        _test_die "test_isolate_path: host command not found on PATH: $name" ||
+        return 1
+    fi
+    ln -sf -- "$resolved" "$bin/$name" || return 1
+  done
+  export PATH="$bin"
 }
 
 test_env_args() {
@@ -115,7 +202,10 @@ assert_file_line() {
 assert_file_not_contains() {
   local path="$1"
   local needle="$2"
-  [[ -e "$path" ]] || return 0
+  # A missing file used to pass here, alone among the file assertions. That
+  # makes every negative assertion in the suites survive a rename of the file
+  # it guards, with nothing to say it stopped checking.
+  [[ -r "$path" ]] || _test_die "file is not readable: $path" || return 1
   if grep -Fq -- "$needle" "$path"; then
     _test_die "expected $path not to contain '$needle'"
   fi
@@ -220,6 +310,55 @@ printf 'strict stub rejected unsupported argv: %s%s%s\n' \
 exit 96
 STUB
   chmod +x "$root/bin/.dotfiles-strict-stub"
+}
+
+# test_stub_roomy_df <bin-dir>: install a df reporting plenty of free space.
+#
+# The disk preflight then decides on a known figure rather than on whatever the
+# machine running the tests happens to have free. Suites that mean to exercise a
+# full disk write their own df over this one and call this again to restore it.
+test_stub_roomy_df() {
+  local bin="$1"
+  cat >"$bin/df" <<'EOF_ROOMY_DF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf '/dev/roomy-volume 102400000 20480000 81920000 20%% /\n'
+EOF_ROOMY_DF
+  chmod +x "$bin/df"
+}
+
+# test_stub_npm_global <bin>: an `npm` reporting the global prefix named by
+# TEST_NPM_GLOBAL_PREFIX and exactly the packages listed in
+# TEST_NPM_GLOBAL_PACKAGES, space separated and empty for none.
+#
+# The AI verifier rules out an AI package duplicated in the active Node prefix.
+# Without this stub that question is answered by whatever global npm the host
+# happens to have, so a developer machine or a CI image carrying a global
+# @anthropic-ai/claude-code would fail suites that are about something else --
+# the same silent host dependency `df` had before it was stubbed. A suite that
+# wants the duplicate detected sets TEST_NPM_GLOBAL_PACKAGES instead of
+# unstubbing.
+test_stub_npm_global() {
+  local bin="$1"
+  cat >"$bin/npm" <<'EOF_NPM_GLOBAL'
+#!/usr/bin/env bash
+set -u
+prefix="${TEST_NPM_GLOBAL_PREFIX:-/test/npm-prefix}"
+case "$*" in
+"ls --global --depth=0 --parseable")
+  printf '%s/lib\n' "$prefix"
+  for package in ${TEST_NPM_GLOBAL_PACKAGES:-}; do
+    printf '%s/lib/node_modules/%s\n' "$prefix" "$package"
+  done
+  ;;
+"prefix --global") printf '%s\n' "$prefix" ;;
+*)
+  printf 'strict npm fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+  ;;
+esac
+EOF_NPM_GLOBAL
+  chmod +x "$bin/npm"
 }
 
 test_stub_install() {

@@ -2,10 +2,15 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The mocked bootstrap leaves behind what a real Mason install leaves behind,
+# so common/lib/mason.sh reads it as installed.
+export MASON_MOCK_INSTALL="$repo_root/tests/support/mason-mock-install.sh"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
+test_isolate_path git jq scp sftp sha256sum ssh stow timeout unlink
 test_new_root
 test_root="$TEST_ROOT"
 
@@ -75,6 +80,87 @@ run_stow "$conflict_home"
 run_stow "$conflict_home"
 [[ -L "$conflict_home/.tmux.conf" ]]
 printf 'PASS: Stow conflicts are non-destructive and safely retryable\n'
+
+# The scripts that own the mutation refuse on their own. Stow aborts on the
+# first conflicting package, but only after the packages before it are linked,
+# so a script run directly -- as the tests and the documented entry points do
+# -- would otherwise leave a partly stowed HOME.
+direct_home="$test_root/direct-home"
+mkdir -p "$direct_home"
+printf 'user-owned zshenv\n' >"$direct_home/.zshenv"
+if HOME="$direct_home" \
+  XDG_CONFIG_HOME="$direct_home/.config" \
+  XDG_DATA_HOME="$direct_home/.local/share" \
+  "$repo_root/common/stow.sh" >"$test_root/direct-stow.log" 2>&1; then
+  printf 'A conflicting HOME unexpectedly passed common/stow.sh.\n' >&2; exit 1
+fi
+grep -Fq 'Stow conflict [zsh]: existing file or directory' "$test_root/direct-stow.log"
+grep -Fqx 'user-owned zshenv' "$direct_home/.zshenv"
+deployed="$(find "$direct_home" -mindepth 1 ! -path "$direct_home/.zshenv" -print)"
+[[ -z "$deployed" ]] || {
+  printf 'A refused stow created entries in HOME: %s\n' "$deployed" >&2; exit 1
+}
+
+# A platform script checks its own packages before the portable ones are
+# deployed, so a conflict in a platform package leaves nothing behind either.
+platform_home="$test_root/platform-home"
+theme_asset="$(find "$repo_root/theme-assets" -type f | head -n 1)"
+theme_relative="${theme_asset#"$repo_root/theme-assets/"}"
+mkdir -p "$platform_home/$(dirname "$theme_relative")"
+printf 'user-owned asset\n' >"$platform_home/$theme_relative"
+if HOME="$platform_home" \
+  XDG_CONFIG_HOME="$platform_home/.config" \
+  XDG_DATA_HOME="$platform_home/.local/share" \
+  "$repo_root/platforms/fedora/scripts/stow.sh" >"$test_root/platform-stow.log" 2>&1; then
+  printf 'A conflicting HOME unexpectedly passed the Fedora Stow script.\n' >&2; exit 1
+fi
+grep -Fq 'Stow conflict [theme-assets]' "$test_root/platform-stow.log"
+grep -Fqx 'user-owned asset' "$platform_home/$theme_relative"
+[[ ! -e "$platform_home/.zshenv" ]] || {
+  printf 'A refused platform stow deployed the portable packages.\n' >&2; exit 1
+}
+printf 'PASS: the Stow scripts refuse before they change HOME\n'
+
+# The migration this script carries exists for machines still holding the
+# retired layout: top-level sway and waybar links, and wallpaper links the Sway
+# package owned before theme-assets did. Every one of those either dangles or
+# points into this checkout, so the preflight has to exempt the links the apply
+# loop removes, or it refuses exactly the machines the migration repairs.
+migration_home="$test_root/migration-home"
+retired_sway="$migration_home/.config/sway/config"
+retired_waybar="$migration_home/.config/waybar/style.css"
+retired_wallpaper="$migration_home/.local/share/wallpapers/catppuccin-macchiato.webp"
+fedora_stow_dir="$repo_root/platforms/fedora/stow"
+mkdir -p "$(dirname "$retired_sway")" "$(dirname "$retired_waybar")" \
+  "$(dirname "$retired_wallpaper")"
+ln -s "$repo_root/sway/.config/sway/config" "$retired_sway"
+ln -s "$repo_root/waybar/.config/waybar/style.css" "$retired_waybar"
+ln -s "$fedora_stow_dir/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
+  "$retired_wallpaper"
+
+if ! HOME="$migration_home" \
+  XDG_CONFIG_HOME="$migration_home/.config" \
+  XDG_DATA_HOME="$migration_home/.local/share" \
+  "$repo_root/platforms/fedora/scripts/stow.sh" --sway \
+  >"$test_root/migration-stow.log" 2>&1; then
+  printf 'The Fedora Stow script refused a HOME carrying the retired links:\n' >&2
+  cat "$test_root/migration-stow.log" >&2
+  exit 1
+fi
+
+assert_relinked() {
+  local target="$1" source="$2"
+  [[ "$(realpath "$target")" == "$(realpath "$source")" ]] || {
+    printf 'Retired link was not rewritten: %s -> %s\n' \
+      "$target" "$(readlink "$target")" >&2
+    exit 1
+  }
+}
+assert_relinked "$retired_sway" "$fedora_stow_dir/sway/.config/sway/config"
+assert_relinked "$retired_waybar" "$fedora_stow_dir/waybar/.config/waybar/style.css"
+assert_relinked "$retired_wallpaper" \
+  "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp"
+printf 'PASS: the Fedora preflight exempts the retired links its migration removes\n'
 
 tracked_config="$repo_root/ghostty/.config/ghostty/config"
 tracked_hash="$(sha256sum "$tracked_config")"
@@ -158,7 +244,7 @@ test_stub_allow "$stub_root" sudo -n -v
 test_stub_allow "$stub_root" sudo dnf install -y \
   bat curl eza fd-find fzf firewalld gh git git-delta gnupg2 jq libicu neovim \
   openssh-clients ripgrep ShellCheck shadow-utils sqlite sqlite-devel stow \
-  tmux wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
+  tmux unzip wl-clipboard xdg-utils zoxide zsh zsh-autosuggestions \
   zsh-syntax-highlighting
 test_stub_allow "$stub_root" sudo dnf install -y ghostty mise starship
 test_stub_allow "$stub_root" sudo usermod --shell "$mock_bin/zsh" fedora-test
@@ -174,10 +260,24 @@ cat >"$mock_bin/mock-command" <<'EOF'
 exit 0
 EOF
 
+# The Fedora verifier re-checks the Terra trust root: the keyring holds one
+# fixture key, which the gpg stub reads back as the fingerprint pinned for the
+# fixture release in TERRA_KEY_MANIFEST.
+terra_fixture_fingerprint=1111111111111111111111111111111111111111
+printf '90\t%s\n' "$terra_fixture_fingerprint" >"$test_root/terra-keys.tsv"
+
 cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
   '-q terra-release' | '-q qemu-guest-agent' | '-q spice-vdagent' | '-q xclip' | '-q openssh-clients') exit 0 ;;
+  '-q gpg-pubkey')
+    printf 'fixture-key:1111111111111111111111111111111111111111\n'
+    exit 0
+    ;;
+  '-E %fedora')
+    printf '90\n'
+    exit 0
+    ;;
 esac
 
 # File-ownership queries: verification asks which package owns the command
@@ -221,16 +321,43 @@ else
 fi
 EOF
 
+# The preflight disk floor decides on a known figure rather than on whatever
+# this machine happens to have free.
+test_stub_roomy_df "$mock_bin"
+
+cat >"$mock_bin/terra-dnf" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --dump-repo-config=terra ]]; then
+  printf 'gpgcheck = 1\npkg_gpgcheck = 1\n'
+fi
+exit 0
+EOF
+
+cat >"$mock_bin/terra-gpg" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == '--show-keys --with-colons' ]]; then
+  awk -F: '$1 == "fixture-key" {
+    print "pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:"
+    print "fpr:::::::::" $2 ":"
+  }'
+fi
+exit 0
+EOF
+
 chmod +x \
   "$mock_bin/mock-command" \
+  "$mock_bin/terra-dnf" \
+  "$mock_bin/terra-gpg" \
   "$mock_bin/rpm" \
   "$mock_bin/id" \
   "$mock_bin/getent" \
+  "$mock_bin/df" \
   "$stub_root/handlers/sudo"
 
 mock_commands=(
   ast-grep
   bat
+  curl
   delta
   dnf
   dotnet
@@ -240,6 +367,7 @@ mock_commands=(
   fzf
   gh
   ghostty
+  gpg
   lazygit
   lookandfeeltool
   makoctl
@@ -268,6 +396,8 @@ mock_commands=(
 for command_name in "${mock_commands[@]}"; do
   ln -s mock-command "$mock_bin/$command_name"
 done
+ln -sf terra-dnf "$mock_bin/dnf"
+ln -sf terra-gpg "$mock_bin/gpg"
 
 rm -- "$mock_bin/zsh"
 cat >"$mock_bin/zsh" <<'EOF'
@@ -304,26 +434,25 @@ chmod +x "$mock_bin/mise"
 
 cat >"$mock_bin/nvim" <<'EOF'
 #!/usr/bin/env bash
+# The installer checks the Neovim floor before any bootstrap phase. Answer it
+# here, at the floor config/tool-floors.tsv declares, and do not let the probe
+# count as a bootstrap invocation.
+if [[ "${1:-}" == --version ]]; then
+  printf 'NVIM v0.12.5\n'
+  exit 0
+fi
 for argument in "$@"; do
   if [[ "$argument" == '+Lazy! restore mason.nvim' ]]; then
     mkdir -p "$XDG_DATA_HOME/nvim/lazy/mason.nvim"
   fi
 
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
-    mkdir -p "$XDG_DATA_HOME/nvim/mason/bin"
-    for target in $DOTFILES_MASON_PACKAGES; do
-      # Mason stores a package under its name whether or not the request
-      # carried an "@version" pin.
-      package="${target%%@*}"
-      mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
-      if [[ "$package" == tree-sitter-cli ]]; then
-        cat >"$XDG_DATA_HOME/nvim/mason/bin/tree-sitter" <<'TREEEOF'
-#!/usr/bin/env bash
-exit 0
-TREEEOF
-        chmod +x "$XDG_DATA_HOME/nvim/mason/bin/tree-sitter"
-      fi
-    done
+    # A real install leaves a receipt, a payload and a bin link behind, and
+    # common/lib/mason.sh reads all three; a directory alone is what an
+    # interrupted install leaves, so the mock must not stop there.
+    "${MASON_MOCK_INSTALL:?the suite must export the Mason install fixture}" \
+      "$XDG_DATA_HOME/nvim/mason" \
+      ${DOTFILES_MASON_REPAIR_PACKAGES:-} ${DOTFILES_MASON_PACKAGES:-}
   fi
 done
 EOF
@@ -371,6 +500,10 @@ bootstrap_environment=(
   "XDG_DATA_HOME=$bootstrap_data"
   "XDG_CACHE_HOME=$bootstrap_cache"
   "OS_RELEASE_FILE=$test_root/os-release"
+  "TERRA_KEY_MANIFEST=$test_root/terra-keys.tsv"
+  # The runner's own DNF repositories (a jdxcode/mise COPR, say) would change
+  # the Terra transaction this suite pins.
+  "DNF_REPO_DIR=$test_root/yum.repos.d"
   "QEMU_AGENT_CHANNEL=$virtio_ports/org.qemu.guest_agent.0"
   "SPICE_AGENT_CHANNEL=$virtio_ports/com.redhat.spice.0"
   "SHELL_STATE=$shell_state"
@@ -422,6 +555,31 @@ grep -Fq 'Default login shell is not Zsh: /bin/bash' \
   "$test_root/login-shell-verification.log"
 printf '%s\n' "$mock_bin/zsh" >"$shell_state"
 printf 'PASS: Fedora verification rejects a non-Zsh login shell\n'
+
+rm -f -- "$theme_install/catppuccin.tmux"
+if "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora/scripts/verify.sh" \
+  >"$test_root/tmux-missing-verification.log" 2>&1; then
+  printf 'Fedora verification accepted a missing Catppuccin tmux plugin\n'
+  exit 1
+fi
+grep -Fq 'Catppuccin tmux is missing' "$test_root/tmux-missing-verification.log"
+git -C "$theme_install" checkout -q -- catppuccin.tmux
+printf 'PASS: Fedora verification rejects a missing Catppuccin tmux plugin\n'
+
+git -C "$theme_install" -c user.name=Bootstrap-Test -c user.email=bootstrap@example.invalid \
+  commit -q --allow-empty -m 'past the pin'
+if ! "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora/scripts/verify.sh" \
+  >"$test_root/tmux-drift-verification.log" 2>&1; then
+  printf 'Fedora verification failed a Catppuccin tmux checkout past the pin:\n'
+  cat "$test_root/tmux-drift-verification.log"
+  exit 1
+fi
+grep -Fq 'Catppuccin tmux is at v2.3.0-1-g' "$test_root/tmux-drift-verification.log"
+grep -Fq 'not the pinned v2.3.0' "$test_root/tmux-drift-verification.log"
+git -C "$theme_install" checkout -q --detach v2.3.0
+printf 'PASS: Fedora verification warns about a Catppuccin tmux checkout past the pin\n'
 
 run_bootstrap --vm-guest
 vm_guest_state="$bootstrap_config/dotfiles/vm-guest.conf"
