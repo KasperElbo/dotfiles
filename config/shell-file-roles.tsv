@@ -35,6 +35,7 @@ stowed-config	644	platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.
 stowed-data	644	fzf/.config/fzf/themes/*.sh	Sourced fzf colour snippet
 test-entrypoint	755	tests/test-*.sh	Test suite, run by ./scripts/test.sh
 test-entrypoint	755	tests/integration/*.sh	Integration suite, run explicitly
+test-entrypoint	755	tests/support/*.sh	Test fixture helper, run by a suite
 public-entrypoint	644	verify.ps1	Portable Windows verifier, the documented way in
 public-entrypoint	755	scripts/render-action-reference.py	Regenerates the action reference from config/actions.tsv
 public-entrypoint	755	scripts/render-capability-matrix.py	Regenerates the capability matrix from config/capabilities.tsv

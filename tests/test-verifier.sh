@@ -307,17 +307,17 @@ assert_file_contains "$root/service.out" \
   'podman.socket is enabled for the user but not active'
 
 printf 'Mason inventory\n'
-mkdir -p "$root/mason-data/nvim/mason/packages/lua-language-server"
+mason_mock_install="$repo_root/tests/support/mason-mock-install.sh"
 printf '# tools\nlua-language-server\n\nstylua\n' >"$root/mason-inventory.txt"
 
+"$mason_mock_install" "$root/mason-data/nvim/mason" lua-language-server
 verify_reset
 XDG_DATA_HOME="$root/mason-data" check_mason_inventory "$root/mason-inventory.txt" \
   >"$root/mason.out" 2>&1 || true
 assert_verifier_counts 1 1 0
 assert_file_contains "$root/mason.out" 'Mason package not installed: stylua'
 
-mkdir -p "$root/mason-data/nvim/mason/packages/stylua" \
-  "$root/mason-data/nvim/mason/packages/untracked-tool"
+"$mason_mock_install" "$root/mason-data/nvim/mason" stylua untracked-tool
 verify_reset
 XDG_DATA_HOME="$root/mason-data" check_mason_inventory "$root/mason-inventory.txt" \
   >"$root/mason.out" 2>&1
@@ -329,6 +329,103 @@ verify_reset
 XDG_DATA_HOME="$root/mason-data" check_mason_inventory "$root/missing-inventory.txt" \
   >"$root/mason.out" 2>&1 || true
 assert_verifier_counts 0 1 0
+
+# A package directory is not an installation. Mason promotes the staged files,
+# links the executables and writes mason-receipt.json last, so a directory is
+# evidence that an install was started and never that one finished. Each case
+# below starts from two complete installations and damages one of them in
+# exactly one way; the undamaged sibling must still pass, so a check that had
+# started failing everything would be caught here rather than read as strict.
+mason_case_root=""
+mason_case_pins="$root/mason-case-pins.txt"
+printf '# no pins\n' >"$mason_case_pins"
+
+mason_case_begin() {
+  mason_case_root="$root/mason-case-$1"
+  rm -rf -- "$mason_case_root"
+  "$mason_mock_install" "$mason_case_root/nvim/mason" \
+    'lua-language-server@3.13.9' 'stylua@2.1.0'
+}
+
+mason_case_check() {
+  verify_reset
+  XDG_DATA_HOME="$mason_case_root" \
+    check_mason_inventory "$root/mason-inventory.txt" "$mason_case_pins" \
+    >"$root/mason.out" 2>&1 || true
+}
+
+# The reproduction the audit filed: an empty package directory.
+mason_case_begin empty-directory
+rm -rf -- "$mason_case_root/nvim/mason/packages/stylua"
+mkdir -p "$mason_case_root/nvim/mason/packages/stylua"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" \
+  'Mason package stylua is not completely installed'
+assert_file_contains "$root/mason.out" 'mason-receipt.json'
+assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
+
+# An install interrupted after its files were promoted and linked, before the
+# receipt was written: the directory holds everything except the evidence that
+# the install finished.
+mason_case_begin interrupted
+rm -f -- "$mason_case_root/nvim/mason/packages/stylua/mason-receipt.json"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" \
+  'Mason package stylua is not completely installed'
+assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
+
+# The executable the receipt claims has gone from Mason's bin directory, which
+# is how the package is reached.
+mason_case_begin missing-binary
+rm -f -- "$mason_case_root/nvim/mason/bin/stylua"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" \
+  "$mason_case_root/nvim/mason/bin/stylua, which is missing or not executable"
+
+# A receipt truncated by a full disk or a killed write is not a receipt.
+mason_case_begin corrupt-receipt
+printf '{"name": "sty' >"$mason_case_root/nvim/mason/packages/stylua/mason-receipt.json"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" 'Mason receipt is not valid JSON'
+assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
+
+# An explicit pin is compared against the version the receipt records, so a
+# package that exists at the wrong version is reported rather than credited.
+mason_case_begin wrong-version
+printf 'stylua 9.9.9\n' >"$mason_case_pins"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" \
+  'Mason package stylua does not match its pin: installed at 2.1.0, but pinned to 9.9.9'
+assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
+
+# ...and a complete installation at the pinned version passes, unchanged. The
+# verifier is read-only, so the package tree it just read must be byte for byte
+# what it was.
+mason_case_begin matching-version
+printf 'stylua 2.1.0\nlua-language-server 3.13.9\n' >"$mason_case_pins"
+mason_case_before="$(find "$mason_case_root" -type f -exec sha256sum {} + | sort)"
+[[ -n "$mason_case_before" ]] ||
+  _test_die 'the Mason fixture wrote no files, so the untouched check proves nothing'
+mason_case_check
+assert_verifier_counts 2 0 0
+assert_file_contains "$root/mason.out" 'Mason: stylua (installed at 2.1.0)'
+assert_eq "$mason_case_before" \
+  "$(find "$mason_case_root" -type f -exec sha256sum {} + | sort)" \
+  'verifying a complete Mason installation must not change it'
+printf '# no pins\n' >"$mason_case_pins"
+
+# A pin file the verifier cannot parse must stop it, not quietly stop pinning.
+mason_case_begin malformed-pin
+printf 'stylua 2.1.0 extra\n' >"$mason_case_pins"
+mason_case_check
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/mason.out" 'Invalid Mason version pin: stylua 2.1.0 extra'
+printf '# no pins\n' >"$mason_case_pins"
 
 # The inventory read must not depend on a Bash 4 builtin. macOS's system Bash
 # is 3.2, where mapfile does not exist; `enable -n` reproduces exactly that,

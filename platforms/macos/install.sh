@@ -169,6 +169,9 @@ preflight_macos() {
   [[ -x "$(homebrew_path)" ]] || needs_sudo=true
   ! macos_login_shell_change_required || needs_sudo=true
   [[ "$needs_sudo" != true ]] || preflight_sudo "$interactive"
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads.
+  preflight_xdg_layout
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"

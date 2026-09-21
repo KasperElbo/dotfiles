@@ -386,6 +386,32 @@ both promise. `tests/fixtures/neovim-contended-init/colorscheme.lua` keeps the
 arrangement that was wrong (issue #248, RA-36): the behavioural test and the
 validator must both reject it, so neither can go green vacuously.
 
+### Mason package identity
+
+A Mason package directory is evidence that an installation was *started*, never
+that one finished. Mason promotes the staged files, links the package's
+executables into `<mason>/bin` and writes `<package>/mason-receipt.json` last,
+so an interrupted install, a half-deleted package and a converged one are all
+directories. `common/lib/mason.sh` is the one place that decides what
+"installed" means -- a receipt that parses, names its own package, claims links
+that exist and are executable, and records the version an explicit pin in
+`common/mason-package-versions.txt` demands -- and both `check_mason_inventory`
+in `common/lib/verify.sh` and the provisioning in
+`common/install-neovim-tools.sh` ask it, so the verifier cannot credit a
+package the installer would have to repair (issue #346).
+
+A fixture that creates a package directory therefore models an interrupted
+install and not a working one. `tests/support/mason-mock-install.sh` leaves
+behind what a finished install leaves behind, optionally at the versions
+`--pins` names, and every suite with a Mason fixture builds its packages through
+it. `tests/test-verifier.sh` and `tests/test-neovim-bootstrap.sh` then damage a
+complete installation one way at a time -- an empty directory, a missing
+receipt, a missing linked executable, a truncated receipt, a version the pin
+file no longer names -- and require the verifier to report it and a rerun to
+repair it, while the complete package beside it stays untouched. That undamaged
+sibling is what keeps the cases honest: a check that had started failing
+everything would fail there too.
+
 ### Documentation architecture
 
 `tests/test-documentation.sh` owns the documentation gates in
@@ -456,6 +482,22 @@ a no-op rerun, and the three failure modes that must never fabricate an
 identity: a missing source, invalid content, and a shallow clone whose
 historical objects are absent. It also asserts that no message contains the
 fixture's name or email, because identity values must never reach a log.
+
+### The one configuration root
+
+`tests/test-installer-preflight.sh` owns the XDG contract (issue #343). Stow is
+given one target, `$HOME`, while nearly everything that reads the result
+resolves it through `XDG_CONFIG_HOME` or `XDG_DATA_HOME`, so a nondefault root
+used to let Stow report success with every link somewhere nothing looked. The
+suite deploys the default layout with the real `common/stow.sh` and requires
+Git, mise, Neovim and shell configuration to be links into the checkout; that
+run is also the control, because it is what "nothing was created" is measured
+against. It then points each root in turn outside `$HOME` and requires all five
+Stow entry points and `./install.sh` to refuse, naming the variable, with
+neither `$HOME` nor the separate root gaining a single path and with no package
+transaction or lifecycle state written. A last case requires the default root
+to be accepted however it is spelled, so the refusal cannot be triggered by a
+trailing or doubled separator.
 
 ### Installer lifecycle repeatability
 

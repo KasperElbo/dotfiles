@@ -56,10 +56,18 @@ Missing bootstrap-prerequisite command: xcode-select (provider: macos)
 Missing bootstrap-prerequisite command: sudo (provider: sudo)
 Missing supported-base command: awk (provider: gawk)
 Path is not writable: /home/you/.config
+XDG_CONFIG_HOME is /srv/config, but this repository deploys to /home/you/.config.
 Not enough free disk space for /home/you/.local/share: 812 MiB available, 3072 MiB required
 Cannot reach github.com, which this installation downloads from: Catppuccin tmux theme, Mason registry
 Nothing has been changed. Restore network access, or rerun without the steps that need it.
 ```
+
+An `XDG_CONFIG_HOME` or `XDG_DATA_HOME` refusal is a contract, not a missing
+prerequisite: Stow deploys into `$HOME`, so a configuration root anywhere else
+would leave every link where nothing later reads it (see
+[the Stow layout](architecture/file-ownership.md#gnu-stow-layout)). Unset the
+variable, or set it to the path the message names, and rerun. `XDG_STATE_HOME`
+is not restricted.
 
 Install the named command — the message names the package that provides it —
 or fix the ownership of the named path, then rerun. `bootstrap-prerequisite`
@@ -140,6 +148,28 @@ reapply this machine's last successful configuration (preview it with
 options you want. See [rerun and the last-known-good model](workflows/rerun.md),
 which also covers corrupt state, schema migration and the "predates `--rerun`
 support" message.
+
+## `./doctor` says a capability's state is for the wrong profile
+
+```
+✗ Enabled capability 'containers' has state for profile 'ocaml', not containers
+```
+
+Each optional capability keeps a machine-local record under
+`~/.config/dotfiles/`, and every record declares the schema it is written in.
+`./doctor` takes the schema it expects from the capability's own row in
+`config/capabilities.tsv` — see [`state` and
+`state_profile`](capabilities.md) — rather than from the file, so this says the
+file under that name is not the record that capability writes. It is what a
+restored backup, a hand-edited file or a copy made under the wrong name looks
+like.
+
+Nothing reads a mismatched record, so the fix is to reinstall the capability
+and let its installer write the file: `./install.sh --rerun --dry-run` shows
+what this machine last had, and `./install.sh --rerun` reapplies it. Moving the
+file aside first keeps whatever was in it. `has corrupt state` is a different
+finding on the same file: the schema is the right one and the record does not
+satisfy it, and the same rerun is the answer.
 
 ## The first Neovim bootstrap is slow or times out
 
