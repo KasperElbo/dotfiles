@@ -488,6 +488,8 @@ if [[ -n "$mise_command" ]]; then
     dotnet-easydotnet
   )
 
+  check_mise_context
+
   for cmd in "${mise_tools[@]}"; do
     check_mise_owned "$cmd"
   done

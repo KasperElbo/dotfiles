@@ -287,6 +287,8 @@ mise_tools=(
   uv
 )
 
+check_mise_context
+
 for command_name in "${mise_tools[@]}"; do
   check_mise_owned "$command_name"
 done

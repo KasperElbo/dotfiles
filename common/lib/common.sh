@@ -129,9 +129,59 @@ resolve_mise_command() {
 # working directory gives the same guarantee on a mise too old to know the
 # setting. The global config (and its conf.d fragments) still applies, which is
 # exactly the manifest a global bootstrap is meant to install.
+#
+# Preparing that context and using it are two different operations, and only
+# installers may do the first. Verification is documented as read-only
+# (docs/workflows/verification.md), and an inspection that rebuilt the context
+# would delete the very contamination it exists to report: the run would come
+# back clean and the machine would still have been wrong a moment earlier. So
+# mise_prepare_context creates and clears, run_mise only reads, and a context
+# that is missing or carries tool declarations is a diagnostic rather than
+# something a verifier quietly repairs.
 
 mise_context_dir() {
   printf '%s/dotfiles/mise-context\n' "${XDG_STATE_HOME:-$HOME/.local/state}"
+}
+
+# The filenames mise reads as directory configuration. One list, so the
+# install-time cleanup and the read-only diagnosis can never cover different
+# sets of files.
+# shellcheck disable=SC2034
+MISE_CONTEXT_STRAY_NAMES=(mise.toml .mise.toml mise.local.toml .mise.local.toml)
+
+# mise_context_strays: the directory-configuration filenames present in the
+# context, one per line. Reads only; prints nothing when the context is clean
+# or absent.
+mise_context_strays() {
+  local context stray
+
+  context="$(mise_context_dir)"
+  for stray in "${MISE_CONTEXT_STRAY_NAMES[@]}"; do
+    [[ ! -e "$context/$stray" ]] || printf '%s\n' "$stray"
+  done
+}
+
+# mise_context_diagnosis: succeeds silently when the context is present and
+# free of tool declarations. Otherwise prints one line naming what is wrong and
+# what fixes it, and fails. It creates, deletes and rewrites nothing, which is
+# what makes it callable from a verifier.
+mise_context_diagnosis() {
+  local context strays
+
+  context="$(mise_context_dir)"
+
+  if [[ ! -d "$context" ]]; then
+    printf 'the deterministic mise context does not exist: %s. Run the platform installer to create it.\n' \
+      "$context"
+    return 1
+  fi
+
+  strays="$(mise_context_strays)"
+  if [[ -n "$strays" ]]; then
+    printf 'the deterministic mise context carries tool declarations (%s), which mise would apply: %s. Remove them, or re-run the platform installer, which rebuilds the context.\n' \
+      "$(printf '%s' "$strays" | tr '\n' ' ' | sed 's/ $//')" "$context"
+    return 1
+  fi
 }
 
 # mise_config_summary: the logical manifest a deterministic invocation applies.
@@ -145,6 +195,11 @@ mise_config_summary() {
     "$(mise_context_dir)"
 }
 
+# mise_prepare_context: the install-time half of the pair, and the only thing
+# in this repository that writes to the context. It creates the directory and
+# clears any directory configuration from it, so the run_mise calls that follow
+# are deterministic. An installer calls it once before its first run_mise; a
+# verifier must not call it at all.
 mise_prepare_context() {
   local context
   local stray
@@ -154,7 +209,7 @@ mise_prepare_context() {
 
   # This directory is repository-owned and must stay free of tool declarations;
   # a stray config here would silently defeat the isolation it exists to give.
-  for stray in mise.toml .mise.toml mise.local.toml .mise.local.toml; do
+  for stray in "${MISE_CONTEXT_STRAY_NAMES[@]}"; do
     [[ ! -e "$context/$stray" ]] || rm -f -- "$context/$stray"
   done
 
@@ -164,12 +219,21 @@ mise_prepare_context() {
 # run_mise <mise-executable> [arguments...]: invoke mise in the deterministic
 # context. Use this for every install, resolution, and verification call so a
 # caller's project configuration can never reach a global bootstrap.
+#
+# Read-only with respect to the context: it refuses rather than repairing, so
+# verification can use it without changing the machine it is inspecting. An
+# install path calls mise_prepare_context first; the refusal below names it so
+# a path that forgot says so instead of resolving against a stray config.
 run_mise() {
   local mise_command="$1"
-  local context
+  local context diagnosis
   shift
 
-  context="$(mise_prepare_context)" || return 1
+  context="$(mise_context_dir)"
+  if ! diagnosis="$(mise_context_diagnosis)"; then
+    warn "Refusing to run mise: $diagnosis"
+    return 1
+  fi
 
   (
     cd -- "$context" || exit 1

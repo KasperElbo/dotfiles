@@ -95,6 +95,7 @@ VERIFY_CONFIGURED_LOGIN_PATH="$(
 )"
 VERIFY_CALLER_PATH="$PATH"
 VERIFY_MISE_COMMAND="$mise_command"
+check_mise_context
 mise_tools=(ast-grep dotnet dotnet-easydotnet lazygit neovim-node-host node npm python tree-sitter uv)
 for name in "${mise_tools[@]}"; do check_mise_owned "$name"; done
 

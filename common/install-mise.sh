@@ -16,6 +16,10 @@ if [[ "${DOTFILES_VERBOSE:-false}" == "true" ]]; then
   mise_config_summary | while IFS= read -r line; do info "  mise $line"; done
 fi
 
+# Install time is when the deterministic context is built; run_mise only reads
+# it (see lib/common.sh).
+mise_prepare_context >/dev/null
+
 run_mise "$mise_command" --yes install
 
 establish_user_tool_environment

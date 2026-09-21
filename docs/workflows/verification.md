@@ -96,7 +96,10 @@ sections are representative of all of them:
   Ghostty/Delta/tmux theme overrides
 - the login shell, the terminal, and Catppuccin tmux installation/version
 - Git local configuration
-- mise configuration and commands
+- mise configuration and commands, starting with the deterministic mise
+  context itself: it is read, never rebuilt, so a context that is missing or
+  that has acquired a `mise.toml` is reported rather than quietly repaired
+  (see [the supply chain](../supply-chain.md#deterministic-mise-context))
 - expected Mason editor tooling, warnings for untracked Mason packages, and
   Neovim startup/version
 - each selected optional capability: KDE or Sway integration, the LaTeX

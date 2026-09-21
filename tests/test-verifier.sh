@@ -121,6 +121,16 @@ chmod +x "$root/mise-bin"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise-managed/bin/tool"
 chmod +x "$root/mise-managed/bin/tool"
 
+# check_mise_owned reaches mise through run_mise, which requires the
+# deterministic context to already exist and to be free of tool declarations
+# rather than building one itself (issue #345). An installed machine always has
+# it, so the fixture provides it too -- and, by pointing XDG_STATE_HOME at the
+# test root, stops these checks reaching the state directory of whoever is
+# running the suite.
+export XDG_STATE_HOME="$root/state"
+mise_context="$XDG_STATE_HOME/dotfiles/mise-context"
+mkdir -p "$mise_context"
+
 VERIFY_MISE_COMMAND="$root/mise-bin"
 MISE_DATA_DIR="$root/mise-data"
 MISE_SHIMS_DIR="$root/mise-data/shims"
