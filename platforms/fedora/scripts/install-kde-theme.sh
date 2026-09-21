@@ -28,6 +28,23 @@ for package in "${packages[@]}"; do
   fi
 done
 
+# kpackagetool6 is the third dependency the pinned upstream installer checks,
+# after wget and tar, and a missing one stops it before the first flavour just
+# as loudly. It installs the look-and-feel packages built from the generated
+# theme data, so no shim can stand in for it the way the two Plasma commands
+# below are shimmed. The Fedora KDE spin carries it, but this capability
+# declares what it needs rather than assuming the spin.
+#
+# Requested by the path it provides rather than by a package name: dnf resolves
+# a file provide out of the primary metadata, and a Fedora package rename then
+# cannot quietly stop satisfying it.
+if command -v kpackagetool6 >/dev/null 2>&1; then
+  info "kpackagetool6 is already available"
+else
+  info "Installing the package that provides kpackagetool6"
+  sudo dnf install -y /usr/bin/kpackagetool6
+fi
+
 version="v0.4.0"
 repo="https://github.com/catppuccin/kde.git"
 workdir="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/catppuccin-kde"

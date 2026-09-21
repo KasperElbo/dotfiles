@@ -8,7 +8,7 @@ dotnet-debug	fedora	workstation	-	enabled	base	-	mise-easydotnet	EasyDotnet	-	pl
 dotnet-debug	fedora-wsl	workstation	-	enabled	base	-	mise-easydotnet	EasyDotnet	-	platforms/fedora-wsl/scripts/verify.sh	-	-	docs/workflows/development.md#net-development	ecosystem+pinned	implemented	mise/.config/mise/config.toml	-
 dotnet-debug	macos	workstation	-	enabled	base	-	mise-easydotnet	EasyDotnet	-	platforms/macos/scripts/verify.sh	-	-	docs/platforms/macos.md#4-development-workflows	native+ecosystem+pinned	implemented	mise/.config/mise/config.toml	-
 dotnet-debug	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	-	docs/platforms/parrot-ctf.md	intentional-absence	unsupported	-	-
-kde	fedora	workstation	--kde	auto	base	-	dnf+upstream-theme	kio-extras,wget	-	platforms/fedora/scripts/verify.sh	-	-	docs/platforms/fedora.md#defaults-that-resolve-themselves	native+upstream	implemented	platforms/fedora/scripts/install-kde-theme.sh	-
+kde	fedora	workstation	--kde	auto	base	-	dnf+upstream-theme	kio-extras,wget,kpackagetool6	-	platforms/fedora/scripts/verify.sh	-	-	docs/platforms/fedora.md#defaults-that-resolve-themselves	native+upstream	implemented	platforms/fedora/scripts/install-kde-theme.sh	-
 kde	fedora-wsl	workstation	-	disabled	-	-	unsupported	-	-	none	-	-	docs/platforms/fedora-wsl.md	intentional-absence	unsupported	-	-
 kde	macos	workstation	-	disabled	-	-	unsupported	-	-	none	-	-	docs/platforms/macos.md	intentional-absence	unsupported	-	-
 kde	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	-	docs/platforms/parrot-ctf.md	intentional-absence	unsupported	-	-

@@ -34,7 +34,7 @@ test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
 test_stub_install "$test_root" git
 test_stub_install "$test_root" sudo
-for package in kio-extras wget; do
+for package in kio-extras wget /usr/bin/kpackagetool6; do
   test_stub_allow "$test_root" dnf install -y "$package"
   test_stub_allow "$test_root" sudo dnf install -y "$package"
 done
@@ -53,18 +53,23 @@ printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 exec "$@"
 EOF
 
-# A real `dnf install wget` puts wget on PATH, and the fixture installer below
-# refuses to run without it, exactly as the pinned upstream one does. So this
-# handler has to put it there too: without it the suite would assert that a
-# command was logged and never that the install it stands for had any effect.
-# TEST_KDE_DNF_INERT switches that off, for the negative control at the end.
+# A real `dnf install` puts the command on PATH, and the fixture installer
+# below refuses to run without the ones the pinned upstream installer checks.
+# So this handler has to put them there too: without it the suite would assert
+# that a command was logged and never that the install it stands for had any
+# effect. TEST_KDE_DNF_INERT switches that off, for the negative control at the
+# end.
 cat >"$test_root/handlers/dnf" <<'EOF'
 #!/usr/bin/env bash
 [[ -z "${TEST_KDE_DNF_INERT:-}" ]] || exit 0
 for argument in "$@"; do
-  [[ "$argument" == wget ]] || continue
-  printf '#!/usr/bin/env sh\nexit 0\n' >"$TEST_STUB_ROOT/bin/wget"
-  chmod +x "$TEST_STUB_ROOT/bin/wget"
+  case "$argument" in
+  wget) installed=wget ;;
+  /usr/bin/kpackagetool6) installed=kpackagetool6 ;;
+  *) continue ;;
+  esac
+  printf '#!/usr/bin/env sh\nexit 0\n' >"$TEST_STUB_ROOT/bin/$installed"
+  chmod +x "$TEST_STUB_ROOT/bin/$installed"
 done
 EOF
 
@@ -75,21 +80,25 @@ mkdir -p "$destination"
 cat >"$destination/install.sh" <<'INSTALLER'
 #!/usr/bin/env sh
 # The pinned upstream installer checks its dependencies before installing
-# anything, and a missing wget stops it dead -- which is how the scheduled
-# real installation failed. Reproduce that, so dropping the wget install
-# fails this suite instead of only the next Fedora run.
+# anything, and a missing one stops it dead -- which is how two scheduled real
+# installations failed in a row, first on wget and then on kpackagetool6.
+# Reproduce those checks, so dropping an install fails this suite instead of
+# only the next Fedora run.
 #
-# It insists on the wget the installer put in the stub directory rather than
-# on any wget: the suite runs with the host PATH appended, so accepting
+# Each one insists on the copy the installer put in the stub directory rather
+# than on any copy: the suite runs with the host PATH appended, so accepting
 # whatever `command -v` finds would pass on any machine that happens to have
 # one and prove nothing here.
-case "$(command -v wget 2>/dev/null)" in
-"$EXPECTED_WGET") ;;
-*)
-  printf "Error: Dependency 'wget' is not met.\n" >&2
-  exit 1
-  ;;
-esac
+for required in wget:"$EXPECTED_WGET" kpackagetool6:"$EXPECTED_KPACKAGETOOL"; do
+  name="${required%%:*}"
+  case "$(command -v "$name" 2>/dev/null)" in
+  "${required#*:}") ;;
+  *)
+    printf "Error: Dependency '%s' is not met.\n" "$name" >&2
+    exit 1
+    ;;
+  esac
+done
 printf '%s\n' "$*" >>"$INSTALL_LOG"
 kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key BorderSizeAuto false
 plasma-apply-lookandfeel -a "Catppuccin-$1"
@@ -142,6 +151,7 @@ install_environment=(
   "SIDE_EFFECT_LOG=$side_effect_log"
   "COMMAND_LOG=$command_log"
   "EXPECTED_WGET=$mock_bin/wget"
+  "EXPECTED_KPACKAGETOOL=$mock_bin/kpackagetool6"
   "PATH=$mock_bin:$PATH"
 )
 
@@ -149,13 +159,17 @@ install_kde_themes() {
   RPM_PRESENT="${RPM_PRESENT:-}" "${install_environment[@]}" \
     "$repo_root/platforms/fedora/scripts/install-kde-theme.sh" >/dev/null
 }
-[[ ! -e "$mock_bin/wget" ]] ||
-  _test_die 'wget is already in the stub directory, so installing it proves nothing'
+for absent in wget kpackagetool6; do
+  [[ ! -e "$mock_bin/$absent" ]] ||
+    _test_die "$absent is already in the stub directory, so installing it proves nothing"
+done
 RPM_PRESENT="" install_kde_themes
 grep -Fq 'sudo dnf install -y kio-extras' "$command_log"
 printf 'PASS: missing kio-extras is installed for Dolphin sftp:// support\n'
 grep -Fq 'sudo dnf install -y wget' "$command_log"
 printf 'PASS: missing wget is installed before the upstream installer runs\n'
+grep -Fq 'sudo dnf install -y /usr/bin/kpackagetool6' "$command_log"
+printf 'PASS: missing kpackagetool6 is installed by the path that provides it\n'
 
 : >"$command_log"
 RPM_PRESENT="kio-extras wget" install_kde_themes
@@ -181,13 +195,21 @@ fi
 # on the scheduled run. This is what an install-kde-theme.sh that stopped
 # installing wget would look like, so if this passes, those assertions prove
 # nothing.
-rm -f "$mock_bin/wget"
-if negative_output="$(TEST_KDE_DNF_INERT=1 RPM_PRESENT="" install_kde_themes 2>&1)"; then
-  _test_die 'the upstream installer ran without wget, so a missing one cannot fail this suite'
-fi
-unset TEST_KDE_DNF_INERT
-assert_contains "$negative_output" "Dependency 'wget' is not met."
-printf 'PASS: an upstream installer that cannot find wget fails the install\n'
+# One dependency is withheld at a time, with the others left in place, so each
+# assertion above is shown to fail for its own reason rather than for the
+# first missing command in the list.
+for dependency in wget kpackagetool6; do
+  [[ -x "$mock_bin/$dependency" ]] ||
+    _test_die "$dependency was never installed, so withholding it proves nothing"
+  mv "$mock_bin/$dependency" "$test_root/$dependency.withheld"
+  if negative_output="$(TEST_KDE_DNF_INERT=1 RPM_PRESENT="" install_kde_themes 2>&1)"; then
+    _test_die "the upstream installer ran without $dependency, so a missing one cannot fail this suite"
+  fi
+  unset TEST_KDE_DNF_INERT
+  assert_contains "$negative_output" "Dependency '$dependency' is not met."
+  printf 'PASS: an upstream installer that cannot find %s fails the install\n' "$dependency"
+  mv "$test_root/$dependency.withheld" "$mock_bin/$dependency"
+done
 
 ln -s \
   "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp" \

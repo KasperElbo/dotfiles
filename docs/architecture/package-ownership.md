@@ -50,7 +50,7 @@ unsupported on a platform install nothing there and are omitted.
 | `gnhf` | `--gnhf` | `mise-npm` | `gnhf` |
 | `hardening` | `--hardening` | `dnf` | `audit` `dnf5-plugin-automatic` |
 | `hardware` | `--hardware` | `dnf+copr` | `akmod-nvidia` `akmods` `amd-gpu-firmware` `asusctl` `asusctl-rog-gui` `fwupd` `kmodtool` `mesa-dri-drivers` `mesa-va-drivers` `mesa-vulkan-drivers` `mokutil` `openssl` `pciutils` `xorg-x11-drv-nvidia-cuda` |
-| `kde` | `--kde` | `dnf+upstream-theme` | `kio-extras` `wget` |
+| `kde` | `--kde` | `dnf+upstream-theme` | `kio-extras` `kpackagetool6` `wget` |
 | `latex` | `--latex` | `dnf` | `biber` `latexmk` `texlive-biblatex` `texlive-latexindent` `texlive-scheme-medium` |
 | `ocaml` | `--ocaml` | `dnf+opam` | `bubblewrap` `bzip2` `gcc` `gcc-c++` `m4` `make` `opam` `patch` `pkgconf-pkg-config` `unzip` |
 | `sway` | `--sway` | `dnf` | `blueman` `brightnessctl` `cliphist` `dex-autostart` `fuzzel` `grim` `libnotify` `lxqt-policykit` `mako` `nm-connection-editor` `pavucontrol` `playerctl` `slurp` `swappy` `sway` `sway-systemd` `swaybg` `swayidle` `swaylock` `waybar` `wireplumber` `xdg-desktop-portal-gtk` `xdg-desktop-portal-wlr` |
