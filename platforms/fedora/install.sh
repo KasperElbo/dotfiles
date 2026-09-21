@@ -236,6 +236,9 @@ preflight_fedora() {
   [[ "$install_hardening" != true || "$interactive" != true ]] || plan_command_run fedora_hardening_command --confirm
   [[ "$install_vm_guest" != true ]] || plan_command_run fedora_vm_guest_command --preflight
   [[ -z "$hardware_model" ]] || plan_command_run fedora_hardware_command --preflight
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads.
+  preflight_xdg_layout
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"

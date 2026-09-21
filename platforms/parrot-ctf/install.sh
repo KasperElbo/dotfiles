@@ -92,6 +92,9 @@ preflight_parrot() {
   require_guest_channels
   preflight_platform_command_providers parrot-ctf
   preflight_sudo "$interactive"
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads.
+  preflight_xdg_layout
   preflight_writable_path "$HOME"
   preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"
