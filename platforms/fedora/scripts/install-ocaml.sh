@@ -36,7 +36,6 @@ else
     opam
     patch
     pkgconf-pkg-config
-    unzip
   )
   packages=("${workstation_packages[@]}")
 fi

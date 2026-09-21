@@ -18,6 +18,12 @@ require_command git
 # flavour stops at "Error: Dependency 'wget' is not met." and no theme is
 # installed at all. Cursor installation stays enabled below, so the dependency
 # is real rather than avoidable.
+#
+# unzip is checked on the same line of the same installer and is just as
+# unavoidable, but it is not listed here: it is a generic utility the base
+# capability owns, and package ownership is single-owner, so naming it twice
+# fails validation. This capability depends on base, so base installing it is
+# the declaration (#360).
 packages=(kio-extras wget)
 for package in "${packages[@]}"; do
   if rpm -q "$package" >/dev/null 2>&1; then

@@ -29,6 +29,7 @@ packages=(
   sqlite-devel
   stow
   tmux
+  unzip
   wl-clipboard
   xdg-utils
   zoxide

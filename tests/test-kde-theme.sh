@@ -159,6 +159,22 @@ install_kde_themes() {
   RPM_PRESENT="${RPM_PRESENT:-}" "${install_environment[@]}" \
     "$repo_root/platforms/fedora/scripts/install-kde-theme.sh" >/dev/null
 }
+# The upstream installer checks unzip on the same unconditional line as wget,
+# and this capability deliberately does not declare it: package ownership is
+# single-owner and unzip is a generic utility the base capability owns. So the
+# declaration that keeps --kde working is base's, and base is what the kde row
+# depends on. Should it leave base's packages, --kde --no-ocaml breaks at the
+# cursor step on any Fedora machine that happens not to have unzip (#360).
+base_packages="$(awk -F '\t' '$1 == "base" && $2 == "fedora" { print $9 }' \
+  "$repo_root/config/capabilities.tsv")"
+[[ -n "$base_packages" ]] ||
+  _test_die 'config/capabilities.tsv has no fedora row for the base capability'
+case ",$base_packages," in
+*,unzip,*) ;;
+*) _test_die 'the fedora base capability must declare unzip; the Catppuccin KDE installer requires it' ;;
+esac
+printf 'PASS: unzip is declared by the base capability the KDE row depends on\n'
+
 for absent in wget kpackagetool6; do
   [[ ! -e "$mock_bin/$absent" ]] ||
     _test_die "$absent is already in the stub directory, so installing it proves nothing"
