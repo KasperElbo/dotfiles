@@ -10,6 +10,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/capabilities.sh"
 # shellcheck source=../../../common/lib/profile-state.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
+# shellcheck source=../lib/dictation.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/dictation.sh"
 
 verify_reset
 
@@ -18,7 +20,7 @@ verify_reset
 # that dictated text stays on the machine, and a verifier that touched any of
 # it would be the one thing in this repository that did not honour that.
 
-state_file="${DICTATION_STATE_FILE:-$XDG_CONFIG_HOME/dotfiles/dictation.conf}"
+state_file="${DICTATION_STATE_FILE:-$(dictation_state_file)}"
 sway_config="${DICTATION_SWAY_CONFIG:-$XDG_CONFIG_HOME/sway/config}"
 
 section "Dictation commands"
@@ -52,12 +54,73 @@ fi
 
 section "Handy package ownership"
 
+# What the repository says should be installed. It is read from
+# platforms/fedora/lib/dictation.sh, the same file the installer reads, so the
+# two cannot drift: a bump changes one file and both sides follow it.
+pinned_version="$(dictation_pinned_version)"
+pinned_sha256="$(dictation_pinned_sha256)"
+pinned_rpm="$(dictation_pinned_rpm)"
+pinned_nvra="$(dictation_pinned_nvra)"
+
+# A verifier that cannot read its own expectation has nothing to check against,
+# and must say so rather than passing the checks it can still reach.
+if [[ ! "$pinned_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+  fail "This repository states no usable pinned SHA-256 for Handy, so nothing" \
+      "below can establish that what is installed is what it pins; see" \
+      "docs/profiles/dictation.md, 'Bumping the pinned Handy release'"
+fi
+
 # One owner, and it must be the pinned rpm. An AppImage or a Flatpak installed
 # beside it would shadow the rpm on PATH and update on a different schedule,
 # which is exactly the duplicate ownership this profile exists to avoid.
+#
+# Identity, not merely ownership. `rpm -qf` answering at all says only that
+# some package claims the file; this compares its name-version-release.arch
+# against the pinned artifact's, which is the one fact that ties the binary on
+# PATH to the release this repository chose and digest-verified. Checking only
+# that *an* rpm owned it accepted a machine running an unrelated build.
+#
+# Nothing here runs handy. Its version is read from the package database, not
+# from the application, because starting a dictation application to interview
+# it is exactly the thing this profile promises not to do.
 if handy_path="$(command -v handy 2>/dev/null)"; then
-  if owning_package="$(rpm -qf "$handy_path" 2>/dev/null)"; then
-    pass "handy is rpm-owned: $owning_package"
+  if owning_nvra="$(dictation_owning_nvra "$handy_path")"; then
+    if [[ "$owning_nvra" == "$pinned_nvra" ]]; then
+      pass "handy is the pinned rpm: $owning_nvra"
+    else
+      fail "handy at $handy_path belongs to $owning_nvra, not the pinned" \
+        "$pinned_nvra; this machine is running a different build from the one" \
+        "this repository pins and digest-verified, so rerun" \
+        "./install.sh --dictation"
+    fi
+
+    # An rpm whose installed files no longer match what it shipped is an
+    # altered package: the digest checked at download time says nothing about
+    # bytes replaced afterwards. rpm's own database holds the per-file digests,
+    # so this asks it rather than recomputing anything, and it neither starts
+    # the application nor reads a model or a transcription.
+    #
+    # A configuration file the operator edited is not tampering, so the `c`
+    # attribute is excluded; every other discrepancy is reported.
+    if rpm_verify_output="$(rpm -V "$owning_nvra" 2>/dev/null)"; then
+      pass "every file $owning_nvra installed still matches what it shipped"
+    elif [[ -z "$rpm_verify_output" ]]; then
+      # Discrepancies are printed; a non-zero status with nothing to show means
+      # rpm could not answer, which is not the same as an intact package and
+      # must not be reported as one.
+      fail "rpm could not verify the files $owning_nvra installed, so nothing" \
+        "here shows that the package on disk is still the one that was" \
+        "installed"
+    else
+      altered="$(awk '$2 != "c" { print }' <<<"$rpm_verify_output")"
+      if [[ -n "$altered" ]]; then
+        fail "files installed by $owning_nvra no longer match what the" \
+          "package shipped, so the verified artifact is not what is on disk" \
+          "now: ${altered//$'\n'/; }"
+      else
+        pass "every file $owning_nvra installed still matches what it shipped"
+      fi
+    fi
   else
     fail "handy at $handy_path is owned by no rpm; this profile installs" \
       "Handy from a pinned release rpm, so an unowned binary is a second," \
@@ -88,14 +151,46 @@ elif ! profile_state_validate_file "$state_file" dictation >/dev/null 2>&1; then
 else
   recorded_version="$(profile_state_read "$state_file" version dictation 2>/dev/null || true)"
   recorded_sha="$(profile_state_read "$state_file" sha256 dictation 2>/dev/null || true)"
+  recorded_rpm="$(profile_state_read "$state_file" rpm dictation 2>/dev/null || true)"
+  recorded_provider="$(profile_state_read "$state_file" provider dictation 2>/dev/null || true)"
   recorded_backend="$(profile_state_read "$state_file" paste_backend dictation 2>/dev/null || true)"
 
-  pass "Handy $recorded_version, installed from a digest-verified rpm"
-  if [[ "$recorded_sha" =~ ^[0-9a-f]{64}$ ]]; then
-    pass "the installed artifact's pinned SHA-256 is recorded"
+  # State is this profile's own record of what it did, so every value below is
+  # checked against the repository's pin rather than accepted for being
+  # well-formed. A syntactically valid digest of sixty-four zeroes used to pass
+  # here and be reported as a digest-verified rpm.
+  if [[ "$recorded_version" == "$pinned_version" ]]; then
+    pass "Handy $recorded_version, the release this repository pins"
   else
+    fail "the recorded state says Handy ${recorded_version:-no version}, but" \
+      "this repository pins $pinned_version; the record is stale, so rerun" \
+      "./install.sh --dictation"
+  fi
+
+  if [[ ! "$recorded_sha" =~ ^[0-9a-f]{64}$ ]]; then
     fail "the recorded state has no usable SHA-256 for the installed" \
       "artifact, so what is installed cannot be tied to a pinned release"
+  elif [[ "$recorded_sha" == "$pinned_sha256" ]]; then
+    pass "the installed artifact's digest is the pinned one"
+  else
+    fail "the recorded state was installed from an artifact whose SHA-256 is" \
+      "$recorded_sha, but this repository pins $pinned_sha256; rerun" \
+      "./install.sh --dictation"
+  fi
+
+  if [[ "$recorded_provider" == "$DICTATION_HANDY_PROVIDER" ]]; then
+    pass "provider: $recorded_provider"
+  else
+    fail "the recorded state names provider" \
+      "'${recorded_provider:-none}', not '$DICTATION_HANDY_PROVIDER'; this" \
+      "profile owns the pinned-release-rpm route only"
+  fi
+
+  if [[ "$recorded_rpm" == "$pinned_rpm" ]]; then
+    pass "artifact: $recorded_rpm"
+  else
+    fail "the recorded state names artifact '${recorded_rpm:-none}', not the" \
+      "pinned $pinned_rpm; rerun ./install.sh --dictation"
   fi
   if [[ "$recorded_backend" == wtype ]]; then
     pass "text insertion backend: wtype (no /dev/uinput, no 'input' group)"

@@ -10,6 +10,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/fetch.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/profile-state.sh"
 # shellcheck source=../lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
+# shellcheck source=../lib/dictation.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/dictation.sh"
 
 dry_run="false"
 
@@ -24,52 +26,17 @@ packages=(
   wtype
 )
 
-# ---------------------------------------------------------------------------
-# The pinned Handy release
-#
-# Handy is not packaged by Fedora, Terra or Flathub, so this profile owns one
-# upstream release artifact: the .rpm published with a specific GitHub
-# release, identified by a digest recorded here. Bumping the version means
-# editing these three values together and nothing else; see
+# The pinned Handy release, the artifact it publishes and the digest that
+# stands in for the RPM signature upstream does not ship, all read from the one
+# file the verifier reads them from too. Bumping the pin means editing
+# platforms/fedora/lib/dictation.sh and nothing else; see
 # docs/profiles/dictation.md, "Bumping the pinned Handy release".
-#
-# The digest is not a convenience, it is the whole integrity story for this
-# artifact. Upstream signs its releases with Tauri's minisign format rather
-# than an RPM GPG signature, so there is no RPM signature for dnf to check,
-# and nothing here asks dnf to stop checking one: Fedora's own
-# localpkg_gpgcheck default governs a local file, and this profile neither
-# passes a flag nor sets an option that relaxes signature checking anywhere.
-# What stands in for the missing signature is this digest, checked before dnf
-# is invoked at all -- which names one exact artifact rather than one
-# publisher. An unset or malformed digest therefore stops the profile before
-# anything is downloaded, rather than after.
-# ---------------------------------------------------------------------------
-handy_version="0.9.7"
-handy_rpm="Handy-${handy_version}-1.x86_64.rpm"
-# network-source: handy-release
-handy_url="https://github.com/cjpais/Handy/releases/download/v${handy_version}/${handy_rpm}"
-handy_rpm_sha256="91efeac19e2af6e5d92b6adf27991eafb7f10ef4979558f486f61f6db1820053"
+handy_version="$(dictation_pinned_version)"
+handy_rpm="$(dictation_pinned_rpm)"
+handy_url="$(dictation_release_url)"
+handy_rpm_sha256="$(dictation_pinned_sha256)"
 
-# Test seam. The suites cannot download a 112 MB release artifact, so they
-# name a small fixture file instead, and the digest that is verified is that
-# file's own -- computed here, never supplied by the caller.
-#
-# It cannot weaken the pinned download, because naming a fixture also replaces
-# the URL. The pinned URL above is only ever paired with the pinned digest
-# above; no value of this variable makes the real artifact acceptable under a
-# digest someone else chose. Set but empty exercises the unpinned guard below.
-if [[ -n "${DOTFILES_TEST_HANDY_RPM+set}" ]]; then
-  if [[ -n "$DOTFILES_TEST_HANDY_RPM" ]]; then
-    # .invalid is reserved by RFC 2606 and resolves nowhere, so this URL can
-    # never reach the real artifact; only a stubbed download answers it.
-    handy_url="https://dotfiles-test.invalid/$handy_rpm"
-    handy_rpm_sha256="$(sha256sum -- "$DOTFILES_TEST_HANDY_RPM" | cut -d' ' -f1)"
-  else
-    handy_rpm_sha256=""
-  fi
-fi
-
-state_file="${DICTATION_STATE_FILE:-$XDG_CONFIG_HOME/dotfiles/dictation.conf}"
+state_file="${DICTATION_STATE_FILE:-$(dictation_state_file)}"
 
 usage() {
   cat <<'EOF'
@@ -80,7 +47,7 @@ speech-to-text application, plus the two Fedora packages it needs on Wayland
 (wtype for text insertion, gtk-layer-shell as a runtime library).
 
 Handy is installed from a version-pinned upstream release .rpm whose SHA-256
-is recorded in this script. Transcription is local and offline: no account,
+is recorded in platforms/fedora/lib/dictation.sh. Transcription is local and offline: no account,
 no API key, and no cloud endpoint is configured by this profile.
 
 The dictation key is owned by Sway, not by Handy: the tracked Sway config
@@ -110,20 +77,38 @@ while (($#)); do
 done
 
 pin_is_recorded() {
-  [[ "$handy_rpm_sha256" =~ ^[0-9a-f]{64}$ ]]
+  dictation_pin_is_recorded
 }
 
-# The artifact this machine already has, as this profile recorded it. Nothing
-# here trusts rpm's own package name: the Tauri bundler derives it from the
-# upstream product name, which is not this repository's to guess.
+# Why the machine is asked rather than only the state file
+# --------------------------------------------------------
+# The state file is this profile's own record of what it did, so on its own it
+# proves only that the profile once ran. Skipping work on that alone meant a
+# machine whose Handy rpm had been removed, downgraded or replaced by an
+# unpackaged build still reported "already installed from the pinned artifact"
+# and repaired nothing, because a file called handy existed somewhere on PATH.
+#
+# So the fast path now asks the rpm database, which is the machine's own record
+# rather than this profile's: the binary on PATH must be owned by an rpm whose
+# name-version-release.arch is the pinned artifact's, and the Wayland packages
+# the profile declares must still be installed. Anything else is drift, and
+# drift falls through to the install below, which reinstalls the dependencies
+# and the pinned rpm and rewrites the state. That is the repair.
 installed_matches_pin() {
-  local recorded_version recorded_sha
+  local recorded_version recorded_sha handy_path owning_nvra package
 
   [[ -f "$state_file" ]] || return 1
-  command_exists handy || return 1
   recorded_version="$(profile_state_read "$state_file" version dictation 2>/dev/null)" || return 1
   recorded_sha="$(profile_state_read "$state_file" sha256 dictation 2>/dev/null)" || return 1
-  [[ "$recorded_version" == "$handy_version" && "$recorded_sha" == "$handy_rpm_sha256" ]]
+  [[ "$recorded_version" == "$handy_version" && "$recorded_sha" == "$handy_rpm_sha256" ]] || return 1
+
+  handy_path="$(command -v handy 2>/dev/null)" || return 1
+  owning_nvra="$(dictation_owning_nvra "$handy_path")" || return 1
+  [[ "$owning_nvra" == "$(dictation_pinned_nvra)" ]] || return 1
+
+  for package in "${packages[@]}"; do
+    rpm -q "$package" >/dev/null 2>&1 || return 1
+  done
 }
 
 if [[ "$dry_run" == "true" ]]; then
@@ -177,7 +162,7 @@ pin_is_recorded || die "$(
 No SHA-256 is pinned for $handy_rpm, so its integrity cannot be checked and
 the dictation profile will not install it. Download that exact artifact from
 $handy_url, take its SHA-256, and record the digest in
-platforms/fedora/scripts/install-dictation.sh. The two commands are in
+platforms/fedora/lib/dictation.sh. The two commands are in
 docs/profiles/dictation.md, "Bumping the pinned Handy release".
 EOF
 )"
@@ -215,7 +200,7 @@ ensure_dir "$(dirname "$state_file")"
 {
   printf 'profile=dictation\n'
   printf 'application=handy\n'
-  printf 'provider=pinned-release-rpm\n'
+  printf 'provider=%s\n' "$DICTATION_HANDY_PROVIDER"
   printf 'version=%s\n' "$handy_version"
   printf 'rpm=%s\n' "$handy_rpm"
   printf 'sha256=%s\n' "$handy_rpm_sha256"
