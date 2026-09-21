@@ -474,6 +474,22 @@ identity: a missing source, invalid content, and a shallow clone whose
 historical objects are absent. It also asserts that no message contains the
 fixture's name or email, because identity values must never reach a log.
 
+### The one configuration root
+
+`tests/test-installer-preflight.sh` owns the XDG contract (issue #343). Stow is
+given one target, `$HOME`, while nearly everything that reads the result
+resolves it through `XDG_CONFIG_HOME` or `XDG_DATA_HOME`, so a nondefault root
+used to let Stow report success with every link somewhere nothing looked. The
+suite deploys the default layout with the real `common/stow.sh` and requires
+Git, mise, Neovim and shell configuration to be links into the checkout; that
+run is also the control, because it is what "nothing was created" is measured
+against. It then points each root in turn outside `$HOME` and requires all five
+Stow entry points and `./install.sh` to refuse, naming the variable, with
+neither `$HOME` nor the separate root gaining a single path and with no package
+transaction or lifecycle state written. A last case requires the default root
+to be accepted however it is spelled, so the refusal cannot be triggered by a
+trailing or doubled separator.
+
 ### Installer lifecycle repeatability
 
 `tests/test-install-rerun.sh` owns the `./install.sh --rerun` contract. It

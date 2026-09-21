@@ -87,7 +87,9 @@ grep -Fq 'parent path is not a real directory' "$test_root/parent"
 # A conflict in the final Fedora Stow package must stop before DNF or lifecycle
 # state. This exercises the top-level ordering, not only the inspector helper.
 integration_home="$test_root/integration-home"
-integration_config="$test_root/integration-config"
+# Under $HOME, because that is the only configuration root this repository
+# deploys to and preflight now refuses any other (issue #343).
+integration_config="$integration_home/.config"
 mock_bin="$test_root/bin"
 mkdir -p "$integration_home" "$integration_config" "$mock_bin"
 # Every installer run below decides on a stubbed figure, never on the free
@@ -615,3 +617,122 @@ for platform in fedora fedora-wsl macos parrot-ctf; do
   }
 done
 printf 'Every platform probes github.com for its tmux step.\n'
+
+# --- One configuration root, or a refusal before anything moves (issue #343) --
+#
+# Stow is given one target, $HOME, while the shell, the installers and the
+# verifiers resolve configuration through XDG_CONFIG_HOME and XDG_DATA_HOME.
+# With a separate root Stow used to succeed and put every link where nothing
+# later looked for it. The contract is now that the default layout works and
+# any other root is refused before a single path is touched.
+
+test_new_root
+xdg_root="$TEST_ROOT"
+
+# The default layout still deploys, and the representative packages land where
+# the consumers read them. This is also the control for the refusal cases: it
+# is what "nothing was created" has to be measured against.
+default_home="$xdg_root/default-home"
+mkdir -p "$default_home"
+(
+  unset XDG_CONFIG_HOME XDG_DATA_HOME
+  HOME="$default_home" "$repo_root/common/stow.sh" --headless
+) >"$xdg_root/default.log" 2>&1 ||
+  _test_die "the default XDG layout was refused:\n$(cat "$xdg_root/default.log")"
+
+for link in .config/git/config .config/mise/config.toml .config/nvim/init.lua \
+  .config/zsh/.zshrc; do
+  [[ -L "$default_home/$link" ]] ||
+    _test_die "the default layout did not link $link into \$HOME"
+  resolved="$(resolve_existing_path "$default_home/$link")"
+  [[ "$resolved" == "$repo_root/"* ]] ||
+    _test_die "$link resolved outside the checkout: $resolved"
+done
+default_paths="$(cd "$default_home" && find . -mindepth 1 | sort)"
+[[ -n "$default_paths" ]] ||
+  _test_die 'the default layout created nothing, so the refusal cases below prove nothing'
+printf 'PASS: the default XDG layout deploys Git, mise, Neovim and shell configuration into $HOME\n'
+
+# Each root, each Stow entry point: refused, with the variable named, and with
+# neither HOME nor the separate root touched.
+stow_entry_points=(
+  "common:$repo_root/common/stow.sh:--headless"
+  "fedora:$repo_root/platforms/fedora/scripts/stow.sh:"
+  "fedora-wsl:$repo_root/platforms/fedora-wsl/scripts/stow.sh:"
+  "macos:$repo_root/platforms/macos/scripts/stow.sh:"
+  "parrot-ctf:$repo_root/platforms/parrot-ctf/scripts/stow.sh:"
+)
+
+for variable in XDG_CONFIG_HOME XDG_DATA_HOME; do
+  for entry in "${stow_entry_points[@]}"; do
+    label="${entry%%:*}"; rest="${entry#*:}"
+    script="${rest%%:*}"; option="${rest#*:}"
+
+    case_home="$xdg_root/refuse-$variable-$label/home"
+    case_elsewhere="$xdg_root/refuse-$variable-$label/elsewhere"
+    mkdir -p "$case_home" "$case_elsewhere"
+
+    set +e
+    (
+      unset XDG_CONFIG_HOME XDG_DATA_HOME
+      export HOME="$case_home" "$variable=$case_elsewhere"
+      exec "$script" ${option:+"$option"}
+    ) >"$xdg_root/refuse.log" 2>&1
+    status=$?
+    set -e
+
+    ((status != 0)) ||
+      _test_die "$label Stow accepted $variable pointing outside \$HOME"
+    refusal="$(cat "$xdg_root/refuse.log")"
+    assert_contains "$refusal" "$variable is $case_elsewhere"
+    assert_contains "$refusal" 'nothing has been changed'
+
+    # Mutation-free is the whole point of refusing in preflight: neither the
+    # home it would have stowed into nor the root it was pointed at may have
+    # gained anything.
+    touched_home="$(cd "$case_home" && find . -mindepth 1)"
+    [[ -z "$touched_home" ]] ||
+      _test_die "$label Stow changed \$HOME before refusing $variable:\n$touched_home"
+    touched_elsewhere="$(cd "$case_elsewhere" && find . -mindepth 1)"
+    [[ -z "$touched_elsewhere" ]] ||
+      _test_die "$label Stow changed $variable before refusing it:\n$touched_elsewhere"
+  done
+  printf 'PASS: all %d Stow entry points refuse a %s outside $HOME without touching either root\n' \
+    "${#stow_entry_points[@]}" "$variable"
+done
+
+# The top-level installer refuses for the same reason, and refuses early: no
+# package manager transaction, and no lifecycle state written.
+xdg_install_home="$xdg_root/install-home"
+mkdir -p "$xdg_install_home"
+if HOME="$xdg_install_home" XDG_CONFIG_HOME="$xdg_root/install-elsewhere" \
+  XDG_STATE_HOME="$xdg_root/install-state" PATH="$mock_bin:$PATH" \
+  OS_RELEASE_FILE="$test_root/os-release" \
+  "$repo_root/install.sh" --no-kde --no-latex --non-interactive \
+  >"$xdg_root/install.log" 2>&1; then
+  printf 'The installer accepted an XDG_CONFIG_HOME outside $HOME.\n' >&2
+  exit 1
+fi
+install_refusal="$(cat "$xdg_root/install.log")"
+assert_contains "$install_refusal" "XDG_CONFIG_HOME is $xdg_root/install-elsewhere"
+assert_contains "$install_refusal" 'nothing has been changed'
+assert_file_empty "$test_root/logs/dnf.log"
+[[ ! -e "$xdg_root/install-state/dotfiles/install.conf" ]] ||
+  _test_die 'the installer recorded lifecycle state before refusing the XDG root'
+[[ -z "$(cd "$xdg_install_home" && find . -mindepth 1)" ]] ||
+  _test_die 'the installer changed $HOME before refusing the XDG root'
+printf 'PASS: the installer refuses an unsupported configuration root before any package or state is written\n'
+
+# The spelling of the default must not be read as an override.
+for spelling in '$HOME/.config' '$HOME/.config/' '$HOME/.config//' '$HOME//.config'; do
+  accepted_home="$xdg_root/spelling/home"
+  mkdir -p "$accepted_home"
+  (
+    unset XDG_DATA_HOME
+    export HOME="$accepted_home"
+    export XDG_CONFIG_HOME="${spelling/\$HOME/$accepted_home}"
+    preflight_xdg_layout
+  ) 2>"$xdg_root/spelling.log" ||
+    _test_die "preflight rejected the default config root written as '$spelling':\n$(cat "$xdg_root/spelling.log")"
+done
+printf 'PASS: the default configuration root is accepted however it is spelled\n'

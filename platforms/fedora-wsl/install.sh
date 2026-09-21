@@ -152,6 +152,9 @@ preflight_wsl() {
   require_regular_user; require_fedora_wsl
   preflight_platform_command_providers fedora-wsl; preflight_sudo "$interactive"
   [[ "$install_containers" != true ]] || require_wsl_containers_prereqs
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads.
+  preflight_xdg_layout
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
