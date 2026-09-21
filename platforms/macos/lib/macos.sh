@@ -209,3 +209,46 @@ end run' -- "$path" 2>&1
     return "$status"
   }
 }
+
+# ---------------------------------------------------------------------------
+# Tailscale probes
+#
+# Reading Tailscale's state on macOS means running a binary that talks to the
+# application, and the application can be sitting on a permission prompt that
+# nobody is there to answer. The first real installation ever to reach this
+# profile sat inside one of those calls for a hundred minutes and took the
+# whole job with it, having printed nothing since the line before.
+#
+# So every probe is bounded and "did not answer" is one of the outcomes the
+# caller handles, beside running, needs-login and no-CLI-at-all. None of this
+# judges whether the command would eventually have returned: an unbounded call
+# to another process is the defect on its own.
+# ---------------------------------------------------------------------------
+
+# The bound, in seconds. Overridable so a test can drive it without waiting.
+: "${DOTFILES_TAILSCALE_PROBE_TIMEOUT:=15}"
+
+# macos_tailscale_probe <command> [argument...]: run it under that bound.
+#
+# Passes the command's own output and status through, except that a command
+# the bound had to stop returns 124, or 137 if it ignored the term signal --
+# GNU timeout's own codes, so a caller can tell "did not answer" apart from
+# "answered with a failure". Without a GNU timeout there is nothing to bound
+# it with, so that reports as a timeout rather than running it anyway.
+macos_tailscale_probe() {
+  local status=0
+
+  command_exists timeout || {
+    printf 'GNU timeout is unavailable, so this probe cannot be bounded.\n' >&2
+    return 124
+  }
+
+  timeout --signal=TERM --kill-after=5 \
+    "$DOTFILES_TAILSCALE_PROBE_TIMEOUT" "$@" || status=$?
+  return "$status"
+}
+
+# macos_tailscale_probe_timed_out <status>: true for the two codes above.
+macos_tailscale_probe_timed_out() {
+  [[ "$1" == 124 || "$1" == 137 ]]
+}
