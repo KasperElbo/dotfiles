@@ -300,10 +300,14 @@ if [[ "$verify_latex" == "true" ]]; then
   done
 fi
 
-ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
+ai_state="$(verify_optional_capability_state fedora-wsl ai || true)"
+ai_disposition="$(verify_optional_capability_disposition fedora-wsl ai || true)"
 
-if [[ -f "$ai_state" ]]; then
-  section "AI-assisted development profile"
+section "AI-assisted development profile"
+
+case "$ai_disposition" in
+verify | leftover)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
 
   if "$DOTFILES_ROOT/common/verify-ai.sh"; then
     pass "AI profile verification completed"
@@ -353,9 +357,13 @@ if [[ -f "$ai_state" ]]; then
       pass "$command_name is Linux-native: $command_path"
     fi
   done
-else
-  section "AI-assisted development profile"
-
+  ;;
+missing | corrupt)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
+  ;;
+*)
+  # Not selected, and no state file. The profile owns files outside its own
+  # state, so an unselected machine is still asked whether any of them remain.
   agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
   codex_home="${CODEX_HOME:-$HOME/.codex}"
   is_agents_symlink() {
@@ -374,7 +382,8 @@ else
   else
     pass "AI profile is not installed (not selected)"
   fi
-fi
+  ;;
+esac
 
 section "Windows executable interop"
 
@@ -490,17 +499,9 @@ else
   fail "OCaml profile verification failed"
 fi
 
-containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
-if [[ -f "$containers_state" ]]; then
-  section "Containers (Podman)"
-
-  if "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify-containers.sh" \
-    --skip-smoke-test; then
-    pass "Containers profile verification completed"
-  else
-    fail "Containers profile verification failed"
-  fi
-fi
+verify_optional_capability "Containers (Podman)" fedora-wsl containers \
+  "$DOTFILES_ROOT/platforms/fedora-wsl/scripts/verify-containers.sh" \
+  --skip-smoke-test
 
 if [[ "$run_dev_workflows" == "true" ]]; then
   section "Development workflow smoke tests"

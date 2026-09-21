@@ -603,148 +603,84 @@ check_catppuccin_tmux
 # Optional machine hardware
 # ---------------------------------------------------------------------------
 
-hardware_state="$XDG_CONFIG_HOME/dotfiles/hardware.conf"
-
-if [[ -f "$hardware_state" ]]; then
-  section "ASUS hardware"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-asus-hardware.sh"; then
-    pass "ASUS hardware profile verification completed"
-  else
-    fail "ASUS hardware profile verification failed"
-  fi
-fi
+verify_optional_capability "ASUS hardware" fedora hardware \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-asus-hardware.sh"
 
 # ---------------------------------------------------------------------------
 # Optional VM host
 # ---------------------------------------------------------------------------
 
-vm_host_state="$XDG_CONFIG_HOME/dotfiles/vm-host.conf"
-
-if [[ -f "$vm_host_state" ]]; then
-  section "VM host"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-host.sh"; then
-    pass "Fedora VM-host profile verification completed"
-  else
-    fail "Fedora VM-host profile verification failed"
-  fi
-fi
+verify_optional_capability "VM host" fedora vm-host \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-host.sh"
 
 # ---------------------------------------------------------------------------
 # Optional VM guest
 # ---------------------------------------------------------------------------
 
-vm_guest_state="$XDG_CONFIG_HOME/dotfiles/vm-guest.conf"
-
-if [[ -f "$vm_guest_state" ]]; then
-  section "VM guest"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-guest.sh"; then
-    pass "Fedora VM-guest profile verification completed"
-  else
-    fail "Fedora VM-guest profile verification failed"
-  fi
-fi
+verify_optional_capability "VM guest" fedora vm-guest \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-vm-guest.sh"
 
 # ---------------------------------------------------------------------------
 # Optional security-hardening profile
 # ---------------------------------------------------------------------------
 
-hardening_state="$XDG_CONFIG_HOME/dotfiles/hardening.conf"
-
-if [[ -f "$hardening_state" ]]; then
-  section "Security hardening"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-hardening.sh"; then
-    pass "Fedora hardening profile verification completed"
-  else
-    fail "Fedora hardening profile verification failed"
-  fi
-fi
+verify_optional_capability "Security hardening" fedora hardening \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-hardening.sh"
 
 # ---------------------------------------------------------------------------
 # Optional desktop tools
 # ---------------------------------------------------------------------------
 
-desktop_tools_state="$XDG_CONFIG_HOME/dotfiles/desktop-tools.conf"
-
-if [[ -f "$desktop_tools_state" ]]; then
-  section "Desktop tools"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-desktop-tools.sh"; then
-    pass "Desktop-tools profile verification completed"
-  else
-    fail "Desktop-tools profile verification failed"
-  fi
-fi
+verify_optional_capability "Desktop tools" fedora desktop-tools \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-desktop-tools.sh"
 
 # ---------------------------------------------------------------------------
 # Optional dictation profile
 # ---------------------------------------------------------------------------
 
-dictation_state="$XDG_CONFIG_HOME/dotfiles/dictation.conf"
-
-if [[ -f "$dictation_state" ]]; then
-  section "Dictation"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-dictation.sh"; then
-    pass "Dictation profile verification completed"
-  else
-    fail "Dictation profile verification failed"
-  fi
-fi
+verify_optional_capability "Dictation" fedora dictation \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-dictation.sh"
 
 # ---------------------------------------------------------------------------
 # Optional containers (Podman) profile
 # ---------------------------------------------------------------------------
 
-containers_state="$XDG_CONFIG_HOME/dotfiles/containers.conf"
-
-if [[ -f "$containers_state" ]]; then
-  section "Containers (Podman)"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-containers.sh" \
-    --skip-smoke-test; then
-    pass "Containers profile verification completed"
-  else
-    fail "Containers profile verification failed"
-  fi
-fi
+verify_optional_capability "Containers (Podman)" fedora containers \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-containers.sh" \
+  --skip-smoke-test
 
 # ---------------------------------------------------------------------------
 # Optional Tailscale networking profile
 # ---------------------------------------------------------------------------
 
-tailscale_state="$XDG_CONFIG_HOME/dotfiles/tailscale.conf"
-
-if [[ -f "$tailscale_state" ]]; then
-  section "Tailscale"
-
-  if "$DOTFILES_ROOT/platforms/fedora/scripts/verify-tailscale.sh"; then
-    pass "Tailscale profile verification completed"
-  else
-    fail "Tailscale profile verification failed"
-  fi
-fi
+verify_optional_capability "Tailscale" fedora tailscale \
+  "$DOTFILES_ROOT/platforms/fedora/scripts/verify-tailscale.sh"
 
 # ---------------------------------------------------------------------------
 # Optional AI-assisted development profile
 # ---------------------------------------------------------------------------
 
-ai_state="$XDG_CONFIG_HOME/dotfiles/ai.conf"
+ai_state="$(verify_optional_capability_state fedora ai || true)"
+ai_disposition="$(verify_optional_capability_disposition fedora ai || true)"
 
-if [[ -f "$ai_state" ]]; then
-  section "AI-assisted development profile"
+section "AI-assisted development profile"
+
+case "$ai_disposition" in
+verify | leftover)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
 
   if "$DOTFILES_ROOT/common/verify-ai.sh"; then
     pass "AI profile verification completed"
   else
     fail "AI profile verification failed"
   fi
-else
-  section "AI-assisted development profile"
-
+  ;;
+missing | corrupt)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
+  ;;
+*)
+  # Not selected, and no state file. The profile owns files outside its own
+  # state, so an unselected machine is still asked whether any of them remain.
   agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
   codex_home="${CODEX_HOME:-$HOME/.codex}"
   is_agents_symlink() {
@@ -763,7 +699,8 @@ else
   else
     pass "AI profile is not installed (not selected)"
   fi
-fi
+  ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Repository hygiene

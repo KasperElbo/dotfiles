@@ -42,17 +42,34 @@ the state they would otherwise read is not theirs:
 
 - `platforms/fedora-wsl/scripts/verify.sh --latex` also verifies the LaTeX
   toolchain, and `--dev-workflows` runs the language smoke tests.
-- `platforms/macos/scripts/verify.sh` verifies the optional
-  `--defaults`, `--containers`, `--tailscale` and `--dictation` areas only
-  when asked.
+- `platforms/macos/scripts/verify.sh` verifies the optional `--defaults` area
+  only when asked. Its `--containers`, `--tailscale` and `--dictation` flags
+  force those three, which it otherwise decides for itself from the same two
+  records as every other optional capability; the flags are what the installer
+  uses, because it runs this verifier before the record is written.
 - `scripts/test-dev-workflows.sh` is the `dev-workflows` verifier and selects
   languages with its own flags (see
   [the development workflow](development.md)).
 
 On Fedora and Fedora WSL the platform verifier runs an optional profile's own
-verifier whenever that profile's machine-local state exists, so one command
-covers the whole machine; each profile verifier can also be run on its own. On
-macOS the equivalent checks live in the same script, behind the flags above.
+verifier, so one command covers the whole machine; each profile verifier can
+also be run on its own. On macOS the equivalent checks live in the same script,
+behind the flags above.
+
+Which of them it runs is decided by two records together, never by one alone.
+The installation lifecycle record says what the machine asked for; the profile's
+machine-local state says what the install left behind. A capability with state
+is verified, whether or not it was selected, because what that state describes
+is on the machine either way -- an unselected one is verified and reported as a
+leftover. A capability that was selected and has no readable state is a named
+failure: nothing about it can be verified, and saying nothing would report the
+same clean machine as one that never selected it. Reading the state file alone
+used to do exactly that (issue #344).
+
+Which file holds a capability's state, and which schema that file is allowed to
+declare, come from the `state` and `state_profile` columns of
+`config/capabilities.tsv` — the same pair `./install.sh doctor` reads — so no
+verifier carries its own copy of either.
 
 `scripts/verify.sh` is a deprecated compatibility wrapper for
 `platforms/fedora/scripts/verify.sh`. It still forwards unchanged; use the
@@ -60,9 +77,10 @@ platform path.
 
 ## What a verifier proves
 
-A verifier runs one section per capability that was installed, and stays silent
-about capabilities that were not — it also confirms that an unselected optional
-profile left nothing behind. The Fedora verifier is the broadest one, and its
+A verifier runs one section per optional capability, whether or not this
+machine has it: a capability it does not have is reported as not selected and
+not applicable, and confirmed to have left nothing behind. Silence about a
+capability is never a verdict. The Fedora verifier is the broadest one, and its
 sections are representative of all of them:
 
 - the Fedora security baseline: SELinux enforcing, firewalld enabled and active, Secure
