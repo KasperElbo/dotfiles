@@ -86,6 +86,17 @@ docker exec "$container" systemctl enable --now firewalld.service >/dev/null
 # and it is a large transaction, which is part of why this job is slow.
 docker exec "$container" dnf --assumeyes install plasma-workspace >/dev/null
 
+# Dolphin, for the same reason and from the same rule. The KDE capability
+# exists to make Dolphin's sftp:// locations work, so the Fedora verifier
+# requires the file manager on a machine that selected --kde -- and the
+# capability declares kio-extras rather than Dolphin, because it must no more
+# install the file manager than it installs Plasma.
+#
+# That check had never run here. It is gated on plasmashell, which nothing in
+# this container provided until plasma-workspace was seeded above, so the SFTP
+# baseline was quietly skipped rather than verified.
+docker exec "$container" dnf --assumeyes install dolphin >/dev/null
+
 # sudo approves an account through pam_unix, which shells out to the setuid
 # unix_chkpwd helper whenever it cannot read the shadow entry itself. That
 # helper does not work inside a privileged Fedora container on a GitHub-hosted
