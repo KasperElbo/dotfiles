@@ -89,10 +89,16 @@ printf '%s\n' "$mock_bin/zsh" >"$root/shells"
 # --- Homebrew and system commands -------------------------------------------
 
 # git is the real one: the tmux plugin fixture below is a real checkout.
-for command_name in delta eza fd fzf gh jq rg shellcheck sqlite3 \
+for command_name in delta eza fd fzf gh rg shellcheck sqlite3 \
   starship stow tmux zoxide aerospace; do
   ln -s /usr/bin/true "$mock_bin/$command_name"
 done
+# jq is the real one too: the Mason inventory check reads each package's
+# receipt with it, and a jq that answers nothing would report every package as
+# carrying a receipt that names no package.
+jq_path="$(command -v jq)" ||
+  _test_die 'jq is required: the Mason inventory check reads package receipts with it'
+ln -s "$jq_path" "$mock_bin/jq"
 # The verifier checks Neovim against the floor in config/tool-floors.tsv, so
 # this fixture must report a version that parses; /usr/bin/true cannot, and a
 # check that can only fail proves nothing.
@@ -211,12 +217,18 @@ printf 'set -g @catppuccin_flavor "%s"\n' "$theme" >"$config/dotfiles/tmux-theme
 ln -s "$repo_root/starship/.config/starship/catppuccin-$theme.toml" \
   "$config/starship/catppuccin-$theme.toml"
 
-# The tracked Mason inventory, installed.
+# The tracked Mason inventory, installed. A package directory alone is not an
+# installation -- Mason writes each package's receipt last -- so the fixture
+# leaves behind what a finished install leaves behind.
 mason_root="$data/nvim/mason/packages"
+mason_packages=()
 while IFS= read -r package; do
   [[ -n "$package" && "$package" != \#* ]] || continue
-  mkdir -p "$mason_root/$package"
+  mason_packages+=("$package")
 done <"$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt"
+"$repo_root/tests/support/mason-mock-install.sh" \
+  --pins "$repo_root/common/mason-package-versions.txt" "$data/nvim/mason" \
+  "${mason_packages[@]}"
 
 # The pinned Catppuccin tmux checkout.
 tmux_plugin="$data/tmux/plugins/catppuccin"
@@ -354,11 +366,20 @@ expect_one_more_failure 'a missing Delta theme override fails verification' \
   'Delta local theme override matches: expected'
 mv "$root/git-theme" "$config/dotfiles/git-theme"
 
-rmdir "$mason_root/lua-language-server"
+mv "$mason_root/lua-language-server" "$root/lua-language-server"
 run_verifier
 expect_one_more_failure 'a missing Mason package fails verification' \
   'Mason package not installed: lua-language-server'
-mkdir -p "$mason_root/lua-language-server"
+mv "$root/lua-language-server" "$mason_root/lua-language-server"
+
+# A package directory that exists but carries no finished installation is the
+# state the verifier used to credit. Mason writes the receipt last, so removing
+# it is exactly what an interrupted install leaves behind.
+mv "$mason_root/marksman/mason-receipt.json" "$root/marksman-receipt.json"
+run_verifier
+expect_one_more_failure 'an unfinished Mason install fails verification' \
+  'Mason package marksman is not completely installed'
+mv "$root/marksman-receipt.json" "$mason_root/marksman/mason-receipt.json"
 
 mv "$tmux_plugin" "$root/catppuccin-tmux"
 run_verifier

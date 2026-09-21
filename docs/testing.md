@@ -377,6 +377,32 @@ both promise. `tests/fixtures/neovim-contended-init/colorscheme.lua` keeps the
 arrangement that was wrong (issue #248, RA-36): the behavioural test and the
 validator must both reject it, so neither can go green vacuously.
 
+### Mason package identity
+
+A Mason package directory is evidence that an installation was *started*, never
+that one finished. Mason promotes the staged files, links the package's
+executables into `<mason>/bin` and writes `<package>/mason-receipt.json` last,
+so an interrupted install, a half-deleted package and a converged one are all
+directories. `common/lib/mason.sh` is the one place that decides what
+"installed" means -- a receipt that parses, names its own package, claims links
+that exist and are executable, and records the version an explicit pin in
+`common/mason-package-versions.txt` demands -- and both `check_mason_inventory`
+in `common/lib/verify.sh` and the provisioning in
+`common/install-neovim-tools.sh` ask it, so the verifier cannot credit a
+package the installer would have to repair (issue #346).
+
+A fixture that creates a package directory therefore models an interrupted
+install and not a working one. `tests/support/mason-mock-install.sh` leaves
+behind what a finished install leaves behind, optionally at the versions
+`--pins` names, and every suite with a Mason fixture builds its packages through
+it. `tests/test-verifier.sh` and `tests/test-neovim-bootstrap.sh` then damage a
+complete installation one way at a time -- an empty directory, a missing
+receipt, a missing linked executable, a truncated receipt, a version the pin
+file no longer names -- and require the verifier to report it and a rerun to
+repair it, while the complete package beside it stays untouched. That undamaged
+sibling is what keeps the cases honest: a check that had started failing
+everything would fail there too.
+
 ### Documentation architecture
 
 `tests/test-documentation.sh` owns the documentation gates in
