@@ -400,11 +400,19 @@ in `common/lib/verify.sh` and the provisioning in
 `common/install-neovim-tools.sh` ask it, so the verifier cannot credit a
 package the installer would have to repair (issue #346).
 
+The Parrot CTF verifier asks the same question through
+`check_mason_package`, because its inventory policy differs and its answer
+about a package must not (issue #366): the reduced profile is an isolation
+boundary, so a package Mason holds that the profile does not list is a failure
+there rather than the warning `check_mason_inventory` raises, and that set
+comparison stays its own check beside the per-package one.
+
 A fixture that creates a package directory therefore models an interrupted
 install and not a working one. `tests/support/mason-mock-install.sh` leaves
 behind what a finished install leaves behind, optionally at the versions
 `--pins` names, and every suite with a Mason fixture builds its packages through
-it. `tests/test-verifier.sh` and `tests/test-neovim-bootstrap.sh` then damage a
+it. `tests/test-verifier.sh`, `tests/test-neovim-bootstrap.sh` and
+`tests/test-parrot-verification.sh` then damage a
 complete installation one way at a time -- an empty directory, a missing
 receipt, a missing linked executable, a truncated receipt, a version the pin
 file no longer names -- and require the verifier to report it and a rerun to
