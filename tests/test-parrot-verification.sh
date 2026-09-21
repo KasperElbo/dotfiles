@@ -235,11 +235,16 @@ printf '# theme\n' >"$tmux_plugin/catppuccin.tmux"
   commit -qm theme
 /usr/bin/git -C "$tmux_plugin" tag "$tmux_pin"
 
+# Install-time state the verifier reads and never writes (issue #345).
+parrot_mise_context="$home/.local/state/dotfiles/mise-context"
+mkdir -p "$parrot_mise_context"
+
 verify_environment=(
   env
   "HOME=$home"
   "XDG_CONFIG_HOME=$config"
   "XDG_DATA_HOME=$data"
+  "XDG_STATE_HOME=$home/.local/state"
   "PATH=$mock_bin:/usr/bin:/bin"
   "MISE_DATA_DIR=$data/mise"
   "MOCK_NVIM=$nvim_install"
@@ -339,5 +344,28 @@ if "${verify_environment[@]}" \
   exit 1
 fi
 grep -Fq 'john is installed by Parrot but is not resolvable' "$test_root/missing-tool.log"
+
+# The Parrot verifier reaches mise too, and is read-only about the context it
+# resolves from (issue #345).
+printf '[tools]\nstray = "1"\n' >"$parrot_mise_context/.mise.toml"
+stray_digest="$(sha256sum <"$parrot_mise_context/.mise.toml" | cut -d ' ' -f 1)"
+if "${verify_environment[@]}" \
+  "$repo_root/platforms/parrot-ctf/scripts/verify.sh" \
+  >"$test_root/stray-context.log" 2>&1; then
+  printf 'Parrot verification accepted a contaminated mise context.\n' >&2
+  exit 1
+fi
+grep -Fq 'mise resolution is not deterministic' "$test_root/stray-context.log"
+grep -Fq '.mise.toml' "$test_root/stray-context.log"
+if [[ ! -f "$parrot_mise_context/.mise.toml" ]]; then
+  printf 'Parrot verification deleted the stray declaration it was meant to report.\n' >&2
+  exit 1
+fi
+if [[ "$stray_digest" != "$(sha256sum <"$parrot_mise_context/.mise.toml" | cut -d ' ' -f 1)" ]]; then
+  printf 'Parrot verification rewrote the stray declaration in the mise context.\n' >&2
+  exit 1
+fi
+rm -f "$parrot_mise_context/.mise.toml"
+printf 'PASS: the Parrot verifier reports a contaminated mise context and leaves it in place\n'
 
 printf 'Parrot clean-install and PATH ownership verification tests passed.\n'

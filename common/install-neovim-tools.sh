@@ -76,6 +76,16 @@ if [[ -n "$mise_command" ]]; then
   nvim_command=("$mise_command" exec -- nvim)
 fi
 
+# Bootstrap phases run from the deterministic mise context (see lib/common.sh),
+# so an installer started inside an unrelated project cannot have that
+# project's .mise.toml decide which Neovim or which runtimes Mason builds
+# against. Every phase argument is a "+command", never a path, so the neutral
+# working directory changes nothing else.
+#
+# Prepared here rather than below the floor check, because that check is itself
+# a run_mise call and run_mise no longer prepares: only install-time code does.
+mise_context="$(mise_prepare_context)"
+
 # Checked against the Neovim these phases will actually run -- mise's, when
 # mise owns it, not whatever else is on PATH -- and before the first headless
 # phase. Below the floor, Mason fails partway through with a Lua error that
@@ -90,13 +100,6 @@ nvim_version_probe=(nvim)
   nvim_version_probe=(run_mise "$mise_command" exec -- nvim)
 tool_floor_check nvim "${nvim_version_probe[@]}" ||
   die "Install a newer Neovim first: DNF on Fedora, Homebrew on macOS, or the pinned mise tool on the Parrot CTF guest."
-
-# Bootstrap phases run from the deterministic mise context (see lib/common.sh),
-# so an installer started inside an unrelated project cannot have that
-# project's .mise.toml decide which Neovim or which runtimes Mason builds
-# against. Every phase argument is a "+command", never a path, so the neutral
-# working directory changes nothing else.
-mise_context="$(mise_prepare_context)"
 
 run_nvim_phase() {
   local bootstrap_mode="$1"

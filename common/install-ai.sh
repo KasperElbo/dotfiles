@@ -640,6 +640,11 @@ ensure_dir "$conf_dir"
   fi
 } | atomic_write_file "$conf_file"
 
+# Install time is when the deterministic context is built; run_mise only reads
+# it (see lib/common.sh). Here rather than beside the mise lookup above, so a
+# missing prerequisite is still reported by its own require_command first.
+mise_prepare_context >/dev/null
+
 for spec in ${stale_mise_specs[@]+"${stale_mise_specs[@]}"}; do
   info "Removing the no-longer-selected mise tool: $spec"
   run_mise "$mise_command" uninstall "$spec" ||

@@ -287,3 +287,153 @@ assert_file_contains "$resolved_log" 'node'
 printf 'PASS: a stray config in the context directory is removed, not honoured\n'
 
 printf 'Deterministic mise context tests passed.\n'
+
+# --- Verification never writes to the context (issue #345) ------------------
+#
+# docs/workflows/verification.md promises that nothing in the verification path
+# changes the machine. The context is repository-owned, which bounds the damage
+# but does not make it correct: a verifier that rebuilt the context would erase
+# exactly the contamination worth reporting and then pass. Preparation is now
+# install-time only, and these cases hold verification to the promise by
+# snapshotting the context tree around a real verifier run.
+
+context_dir="$state/dotfiles/mise-context"
+
+# One line per entry, path and content digest, plus the directory's own
+# existence on the first line, so a created, deleted, renamed or rewritten file
+# all change the snapshot.
+snapshot_context() {
+  local entry
+
+  if [[ ! -d "$context_dir" ]]; then
+    printf 'absent\n'
+    return 0
+  fi
+
+  printf 'present\n'
+  while IFS= read -r -d '' entry; do
+    printf '%s\t%s\n' "${entry#"$context_dir/"}" \
+      "$(sha256sum <"$entry" | cut -d ' ' -f 1)"
+  done < <(find "$context_dir" -mindepth 1 \( -type f -o -type l \) -print0 |
+    sort -z)
+}
+
+prepare_context_as_installer() {
+  run_from "$home" bash -c '
+    # shellcheck source=/dev/null
+    source "$1/common/lib/common.sh"
+    mise_prepare_context >/dev/null
+  ' _ "$repo_root"
+}
+
+# The negative control for every "unchanged" assertion below. A snapshot that
+# cannot see the mutation it forbids would pass all of them while the verifier
+# quietly rebuilt the context, so the mutation is performed deliberately once
+# and the snapshot is required to notice.
+rm -rf "$context_dir"
+mkdir -p "$context_dir"
+printf '[tools]\ncontrol = "1"\n' >"$context_dir/mise.toml"
+control_before="$(snapshot_context)"
+assert_contains "$control_before" 'mise.toml'
+prepare_context_as_installer
+control_after="$(snapshot_context)"
+[[ "$control_before" != "$control_after" ]] ||
+  _test_die 'the context snapshot cannot see install-time preparation, so it proves nothing about verification'
+assert_not_contains "$control_after" 'mise.toml'
+printf 'PASS: the snapshot detects the context mutation the verification cases forbid\n'
+
+# Each filename install-time preparation removes, one case each: the verifier
+# must report it and leave it exactly where it was.
+for stray in mise.toml .mise.toml mise.local.toml .mise.local.toml; do
+  rm -rf "$context_dir"
+  mkdir -p "$context_dir"
+  printf '[tools]\nstray-in-%s = "1"\n' "$stray" >"$context_dir/$stray"
+  stray_digest="$(sha256sum <"$context_dir/$stray" | cut -d ' ' -f 1)"
+  context_before="$(snapshot_context)"
+
+  verify_output="$(run_from "$caller_project" \
+    "$repo_root/common/verify-ai.sh" 2>&1 || true)"
+
+  context_after="$(snapshot_context)"
+  assert_eq "$context_before" "$context_after" \
+    "verification changed a mise context contaminated with $stray"
+  assert_path_exists "$context_dir/$stray"
+  assert_eq "$stray_digest" "$(sha256sum <"$context_dir/$stray" | cut -d ' ' -f 1)" \
+    "verification rewrote $stray in the mise context"
+  assert_contains "$verify_output" 'mise resolution is not deterministic'
+  assert_contains "$verify_output" "$stray"
+  printf 'PASS: verification reports a context contaminated with %s and leaves it in place\n' "$stray"
+done
+
+# A missing context is the installer's business, not the verifier's.
+rm -rf "$context_dir"
+context_before="$(snapshot_context)"
+assert_eq 'absent' "$context_before" 'the missing-context case did not start from a missing context'
+verify_output="$(run_from "$caller_project" \
+  "$repo_root/common/verify-ai.sh" 2>&1 || true)"
+assert_eq "$context_before" "$(snapshot_context)" \
+  'verification created the missing mise context'
+assert_path_missing "$context_dir"
+assert_contains "$verify_output" 'mise resolution is not deterministic'
+assert_contains "$verify_output" 'does not exist'
+printf 'PASS: verification reports a missing context instead of creating one\n'
+
+# A clean context passes, and unrelated files in it are neither read as
+# configuration nor disturbed.
+prepare_context_as_installer
+printf 'not a tool declaration\n' >"$context_dir/notes.txt"
+context_before="$(snapshot_context)"
+verify_output="$(run_from "$caller_project" \
+  "$repo_root/common/verify-ai.sh" 2>&1 || true)"
+assert_eq "$context_before" "$(snapshot_context)" \
+  'verification changed a clean mise context'
+assert_contains "$verify_output" 'The deterministic mise context is present and declares no tools'
+assert_not_contains "$verify_output" 'mise resolution is not deterministic'
+printf 'PASS: verification leaves a clean context untouched and says so\n'
+
+# run_mise itself is the shared gate, so it refuses instead of repairing
+# however it is reached.
+rm -rf "$context_dir"
+mkdir -p "$context_dir"
+printf '[tools]\nstray = "1"\n' >"$context_dir/mise.toml"
+run_mise_output="$(run_from "$home" bash -c '
+  # shellcheck source=/dev/null
+  source "$1/common/lib/common.sh"
+  run_mise "$1/tests/fixtures/does-not-exist" --version
+' _ "$repo_root" 2>&1 || true)"
+assert_contains "$run_mise_output" 'Refusing to run mise'
+assert_path_exists "$context_dir/mise.toml"
+printf 'PASS: run_mise refuses a contaminated context rather than repairing it\n'
+
+# Every verifier that can reach run_mise must ask about the context first,
+# directly or through the shared checks that call it.
+verifiers_reaching_mise=()
+while IFS= read -r -d '' verifier; do
+  body="$(cat "$verifier")"
+  case "$body" in
+  *run_mise*| *check_mise_owned*| *check_no_global_npm_duplicate*) ;;
+  *) continue ;;
+  esac
+  verifiers_reaching_mise+=("$verifier")
+  # The entry points a person runs, not common/lib/verify.sh, which defines
+  # the check and would otherwise satisfy this loop by existing.
+done < <(find "$repo_root/common" "$repo_root/platforms" -type f -name 'verify*.sh' \
+  -not -path "$repo_root/common/lib/*" -print0 | sort -z)
+
+((${#verifiers_reaching_mise[@]} > 0)) ||
+  _test_die 'no verifier was found to reach mise, so this coverage check proves nothing'
+
+for verifier in "${verifiers_reaching_mise[@]}"; do
+  body="$(cat "$verifier")"
+  case "$body" in
+  *check_mise_context*) ;;
+  *)
+    _test_die "verifier reaches mise without checking the deterministic context: ${verifier#"$repo_root/"}"
+    ;;
+  esac
+done
+printf 'PASS: all %d verifiers that reach mise check the deterministic context (%s)\n' \
+  "${#verifiers_reaching_mise[@]}" \
+  "$(printf '%s ' "${verifiers_reaching_mise[@]#"$repo_root/"}" | sed 's/ $//')"
+
+printf 'Read-only verification of the mise context passed.\n'
