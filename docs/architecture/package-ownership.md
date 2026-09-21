@@ -40,7 +40,7 @@ unsupported on a platform install nothing there and are omitted.
 |---|---|---|---|
 | `ai` | `--ai` | `mise` | `claude-code` `herdr` |
 | `backpass` | `--backpass` | `mise-npm` | `acpx` `backpass` `lavish-axi` |
-| `base` | always | `dnf+terra` | `ShellCheck` `bat` `curl` `eza` `fd-find` `firewalld` `fzf` `gh` `ghostty` `git` `git-delta` `gnupg2` `jq` `libicu` `mise` `neovim` `openssh-clients` `ripgrep` `shadow-utils` `sqlite` `sqlite-devel` `starship` `stow` `tmux` `wl-clipboard` `xdg-utils` `zoxide` `zsh` `zsh-autosuggestions` `zsh-syntax-highlighting` |
+| `base` | always | `dnf+terra` | `ShellCheck` `bat` `curl` `eza` `fd-find` `firewalld` `fzf` `gh` `ghostty` `git` `git-delta` `gnupg2` `jq` `libicu` `mise` `neovim` `openssh-clients` `ripgrep` `shadow-utils` `sqlite` `sqlite-devel` `starship` `stow` `tmux` `unzip` `wl-clipboard` `xdg-utils` `zoxide` `zsh` `zsh-autosuggestions` `zsh-syntax-highlighting` |
 | `codex` | `--codex` | `mise-npm` | `@openai/codex` |
 | `containers` | `--containers` | `dnf` | `podman` `podman-compose` |
 | `desktop-tools` | `--desktop-tools` | `dnf+rpmfusion` | `gimp` `mpv` `pdfarranger` `skanpage` |
@@ -52,7 +52,7 @@ unsupported on a platform install nothing there and are omitted.
 | `hardware` | `--hardware` | `dnf+copr` | `akmod-nvidia` `akmods` `amd-gpu-firmware` `asusctl` `asusctl-rog-gui` `fwupd` `kmodtool` `mesa-dri-drivers` `mesa-va-drivers` `mesa-vulkan-drivers` `mokutil` `openssl` `pciutils` `xorg-x11-drv-nvidia-cuda` |
 | `kde` | `--kde` | `dnf+upstream-theme` | `kio-extras` `kpackagetool6` `wget` |
 | `latex` | `--latex` | `dnf` | `biber` `latexmk` `texlive-biblatex` `texlive-latexindent` `texlive-scheme-medium` |
-| `ocaml` | `--ocaml` | `dnf+opam` | `bubblewrap` `bzip2` `gcc` `gcc-c++` `m4` `make` `opam` `patch` `pkgconf-pkg-config` `unzip` |
+| `ocaml` | `--ocaml` | `dnf+opam` | `bubblewrap` `bzip2` `gcc` `gcc-c++` `m4` `make` `opam` `patch` `pkgconf-pkg-config` |
 | `sway` | `--sway` | `dnf` | `blueman` `brightnessctl` `cliphist` `dex-autostart` `fuzzel` `grim` `libnotify` `lxqt-policykit` `mako` `nm-connection-editor` `pavucontrol` `playerctl` `slurp` `swappy` `sway` `sway-systemd` `swaybg` `swayidle` `swaylock` `waybar` `wireplumber` `xdg-desktop-portal-gtk` `xdg-desktop-portal-wlr` |
 | `tailscale` | `--tailscale` | `dnf-tailscale` | `tailscale` |
 | `vm-guest` | `--vm-guest` | `dnf` | `qemu-guest-agent` `spice-vdagent` `xclip` |

@@ -266,7 +266,7 @@ every compiler switch and OCaml ecosystem package installed afterwards:
 
 | Platform | Native provider | Packages |
 | --- | --- | --- |
-| Fedora | DNF | `bzip2`, `bubblewrap`, `gcc`, `gcc-c++`, `m4`, `make`, `opam`, `patch`, `pkgconf-pkg-config`, `unzip` |
+| Fedora | DNF | `bzip2`, `bubblewrap`, `gcc`, `gcc-c++`, `m4`, `make`, `opam`, `patch`, `pkgconf-pkg-config` |
 | Fedora WSL | DNF, a smaller set (the WSL baseline already owns compiler/build prerequisites) | `bubblewrap`, `m4`, `opam`, `patch`, `pkgconf-pkg-config` |
 | macOS | Homebrew | `opam`, `pkg-config`, `gmp` |
 
