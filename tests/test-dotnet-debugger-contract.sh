@@ -32,7 +32,7 @@ grep -Fq '"dotnet:EasyDotnet" = "3.4.25"' "$mise_config" ||
 
 for platform in fedora fedora-wsl macos; do
   awk -F '\t' -v platform="$platform" \
-    '$1 == "dotnet-debug" && $2 == platform && $8 == "mise-easydotnet" && $15 == "implemented" { found = 1 } END { exit !found }' \
+    '$1 == "dotnet-debug" && $2 == platform && $8 == "mise-easydotnet" && $16 == "implemented" { found = 1 } END { exit !found }' \
     "$repo_root/config/capabilities.tsv" ||
     fail_test "$platform does not declare the EasyDotnet debugger provider"
 done

@@ -58,7 +58,8 @@ capability_row="$(awk -F'\t' '$1 == "dictation" && $2 == "macos"' \
 [[ -n "$capability_row" ]] ||
   _test_die 'config/capabilities.tsv has no macos row for the dictation capability'
 IFS=$'\t' read -r _ _ _ capability_flag capability_default capability_dependencies \
-  _ capability_provider _ _ capability_verifier capability_state capability_docs \
+  _ capability_provider _ _ capability_verifier capability_state \
+  capability_state_profile capability_docs \
   _ capability_status capability_installers capability_ci_scope <<<"$capability_row"
 assert_eq '--dictation' "$capability_flag" 'dictation capability flag'
 assert_eq 'disabled' "$capability_default" 'dictation capability default'
@@ -67,6 +68,11 @@ assert_eq 'upstream-dmg' "$capability_provider" 'dictation capability provider'
 assert_eq 'implemented' "$capability_status" 'dictation capability status'
 assert_eq 'platforms/macos/scripts/verify.sh' "$capability_verifier" 'dictation verifier'
 assert_eq 'macos-dictation' "$capability_state" 'dictation state file name'
+# The file is named for the platform and the schema inside it is not: macOS
+# and Fedora both record a `dictation` profile, in their own state files, and
+# scripts/doctor.sh compares the file against this column rather than against
+# the file's own `profile=` key.
+assert_eq 'dictation' "$capability_state_profile" 'dictation state schema'
 assert_eq 'docs/profiles/dictation.md#macos' "$capability_docs" 'dictation documentation'
 assert_eq 'platforms/macos/scripts/install-dictation.sh' "$capability_installers" \
   'dictation installer'

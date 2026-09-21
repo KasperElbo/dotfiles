@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import pathlib
 import re
+import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
@@ -35,8 +36,8 @@ MANIFEST = pathlib.Path(os.environ.get("CAPABILITY_MANIFEST", ROOT / "config" / 
 FIELDS = [
     "capability", "platform", "profile", "cli_flag", "default",
     "dependencies", "conflicts", "provider", "packages", "stow",
-    "verifier", "state", "docs", "provenance", "status", "installers",
-    "ci_scope",
+    "verifier", "state", "state_profile", "docs", "provenance", "status",
+    "installers", "ci_scope",
 ]
 # Every platform this repository installs, which is not the same list as the
 # platforms `./install.sh --platform` accepts: the Windows host is installed by
@@ -170,6 +171,103 @@ def markdown_anchors(path: pathlib.Path) -> set[str]:
         anchor = re.sub(r"[^\w\- ]", "", anchor)
         anchors.add(anchor.replace(" ", "-"))
     return anchors
+
+
+# The `state` column names a machine-local file; `state_profile` names the
+# versioned schema that file's `profile=` key must declare. They are two
+# different names on purpose. A state id is per capability and platform -- the
+# macOS container profile lives in `macos-containers.conf` beside the Fedora
+# one -- while the schema is the record's shape, and macOS records a Podman
+# machine where Fedora records a container runtime. Reading the schema out of
+# the file, which scripts/doctor.sh used to do, proves the file agrees with
+# itself and nothing more: a valid `ocaml` record dropped into
+# `containers.conf` passed. The expected schema has to come from the registry,
+# so it is written here per row.
+#
+# One state id may legitimately accept more than one schema.
+# `platforms/fedora/scripts/install-asus-hardware.sh` writes the selected model
+# as the profile, and the model is detected from DMI at install time rather
+# than recorded in the lifecycle state, so `hardware.conf` is either of the two
+# supported models. Narrowing that further is
+# `platforms/fedora/scripts/verify-asus-hardware.sh`'s job: it compares the
+# recorded model with the machine's own DMI identity.
+PROFILE_STATE_LIBRARY = ROOT / "common" / "lib" / "profile-state.sh"
+
+
+def known_state_profiles(names: set[str]) -> tuple[set[str], int]:
+    """Which of `names` common/lib/profile-state.sh declares a schema for.
+
+    Asked of the library itself, by running it, rather than by matching the
+    text of its `case` arms: a profile is known exactly when
+    profile_state_allowed_keys accepts it, which is the same test
+    profile_state_validate_file applies to a real state file.
+    """
+    if not names:
+        return set(), 0
+    script = (
+        'set -euo pipefail\n'
+        'source "$1"\n'
+        'shift\n'
+        'for profile in "$@"; do\n'
+        '  if profile_state_allowed_keys "$profile" >/dev/null; then\n'
+        '    printf \'%s\\n\' "$profile"\n'
+        '  fi\n'
+        'done\n'
+    )
+    result = subprocess.run(
+        ["bash", "-c", script, "bash", str(PROFILE_STATE_LIBRARY), *sorted(names)],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        fail(f"could not read the state schemas from {PROFILE_STATE_LIBRARY}: "
+             f"{result.stderr.strip() or 'bash exited ' + str(result.returncode)}")
+        return set(), 1
+    return {line for line in result.stdout.split("\n") if line}, 0
+
+
+def check_state_profiles(rows: list[dict[str, str]]) -> int:
+    """`state_profile` names a real schema, and one state file has one schema.
+
+    scripts/doctor.sh reads this column for the capabilities a machine recorded
+    as installed, so an entry that names a schema profile-state.sh does not
+    have would make doctor reject a state file every machine writes correctly,
+    and two rows disagreeing about one file would make doctor's verdict depend
+    on which capability it reached first.
+    """
+    errors = 0
+    declared: dict[str, tuple[str, str]] = {}
+    wanted: set[str] = set()
+    for line, row in enumerate(rows, 2):
+        state, profiles = row["state"], row["state_profile"]
+        where = f"line {line}: {row['platform']}/{row['capability']}"
+        if (state == "-") != (profiles == "-"):
+            fail(f"{where}: state {state!r} and state_profile {profiles!r} must "
+                 f"either both be '-' or both name something")
+            errors += 1
+            continue
+        if state == "-":
+            continue
+        previous = declared.get(state)
+        if previous is None:
+            declared[state] = (profiles, where)
+        elif previous[0] != profiles:
+            fail(f"{where}: state file {state!r} is declared with schema "
+                 f"{profiles!r} here and {previous[0]!r} at {previous[1]}; one "
+                 f"state file has one schema")
+            errors += 1
+        wanted.update(split(profiles))
+
+    known, probe_errors = known_state_profiles(wanted)
+    errors += probe_errors
+    if probe_errors:
+        return errors
+    for state, (profiles, where) in sorted(declared.items()):
+        for profile in split(profiles):
+            if profile not in known:
+                fail(f"{where}: state_profile {profile!r} is not a schema "
+                     f"common/lib/profile-state.sh declares")
+                errors += 1
+    return errors
 
 
 def check_option_manifest(rows: list[dict[str, str]]) -> int:
@@ -882,6 +980,7 @@ def main() -> int:
     errors += check_verifier_library(verifiers)
     errors += check_verifier_ci(verifiers)
     errors += check_capability_ci_selection(rows)
+    errors += check_state_profiles(rows)
     return 1 if errors else 0
 
 

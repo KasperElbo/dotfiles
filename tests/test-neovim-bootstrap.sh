@@ -2,6 +2,10 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The mocked bootstrap leaves behind what a real Mason install leaves behind,
+# so common/lib/mason.sh reads it as installed.
+export MASON_MOCK_INSTALL="$repo_root/tests/support/mason-mock-install.sh"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -41,20 +45,21 @@ for argument in "$@"; do
 
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
     [[ "${MOCK_NVIM_FAIL_MASON:-false}" != "true" ]] || exit 23
-    printf 'mason-targets=%s\n' "$DOTFILES_MASON_PACKAGES" >>"$COMMAND_LOG"
-    mkdir -p "$XDG_DATA_HOME/nvim/mason/bin"
-    for target in $DOTFILES_MASON_PACKAGES; do
-      # Mason stores a package under its name whether or not the request
-      # carried an "@version" pin.
+    printf 'mason-targets=%s\n' "${DOTFILES_MASON_PACKAGES:-}" >>"$COMMAND_LOG"
+    printf 'mason-repairs=%s\n' "${DOTFILES_MASON_REPAIR_PACKAGES:-}" >>"$COMMAND_LOG"
+    for target in ${DOTFILES_MASON_REPAIR_PACKAGES:-} ${DOTFILES_MASON_PACKAGES:-}; do
       package="${target%%@*}"
-      mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
-      if [[ "$package" == tree-sitter-cli ]]; then
-        cat >"$XDG_DATA_HOME/nvim/mason/bin/tree-sitter" <<'TREEEOF'
-#!/usr/bin/env bash
-exit 0
-TREEEOF
-        chmod +x "$XDG_DATA_HOME/nvim/mason/bin/tree-sitter"
+      # A Mason install killed between promoting its files and writing its
+      # receipt leaves the package directory behind and nothing in it.
+      if [[ " ${MOCK_NVIM_INCOMPLETE_PACKAGES:-} " == *" $package "* ]]; then
+        mkdir -p "$XDG_DATA_HOME/nvim/mason/packages/$package"
+        continue
       fi
+      # A real install leaves a receipt, a payload and a bin link behind, and
+      # common/lib/mason.sh reads all three; a directory alone is what an
+      # interrupted install leaves, so the mock must not stop there.
+      "${MASON_MOCK_INSTALL:?the suite must export the Mason install fixture}" \
+        "$XDG_DATA_HOME/nvim/mason" "$target"
     done
   fi
 done
@@ -216,4 +221,146 @@ grep -Fq 'nvim 0.9.5 is older than the required 0.12' "$test_root/below-floor.ou
     "$(cat "$below_floor_log")" >&2
   exit 1
 }
+# A package directory is evidence that an installation was started, never that
+# one finished: Mason promotes the staged files, links the executables and
+# writes mason-receipt.json last. Each package below is damaged in one of the
+# ways a real machine produces, and a rerun has to repair every one of them
+# while leaving a complete installation alone.
+repair_root="$test_root/repair-data"
+repair_log="$test_root/repair.log"
+repair_environment=(
+  env
+  "HOME=$test_root/home"
+  "XDG_DATA_HOME=$repair_root"
+  "PATH=$mock_bin:$PATH"
+  "COMMAND_LOG=$repair_log"
+  "NEOVIM_BOOTSTRAP_TIMEOUT=1m"
+)
+
+"${repair_environment[@]}" "$repo_root/common/install-neovim-tools.sh" >/dev/null
+
+roslyn_pin="$(awk '$1 == "roslyn" { print $2 }' "$pin_file")"
+[[ -n "$roslyn_pin" ]] || {
+  printf 'The pin file no longer pins roslyn, so the pin cases prove nothing\n' >&2
+  exit 1
+}
+
+# The untouched control. A complete installation must come out of the rerun
+# byte for byte as it went in, so a repair that reinstalled the whole inventory
+# would fail here rather than read as thorough.
+untouched_before="$(
+  find "$repair_root/nvim/mason/packages/prettier" -type f -exec sha256sum {} + | sort
+)"
+[[ -n "$untouched_before" ]] || {
+  printf 'The mocked install wrote no prettier files, so the control proves nothing\n' >&2
+  exit 1
+}
+
+# An empty package directory, which is what the audited verifier and installer
+# both read as installed.
+rm -rf -- "$repair_root/nvim/mason/packages/shfmt"
+mkdir -p "$repair_root/nvim/mason/packages/shfmt"
+# An install interrupted after its files were promoted and linked.
+rm -f -- "$repair_root/nvim/mason/packages/marksman/mason-receipt.json"
+# The executable the receipt claims, gone from Mason's bin directory.
+rm -f -- "$repair_root/nvim/mason/bin/stylua"
+# A receipt truncated by a killed write.
+printf '{"name": "json-l' >"$repair_root/nvim/mason/packages/json-lsp/mason-receipt.json"
+# A pinned package sitting at a version the pin file no longer names.
+sed -e "s|pkg:mock/roslyn@[^\"]*|pkg:mock/roslyn@0.0.0-stale|" \
+  "$repair_root/nvim/mason/packages/roslyn/mason-receipt.json" \
+  >"$repair_root/nvim/mason/packages/roslyn/mason-receipt.json.new"
+mv -- "$repair_root/nvim/mason/packages/roslyn/mason-receipt.json.new" \
+  "$repair_root/nvim/mason/packages/roslyn/mason-receipt.json"
+
+"${repair_environment[@]}" "$repo_root/common/install-neovim-tools.sh" >/dev/null
+
+repair_request="$(grep -F 'mason-repairs=' "$repair_log" | tail -n1)"
+install_request="$(grep -F 'mason-targets=' "$repair_log" | tail -n1)"
+[[ -n "$repair_request" ]] || {
+  printf 'The rerun asked Mason for no repairs at all\n' >&2
+  cat "$repair_log" >&2
+  exit 1
+}
+for damaged in shfmt marksman stylua json-lsp; do
+  [[ "$repair_request" == *"$damaged"* ]] || {
+    printf 'The rerun did not repair the damaged package %s:\n%s\n' \
+      "$damaged" "$repair_request" >&2
+    exit 1
+  }
+done
+# The half of the finding about pins: a package that already exists must be
+# compared against its pin, and repaired at that pin rather than skipped.
+[[ "$repair_request" == *"roslyn@$roslyn_pin"* ]] || {
+  printf 'The rerun did not repair roslyn at its pinned version %s:\n%s\n' \
+    "$roslyn_pin" "$repair_request" >&2
+  exit 1
+}
+# Repairs are not fresh installs, and nothing undamaged joined either list.
+[[ "$install_request" == 'mason-targets=' ]] || {
+  printf 'The rerun treated a damaged package as a fresh install:\n%s\n' \
+    "$install_request" >&2
+  exit 1
+}
+[[ "$repair_request" != *prettier* ]] || {
+  printf 'The rerun reinstalled a complete package:\n%s\n' "$repair_request" >&2
+  exit 1
+}
+
+while IFS= read -r package; do
+  [[ -n "$package" ]] || continue
+  receipt="$repair_root/nvim/mason/packages/$package/mason-receipt.json"
+  [[ -s "$receipt" ]] || {
+    printf 'The rerun left %s without a Mason receipt\n' "$package" >&2
+    exit 1
+  }
+done <"$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt"
+[[ -x "$repair_root/nvim/mason/bin/stylua" ]] || {
+  printf 'The rerun did not restore the stylua executable link\n' >&2
+  exit 1
+}
+roslyn_receipt="$(cat "$repair_root/nvim/mason/packages/roslyn/mason-receipt.json")"
+[[ "$roslyn_receipt" == *"roslyn@$roslyn_pin"* ]] || {
+  printf 'roslyn did not converge on its pin %s:\n%s\n' "$roslyn_pin" "$roslyn_receipt" >&2
+  exit 1
+}
+untouched_after="$(
+  find "$repair_root/nvim/mason/packages/prettier" -type f -exec sha256sum {} + | sort
+)"
+[[ "$untouched_before" == "$untouched_after" ]] || {
+  printf 'A complete Mason installation was rewritten by the repair rerun\n' >&2
+  exit 1
+}
+
+# A third run has nothing left to do, so Mason is not invoked at all.
+bootstrap_calls_before="$(grep -Fc '/common/bootstrap-mason.lua>' "$repair_log")"
+"${repair_environment[@]}" "$repo_root/common/install-neovim-tools.sh" >/dev/null
+[[ "$(grep -Fc '/common/bootstrap-mason.lua>' "$repair_log")" == "$bootstrap_calls_before" ]] || {
+  printf 'A converged inventory was provisioned again\n' >&2
+  exit 1
+}
+
+# Provisioning that cannot finish must say so. Before this, a Mason run that
+# left an empty directory behind ended in "LazyVim plugins and Mason editor
+# tools installed", and the next rerun agreed the package was there.
+incomplete_root="$test_root/incomplete-data"
+if output="$(
+  env HOME="$test_root/home" XDG_DATA_HOME="$incomplete_root" \
+    PATH="$mock_bin:$PATH" COMMAND_LOG="$test_root/incomplete.log" \
+    NEOVIM_BOOTSTRAP_TIMEOUT=1m MOCK_NVIM_INCOMPLETE_PACKAGES=shfmt \
+    "$repo_root/common/install-neovim-tools.sh" 2>&1
+)"; then
+  printf 'A Mason package that never finished installing was reported as success:\n%s\n' \
+    "$output" >&2
+  exit 1
+fi
+[[ "$output" == *"Mason provisioning incomplete; unconverged: shfmt"* ]] || {
+  printf 'The unconverged package was not named clearly:\n%s\n' "$output" >&2
+  exit 1
+}
+[[ -d "$incomplete_root/nvim/mason/packages/shfmt" ]] || {
+  printf 'The incomplete-install fixture left no directory, so it models nothing\n' >&2
+  exit 1
+}
+
 printf 'Neovim bootstrap convergence checks passed.\n'

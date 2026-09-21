@@ -20,6 +20,61 @@ source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
 # shellcheck source=network-sources.sh
 source "$(dirname "${BASH_SOURCE[0]}")/network-sources.sh"
 
+# preflight_xdg_layout
+#
+# Refuse an XDG root this repository does not deploy to, before anything is
+# mutated.
+#
+# Stow is given one target, $HOME, so a package's `.config` tree is linked to
+# $HOME/.config and its `.local/share` tree to $HOME/.local/share, whatever
+# XDG_CONFIG_HOME and XDG_DATA_HOME say. Almost everything that later reads
+# those files resolves them through the variables instead, so a nondefault root
+# makes Stow succeed and the runtime and the verifier look somewhere the links
+# are not. The data root disagrees with itself as well: the Fedora and macOS
+# verifiers check $XDG_DATA_HOME/wallpapers while the code that sets the
+# wallpaper builds $HOME/.local/share/wallpapers.
+#
+# Supporting a split layout would mean a second Stow target in all five Stow
+# entry points, conflict detection against both, and a runtime that agrees;
+# refusing it is the honest contract for a repository that deploys to $HOME,
+# and it is refused here rather than discovered as a broken shell after an
+# install that reported success. XDG_STATE_HOME is not checked: nothing is
+# stowed under `.local/state`, and everything this repository writes there it
+# also reads back through the variable.
+# preflight_same_directory <a> <b>: whether two paths name the same directory
+# by spelling alone. Repeated and trailing separators are noise -- $HOME/.config,
+# $HOME/.config/ and $HOME//.config are one directory -- and both sides are
+# normalized the same way, so the comparison is about the path and not about
+# how it was typed. Lexical on purpose: the target need not exist yet.
+preflight_same_directory() {
+  local a b
+  a="$(printf '%s' "$1" | tr -s '/')"
+  b="$(printf '%s' "$2" | tr -s '/')"
+  [[ "${a%/}" == "${b%/}" ]]
+}
+
+preflight_xdg_layout() {
+  local violations=0 name value expected
+
+  for name in XDG_CONFIG_HOME XDG_DATA_HOME; do
+    case "$name" in
+    XDG_CONFIG_HOME) expected="$HOME/.config" ;;
+    XDG_DATA_HOME) expected="$HOME/.local/share" ;;
+    esac
+    value="${!name:-$expected}"
+    if ! preflight_same_directory "$value" "$expected"; then
+      printf '%s is %s, but this repository deploys to %s.\n' \
+        "$name" "$value" "$expected" >&2
+      violations=$((violations + 1))
+    fi
+  done
+
+  if ((violations > 0)); then
+    printf 'Stow links into $HOME while the shell, the installers and the verifiers read the XDG variables, so a separate root would leave configuration where nothing looks for it. Unset the variable (or set it to the path above) and run this again; nothing has been changed.\n' >&2
+    return 1
+  fi
+}
+
 preflight_writable_path() {
   local path="$1"
   local probe="$path"

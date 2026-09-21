@@ -114,6 +114,8 @@ for command_name in bat fd; do
   fi
 done
 
+check_mise_context
+
 mise_command="$(resolve_mise_command 2>/dev/null || true)"
 if [[ -n "$mise_command" ]] &&
   run_mise "$mise_command" exec -- uv --version >/dev/null 2>&1; then
