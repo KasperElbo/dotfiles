@@ -451,7 +451,7 @@ write_dictation_state
 mv "$dictation_state" "$root/macos-dictation.conf"
 run_verifier
 expect_more_failures 1 'an unowned Ghost Pepper copy fails verification' \
-  'The dictation profile is not selected, but dictation-owned files'
+  'The dictation profile is not selected, but Ghost Pepper remains'
 
 # A machine that never selected the profile passes, and says so.
 mv "$dictation_app" "$root/GhostPepper.app"

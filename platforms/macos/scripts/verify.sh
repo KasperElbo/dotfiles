@@ -405,7 +405,12 @@ macos_ai_check_no_duplicate_provider() {
   fi
 }
 
-if [[ -f "$ai_state" ]]; then
+ai_disposition="$(verify_optional_capability_disposition ai "$ai_state" ai || true)"
+
+case "$ai_disposition" in
+verify | leftover)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
+
   if "$DOTFILES_ROOT/common/verify-ai.sh"; then
     pass "AI profile verification completed"
   else
@@ -452,7 +457,13 @@ if [[ -f "$ai_state" ]]; then
   else
     fail "Claude Code does not start in a fresh Zsh login"
   fi
-else
+  ;;
+missing | corrupt)
+  verify_optional_capability_report "AI profile" "$ai_state" "$ai_disposition"
+  ;;
+*)
+  # Not selected, and no state file. The profile owns files outside its own
+  # state, so an unselected machine is still asked whether any of them remain.
   if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" ||
     -e "$HOME/.local/bin/treehouse" ||
     -d "$XDG_DATA_HOME/firstmate" ]] ||
@@ -464,7 +475,8 @@ else
   else
     pass "AI profile is not installed (not selected)"
   fi
-fi
+  ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Optional OCaml profile
@@ -508,8 +520,24 @@ if [[ "$verify_defaults" == true ]]; then
   done
 fi
 
-if [[ "$verify_containers" == true ]]; then
-  section "Optional Podman machine"
+# The two profiles below record machine-local state their verification never
+# read, so a standalone run described neither however this machine was
+# installed (issue #344). Both are dispatched from the recorded selection and
+# that state now; the flags stay, because inside the installer this verifier
+# runs before the lifecycle record is committed, and there the flag is the only
+# statement of selection there is.
+containers_state="$XDG_CONFIG_HOME/dotfiles/macos-containers.conf"
+containers_disposition="$(verify_optional_capability_disposition \
+  containers "$containers_state" podman-machine || true)"
+if [[ "$verify_containers" == true && "$containers_disposition" == absent ]]; then
+  containers_disposition=verify
+fi
+
+section "Optional Podman machine"
+verify_optional_capability_report "Podman machine profile" "$containers_state" \
+  "$containers_disposition" || true
+
+if [[ "$containers_disposition" == verify || "$containers_disposition" == leftover ]]; then
   if podman info >/dev/null 2>&1; then pass "Podman machine is reachable"; else fail "Podman machine is not reachable"; fi
   rootless="$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null || true)"
   if [[ "$rootless" == true ]]; then
@@ -526,8 +554,18 @@ if [[ "$verify_containers" == true ]]; then
   fi
 fi
 
-if [[ "$verify_tailscale" == true ]]; then
-  section "Optional Tailscale"
+tailscale_state="$XDG_CONFIG_HOME/dotfiles/macos-tailscale.conf"
+tailscale_disposition="$(verify_optional_capability_disposition \
+  tailscale "$tailscale_state" tailscale || true)"
+if [[ "$verify_tailscale" == true && "$tailscale_disposition" == absent ]]; then
+  tailscale_disposition=verify
+fi
+
+section "Optional Tailscale"
+verify_optional_capability_report "Tailscale profile" "$tailscale_state" \
+  "$tailscale_disposition" || true
+
+if [[ "$tailscale_disposition" == verify || "$tailscale_disposition" == leftover ]]; then
   if [[ -d /Applications/Tailscale.app ]]; then
     pass "Tailscale application is installed"
   else
@@ -591,7 +629,27 @@ section "Optional dictation profile"
 dictation_state="$(dictation_state_file)"
 dictation_app="$(dictation_installed_app)"
 
-if [[ "$verify_dictation" == true || -f "$dictation_state" ]]; then
+dictation_disposition="$(verify_optional_capability_disposition \
+  dictation "$dictation_state" dictation || true)"
+
+# --dictation still forces the checks. Inside the installer this verifier runs
+# before the lifecycle record is committed, so on that one path the flag is the
+# only statement of selection there is.
+if [[ "$verify_dictation" == true && "$dictation_disposition" == absent ]]; then
+  dictation_disposition=verify
+fi
+
+if [[ "$dictation_disposition" != absent ]]; then
+  # "missing" needs no report of its own: the state check at the end of this
+  # body names the absent file, and the app checks in between are worth running
+  # on a machine that asked for the profile whether or not its state survived.
+  case "$dictation_disposition" in
+  leftover | corrupt)
+    verify_optional_capability_report "Dictation profile" "$dictation_state" \
+      "$dictation_disposition"
+    ;;
+  esac
+
   if [[ -d "$dictation_app" ]]; then
     pass "Ghost Pepper is installed: $dictation_app"
   else
@@ -662,10 +720,12 @@ if [[ "$verify_dictation" == true || -f "$dictation_state" ]]; then
   not_observed "Microphone and Accessibility consent is interactive and kept in" \
     "a SIP-protected TCC database; confirm both for Ghost Pepper in System" \
     "Settings -> Privacy & Security"
-elif [[ -e "$dictation_app" || -e "$dictation_state" ]]; then
-  fail "The dictation profile is not selected, but dictation-owned files" \
-    "remain ($dictation_app or $dictation_state); install it with --dictation," \
-    "or remove them by hand"
+elif [[ -e "$dictation_app" ]]; then
+  # State left behind is "leftover" above, so what is left to discover here is
+  # an application with no state beside it.
+  fail "The dictation profile is not selected, but Ghost Pepper remains" \
+    "($dictation_app); install the profile with --dictation, or remove the" \
+    "application by hand"
 else
   pass "Dictation profile is not installed (not selected)"
 fi

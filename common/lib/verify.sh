@@ -5,12 +5,17 @@
 # This library deliberately does not select shell options. Verifier entrypoints
 # own their execution policy; sourcing a common library must never change the
 # caller's errexit, nounset, or pipefail state. It needs version_at_least from
-# lib/common.sh, and sources that itself when the caller has not.
+# lib/common.sh, and sources that itself when the caller has not. Optional
+# capability dispatch reads the installation lifecycle record, so it sources
+# that library too; both are function definitions only, and re-sourcing a
+# library a caller already loaded changes nothing.
 
 if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
   # shellcheck source=common.sh
   source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 fi
+# shellcheck source=install-lifecycle.sh
+source "$(dirname "${BASH_SOURCE[0]}")/install-lifecycle.sh"
 
 VERIFY_PASSES=${VERIFY_PASSES:-0}
 VERIFY_FAILURES=${VERIFY_FAILURES:-0}
@@ -77,6 +82,137 @@ finish_verification() {
     printf '\033[1;32m%s passed.\033[0m\n' "$label"
   fi
   return 0
+}
+
+# --- Optional capability dispatch -------------------------------------------
+#
+# Every platform verifier has a run of optional sections, one per capability a
+# machine may or may not have asked for. Gating each on its component state
+# file alone -- the shape they all had before issue #344 -- makes that file its
+# own authority: delete it, or interrupt the install before it is written, and
+# the capability leaves the report entirely, with nothing said about it either
+# way. A machine that selected --hardening and lost hardening.conf verified
+# exactly like one that never selected hardening at all.
+#
+# Two records answer the question, and they answer different halves of it. The
+# installation lifecycle record says what this machine asked for; the component
+# state file says what the install left behind. Dispatch reads both, so a
+# selected capability is always described -- verified, or named as a failure --
+# and state left behind by an unselected one is still discovered.
+#
+# verify_optional_capability_disposition <capability> <state-path> [<profiles>]
+#
+# <profiles> is what the state file is allowed to declare itself to be: one
+# profile name, or several separated by "|", defaulting to the capability. Most
+# capabilities name their own, and the exception is Fedora's hardware.conf,
+# which declares a machine model. Listing the models it may declare is the
+# point: a state file must not be free to assert its own type, so anything else
+# there is a file this checkout cannot read, not a file it takes at its word.
+#
+# Prints exactly one word, and returns 0 for the two dispositions that verify:
+#
+#   verify    run the capability's checks
+#   leftover  not selected, but state remains: run them, and say so
+#   missing   selected, with no state file to verify against       (status 1)
+#   corrupt   a state file this checkout cannot read               (status 1)
+#   absent    not selected, with nothing left behind               (status 1)
+#
+# A machine with no readable installation record and no state file is reported
+# "absent", the same answer the LaTeX and OCaml sections already reach: doctor
+# reports a missing lifecycle record, and a verifier must not invent a
+# selection to put in its place. With a state file it is "verify", which is
+# what such a machine has always done.
+verify_optional_capability_disposition() {
+  local capability="$1" state_path="$2" profiles="${3:-$1}"
+  local selection=0 readable=1 candidate
+  local -a accepted=()
+
+  install_lifecycle_capability_selected "$capability" || selection=$?
+
+  if [[ -e "$state_path" ]]; then
+    IFS='|' read -r -a accepted <<<"$profiles"
+    for candidate in ${accepted[@]+"${accepted[@]}"}; do
+      if profile_state_validate_file "$state_path" "$candidate" >/dev/null 2>&1; then
+        readable=0
+        break
+      fi
+    done
+    if ((readable != 0)); then
+      printf 'corrupt\n'
+      return 1
+    fi
+    if ((selection == 1)); then
+      printf 'leftover\n'
+    else
+      printf 'verify\n'
+    fi
+    return 0
+  fi
+
+  if ((selection == 0)); then
+    printf 'missing\n'
+    return 1
+  fi
+  printf 'absent\n'
+  return 1
+}
+
+# verify_optional_capability_report <label> <state-path> <disposition>
+#
+# Say what a disposition that is not going to run any checks means, in the
+# words of the capability rather than of the state file. Callers whose checks
+# are inline use this with the disposition helper above; callers whose checks
+# are one component verifier use verify_optional_capability, which calls it.
+verify_optional_capability_report() {
+  local label="$1" state_path="$2" disposition="$3"
+
+  case "$disposition" in
+  leftover)
+    warning "$label is not selected by this machine's recorded installation," \
+      "but its profile state remains ($state_path), so what that state" \
+      "describes is verified anyway; rerun ./install.sh with the capability" \
+      "to adopt it, or remove the state by hand"
+    ;;
+  missing)
+    fail "$label is selected by this machine's recorded installation, but its" \
+      "profile state is missing ($state_path), so nothing about it can be" \
+      "verified; reinstall the capability, or rerun ./install.sh without it"
+    ;;
+  corrupt)
+    fail "$label is recorded on this machine, but this checkout cannot read" \
+      "its profile state ($state_path); inspect it with ./install.sh doctor," \
+      "then reinstall the capability"
+    ;;
+  absent)
+    pass "$label is not selected; its state and checks are not applicable"
+    ;;
+  esac
+}
+
+# verify_optional_capability <label> <capability> <state-path> <profiles> <command...>
+#
+# The whole optional section for the common case: a capability whose checks are
+# one component verifier. Opens the section, dispatches, and reports.
+verify_optional_capability() {
+  local label="$1" capability="$2" state_path="$3" profile="$4"
+  shift 4
+  local disposition
+
+  section "$label"
+  disposition="$(verify_optional_capability_disposition \
+    "$capability" "$state_path" "$profile")" || true
+  # fail returns 1, and this library must not decide its caller's errexit.
+  verify_optional_capability_report "$label" "$state_path" "$disposition" || true
+
+  case "$disposition" in
+  verify | leftover)
+    if "$@"; then
+      pass "$label verification completed"
+    else
+      fail "$label verification failed"
+    fi
+    ;;
+  esac
 }
 
 # verify_default_probe <name>

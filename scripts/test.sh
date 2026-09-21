@@ -134,6 +134,7 @@ default_tests=(
   tests/test-firstmate-backend.sh
   tests/test-ai-transitions.sh
   tests/test-mise-context.sh
+  tests/test-optional-capability-dispatch.sh
   tests/test-vm-host.sh
   tests/test-vm-guest.sh
   tests/test-hardening.sh
