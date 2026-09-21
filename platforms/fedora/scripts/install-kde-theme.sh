@@ -45,6 +45,30 @@ else
   sudo dnf install -y /usr/bin/kpackagetool6
 fi
 
+# A Plasma desktop, and not merely its tools. The upstream installer installs
+# each flavour's global theme with `kpackagetool6 -t Plasma/LookAndFeel -i`,
+# and kpackagetool6 can only do that when the KPackage package structure plugin
+# for that type is present. That plugin comes with the Plasma desktop, so a
+# machine carrying the tool and no desktop clears every dependency check above
+# and then dies inside the first flavour with "Could not load package structure
+# Plasma/LookAndFeel" -- after that flavour's Aurorae and colour-scheme assets
+# have already been written. That is how the 2026-09-21 scheduled installation
+# failed.
+#
+# This capability themes an existing Plasma installation and deliberately does
+# not install one: --kde on a machine that does not run Plasma has to say so
+# rather than pull in a desktop session behind the user's back.
+#
+# plasma-apply-lookandfeel stands in for the desktop, because it arrives with
+# the same Plasma package as the structure plugin and because it is what the
+# upstream installer itself looks for. It is shimmed further down so that
+# installing a theme never applies one; that shim stands in for the command,
+# not for the desktop, which is why the real one is required here first.
+command_exists plasma-apply-lookandfeel || die \
+  "This machine has no KDE Plasma desktop: plasma-apply-lookandfeel was not" \
+  "found. The KDE capability themes an existing Plasma installation and does" \
+  "not install one. Install Plasma, or rerun with --no-kde."
+
 version="v0.4.0"
 repo="https://github.com/catppuccin/kde.git"
 workdir="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/catppuccin-kde"

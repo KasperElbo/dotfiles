@@ -70,6 +70,22 @@ docker exec "$container" systemctl daemon-reload
 docker exec "$container" systemctl enable --now dbus-broker.service >/dev/null
 docker exec "$container" systemctl enable --now firewalld.service >/dev/null
 
+# The same rule again, for the KDE capability. --kde installs each Catppuccin
+# global theme with `kpackagetool6 -t Plasma/LookAndFeel -i`, which needs the
+# KPackage package structure plugin of that type, and that plugin arrives with
+# the Plasma desktop rather than with the tool. A Fedora KDE workstation owns
+# it; this transport image owns nothing of Plasma, so the first flavour died at
+# "Could not load package structure Plasma/LookAndFeel" on the 2026-09-21
+# scheduled run.
+#
+# It is seeded here rather than declared in the capability's packages because
+# --kde themes an existing desktop and must not install one: a machine without
+# Plasma is told to install Plasma, and this is where CI becomes such a
+# machine. plasma-workspace is the package to name -- the structure plugin and
+# plasma-apply-lookandfeel both arrive with it or with something it requires --
+# and it is a large transaction, which is part of why this job is slow.
+docker exec "$container" dnf --assumeyes install plasma-workspace >/dev/null
+
 # sudo approves an account through pam_unix, which shells out to the setuid
 # unix_chkpwd helper whenever it cannot read the shadow entry itself. That
 # helper does not work inside a privileged Fedora container on a GitHub-hosted
