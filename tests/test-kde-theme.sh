@@ -211,6 +211,35 @@ for dependency in wget kpackagetool6; do
   mv "$test_root/$dependency.withheld" "$mock_bin/$dependency"
 done
 
+# The negative control for the Plasma preflight. Withholding
+# plasma-apply-lookandfeel leaves a machine with kpackagetool6 and no desktop,
+# which is the state that cleared every dependency check on the 2026-09-21
+# scheduled run and then died at the global theme step. The shim directory
+# hands the upstream installer a plasma-apply-lookandfeel of its own, so
+# without the preflight this run would finish and report success: from inside
+# the install the absent desktop is invisible.
+#
+# The stop has to come before the first write. `rm -rf "$workdir"` is that
+# write, so a sentinel left in the work directory of the successful run above
+# has to still be there afterwards.
+kde_workdir="$test_root/cache/dotfiles/catppuccin-kde"
+[[ -x "$mock_bin/plasma-apply-lookandfeel" ]] ||
+  _test_die 'plasma-apply-lookandfeel is absent already, so withholding it proves nothing'
+[[ -d "$kde_workdir" ]] ||
+  _test_die 'the upstream clone never happened, so its survival proves nothing'
+: >"$kde_workdir/.dotfiles-preflight-sentinel"
+mv "$mock_bin/plasma-apply-lookandfeel" "$test_root/plasma-apply-lookandfeel.withheld"
+if negative_output="$(RPM_PRESENT="kio-extras wget" install_kde_themes 2>&1)"; then
+  _test_die 'the KDE themes installed on a machine with no Plasma desktop'
+fi
+assert_contains "$negative_output" 'no KDE Plasma desktop'
+assert_contains "$negative_output" 'plasma-apply-lookandfeel'
+[[ -e "$kde_workdir/.dotfiles-preflight-sentinel" ]] ||
+  _test_die 'the work directory was wiped before the missing Plasma desktop was reported'
+printf 'PASS: a machine with no Plasma desktop is told so before anything is written\n'
+mv "$test_root/plasma-apply-lookandfeel.withheld" "$mock_bin/plasma-apply-lookandfeel"
+rm -f "$kde_workdir/.dotfiles-preflight-sentinel"
+
 ln -s \
   "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp" \
   "$home/.local/share/wallpapers/catppuccin-macchiato.webp"
