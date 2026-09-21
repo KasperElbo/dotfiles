@@ -36,7 +36,7 @@ root="$TEST_ROOT"
 # on macOS is audited the moment it is declared, rather than when someone
 # remembers to add it here. A prose audit would have been accurate once.
 macos_packages="$(
-  awk -F'\t' '$2 == "macos" && $15 == "implemented" && $10 != "-" && $10 != "" { print $10 }' \
+  awk -F'\t' '$2 == "macos" && $16 == "implemented" && $10 != "-" && $10 != "" { print $10 }' \
     "$repo_root/config/capabilities.tsv" | tr ',' '\n' | sort -u
 )"
 [[ -n "$macos_packages" ]] ||
