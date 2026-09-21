@@ -517,6 +517,56 @@ check_user_service_enabled_and_active() {
   verify_service_enabled_and_active user "$1"
 }
 
+# verify_mason_ready [version_pin_file]
+#
+# Make the receipt reader and the version pins ready for the checks below, once
+# per verifier rather than once per package. Neither failure is skipped: a check
+# that credited every package because jq was missing, or that stopped comparing
+# pins because the pin file had a line it could not parse, would report a clean
+# machine. Returns non-zero having said which, so the caller stops.
+verify_mason_ready() {
+  local pin_file="${1:-$DOTFILES_ROOT/common/mason-package-versions.txt}"
+
+  if ! mason_require_jq; then
+    fail "Mason packages cannot be verified: $MASON_ERROR"
+    return 1
+  fi
+  if ! mason_load_version_pins "$pin_file"; then
+    fail "$MASON_ERROR"
+    return 1
+  fi
+}
+
+# check_mason_package <mason_root> <package>
+#
+# Report one package against lib/mason.sh's rule, at the version the pins
+# verify_mason_ready loaded demand. This is separate from the inventory check
+# below because a platform can own its inventory policy and still owe the same
+# answer about a package: the Parrot guest treats an unlisted package as a
+# failure rather than a warning, and says exactly this about a listed one.
+check_mason_package() {
+  local root="$1" package="$2"
+  local pin
+
+  pin="$(mason_version_pin "$package")"
+  if mason_package_status "$root" "$package" "$pin"; then
+    pass "Mason: $package ($MASON_PACKAGE_DETAIL)"
+    return 0
+  fi
+  case "$MASON_PACKAGE_STATE" in
+  absent)
+    fail "Mason package not installed: $package"
+    ;;
+  version-mismatch)
+    fail "Mason package $package does not match its pin: $MASON_PACKAGE_DETAIL"
+    ;;
+  *)
+    fail "Mason package $package is not completely installed: $MASON_PACKAGE_DETAIL"
+    ;;
+  esac
+  return 1
+}
+
 # check_mason_inventory <inventory> [version_pin_file]
 #
 # Every package the tracked Mason inventory lists must be installed under
@@ -532,7 +582,7 @@ check_mason_inventory() {
   local pin_file="${2:-$DOTFILES_ROOT/common/mason-package-versions.txt}"
   local root
   root="$(mason_root)"
-  local package package_dir listed filtered pin status=0
+  local package package_dir listed filtered status=0
   local -a packages=()
 
   if [[ ! -e "$inventory" ]]; then
@@ -570,35 +620,10 @@ check_mason_inventory() {
     return 1
   fi
 
-  # Reading a receipt needs a JSON parser, and a check that quietly skipped
-  # every package because a tool was missing would report a clean machine.
-  if ! mason_require_jq; then
-    fail "Mason inventory cannot be verified: $MASON_ERROR"
-    return 1
-  fi
-  if ! mason_load_version_pins "$pin_file"; then
-    fail "$MASON_ERROR"
-    return 1
-  fi
+  verify_mason_ready "$pin_file" || return 1
 
   for package in "${packages[@]}"; do
-    pin="$(mason_version_pin "$package")"
-    if mason_package_status "$root" "$package" "$pin"; then
-      pass "Mason: $package ($MASON_PACKAGE_DETAIL)"
-      continue
-    fi
-    status=1
-    case "$MASON_PACKAGE_STATE" in
-    absent)
-      fail "Mason package not installed: $package"
-      ;;
-    version-mismatch)
-      fail "Mason package $package does not match its pin: $MASON_PACKAGE_DETAIL"
-      ;;
-    *)
-      fail "Mason package $package is not completely installed: $MASON_PACKAGE_DETAIL"
-      ;;
-    esac
+    check_mason_package "$root" "$package" || status=1
   done
 
   for package_dir in "$root"/packages/*; do

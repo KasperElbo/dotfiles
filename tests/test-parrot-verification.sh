@@ -215,10 +215,23 @@ Font=Hack Nerd Font Mono,10,-1,5,50,0,0,0,0,0
 EOF
 printf '[Desktop Entry]\nDefaultProfile=Dotfiles-Parrot-CTF.profile\n' >"$config/konsolerc"
 
-while IFS= read -r package; do
-  [[ -n "$package" ]] || continue
-  mkdir -p "$data/nvim/mason/packages/$package"
-done <"$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/mason-packages.txt"
+# A package directory is not an installation: Mason promotes the staged files,
+# links the executables and writes mason-receipt.json last, so a directory is
+# evidence that an install was started and never that one finished. The fixture
+# leaves behind what a finished install leaves, and the cases further down
+# damage it one way at a time.
+mason_mock_install="$repo_root/tests/support/mason-mock-install.sh"
+parrot_mason_root="$data/nvim/mason"
+mapfile -t parrot_mason_packages < <(
+  sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
+    "$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/mason-packages.txt"
+)
+((${#parrot_mason_packages[@]} > 0)) || {
+  printf 'The reduced Parrot Mason inventory is empty, so these cases prove nothing\n' >&2
+  exit 1
+}
+"$mason_mock_install" --pins "$repo_root/common/mason-package-versions.txt" \
+  "$parrot_mason_root" "${parrot_mason_packages[@]}"
 
 while IFS= read -r plugin_name; do
   mkdir -p "$data/nvim/lazy/$plugin_name"
@@ -324,6 +337,104 @@ fi
 grep -Fq 'Mason inventory mismatch' "$test_root/unexpected-mason.log"
 grep -Fq 'roslyn' "$test_root/unexpected-mason.log"
 rmdir "$data/nvim/mason/packages/roslyn"
+printf 'PASS: an unlisted Mason package is a failure, not a warning, on this profile\n'
+
+# The reduced profile is a set *and* a claim that each member is installed.
+# Comparing directory names alone let an empty or interrupted package satisfy
+# it (#366), which is the same defect #346 fixed in the shared verifier. Each
+# case damages one package; the five beside it must keep passing, so a check
+# that had started failing everything would be caught here too.
+mason_damaged_package="ruff"
+mason_healthy_package="stylua"
+mason_inventory_text="$(printf '%s\n' "${parrot_mason_packages[@]}")"
+for mason_package in "$mason_damaged_package" "$mason_healthy_package"; do
+  grep -Fxq "$mason_package" <<<"$mason_inventory_text" || {
+    printf 'The reduced profile no longer lists %s, so these cases prove nothing\n' \
+      "$mason_package" >&2
+    exit 1
+  }
+done
+
+mason_damage_case() {
+  local case_name="$1"
+  local expected="$2"
+  local log="$test_root/mason-$case_name.log"
+
+  if "${verify_environment[@]}" \
+    "$repo_root/platforms/parrot-ctf/scripts/verify.sh" >"$log" 2>&1; then
+    printf 'Parrot verification accepted a Mason package left %s.\n' "$case_name" >&2
+    exit 1
+  fi
+  grep -Fq "$expected" "$log" || {
+    printf 'The "left %s" case was not reported clearly:\n' "$case_name" >&2
+    cat "$log" >&2
+    exit 1
+  }
+  # The set is still exactly right, so this is the identity check speaking and
+  # not the name comparison finding a package gone.
+  if grep -Fq 'Mason inventory mismatch' "$log"; then
+    printf 'The "left %s" case changed the package set; it must not.\n' "$case_name" >&2
+    exit 1
+  fi
+  grep -Fq "Mason: $mason_healthy_package" "$log" || {
+    printf 'The undamaged package stopped passing in the "left %s" case.\n' "$case_name" >&2
+    exit 1
+  }
+  printf 'PASS: Parrot verification rejects a Mason package left %s\n' "$case_name"
+}
+
+mason_restore_damaged() {
+  rm -rf -- "$parrot_mason_root/packages/$mason_damaged_package"
+  "$mason_mock_install" --pins "$repo_root/common/mason-package-versions.txt" \
+    "$parrot_mason_root" "$mason_damaged_package"
+}
+
+# The reproduction: a directory and nothing in it.
+rm -rf -- "$parrot_mason_root/packages/$mason_damaged_package"
+mkdir -p "$parrot_mason_root/packages/$mason_damaged_package"
+mason_damage_case empty \
+  "Mason package $mason_damaged_package is not completely installed"
+mason_restore_damaged
+
+# An install interrupted after its files were promoted and linked, before the
+# receipt was written.
+rm -f -- "$parrot_mason_root/packages/$mason_damaged_package/mason-receipt.json"
+mason_damage_case interrupted \
+  "Mason package $mason_damaged_package is not completely installed"
+mason_restore_damaged
+
+# The executable the receipt claims, gone from Mason's bin directory.
+rm -f -- "$parrot_mason_root/bin/$mason_damaged_package"
+mason_damage_case unlinked \
+  "$parrot_mason_root/bin/$mason_damaged_package, which is missing or not executable"
+mason_restore_damaged
+
+# ...and the repaired profile passes again, unchanged by being verified.
+mason_tree_before="$(find "$parrot_mason_root" -type f -exec sha256sum {} + | sort)"
+[[ -n "$mason_tree_before" ]] || {
+  printf 'The Mason fixture wrote no files, so the untouched check proves nothing\n' >&2
+  exit 1
+}
+if ! "${verify_environment[@]}" \
+  "$repo_root/platforms/parrot-ctf/scripts/verify.sh" \
+  >"$test_root/mason-healthy.log" 2>&1; then
+  printf 'Parrot verification failed a complete reduced Mason profile:\n' >&2
+  cat "$test_root/mason-healthy.log" >&2
+  exit 1
+fi
+for mason_package in "${parrot_mason_packages[@]}"; do
+  grep -Fq "Mason: $mason_package" "$test_root/mason-healthy.log" || {
+    printf 'A complete Mason package was not reported as installed: %s\n' \
+      "$mason_package" >&2
+    exit 1
+  }
+done
+[[ "$mason_tree_before" == \
+  "$(find "$parrot_mason_root" -type f -exec sha256sum {} + | sort)" ]] || {
+  printf 'Verifying a complete Mason installation changed it\n' >&2
+  exit 1
+}
+printf 'PASS: a complete reduced Mason profile passes and is left untouched\n'
 
 ln -s /usr/bin/true "$local_bin/nmap"
 if "${verify_environment[@]}" \

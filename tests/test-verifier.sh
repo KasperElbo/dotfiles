@@ -419,6 +419,37 @@ assert_eq "$mason_case_before" \
   'verifying a complete Mason installation must not change it'
 printf '# no pins\n' >"$mason_case_pins"
 
+# jq is how a receipt is read. There is no way to make it answer "not
+# installed", so this narrows PATH to a base userland without it and requires
+# the check to say so: one that skipped every package because a tool was
+# missing would report a clean machine, which is the failure mode this whole
+# check exists to remove.
+mason_case_begin without-jq
+mason_jq_free_path="$root/no-jq-bin"
+mkdir -p "$mason_jq_free_path"
+for mason_base_command in bash dirname sed find; do
+  ln -sf "$(command -v "$mason_base_command")" "$mason_jq_free_path/$mason_base_command"
+done
+[[ ! -e "$mason_jq_free_path/jq" ]] ||
+  _test_die 'the jq-free PATH carries jq, so this case proves nothing'
+mason_jq_free_output="$(
+  XDG_DATA_HOME="$mason_case_root" DOTFILES_ROOT="$repo_root" \
+    PATH="$mason_jq_free_path" bash -c '
+      set -uo pipefail
+      # shellcheck source=../common/lib/common.sh
+      source "$1/common/lib/common.sh"
+      # shellcheck source=../common/lib/verify.sh
+      source "$1/common/lib/verify.sh"
+      check_mason_inventory "$2" "$3"
+      printf "counts %s %s %s\n" \
+        "$VERIFY_PASSES" "$VERIFY_FAILURES" "$VERIFY_WARNINGS"
+    ' mason-jq-probe "$repo_root" "$root/mason-inventory.txt" "$mason_case_pins" 2>&1
+)" || true
+assert_contains "$mason_jq_free_output" 'counts 0 1 0' \
+  'a Mason check without jq fails once and credits nothing'
+assert_contains "$mason_jq_free_output" \
+  'Mason packages cannot be verified: jq is required to read Mason receipts'
+
 # A pin file the verifier cannot parse must stop it, not quietly stop pinning.
 mason_case_begin malformed-pin
 printf 'stylua 2.1.0 extra\n' >"$mason_case_pins"

@@ -119,7 +119,8 @@ The final rerun is the idempotency check. Without `--theme`, it preserves an
 existing valid flavour; an explicit `--theme FLAVOUR` changes it. The guest
 verifier checks observable guest state: Parrot and KVM/QEMU detection, both
 virtio channels, account shell, Zsh startup, APT ownership and command
-resolution, guest services, portable links, exact reduced Mason inventory,
+resolution, guest services, portable links, the exact reduced Mason inventory
+and the installed state of every package in it,
 Neovim version/profile, unique PATH entries, font/glyph coverage, effective
 Konsole profile, bat themes, and Starship compatibility. Its state file is a
 record of installer intent, not proof of host isolation.

@@ -192,12 +192,25 @@ elif ((plugin_lock_entries == 0)); then
   fail "Parrot LazyVim lockfile is missing or empty: $parrot_lock"
 fi
 
+# Two separate questions about Mason here, and the reduced profile needs both.
+#
+# The set has to match exactly, which is stricter than check_mason_inventory:
+# a package Mason holds that the profile does not list is a failure and not a
+# warning, because this guest is an isolation boundary and must not quietly
+# gain tooling. The inventory read is the deployed copy under XDG_CONFIG_HOME,
+# not the repository's, so it verifies what was actually stowed.
+#
+# Then each listed package has to really be installed, which is lib/mason.sh's
+# rule and the same one every other platform's verifier applies: Mason writes a
+# package's receipt last, so a directory is evidence that an installation was
+# started and never that one finished. Comparing names alone let an empty or
+# interrupted package satisfy the set (#366).
 expected_mason_file="$XDG_CONFIG_HOME/nvim/profiles/parrot-ctf/mason-packages.txt"
-mason_root="$XDG_DATA_HOME/nvim/mason/packages"
-mapfile -t expected_mason < <(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$expected_mason_file" 2>/dev/null | sort)
+parrot_mason_root="$(mason_root)"
+mapfile -t expected_mason < <(mason_read_inventory "$expected_mason_file" | sort)
 mapfile -t actual_mason < <(
-  if [[ -d "$mason_root" ]]; then
-    find "$mason_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+  if [[ -d "$parrot_mason_root/packages" ]]; then
+    find "$parrot_mason_root/packages" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
   fi
 )
 if [[ "${actual_mason[*]}" == "${expected_mason[*]}" && ${#expected_mason[@]} -gt 0 ]]; then
@@ -205,6 +218,12 @@ if [[ "${actual_mason[*]}" == "${expected_mason[*]}" && ${#expected_mason[@]} -g
 else
   fail "Mason inventory mismatch"
   printf '  expected: %s\n  actual:   %s\n' "${expected_mason[*]:-(empty)}" "${actual_mason[*]:-(empty)}" >&2
+fi
+
+if verify_mason_ready; then
+  for mason_package in ${expected_mason[@]+"${expected_mason[@]}"}; do
+    check_mason_package "$parrot_mason_root" "$mason_package" || true
+  done
 fi
 
 for command_name in python python3; do
