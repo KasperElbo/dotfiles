@@ -264,6 +264,12 @@ EOF_STATE
 }
 write_dictation_state
 
+# The deterministic mise context is install-time state that the verifier reads
+# and never writes (issue #345), so the fixture provides it as an installed
+# machine would.
+macos_mise_context="$home/.local/state/dotfiles/mise-context"
+mkdir -p "$macos_mise_context"
+
 verify_environment=(
   env
   "HOME=$home"
@@ -462,5 +468,30 @@ assert_contains "$TEST_OUTPUT" 'Dictation profile is not installed (not selected
 printf 'PASS: an unselected dictation profile verifies cleanly\n'
 mv "$root/GhostPepper.app" "$dictation_app"
 mv "$root/macos-dictation.conf" "$dictation_state"
+
+# --- The verifier reads the mise context and never writes it ---------------
+#
+# docs/workflows/verification.md promises the verifier changes nothing. This
+# is the one piece of persistent state it used to rebuild, and rebuilding it
+# would delete the contamination the run exists to report.
+
+printf '[tools]\nstray = "1"\n' >"$macos_mise_context/mise.toml"
+stray_digest="$(sha256sum <"$macos_mise_context/mise.toml" | cut -d ' ' -f 1)"
+run_verifier
+assert_contains "$TEST_OUTPUT" 'mise resolution is not deterministic'
+assert_contains "$TEST_OUTPUT" 'mise.toml'
+assert_path_exists "$macos_mise_context/mise.toml"
+assert_eq "$stray_digest" \
+  "$(sha256sum <"$macos_mise_context/mise.toml" | cut -d ' ' -f 1)" \
+  'the macOS verifier rewrote a stray declaration in the mise context'
+printf 'PASS: the macOS verifier reports a contaminated mise context and leaves it in place\n'
+rm -f "$macos_mise_context/mise.toml"
+
+rm -rf "$macos_mise_context"
+run_verifier
+assert_contains "$TEST_OUTPUT" 'the deterministic mise context does not exist'
+assert_path_missing "$macos_mise_context"
+printf 'PASS: the macOS verifier reports a missing mise context instead of creating one\n'
+mkdir -p "$macos_mise_context"
 
 printf 'macOS verifier section tests passed.\n'

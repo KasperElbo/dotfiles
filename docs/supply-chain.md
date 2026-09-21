@@ -260,6 +260,17 @@ working directory gives the same guarantee on a mise too old to know the
 setting, so the isolation does not depend on a version check. Explicit
 `MISE_DATA_DIR` and shim/PATH behaviour is unchanged.
 
+Creating that directory and clearing tool declarations out of it is install-time
+work, done once by `mise_prepare_context`. `run_mise` itself only reads: if the
+context is missing, or has acquired one of the four filenames mise reads as
+directory configuration, it refuses and says so instead of rebuilding. That
+split is what lets a verifier use the same entry point, because
+[verification is read-only](workflows/verification.md) and an inspection that
+rebuilt the context would delete exactly the contamination it exists to report
+and then pass. Every verifier that reaches mise therefore reports the context's
+state as its own check, and the remedy for either diagnostic is to re-run the
+platform installer.
+
 The global config and its `conf.d` fragments still apply — that is exactly the
 manifest a global bootstrap is meant to install. `--dry-run` and verbose output
 print which logical config is in play.

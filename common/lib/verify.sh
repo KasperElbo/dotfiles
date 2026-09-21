@@ -550,6 +550,29 @@ check_no_global_npm_duplicate() {
     pass "No AI package is duplicated in the active Node prefix"
 }
 
+# The deterministic mise context is this verifier's own precondition: every
+# mise question below is asked from it, so a missing or contaminated context
+# makes the answers meaningless. It is reported, never repaired. Verification
+# is documented as read-only (docs/workflows/verification.md), and rebuilding
+# the context here would delete exactly the contamination worth reporting and
+# then pass.
+check_mise_context() {
+  local diagnosis
+
+  if ! declare -F mise_context_diagnosis >/dev/null 2>&1; then
+    not_observed "the deterministic mise context cannot be inspected from here;" \
+      "common/lib/common.sh is not loaded"
+    return 0
+  fi
+
+  if diagnosis="$(mise_context_diagnosis)"; then
+    pass "The deterministic mise context is present and declares no tools"
+    return 0
+  fi
+
+  fail "mise resolution is not deterministic: $diagnosis"
+}
+
 check_mise_owned() {
   local name="$1"
   local resolved mise_resolved mise_shim configured_path configured_resolved mise_command

@@ -336,7 +336,16 @@ Three suites carry the invariants from the AI/mise/supply-chain workstream:
   `$HOME`, and from the dotfiles checkout. The resolved tool set must be
   identical every time and must never contain the sentinel. The fixture
   first proves it *can* see the sentinel without isolation, so the test
-  cannot pass vacuously.
+  cannot pass vacuously. The same suite holds verification to its read-only
+  promise: it snapshots the context tree (path and content digest per entry)
+  around a real verifier run against a clean context, a missing one, and one
+  contaminated with each of the four filenames mise reads as directory
+  configuration, and requires the snapshot to come back identical and the
+  contamination to be reported. Its negative control performs the forbidden
+  mutation deliberately and requires the snapshot to notice, so the
+  "unchanged" assertions cannot pass on a comparison that sees nothing.
+  `tests/test-macos-verification.sh` and `tests/test-parrot-verification.sh`
+  carry the same case against those platform verifiers.
 - `tests/test-ai-transitions.sh` walks the full optional-component matrix:
   fresh core-only install, add one component, no-op rerun, full install,
   rerun omitting an installed component, dry-run preview, declined removal,

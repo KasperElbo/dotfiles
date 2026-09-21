@@ -271,6 +271,10 @@ fi
 
 section "Core agents"
 
+# Every mise question below is asked from the deterministic context, so its
+# health is checked first and reported rather than repaired.
+check_mise_context
+
 check_mise_owned claude
 check_mise_command_runs claude --version
 check_mise_owned herdr

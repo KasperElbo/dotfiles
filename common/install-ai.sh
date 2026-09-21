@@ -570,6 +570,11 @@ require_command git
 mise_command="$(resolve_mise_command || true)"
 [[ -n "$mise_command" ]] || die "Required command not found: mise"
 
+# Install time is when the deterministic context is built; run_mise only reads
+# it (see lib/common.sh). Done here, before the first run_mise below, so every
+# later mise call in this script inherits a prepared context.
+mise_prepare_context >/dev/null
+
 # Do not inherit the caller's possibly stale pre-Zsh PATH. This is shared by
 # every AI component, including the own-script tools in ~/.local/bin.
 establish_user_tool_environment
