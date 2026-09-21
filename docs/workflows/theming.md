@@ -129,7 +129,13 @@ for the chosen flavour is actually present:
   present and even if KDE themes are left over from an earlier install;
 - selected but assets missing (a machine that predates the capability record)
   → still skipped, and the Fedora verifier reports it;
-- no recorded installation at all → the assets alone decide.
+- no recorded installation at all → the assets alone decide;
+- everything installed but no graphical session running (a TTY, an SSH
+  session, a CI container) → skipped with that reason, because
+  `lookandfeeltool` and the `plasma-apply-*` commands are Qt GUI programs that
+  abort rather than return without one. The flavour is recorded, so it applies
+  at the next login; rerun `theme <flavour>` from inside the session to apply
+  it now.
 
 The Fedora verifier checks exactly what the installed capability owns: with
 KDE selected it requires `kio-extras` and the global theme for the current

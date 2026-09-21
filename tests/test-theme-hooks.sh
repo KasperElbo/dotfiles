@@ -8,6 +8,15 @@ source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
 
+# The Fedora hook asks whether there is a graphical session to apply a KDE
+# theme to, because the Plasma commands abort without one. This suite is about
+# what the hook does on a machine that has one, so the fixture declares a
+# session rather than inheriting whatever the runner has -- no CI runner has a
+# desktop session, and inheriting would silently turn every KDE assertion below
+# into a skip.
+export WAYLAND_DISPLAY=wayland-0
+unset DISPLAY
+
 theme_command="$repo_root/bin/.local/bin/theme"
 fedora_hook="$repo_root/platforms/fedora/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh"
 
@@ -192,6 +201,35 @@ if kde_was_applied; then
   _test_die 'with no install state and no assets, nothing may be applied'
 fi
 printf 'PASS: a machine with no recorded install decides by assets alone\n'
+
+# A KDE machine with no graphical session running. The commands are all there
+# and the assets are installed, so every earlier question answers yes; the only
+# thing missing is the session the Plasma commands need, without which they
+# abort with SIGABRT rather than returning an error. That has to read as "not
+# applicable right now", not as a failure, and the rest of the theme still has
+# to apply.
+new_machine 'base,dotnet-debug,kde'
+install_kde_assets
+run_theme WAYLAND_DISPLAY=
+assert_success
+if kde_was_applied; then
+  _test_die 'the Plasma commands ran with no graphical session to apply to'
+fi
+assert_contains "$TEST_OUTPUT" 'no graphical session is running'
+assert_not_contains "$TEST_OUTPUT" 'was applied only partially'
+assert_file_line "$machine/config/dotfiles/theme" mocha
+printf 'PASS: no graphical session skips the KDE apply instead of failing it\n'
+
+# The control for it: the same machine with a session applies the theme, so the
+# skip above is the session's doing and not the fixture's.
+new_machine 'base,dotnet-debug,kde'
+install_kde_assets
+run_theme
+assert_success
+kde_was_applied ||
+  _test_die 'a machine with a graphical session must still apply the KDE theme'
+assert_not_contains "$TEST_OUTPUT" 'no graphical session is running'
+printf 'PASS: the same machine with a session still applies the KDE theme\n'
 
 # --- Hook failure isolation -------------------------------------------------
 
