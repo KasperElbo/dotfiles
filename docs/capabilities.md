@@ -29,6 +29,7 @@ platform and profile:
 | `stow` | The Stow packages it deploys | names, or `-` |
 | `verifier` | The script that checks it | a path, or `none` on an unsupported row |
 | `state` | Its machine-local state file | a name, or `-` |
+| `state_profile` | The versioned schema that file declares | a profile name, several comma-separated, or `-` |
 | `docs` | Where it is documented | a path, optionally with an `#anchor` |
 | `provenance` | Where the thing itself comes from | any |
 | `status` | Whether this repository provides it | `implemented`, `unsupported` |
@@ -55,6 +56,36 @@ in [the dictation profile](profiles/dictation.md); and `macos/containers`,
 whose Podman machine cannot start on a hosted runner, because that runner is
 itself a virtual machine and `vfkit` has no nested virtualisation to use. An
 exclusion the workflow contradicts fails, so it cannot outlive its reason.
+
+`state` and `state_profile` are two names for one file and move together. The
+file name belongs to the capability on its platform, so macOS keeps its
+container record in `macos-containers.conf` beside the Fedora one; the schema
+is the record's shape, and macOS records a Podman machine (`podman-machine`)
+where Fedora records a container runtime (`containers`). Where the two names
+agree they are still both written out, because the cases where they differ are
+not exceptions to look up elsewhere.
+
+The schema has to be declared here because a state file cannot be trusted to
+say what it is. Every one of them carries a `profile=` key, and
+[`./doctor`](../scripts/doctor.sh) once read that key and handed it straight
+back to the validator as the profile to expect — which proved the record was
+internally consistent and nothing more. A valid OCaml record copied into
+`containers.conf` passed with no failure. Doctor now takes the expected schema
+from the row of the capability the machine recorded as installed, so a state
+file from the wrong capability is a failure rather than a pass.
+
+One state file may accept more than one schema, and `hardware` is the only row
+that does: `platforms/fedora/scripts/install-asus-hardware.sh` writes the
+selected model as the profile, and the model comes from the machine's DMI
+identity at install time rather than from anything the lifecycle state records,
+so `hardware.conf` is either `ga402xz` or `ga402rk`. Choosing between those two
+is the job of
+[`verify-asus-hardware.sh`](../platforms/fedora/scripts/verify-asus-hardware.sh),
+which compares the recorded model with the DMI identity itself.
+`scripts/validate-capabilities.py` checks that every name in this column is a
+schema `common/lib/profile-state.sh` actually declares — by asking the library,
+not by reading its text — and that two rows naming one state file agree about
+it.
 
 `-` is this file's only spelling of "none", in every column that can be empty.
 It is a decision, not a blank: `packages` is `-` when the capability installs
