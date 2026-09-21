@@ -38,6 +38,17 @@ with `--sway`.
 
 Stow is run with `--no-folding`, and never with `--adopt`.
 
+Stow is also given one target, `$HOME`. A package's `.config` tree is linked
+into `$HOME/.config` and its `.local/share` tree into `$HOME/.local/share`,
+which is where the shell, the installers and the verifiers read them from. So
+`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are supported at their default values
+only, and preflight refuses any other root before anything is linked, naming
+the variable and the path this repository deploys to. A separate root would
+otherwise leave every link somewhere nothing later looks — Stow would report
+success and the shell would come up unconfigured. `XDG_STATE_HOME` is free to
+point anywhere: nothing is stowed under `.local/state`, and everything this
+repository writes there it reads back through the variable.
+
 Because linking is the only thing Stow is allowed to do here, a path that
 already exists where a tracked file would be linked is a conflict, not
 something to absorb: preflight reports `Stow conflict [<package>]: ...` and the

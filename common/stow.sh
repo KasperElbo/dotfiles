@@ -7,6 +7,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=lib/preflight.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/preflight.sh"
 
+# Stow is given one target, $HOME. An XDG root pointing anywhere else would
+# have it link configuration where nothing later reads it, so that is refused
+# before a single link is made -- and before the prerequisite check below, so
+# the answer does not depend on whether Stow happens to be installed.
+preflight_xdg_layout || die "Refusing to stow; nothing in $HOME was changed."
+
 require_command stow
 
 headless="false"
