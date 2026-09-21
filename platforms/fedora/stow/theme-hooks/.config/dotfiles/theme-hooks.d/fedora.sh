@@ -20,9 +20,9 @@ fi
 #
 # Applying the KDE global theme names an identifier such as
 # Catppuccin-Mocha-Mauve. Naming one that was never installed is exactly the
-# failure #148 is about, so this asks three separate questions: was the KDE
-# capability installed, are the assets actually on disk, and is a KDE session
-# the thing being themed right now.
+# failure #148 is about, so this asks four separate questions: was the KDE
+# capability installed, are the assets actually on disk, is a KDE session the
+# thing being themed right now, and is there a session at all.
 
 kde_global_theme() {
   case "$1" in
@@ -46,6 +46,21 @@ kde_commands_available() {
     command -v plasma-apply-cursortheme >/dev/null 2>&1
 }
 
+# Having the commands is not the same as having something to run them against.
+# All three are Qt GUI programs: with no graphical session they cannot load a
+# platform plugin and abort rather than return, so the caller sees SIGABRT and
+# exit 134 instead of an error it can read. That is how the 2026-09-21
+# scheduled installation failed, and it is what `theme mocha` from a TTY or
+# over SSH does on a real KDE machine today.
+#
+# Plasma installed but not running is not a failure to fix: it is a theme that
+# applies at the next login, so it belongs with the skip reasons above rather
+# than in the failure list. The display server is what the three commands are
+# missing, so its presence is the question asked.
+kde_session_active() {
+  [[ -n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}" ]]
+}
+
 apply_kde_theme() {
   local args=("$flavour")
   [[ "$preserve_wallpaper" != "true" ]] || args+=(--preserve-wallpaper)
@@ -64,6 +79,9 @@ elif ! kde_assets_installed "$flavour"; then
   theme_action_skipped fedora:kde "Catppuccin KDE assets for $flavour are not installed"
 elif ! kde_commands_available; then
   theme_action_skipped fedora:kde 'the Plasma theming commands are not available'
+elif ! kde_session_active; then
+  theme_action_skipped fedora:kde \
+    'no graphical session is running; it applies at the next login'
 else
   theme_action fedora:kde apply_kde_theme
 fi

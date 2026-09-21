@@ -5,6 +5,15 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
+# The Fedora hook asks whether there is a graphical session to apply a KDE
+# theme to, because the Plasma commands abort without one. This suite is about
+# what the hook does on a machine that has one, so the fixture declares a
+# session rather than inheriting whatever the runner has -- no CI runner has a
+# desktop session, and inheriting would silently turn every KDE assertion below
+# into a skip.
+export WAYLAND_DISPLAY=wayland-0
+unset DISPLAY
+
 mock_bin="$test_root/bin"
 sandbox_bin="$test_root/sandbox-bin"
 mock_log="$test_root/mock.log"
