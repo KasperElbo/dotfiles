@@ -61,11 +61,22 @@ if [[ ! -e "$state" ]]; then
   warning "No lifecycle state found at $state (legacy or never installed)."
 else
   if profile_state_validate_file "$state" install; then
-    status="$(profile_state_read "$state" status install)"
+    # `status` arrived with schema 2 and the validator still accepts schema 1,
+    # so it is the one key here that a record this report accepts may not
+    # have. Reading it as a required key made awk exit 1, the assignment fail
+    # and errexit kill doctor after the banner: no diagnosis, no reason, and
+    # no "Result:" line, which is this file's own contract and the exact
+    # failure mode its header says it keeps its own helpers to avoid. Read it
+    # the way the optional install keys below are already read. The other
+    # three are required of every schema, so they stay as they are.
+    status="$(install_state_optional "$state" status)"
     platform="$(profile_state_read "$state" platform install)"
     capabilities="$(profile_state_read "$state" requested_capabilities install)"
     revision="$(profile_state_read "$state" revision install)"
-    if [[ "$status" == installed ]]; then
+    if [[ -z "$status" ]]; then
+      warning "Lifecycle state predates the recorded status and cannot say how the last installation ended ($platform): $state"
+      printf '  Everything else below still reads. Run ./install.sh to record the current schema.\n'
+    elif [[ "$status" == installed ]]; then
       pass "Last installation completed ($platform: $capabilities)."
     else
       # Name the step that stopped, and point at something that exists. The

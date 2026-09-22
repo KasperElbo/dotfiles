@@ -242,18 +242,20 @@ if command -v pwsh >/dev/null 2>&1; then
   # argument; pass the path through the environment instead.
   # The variables in this command belong to PowerShell, not Bash.
   # shellcheck disable=SC2016
-  powershell_files=(
-    "$installer"
-    "$wsl_version_helper"
-    "$scoop_helper"
-    "$theme_helper"
-    "$windows_verifier"
-    "$repo_root/verify.ps1"
-    # The Windows-only suites themselves: a parse error in one of them would
-    # otherwise surface only on the Windows runner.
-    "$repo_root/tests/test-windows-bootstrap.ps1"
-    "$repo_root/tests/test-windows-verifier.ps1"
-  )
+  # Derived from what is tracked rather than listed here: a list would go
+  # stale the moment a PowerShell file is added, and a file nobody parses is
+  # exactly how NC-01's fourteen unlinted scripts happened. The Windows job
+  # holds the same set to PSScriptAnalyzer, which reports a parse error as its
+  # own severity; this block is the same coverage on a workstation that has a
+  # pwsh, which the Fedora validation container does not.
+  powershell_files=()
+  while IFS= read -r tracked_powershell_file; do
+    powershell_files+=("$repo_root/$tracked_powershell_file")
+  done < <(git -C "$repo_root" ls-files -- '*.ps1')
+  ((${#powershell_files[@]} > 0)) || {
+    printf 'No tracked PowerShell file was found to parse.\n' >&2
+    exit 1
+  }
   for powershell_file in "${powershell_files[@]}"; do
     POWERSHELL_FILE_TO_PARSE="$powershell_file" pwsh -NoProfile -Command '
       $tokens = $null

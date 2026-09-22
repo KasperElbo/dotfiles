@@ -61,6 +61,17 @@ kde_session_active() {
   [[ -n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}" ]]
 }
 
+# --preserve-wallpaper reads the current wallpaper through qdbus and writes it
+# back once lookandfeeltool has replaced it. qdbus is not installed, required
+# or declared anywhere in this repository, so its absence is an ordinary state
+# of a KDE machine rather than a fault. Without it neither half of the request
+# can be honoured, so the apply is skipped with the reason said out loud
+# instead of being reported as a complete application that left the global
+# theme alone.
+kde_preserve_wallpaper_supported() {
+  command -v qdbus6 >/dev/null 2>&1 || command -v qdbus >/dev/null 2>&1
+}
+
 apply_kde_theme() {
   local args=("$flavour")
   [[ "$preserve_wallpaper" != "true" ]] || args+=(--preserve-wallpaper)
@@ -82,6 +93,9 @@ elif ! kde_commands_available; then
 elif ! kde_session_active; then
   theme_action_skipped fedora:kde \
     'no graphical session is running; it applies at the next login'
+elif [[ "$preserve_wallpaper" == "true" ]] && ! kde_preserve_wallpaper_supported; then
+  theme_action_skipped fedora:kde \
+    'qdbus is not installed, so --preserve-wallpaper cannot restore the wallpaper'
 else
   theme_action fedora:kde apply_kde_theme
 fi
@@ -92,26 +106,48 @@ fi
 # worth doing for everything else in the config, but claiming the new palette
 # is live would be untrue, so the message says what actually has to happen.
 
-reload_ghostty() {
+# Which mechanism, if any, can reach a running instance. Asking this apart
+# from the reload itself is what separates the two answers the old combined
+# function returned 1 for: "nothing is running" and "something is running and
+# its reload failed". It reported both as the former, and because the reload
+# was called bare in an `if` rather than through theme_action, a failed reload
+# was recorded neither as applied nor failed nor skipped and the command still
+# reported a complete application.
+ghostty_reload_mechanism() {
   if command -v systemctl >/dev/null 2>&1 &&
     systemctl --user is-active --quiet app-com.mitchellh.ghostty.service 2>/dev/null; then
-    systemctl reload --user app-com.mitchellh.ghostty.service && return 0
+    printf 'systemd\n'
+    return 0
   fi
 
   if command -v pgrep >/dev/null 2>&1 && command -v pkill >/dev/null 2>&1 &&
     pgrep -x ghostty >/dev/null 2>&1; then
-    pkill -USR2 -x ghostty && return 0
+    printf 'signal\n'
+    return 0
   fi
 
   return 1
 }
 
-theme_note_ghostty_handled
-if reload_ghostty; then
+# The notice is printed from inside the action so that it is the reload having
+# succeeded that says a reload was requested.
+reload_ghostty() {
+  case "$1" in
+  systemd) systemctl reload --user app-com.mitchellh.ghostty.service ;;
+  signal) pkill -USR2 -x ghostty ;;
+  *) return 1 ;;
+  esac
+
   echo "Ghostty: configuration reload requested."
   echo "         Restart Ghostty to apply catppuccin-$flavour; a reload does not"
   echo "         change an already-set theme."
+}
+
+theme_note_ghostty_handled
+if ghostty_mechanism="$(ghostty_reload_mechanism)"; then
+  theme_action fedora:ghostty reload_ghostty "$ghostty_mechanism"
 else
+  theme_action_skipped fedora:ghostty 'no running instance to reload'
   echo "Ghostty: no running instance reloaded; new windows use catppuccin-$flavour."
 fi
 

@@ -294,6 +294,23 @@ if ((gnubin_line < inherited_line)); then
   exit 1
 fi
 
+# PATH is built by hand for the ordering reason above; everything else `brew
+# shellenv` exports must still be exported, because scripts here read
+# HOMEBREW_PREFIX to find Homebrew. Two of them fall back to /opt/homebrew when
+# it is unset, so nothing fails today and nothing proved it was ever set.
+for variable in HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY INFOPATH MANPATH; do
+  grep -Eq "^\[ -z .*$variable|^export $variable=" "$platform_env" || {
+    printf 'platform-env.zsh must export %s, as brew shellenv does.\n' "$variable" >&2
+    exit 1
+  }
+done
+# The verifier proves it on a real login shell rather than trusting the file.
+grep -Fq 'HOMEBREW_PREFIX' "$macos_root/scripts/verify.sh" || {
+  printf 'macOS verifier must assert the login shell exports HOMEBREW_PREFIX.\n' >&2
+  exit 1
+}
+printf 'PASS: the macOS platform environment exports what brew shellenv does\n'
+
 # The macOS verifier must reach OCaml through the one shared verifier, and must
 # hand it the Homebrew prefix so opam ownership is provable rather than assumed
 # from a PATH hit. A macOS-only OCaml check would be a second implementation.

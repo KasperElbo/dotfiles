@@ -128,4 +128,33 @@ run_open "$work_root/file.txt" "$url" "$work_root/directory with spaces"
 assert_logged_arguments "$argument_log" \
   'C:\converted\file.txt' "$url" 'C:\converted\directory with spaces'
 
+# Interop off is a state this repository deliberately moves toward, and it is
+# what a user hits when /etc/wsl.conf disables it or the Windows mount is not
+# there: explorer.exe is simply absent. wsl-open refuses with a message naming
+# the path it looked for, rather than letting the dispatch loop's `|| true`
+# swallow a "command not found" and report success.
+rm -f "$windows_root/explorer.exe"
+run_capture run_open "$work_root/file.txt"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "Windows Explorer executable not found: $windows_root/explorer.exe"
+assert_file_empty "$argument_log"
+assert_file_empty "$wslpath_log"
+
+# The same refusal is about being executable, not about existing: a mount
+# without the execute bit is the other half of the same state.
+cat >"$windows_root/explorer.exe" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\0' "$@" >>"$EXPLORER_ARGUMENT_LOG"
+EOF
+chmod -x "$windows_root/explorer.exe"
+run_capture run_open "$work_root/file.txt"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "Windows Explorer executable not found: $windows_root/explorer.exe"
+assert_file_empty "$argument_log"
+assert_file_empty "$wslpath_log"
+
+chmod +x "$windows_root/explorer.exe"
+
 printf 'WSL path conversion and argument-boundary tests passed.\n'

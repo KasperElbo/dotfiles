@@ -55,6 +55,15 @@ of them that way, so a manifest edit that is not reflected in its output fails
 the build rather than quietly making a page wrong. Regenerate by running the
 generator with no arguments.
 
+The comparison each gate makes lives in one place, `scripts/lib/generated.py`,
+and it is on bytes. Eight copies of the same five lines meant eight copies of
+the same mistake: reading the committed file in text mode translated `\r\n` and
+a lone `\r` to `\n`, so a file whose bytes differed from a fresh render was
+reported as current and running the generator then changed it. `.gitattributes`
+stores and checks out every text file with `\n` so the question does not arise
+in the first place; the byte comparison is what notices if something gets past
+that.
+
 A whole-file artifact says so in its first lines; a partial one is delimited by
 `<!-- BEGIN GENERATED … -->` and `<!-- END GENERATED … -->` markers, and the
 prose outside those markers is hand-written and yours to edit.
@@ -80,6 +89,17 @@ in `scripts/validate-actions.py`), parse the construct, or run the shell and
 observe what it did. The same holds for the other configuration languages: a
 mise pin and an AeroSpace binding are parsed as TOML, a Waybar click as JSON.
 
+Where several checks read shell, they read it through one module,
+[`scripts/lib/shell.py`](../../scripts/lib/shell.py), rather than each carrying
+its own regex. The copies it replaced had drifted into two defects that are
+easy to write again: the keyword opening a statement was captured as the
+command the statement runs, so `if helper; then` reported `if` and `then` and
+the helper was never seen; and a definition counted only with its brace on the
+same line, so the same function moved between "code that runs" and "a function
+nothing calls" depending on where the brace sat. A reserved word is therefore
+never a callee, and the three spellings of a definition -- brace on the line,
+brace below it, whole function on one line -- are one definition.
+
 **A check that cannot parse its input must error.** Skipping the line it cannot
 read turns a gate into a suggestion, and that line is the one most likely to be
 wrong. `scripts/validate-plan-network.py` names the file and the line and fails
@@ -98,6 +118,12 @@ stowed `bin` directory, plus the PowerShell/Python files `scripts/validate-shell
 also governs) matches exactly one row there, which fixes both its role and its
 required file mode; `./scripts/lint.sh` enforces the match.
 
+A program's extension does not decide whether it is governed, because a command
+on `PATH` has none: a `platforms/*/assets/*` file carrying a shell shebang is
+claimed too, which is how the Wayland session command came to have a role. The
+same shebang rule decides what the lint gate syntax-checks and ShellChecks —
+see [what the shell lint gate checks](../testing.md#what-the-shell-lint-gate-checks).
+
 | Kind | Where (examples) | What it means |
 |---|---|---|
 | **Portable entry point** (`public-entrypoint`) | `./install.sh`, `./doctor`, `./scripts/lint.sh`, `./scripts/test.sh` | Works on every supported platform. These are the documented way in. |
@@ -110,6 +136,7 @@ required file mode; `./scripts/lint.sh` enforces the match.
 | **Stowed command** (`stowed-command`) | `bin/.local/bin/*`, `platforms/*/stow/*/.local/bin/*` | Lands on `PATH` once stowed; a real command a user runs by name. |
 | **Stowed config / data** (`stowed-config`, `stowed-data`) | `zsh/.config/zsh/*`, `fzf/.config/fzf/themes/*.sh` | Sourced by an interactive shell or another tool once stowed; never executed directly. |
 | **Test entry point** (`test-entrypoint`) | `tests/test-*.sh`, `tests/integration/*.sh` | A test suite, run by `./scripts/test.sh` or directly. |
+| **Installed system command** (`installed-system-command`) | `platforms/fedora/assets/dotfiles-sway` | Installed onto the machine outside `$HOME` by a platform script, which sets the executable bit; the tracked copy stays 644. |
 
 See `config/shell-file-roles.tsv` for the full set of patterns, including the
 Windows (`.ps1`) and Python entry points and libraries it also governs.

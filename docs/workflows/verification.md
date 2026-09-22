@@ -3,6 +3,14 @@
 Every install can be checked afterwards, and nothing in this path changes the
 machine: the verifiers and `./doctor` are read-only.
 
+The container smoke tests are the one place where that needs saying more
+carefully, because running a container means having its image. Those verifiers
+record the image state before the probe and restore it afterwards, on success,
+on failure and on an interrupted run, so the machine is left as it was found
+rather than untouched. See
+[the macOS containers notes](../platforms/macos.md#optional-containers) and
+[the containers profile guide](../profiles/containers.md#verification).
+
 ## Start with `./doctor`
 
 ```bash

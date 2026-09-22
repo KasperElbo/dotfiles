@@ -358,8 +358,34 @@ sed -i 's|run: git diff --check .*|run: git diff --check|' \
   "$tree/.github/workflows/example.yml"
 run_capture python3 "$validator" --root "$tree"
 assert_failure
-assert_contains "$TEST_OUTPUT" '`git diff --check` with no range inspects the working tree'
+assert_contains "$TEST_OUTPUT" 'names no commit range'
 printf 'PASS: a whitespace check with no range is rejected\n'
+
+# The rule is "names a range", not "has an argument". These are the two forms
+# someone reaches for on being told the bare form is not enough, and both
+# compare something a runner cannot dirty: --cached compares the index to HEAD,
+# identical after actions/checkout, and a lone pathspec compares the working
+# tree to the index.
+for vacuous in '--cached' '--staged' '-- .' 'HEAD'; do
+  new_workflow_tree
+  sed -i "s|run: git diff --check .*|run: git diff --check $vacuous|" \
+    "$tree/.github/workflows/example.yml"
+  run_capture python3 "$validator" --root "$tree"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" 'names no commit range'
+done
+printf 'PASS: an argument that compares nothing is rejected as no range\n'
+
+# And the forms that do name a range are accepted, including a range narrowed
+# by a pathspec, so the rule does not push anyone back to the bare form.
+for ranged in '"$BEFORE_SHA..HEAD"' '"origin/$BASE_REF...HEAD" -- docs/' 'main HEAD'; do
+  new_workflow_tree
+  sed -i "s|run: git diff --check .*|run: git diff --check $ranged|" \
+    "$tree/.github/workflows/example.yml"
+  run_capture python3 "$validator" --root "$tree"
+  assert_success
+done
+printf 'PASS: every spelling that names a range is accepted\n'
 
 # The rule exists because the unranged form cannot fail. This is that claim,
 # proved against git rather than asserted: one fixture repository, one commit
