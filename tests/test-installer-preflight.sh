@@ -637,6 +637,33 @@ for stdin_case in '' 'platforms/fedora/scripts/install-terra.sh'; do
 done
 printf 'A registry with a broken schema is refused even when no script asks for one.\n'
 
+# The mirror image, found by the lint and test harness thread while reading
+# this fix. An empty registry has no first record, so the header rule never
+# fires and checks nothing, and `[[ -r ]]` is satisfied by a zero-byte file.
+# A truncated or half-written registry therefore printed no hosts and returned
+# 0 -- indistinguishable from the legitimate "this plan asks nothing of the
+# network" answer asserted just above, which is the reason it has to be told
+# apart rather than merely reported.
+empty_manifest="$test_root/empty-registry.tsv"
+: >"$empty_manifest"
+
+for stdin_case in '' 'platforms/fedora/scripts/install-terra.sh'; do
+  if env -u NETWORK_SOURCE_MANIFEST DOTFILES_ROOT="$repo_root" bash -c '
+    source "$1/common/lib/network-sources.sh"
+    printf "%s" "${3-}" | network_sources_hosts "$2"
+  ' _ "$repo_root" "$empty_manifest" "$stdin_case" >"$test_root/empty.log" 2>&1; then
+    printf 'An empty registry was accepted with stdin %s.\n' \
+      "${stdin_case:-empty}" >&2
+    exit 1
+  fi
+  grep -Fq 'network-source registry has no header row' "$test_root/empty.log" || {
+    printf 'The refusal did not say the header row was missing:\n' >&2
+    cat "$test_root/empty.log" >&2
+    exit 1
+  }
+done
+printf 'An empty registry is refused rather than read as nothing to probe.\n'
+
 # The tmux step is in every platform's plan, so github.com is in every
 # platform's probe set. This is the claim the issue was filed about.
 for platform in fedora fedora-wsl macos parrot-ctf; do
