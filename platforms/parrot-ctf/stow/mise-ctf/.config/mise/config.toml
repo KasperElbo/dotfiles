@@ -1,4 +1,5 @@
 [tool_alias]
+# network-source: neovim-github-releases
 nvim = "github:neovim/neovim"
 
 [tools]

