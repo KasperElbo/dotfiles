@@ -1,13 +1,13 @@
 verifier	uncovered	note
-common/verify-ai.sh	22	27 check_* call sites
-platforms/fedora-wsl/scripts/verify.sh	6	25 check_* call sites
-platforms/fedora/scripts/verify-containers.sh	0	1 check_* call sites
-platforms/fedora/scripts/verify-desktop-tools.sh	0	1 check_* call sites
-platforms/fedora/scripts/verify-dictation.sh	0	2 check_* call sites
-platforms/fedora/scripts/verify-hardening.sh	15	17 check_* call sites
-platforms/fedora/scripts/verify-tailscale.sh	0	1 check_* call sites
-platforms/fedora/scripts/verify-vm-guest.sh	0	2 check_* call sites
-platforms/fedora/scripts/verify-vm-host.sh	0	1 check_* call sites
-platforms/fedora/scripts/verify.sh	12	29 check_* call sites
-platforms/macos/scripts/verify.sh	21	30 check_* call sites
-platforms/parrot-ctf/scripts/verify.sh	15	20 check_* call sites
+common/verify-ai.sh	22	of 27 check_* call sites
+platforms/fedora-wsl/scripts/verify.sh	6	of 25 check_* call sites
+platforms/fedora/scripts/verify-containers.sh	0	of 1 check_* call site
+platforms/fedora/scripts/verify-desktop-tools.sh	0	of 1 check_* call site
+platforms/fedora/scripts/verify-dictation.sh	0	of 2 check_* call sites
+platforms/fedora/scripts/verify-hardening.sh	15	of 17 check_* call sites
+platforms/fedora/scripts/verify-tailscale.sh	0	of 1 check_* call site
+platforms/fedora/scripts/verify-vm-guest.sh	0	of 2 check_* call sites
+platforms/fedora/scripts/verify-vm-host.sh	0	of 1 check_* call site
+platforms/fedora/scripts/verify.sh	12	of 29 check_* call sites
+platforms/macos/scripts/verify.sh	21	of 30 check_* call sites
+platforms/parrot-ctf/scripts/verify.sh	15	of 20 check_* call sites

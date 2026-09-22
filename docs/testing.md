@@ -595,6 +595,50 @@ that removing the session command's row from `config/shell-file-roles.tsv`
 fails validation: `governed()` claims any `platforms/*/assets/*` file carrying
 a shell shebang, so that program's mode is somebody's responsibility too.
 
+### Every verify check is proven able to fail
+
+Every other gate here reads files. This one cannot, and that is the whole
+point: whether a `check_*` call site is able to fail is a statement about what
+ran. A predicate that is always true and one that is merely true on this
+machine are the same text. The audit's reproduction was a `check_file_contains`
+inserted into `platforms/fedora/scripts/verify.sh` — one file, `bash -n`,
+shellcheck, every validator and the suites all green (GRADE-03 of #393).
+
+So `common/lib/verify.sh` records, for each verdict it prints, the call site
+that produced it, whenever `DOTFILES_VERIFY_TRACE` names a file to append to.
+The call site is the first frame outside the library, which for a `check_*`
+helper is the line in the verifier that called it. `./scripts/test.sh` arms
+that trace for the aggregate run only — a targeted run reaches a fraction of
+the call sites and would report every other one as uncovered — and reads it
+with `scripts/validate-check-outcomes.py` once the suites are done.
+
+A call site that produced both a pass and a fail is covered: some fixture drove
+it each way, so inverting its predicate takes one of those outcomes away and
+the run turns red naming the line. 65 of the 156 call sites are covered today,
+and the rest are too many to fix in one change, so `config/check-outcomes.tsv`
+records how many each verifier still has. The count may fall but never rise, as
+in the symlink gate below: a new check with no fixture behind it raises its
+verifier's count and is refused, and a check that gains one lowers the count,
+which must then be lowered in the file too. `--record` writes the file from a
+trace rather than leaving the numbers to be counted by hand.
+
+Only the repository's own files count. A suite that copies the tree and mutates
+the copy is proving something about the mutation, so its verdicts must not make
+the real call site look covered — otherwise a check could be "covered" by a
+fixture that had edited it first.
+
+`tests/test-check-outcomes.sh` proves the gate can fail, against traces it
+writes itself: a new check no fixture drives, a call site that lost its fail, a
+recorded allowance larger than the real gap, a verifier missing from the
+ledger, an empty trace, a missing trace, and verdicts recorded against a copy
+of the tree. Its first case is the control — a tree whose every call site was
+driven both ways is accepted — so none of the others can pass because the tree
+was already red.
+
+This is a partial answer to GRADE-03, not the whole of it: it holds every new
+check to the rule from today, and catches an inverted predicate at the 65 call
+sites already covered. The remaining 91 need fixtures, one verifier at a time.
+
 ### Every symlink check names its Stow source
 
 `check_symlink <link> <expected-root> [expected-source]` proves five things
