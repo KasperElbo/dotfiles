@@ -23,6 +23,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from generated import check_or_write, read_committed  # noqa: E402
 from manifests import mise_tools, read_tsv, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -214,18 +215,16 @@ def splice(existing: str, begin: str, end: str, generated: str) -> str:
 
 def main() -> int:
     rows = capability_rows()
-    existing = TARGET.read_text(encoding="utf-8")
-    updated = splice(existing, BEGIN_INVENTORY, END_INVENTORY, render_inventory(rows))
+    updated = splice(read_committed(TARGET), BEGIN_INVENTORY, END_INVENTORY, render_inventory(rows))
     updated = splice(updated, BEGIN_MISE, END_MISE, render_mise())
     updated = splice(updated, BEGIN_MASON, END_MASON, render_mason())
-    if "--check" in sys.argv:
-        if existing != updated:
-            print(f"Generated package ownership is stale: {TARGET}", file=sys.stderr)
-            print("Run ./scripts/render-package-ownership.py", file=sys.stderr)
-            return 1
-        return 0
-    TARGET.write_text(updated, encoding="utf-8")
-    return 0
+    return check_or_write(
+        TARGET,
+        updated,
+        sys.argv,
+        stale="Generated package ownership is stale",
+        remedy="./scripts/render-package-ownership.py",
+    )
 
 
 if __name__ == "__main__":

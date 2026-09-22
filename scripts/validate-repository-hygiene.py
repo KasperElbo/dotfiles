@@ -43,6 +43,7 @@ import argparse
 import fnmatch
 import pathlib
 import re
+import shlex
 import subprocess
 import sys
 
@@ -92,6 +93,11 @@ PINNED_TAG_COMMENT = re.compile(r"^\s*#\s*\S")
 # `git diff --check` with nothing after it inspects the working tree, which is
 # clean on every runner. Only a range compares what was committed.
 WHITESPACE_CHECK = re.compile(r"git diff --check(?P<arguments>.*)$")
+# Options that take no revision operand. A whitespace step spelled with one of
+# these and nothing else compares two things a runner cannot tell apart:
+# `--cached` compares the index to HEAD, identical after actions/checkout, and
+# a lone `-- <path>` compares the working tree to the index.
+NON_COMPARING_OPTIONS = frozenset({"--cached", "--staged", "--check", "--exit-code", "--quiet"})
 
 
 def workflow_files(root: pathlib.Path) -> list[pathlib.Path]:
@@ -305,25 +311,58 @@ def check_workflow_action_pins(root: pathlib.Path, problems: list[str]) -> None:
                 )
 
 
+def names_a_commit_range(arguments: str) -> bool:
+    """Does this `git diff --check` argument list name two commits to compare?
+
+    The predicate has to be positive. Asking only whether an argument is
+    present accepts `--cached` and `-- .`, which are exactly what someone
+    reaches for on being told the bare form is not enough, and both compare
+    something no runner can dirty.
+
+    A range is a `..` or `...` operand, or two revisions given separately.
+    Anything after a bare `--` is a pathspec, so it narrows a comparison rather
+    than making one.
+    """
+    try:
+        tokens = shlex.split(arguments)
+    except ValueError:
+        # An unbalanced quote is not this check's business to interpret; fall
+        # back to whitespace splitting rather than accepting the line.
+        tokens = arguments.split()
+    if "--" in tokens:
+        tokens = tokens[: tokens.index("--")]
+    revisions = [
+        token
+        for token in tokens
+        if not token.startswith("-") and token not in NON_COMPARING_OPTIONS
+    ]
+    if any(".." in revision for revision in revisions):
+        return True
+    return len(revisions) >= 2
+
+
 def check_workflow_whitespace_range(root: pathlib.Path, problems: list[str]) -> None:
     """A whitespace check that compares nothing can never fail.
 
     `git diff --check` with no range inspects the working tree, which every
     runner leaves clean, so the step passed on committed whitespace damage that
-    the ranged form in the same file caught with exit 2.
+    the ranged form in the same file caught with exit 2. `--cached` and `-- .`
+    are equally vacuous for the same reason, so the predicate below requires a
+    range rather than requiring an argument.
     """
     for workflow in sorted(workflow_files(root)):
         for number, line in enumerate(workflow.read_text(encoding="utf-8").splitlines(), 1):
             if line.lstrip().startswith("#"):
                 continue
             match = WHITESPACE_CHECK.search(line)
-            if not match or match.group("arguments").strip():
+            if not match or names_a_commit_range(match.group("arguments")):
                 continue
             problems.append(
-                f"{workflow.relative_to(root)}:{number}: `git diff --check` with "
-                "no range inspects the working tree, which is clean on a runner, "
-                "so this step can never fail. Give it the range against the "
-                "event's base that the other jobs use."
+                f"{workflow.relative_to(root)}:{number}: `git diff --check` here "
+                "names no commit range, so it inspects the working tree or the "
+                "index against HEAD, both clean on a runner, and this step can "
+                "never fail. Give it the range against the event's base that "
+                "the other jobs use."
             )
 
 

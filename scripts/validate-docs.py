@@ -186,27 +186,58 @@ def check_dangling_references(
                 )
 
 
+def outbound_links(document: pathlib.Path) -> set[pathlib.Path]:
+    """The Markdown documents this one links to, resolved."""
+    targets: set[pathlib.Path] = set()
+    for _, line in outside_fences(document):
+        for match in LINK.finditer(line):
+            target = match.group("target").partition("#")[0]
+            if not target or target.startswith(("http://", "https://", "mailto:")):
+                continue
+            resolved = (document.parent / target).resolve()
+            if resolved.suffix == ".md":
+                targets.add(resolved)
+    return targets
+
+
 def check_orphans(root: pathlib.Path, documents: list[pathlib.Path], problems: list[str]) -> None:
+    """Every document under docs/ must be *reachable* from an entry point.
+
+    Counting inbound links instead asks a weaker question than the rule states.
+    Two pages that link to each other satisfy "something links to me" while
+    nothing in either README points into the pair, which is the exact shape a
+    documentation split produces: a new sub-index, its children linking back to
+    it, and the sub-index never added to docs/README.md.
+
+    So this walks outward from the entry points rather than collecting every
+    link in the tree, and a document the walk never arrives at is an orphan
+    however many siblings point at it.
+    """
     entry_points = [root / "README.md", root / "docs" / "README.md"]
-    linked: set[pathlib.Path] = set()
-    for document in documents:
-        for _, line in outside_fences(document):
-            for match in LINK.finditer(line):
-                target = match.group("target").partition("#")[0]
-                if not target or target.startswith(("http://", "https://", "mailto:")):
-                    continue
-                resolved = (document.parent / target).resolve()
-                if resolved.suffix == ".md":
-                    linked.add(resolved)
-    for document in documents:
-        if document in (point.resolve() for point in entry_points):
+    known = {document.resolve() for document in documents}
+    reached: set[pathlib.Path] = set()
+    frontier = [point.resolve() for point in entry_points if point.exists()]
+    while frontier:
+        document = frontier.pop()
+        if document in reached:
             continue
-        if not document.resolve().is_relative_to((root / "docs").resolve()):
+        reached.add(document)
+        for target in outbound_links(document):
+            # Only documents this validator knows about can be walked further;
+            # a link outside the tracked set is checked by check_links.
+            if target in known and target not in reached:
+                frontier.append(target)
+    for document in documents:
+        resolved = document.resolve()
+        if resolved in (point.resolve() for point in entry_points):
             continue
-        if document.resolve() not in linked:
+        if not resolved.is_relative_to((root / "docs").resolve()):
+            continue
+        if resolved not in reached:
             problems.append(
-                f"{document.relative_to(root)}: nothing links to this document; "
-                "add it to docs/README.md or the guide it belongs to"
+                f"{document.relative_to(root)}: nothing reachable from README.md "
+                "or docs/README.md links to this document; add it to "
+                "docs/README.md or the guide it belongs to"
             )
 
 
