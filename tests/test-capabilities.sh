@@ -190,6 +190,36 @@ fi
 grep -Fq "fedora: Stow package 'nonexistent' is deployed by the Stow scripts but no fedora capability declares it" \
   "$fixture.tree.log"
 
+# The same append with a declaration keyword in front of it. The Stow reader
+# was anchored the same way the installer one was, so `declare -a packages+=(…)`
+# read as no append at all: the branch's own packages vanished from the answer
+# along with the unowned one, and nothing was compared against the registry.
+mkdir -p "$fixture.declared-tree"
+cp -R "$repo_root/." "$fixture.declared-tree/"
+rm -rf -- "$fixture.declared-tree/.git"
+python3 - "$fixture.declared-tree/platforms/fedora/scripts/stow.sh" <<'PYTHON'
+import pathlib
+import sys
+
+script = pathlib.Path(sys.argv[1])
+text = script.read_text(encoding="utf-8")
+append = "  packages+=(sway waybar)"
+if text.count(append) != 1:
+    raise SystemExit(f"expected exactly one {append!r} in {script}")
+script.write_text(
+    text.replace(append, "  declare -a packages+=(sway waybar unowned-stow-pkg)", 1),
+    encoding="utf-8",
+)
+PYTHON
+if python3 "$fixture.declared-tree/scripts/validate-capabilities.py" \
+  2>"$fixture.declared-tree.log"; then
+  printf 'A declared Stow append hid an unowned package.\n' >&2
+  exit 1
+fi
+grep -Fq "fedora: Stow package 'unowned-stow-pkg' is deployed by the Stow scripts but no fedora capability declares it" \
+  "$fixture.declared-tree.log"
+printf 'PASS: a Stow append behind a declaration keyword is still read\n'
+
 # A commented-out array entry installs nothing, so a row may not keep claiming
 # the package. The installer is read as shell rather than as text, which is the
 # only way this fails: `# ripgrep` still contains the word `ripgrep`. Copied
@@ -682,5 +712,39 @@ grep -Fq 'scripts/validate-capabilities.py PLATFORMS is' <<<"$unregistered" || {
   exit 1
 }
 printf 'PASS: an unregistered platform directory is rejected\n'
+
+# --- A package array is read whichever way it is declared -------------------
+
+# The pattern was anchored on a line start and nothing else, so a declaration
+# keyword hid the array behind it -- a shape this tree already writes at
+# common/lib/verify.sh and common/lib/capabilities.sh. An installer could then
+# install packages no row owns, and a verifier could keep the hardcoded list
+# the rule above forbids, with the whole pipeline green.
+new_scratch declared-installer-array
+printf 'declare -a extra_packages=(unowned-pkg)\n' \
+  >>"$scratch/platforms/fedora/scripts/install-kde-theme.sh"
+expect_scratch_rejected 'a declare -a package array in an installer is rejected' \
+  "platforms/fedora/scripts/install-kde-theme.sh: package array 'extra_packages' is not declared in ARRAY_OWNERS"
+
+new_scratch readonly-installer-array
+printf 'readonly more_packages=(unowned-pkg)\n' \
+  >>"$scratch/platforms/fedora/scripts/install-kde-theme.sh"
+expect_scratch_rejected 'a readonly package array in an installer is rejected' \
+  "platforms/fedora/scripts/install-kde-theme.sh: package array 'more_packages' is not declared in ARRAY_OWNERS"
+
+new_scratch local-verifier-array
+printf 'check_own_packages() {\n  local -a packages=(ripgrep fd-find)\n  printf "%%s\\n" "${packages[@]}"\n}\n' \
+  >>"$scratch/platforms/parrot-ctf/scripts/verify.sh"
+expect_scratch_rejected 'a local -a package list in a verifier is rejected' \
+  "platforms/parrot-ctf/scripts/verify.sh: verifier keeps its own packages=(...) list"
+
+# An array shape the reader cannot read at all is an error rather than an
+# invisible install: that is the difference between "this file installs
+# nothing unowned" and "this file's installs were never compared".
+new_scratch unreadable-array
+printf 'mapfile -t hidden_packages < <(printf "%%s\\n" unowned-pkg)\nextra_packages+=("${hidden_packages[@]}")\n' \
+  >>"$scratch/platforms/fedora/scripts/install-kde-theme.sh"
+expect_scratch_rejected 'a package array the reader cannot parse is rejected' \
+  "package arrays are opened and"
 
 printf 'Capability manifest validation passed.\n'
