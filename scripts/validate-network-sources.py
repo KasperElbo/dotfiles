@@ -168,6 +168,13 @@ NETWORK_PATTERNS = [
     # was not, so ``vim.fn.system({ "curl", "-fsSL", url })`` in a Lua file
     # reached the network with nothing to flag it.
     (re.compile(r"""["']curl["']\s*,"""), "curl"),
+    # A URL that a data manifest declares. The Windows installer passes
+    # ``$Bucket.Url`` to ``scoop bucket add``, so the clone's identity is
+    # written in platforms/windows/manifest.psd1 and nowhere the scan could
+    # read it: a third bucket, and a repointed existing one, both passed.
+    # Spaces around the ``=`` are what makes this a declaration in a data file
+    # rather than a shell assignment, which cannot have them.
+    (re.compile(r"""^\s*[A-Za-z_]\w*\s+=\s+["']https?://"""), "manifest-url"),
     (re.compile(r"--repofrompath"), "repofrompath"),
     (re.compile(r"https://\S*\.rpm"), "remote-rpm"),
     # The two constructs that give a machine a new package trust root: a DNF
@@ -236,9 +243,12 @@ POLICY_FILES = {
 # else is scanned when config/shell-file-roles.tsv classifies it (the
 # validated inventory of every tracked shell file) or when its first line is a
 # shell or Python shebang.
-SCANNED_SUFFIXES = {".sh", ".ps1", ".yml", ".yaml", ".bash", ".zsh", ".py", ".lua"}
+SCANNED_SUFFIXES = {
+    ".sh", ".ps1", ".psd1", ".yml", ".yaml", ".bash", ".zsh", ".py", ".lua",
+}
 # A package manifest is code for this purpose: a Brewfile names the taps and
-# formulae Homebrew then downloads and runs.
+# formulae Homebrew then downloads and runs, and platforms/windows/manifest.psd1
+# names the Scoop buckets the Windows installer clones.
 SCANNED_NAMES = {"Brewfile"}
 SCANNED_SHEBANG = re.compile(r"^#!.*(?:\b(?:ba|z|da|k)?sh\b|\bpython[0-9.]*\b)")
 
@@ -259,12 +269,25 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
 # https://github.com/owner/homebrew-name, and a `brew`/`cask` argument with two
 # slashes pulls a package from that same clone. These two read both ends of
 # that identity so a tap is covered only by a source that is actually it.
+# Labels whose construct names a source repository outright, and must
+# therefore be annotated with the source that *is* that repository rather than
+# with any source merely served by the same host. github.com serves both of
+# this repository's Scoop buckets and both of its Mason registries, so the host
+# check alone would let each cover the others.
+REPOSITORY_LABELS = {"package-registry", "manifest-url"}
 PACKAGE_REGISTRY_LABEL = "package-registry"
 PACKAGE_REGISTRY_REFERENCE = re.compile(
     r"""["']github:(?P<owner>[\w.-]+)/(?P<name>[\w.-]+)["']"""
 )
 GITHUB_REPOSITORY = re.compile(
     r"^https://github\.com/(?P<owner>[\w.-]+)/(?P<name>[\w.-]+?)(?:\.git)?/?$"
+)
+# The same repository written inside a line rather than as a whole cell. Only a
+# repository root counts: a release asset or a raw file under github.com is a
+# download, which the host check already covers, and is not a clone.
+GITHUB_REPOSITORY_REFERENCE = re.compile(
+    r"https://github\.com/(?P<owner>[\w.-]+)/(?P<name>[\w.-]+?)(?:\.git)?/?"
+    r"""(?=["'\s,)]|$)"""
 )
 
 HOMEBREW_TAP_LABELS = {"homebrew-tap", "homebrew-tap-package"}
@@ -351,11 +374,18 @@ def source_taps(rows: list[dict[str, str]]) -> dict[str, set[str]]:
 
 
 def named_registries(text: str) -> set[str]:
-    """Every ``github:owner/repo`` registry this text names, lower case."""
-    return {
+    """Every source repository this text names, as ``owner/repo``, lower case.
+
+    Both spellings count: Mason's scheme-less ``github:owner/repo`` and a
+    GitHub repository URL written out, which is how a Scoop bucket is declared.
+    """
+    found = {
         f"{match.group('owner').lower()}/{match.group('name').lower()}"
         for match in PACKAGE_REGISTRY_REFERENCE.finditer(text)
     }
+    for match in GITHUB_REPOSITORY_REFERENCE.finditer(text):
+        found.add(f"{match.group('owner').lower()}/{match.group('name').lower()}")
+    return found
 
 
 def source_repositories(rows: list[dict[str, str]]) -> dict[str, set[str]]:
@@ -600,16 +630,16 @@ def scan_for_unregistered(
                     )
                     errors += 1
 
-            if matched == PACKAGE_REGISTRY_LABEL:
+            if matched in REPOSITORY_LABELS:
                 registries = named_registries(line)
                 covered: set[str] = set()
                 for source_id in annotated:
                     covered |= repositories_by_source.get(source_id, set())
                 for registry in sorted(registries - covered):
                     fail(
-                        f"{relative}:{index + 1}: this package registry is "
-                        f"github:{registry}, which none of the annotated sources "
-                        f"is ({', '.join(sorted(annotated))}); register "
+                        f"{relative}:{index + 1}: this {matched} names the "
+                        f"repository {registry}, which none of the annotated "
+                        f"sources is ({', '.join(sorted(annotated))}); register "
                         f"https://github.com/{registry} in "
                         f"config/network-sources.tsv and annotate the line with it"
                     )

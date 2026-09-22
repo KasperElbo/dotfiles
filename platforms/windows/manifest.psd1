@@ -5,6 +5,9 @@
     Scoop = @{
         NocttyBucket = @{
             Name = 'noctty'
+            # The installer passes this to `scoop bucket add`, so it is a git
+            # clone of a third-party repository and a trust root of its own.
+            # network-source: scoop-noctty-bucket
             Url = 'https://github.com/amanthanvi/scoop-noctty'
         }
         NocttyPackage = @{
@@ -14,6 +17,7 @@
         }
         ExtrasBucket = @{
             Name = 'extras'
+            # network-source: scoop-extras-bucket
             Url = 'https://github.com/ScoopInstaller/Extras'
         }
         HandyPackage = @{
