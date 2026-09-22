@@ -379,6 +379,17 @@ Rerunning the installer is a no-op once the pinned version is installed:
 nothing is downloaded, nothing is mounted, and the state file is rewritten
 byte-identically. A version other than the pinned one is replaced.
 
+Installing writes into `/Applications`, so it needs an account that can write
+there, which on a standard Mac means a member of the `admin` group. The
+installer checks this before any step runs, and the step checks it again
+before downloading anything. A refusal names the account, the directory's
+owner, group and mode, and the `dseditgroup -o checkmember` command that
+answers whether the account is an administrator. On a Mac that grants
+administrator rights only for a limited time, the grant has to be in effect
+when the run starts: it can land a few seconds after it is approved, so a run
+started straight away can still be refused. Once the pinned build is
+installed, reruns write nothing there and need no such access.
+
 ### First-run permissions
 
 Open the application once, then grant two permissions. Both prompts are

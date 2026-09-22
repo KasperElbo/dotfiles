@@ -84,11 +84,10 @@ fi
 if [[ "$installed_version" == "$version" ]]; then
   info "Ghost Pepper $version is already installed at $installed_app"
 else
-  [[ -d "$applications_dir" ]] ||
-    die "The applications directory does not exist: $applications_dir"
-  [[ -w "$applications_dir" ]] ||
-    die "Cannot write to $applications_dir; installing Ghost Pepper needs an
-administrator account that owns that directory, the same way Homebrew casks do."
+  # Asked again here although the installer's preflight already asked it: the
+  # answer can change between the two, and this is the last point at which a
+  # refusal still leaves nothing behind.
+  dictation_require_applications_dir "$applications_dir"
 
   work_dir="$(mktemp -d)"
   mount_point="$work_dir/volume"

@@ -3,9 +3,11 @@
 # The pinned Ghost Pepper artifact, shared by the installer and the verifier.
 #
 # Sourcing this file intentionally sets no shell options and calls nothing: it
-# is a set of constants plus two small readers, so the script that installs the
-# application and the verifier that proves it is installed can never disagree
-# about which release, which digest, or which signing identity is expected.
+# is a set of constants plus a few small readers, so the script that installs
+# the application and the verifier that proves it is installed can never
+# disagree about which release, which digest, or which signing identity is
+# expected, and the installer's preflight and its own guard can never disagree
+# about who may install it.
 #
 # Why a pinned disk image rather than a package manager
 # -----------------------------------------------------
@@ -71,4 +73,60 @@ dictation_installed_version() {
     return 1
   [[ -n "$version" ]] || return 1
   printf '%s\n' "$version"
+}
+
+# dictation_pinned_build_installed: true when the installed bundle is already
+# the pinned release. That is the one case in which installing writes nothing
+# into the applications directory, so it is the one case that needs no access
+# to it.
+dictation_pinned_build_installed() {
+  local installed
+
+  installed="$(dictation_installed_version "$(dictation_installed_app)" 2>/dev/null)" ||
+    return 1
+  [[ "$installed" == "$DICTATION_GHOST_PEPPER_VERSION" ]]
+}
+
+# dictation_require_applications_dir <directory>: return when this account can
+# write the bundle into <directory>, and stop through die otherwise. Needs die
+# from common/lib/common.sh.
+#
+# The test is the kernel's own answer for this process, `-w`, asked before
+# anything is downloaded, mounted or staged: an account that cannot write there
+# is refused cleanly instead of leaving a staging copy or half a bundle behind.
+# The installer asks it twice, as a plan preflight before any step runs and
+# again inside the step, because the answer can change in between.
+#
+# The refusal names the account, the directory's owner, group and mode, and the
+# check that answers whether the account is an administrator. The answer
+# depends on the directory service at the moment of asking, not on anything
+# this repository sets: on a Mac whose administrator rights are granted for a
+# limited time, the same account is refused before that grant takes effect and
+# passes after it, which a message without those inputs cannot explain.
+dictation_require_applications_dir() {
+  local directory="$1" account mode owner group
+
+  [[ -d "$directory" ]] ||
+    die "The applications directory does not exist: $directory"
+  [[ ! -w "$directory" ]] || return 0
+
+  account="$(id -un)"
+  read -r mode _ owner group _ <<<"$(ls -ld "$directory")"
+  die "Cannot write to $directory as $account, so Ghost Pepper cannot be
+installed; nothing was downloaded or installed. The directory is $owner:$group,
+$mode. On a standard Mac /Applications is root:admin, drwxrwxr-x, so writing
+there takes membership of the admin group; check this account with:
+  dseditgroup -o checkmember -m $account admin
+If this Mac grants administrator rights only for a limited time, start that
+elevation, wait until the check above answers yes, and then rerun."
+}
+
+# dictation_preflight: the dictation step's plan preflight. Ghost Pepper is the
+# one application this profile copies into the applications directory itself,
+# so whether this account may write there is decided before any step runs,
+# rather than discovered after the steps ahead of it have finished. A machine
+# that already has the pinned build writes nothing there and is not asked.
+dictation_preflight() {
+  dictation_pinned_build_installed ||
+    dictation_require_applications_dir "$(macos_applications_dir)"
 }
