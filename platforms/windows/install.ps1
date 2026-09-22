@@ -501,8 +501,45 @@ function Add-ScoopBucket {
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    if ($BucketList -match "(?m)^$([regex]::Escape($Bucket.Name))\s") {
-        return
+    # A bucket of the declared name is not the declared bucket. Scoop keys its
+    # buckets by name, so `bucket add` on a name that is already taken reports
+    # the existing one as present and leaves it in place: a `noctty` or `extras`
+    # pointing at another repository would then supply every package installed
+    # below. Both readings of where it points have to agree with the manifest.
+    $ownership = Get-ScoopBucketOwnership -Bucket $Bucket -BucketList $BucketList
+
+    if ($ownership.Exists -or $ownership.Registered) {
+        if ($ownership.Owned -and $ownership.ConfiguredMatches) {
+            return
+        }
+
+        # Fail closed. Removing someone else's bucket, or re-pointing it, is a
+        # decision for the person at the keyboard: this run stops and says what
+        # it found instead of installing out of a repository nobody declared.
+        # Which of the two readings disagreed is part of that, because the
+        # remedy differs: a substituted checkout is removed, a stale table is
+        # refreshed, and a bucket with no remote at all is neither.
+        $reason = if (-not $ownership.Exists) {
+            "Scoop lists it, but $($ownership.Path) does not exist"
+        }
+        elseif (-not $ownership.OriginUrl) {
+            "the checkout at $($ownership.Path) has no Git remote"
+        }
+        elseif (-not $ownership.OriginMatches) {
+            "the checkout at $($ownership.Path) points at $($ownership.OriginUrl)"
+        }
+        elseif (-not $ownership.Registered) {
+            'Scoop does not list it'
+        }
+        else {
+            "Scoop lists it as $($ownership.ConfiguredUrl)"
+        }
+        throw (
+            "The Scoop bucket '$($Bucket.Name)' is already present but is not " +
+            "$($Bucket.Url): $reason. Remove it with " +
+            "``scoop bucket rm $($Bucket.Name)`` and rerun, or add the declared " +
+            'bucket under another name yourself.'
+        )
     }
 
     if ($DryRun) {
@@ -535,21 +572,24 @@ function Install-ScoopPackage {
 }
 
 function Test-ScoopPackageInstalled {
-    param([Parameter(Mandatory = $true)][hashtable]$Package)
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Package,
+        [Parameter(Mandatory = $true)][string]$BucketName
+    )
 
-    $current = Join-Path $env:USERPROFILE (
-        'scoop\apps\{0}\current\{1}' -f $Package.Name, $Package.Executable
-    )
-    return (
-        ($null -ne (Get-Command $Package.Name -ErrorAction SilentlyContinue)) -or
-        (Test-Path -LiteralPath $current)
-    )
+    # The question this answers decides whether the run installs anything, so
+    # it is Scoop's own metadata that answers it, through the shared predicate
+    # verify.ps1 uses. A resolvable command says a program of that name exists
+    # somewhere; an apps directory says an install was started. Neither says
+    # this package came from the declared bucket, and the first of them reads a
+    # PATH that the installing session cannot see updated anyway.
+    return (Get-ScoopPackageOwnership -Package $Package -BucketName $BucketName).Installed
 }
 
 function Install-Noctty {
     $nocttyPackage = $WindowsManifest.Scoop.NocttyPackage
     $nocttyBucket = $WindowsManifest.Scoop.NocttyBucket
-    if (Test-ScoopPackageInstalled -Package $nocttyPackage) {
+    if (Test-ScoopPackageInstalled -Package $nocttyPackage -BucketName $nocttyBucket.Name) {
         Write-Step 'Noctty is already installed'
         return
     }
@@ -577,7 +617,7 @@ function Install-Handy {
     # no second package manager. See docs/profiles/dictation.md.
     $handyPackage = $WindowsManifest.Scoop.HandyPackage
     $extrasBucket = $WindowsManifest.Scoop.ExtrasBucket
-    if (Test-ScoopPackageInstalled -Package $handyPackage) {
+    if (Test-ScoopPackageInstalled -Package $handyPackage -BucketName $extrasBucket.Name) {
         Write-Step 'Handy is already installed'
         return
     }
