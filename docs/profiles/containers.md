@@ -271,6 +271,33 @@ smoke test every time. `install-containers.sh` itself always runs the full
 smoke test once, right after installing, so the end-to-end workflow is
 proven immediately.
 
+#### What the smoke test does to local image storage
+
+The smoke test is the one part of verification that is not read-only, and
+this is its whole mutation policy:
+
+- **The base image is pinned by manifest-list digest**, not by the `:stable`
+  tag it was taken from, so every run pulls exactly the reviewed content.
+  The digest is recorded in `config/network-sources.tsv` as
+  `smoke-image-busybox` and bumped deliberately.
+- **If that image was already in local image storage, it is not re-fetched**
+  and it is kept. The run touches neither the network nor image storage for
+  it, and reports its image ID before and after to show it is unchanged.
+- **If it was not, the run pulls it and removes it again afterwards**, so a
+  machine that did not have the image ends verification without it.
+- **The restore runs on every exit path** — a passing run, a failing check, a
+  `podman` error, and `Ctrl-C` or a `SIGTERM` part-way through — and the run
+  reports which of the two restores it owed under `Local image state`.
+- **A removal that fails is said out loud**, as a warning naming the image and
+  the `podman rmi` command to finish it by hand, because the image is then
+  still on the machine.
+- **`--skip-smoke-test` touches image storage not at all**; it pulls nothing
+  and removes nothing.
+
+This is the same policy the macOS verifier follows for its own container
+probe, and it applies on Fedora WSL too, whose container verifier checks the
+WSL prerequisites and then hands over to the Fedora one.
+
 #### What is checked about the API socket
 
 When `api_socket=enabled` is recorded and the user-scoped unit is enabled and
