@@ -23,6 +23,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from shell import strip_noise  # noqa: E402
 from manifests import (  # noqa: E402
     ManifestSchemaError,
     mise_tool_package,
@@ -355,6 +356,22 @@ class UnreadablePackageArray(Exception):
     """A package array this check cannot read, which installs packages anyway."""
 
 
+# A line that tells the operator something. The repository's reporting helpers
+# are named alongside `echo`, because a package named in `info "Installing
+# kio-extras"` is a sentence about an install, not an install.
+#
+# `printf` and `cat` are deliberately absent: this repository writes real
+# content with them -- `printf 'herdr = "latest"\n'` is how a mise tool list is
+# composed -- so a line that redirects or pipes its output is kept too, since
+# it is producing something rather than reporting.
+MESSAGE_COMMAND = re.compile(
+    r"^\s*(?:echo|info|note|notice|warn|warning|error|die|fail|pass|skip|step|"
+    r"log|say|summary|usage)\b(?![^\n]*[|>])"
+)
+# The word that opens a heredoc, whose body is data rather than commands.
+HEREDOC = re.compile(r"<<-?\s*(?P<delimiter>[\"\']?[A-Za-z_][\w]*[\"\']?)")
+
+
 def package_arrays(path: pathlib.Path) -> dict[str, list[str]]:
     """Every `<name>packages=(...)` literal array in a shell file.
 
@@ -386,19 +403,57 @@ def package_arrays(path: pathlib.Path) -> dict[str, list[str]]:
     return found
 
 
+def without_heredocs(text: str) -> str:
+    """The same text with the body of every heredoc removed.
+
+    A heredoc body is data the script writes somewhere -- a summary, a unit
+    file, a message -- not a command it runs, and `kio-extras` named in one is
+    not an installation of kio-extras.
+    """
+    kept: list[str] = []
+    closing: str | None = None
+    for line in text.splitlines():
+        if closing is not None:
+            if line.strip() == closing:
+                closing = None
+            continue
+        kept.append(line)
+        opener = HEREDOC.search(line)
+        if opener is not None:
+            closing = opener.group("delimiter").strip("'\"")
+    return "\n".join(kept)
+
+
 def requested_packages(path: pathlib.Path) -> set[str]:
     """The package names an installer file can be said to request.
 
-    A mise configuration is parsed, so a package must be a tool it declares. Any
-    other file is searched for the name as a whole word, in the lines that run
-    something rather than in the whole file: a package named only in a comment
-    is documentation, not an install. Words are split two ways, with and
-    without `@` and `/` as word characters, so a scoped npm package such as
-    `@openai/codex` is found as well as a plain name.
+    A mise configuration is parsed, so a package must be a tool it declares.
+    Any other file is searched for the name as a whole word, in the lines that
+    ask for something rather than in the whole file. Three kinds of line are
+    left out:
+
+    * a comment, which is documentation rather than an install;
+    * a heredoc body, which is text the script writes somewhere;
+    * a line that only reports, because what a script says it is doing is not
+      what it does.
+
+    That last one is the finding. It used to be every line that was not a
+    comment, so dropping `kio-extras` from the KDE installer's dnf array and
+    naming it in an `info "..."` line left the row still claiming to own it --
+    Dolphin's sftp:// support -- while nothing installed it, and the whole of
+    lint stayed green. The same was true of a name in a heredoc body.
+
+    Words are split two ways, with and without `@` and `/` as word characters,
+    so a scoped npm package such as `@openai/codex` is found as well as a
+    plain name.
     """
     if path.suffix == ".toml":
         return {mise_tool_package(spec) for spec in mise_tools(path)}
-    text = code_text(path)
+    text = "\n".join(
+        line
+        for line in without_heredocs(code_text(path)).splitlines()
+        if not MESSAGE_COMMAND.match(line)
+    )
     return set(re.split(r"[^\w.+-]+", text)) | set(re.split(r"[^\w.+@/-]+", text))
 
 
