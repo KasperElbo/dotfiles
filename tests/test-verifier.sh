@@ -761,4 +761,34 @@ assert_contains "$TEST_OUTPUT" 'mise is unavailable'
 assert_probe_counts 0 0 0 1
 printf 'PASS: without mise the prefix is unobserved, not silently clean\n'
 
+# --- Every check_* helper has a caller --------------------------------------
+#
+# check_file_mode had none, anywhere in the tree including the suites, and the
+# one thing an uncalled check_* helper is guaranteed to do is sit there looking
+# like coverage. It also asserted a mode without asserting a file type, so a
+# directory at the checked path passed -- a trap waiting for whichever call
+# site adopted it first, which would have been the sudoers drop-in's 440
+# assertion (issue #396, VL-02). Deleting it is only durable if a replacement
+# cannot grow back unnoticed, so the library's helpers are held to having a
+# caller outside their own definition.
+printf 'Shared verifier helper reachability\n'
+
+mapfile -t verify_helpers < <(
+  grep -oE '^check_[a-z0-9_]+\(\)' "$repo_root/common/lib/verify.sh" | sed 's/()$//'
+)
+((${#verify_helpers[@]} > 0)) ||
+  _test_die 'no check_* helper was found in common/lib/verify.sh, so this audit proves nothing'
+
+for helper in "${verify_helpers[@]}"; do
+  helper_callers="$(
+    git -C "$repo_root" grep -l -w -e "$helper" -- ':!common/lib/verify.sh' || true
+  )"
+  [[ -n "$helper_callers" ]] ||
+    _test_die "$helper is defined in common/lib/verify.sh and called nowhere;" \
+      "delete it rather than leaving a check that no verifier runs"
+done
+
+printf 'PASS: all %d shared check_* helpers are called by something\n' \
+  "${#verify_helpers[@]}"
+
 printf 'Shared verifier tests passed.\n'

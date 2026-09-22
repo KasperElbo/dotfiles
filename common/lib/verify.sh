@@ -379,20 +379,6 @@ verify_file_mode() {
   printf '%s\n' "$mode"
 }
 
-check_file_mode() {
-  local label="$1"
-  local path="$2"
-  local expected_mode="$3"
-  local actual_mode
-
-  actual_mode="$(verify_file_mode "$path" 2>/dev/null || true)"
-  if [[ "$actual_mode" == "$expected_mode" ]]; then
-    pass "$label mode is $expected_mode"
-  else
-    fail "$label mode is ${actual_mode:-unknown}; expected $expected_mode"
-  fi
-}
-
 # Resolve an existing path without GNU-only readlink flags. Installers and
 # verifiers must agree on what a path resolves to, so the implementation lives
 # in common/lib/common.sh (sourced before this library by every verifier) and
@@ -455,15 +441,6 @@ check_system_service_active() {
     pass "$unit is active"
   else
     fail "$unit is not active"
-  fi
-}
-
-check_user_service_active() {
-  local unit="$1"
-  if systemctl --user is-active --quiet "$unit"; then
-    pass "$unit is active for the user"
-  else
-    fail "$unit is not active for the user"
   fi
 }
 
