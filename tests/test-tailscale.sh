@@ -27,6 +27,7 @@ new_test_root() {
   test_stub_allow "$test_root" dnf config-manager addrepo --overwrite \
     --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
   test_stub_allow "$test_root" dnf install -y tailscale
+  test_stub_allow "$test_root" dnf --dump-repo-config=tailscale
   test_stub_allow "$test_root" sudo dnf install -y dnf5-plugins
   test_stub_allow "$test_root" sudo dnf config-manager addrepo --overwrite \
     --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
@@ -36,8 +37,20 @@ new_test_root() {
   test_stub_allow "$test_root" systemctl is-enabled --quiet tailscaled
   test_stub_allow "$test_root" systemctl is-active --quiet tailscaled
 
+  # The verifier asks DNF what it will enforce for the tailscale
+  # repository, so the fixture has to be a machine DNF knows it on.
+  # MOCK_TAILSCALE_GPGCHECK is what the fetched .repo file turned out to
+  # say: whatever that is becomes the machine's policy verbatim.
   cat >"$test_root/handlers/dnf" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${1:-}" == --dump-repo-config=tailscale ]]; then
+  [[ -e "$TAILSCALE_REPO_FILE" ]] || exit 1
+  printf '======== "tailscale" repository configuration: ========\n'
+  printf 'gpgcheck = %s\npkg_gpgcheck = %s\n' \
+    "${MOCK_TAILSCALE_GPGCHECK:-1}" "${MOCK_TAILSCALE_GPGCHECK:-1}"
+  exit 0
+fi
+
 printf 'dnf %s\n' "$*" >>"$COMMAND_LOG"
 
 if [[ "${1:-}" == config-manager && "${2:-}" == addrepo ]]; then
@@ -319,6 +332,41 @@ verify_output="$(env "${test_environment[@]}" MOCK_TAILSCALE_BACKEND_STATE=Runni
 grep -Fq 'authenticated and connected to a tailnet' <<<"$verify_output"
 printf 'PASS: verification reports the authenticated/connected state\n'
 rm -rf -- "$test_root"
+
+# --- the repository's own signature policy is read back from DNF ------------
+#
+# The .repo file Tailscale publishes is installed verbatim, so its gpgcheck
+# setting -- and any later edit to it -- becomes the machine's policy for a
+# repository that installs root-privileged packages. Verification has to read
+# that policy back off the machine rather than assume the fetched file was
+# the one that is still there.
+
+verify_with_installed_repository() {
+  test_root="$(new_test_root)"
+  mapfile -t test_environment < <(base_environment "$test_root")
+  printf 'tailscaled\n' >"$test_root/enabled-units"
+  printf 'tailscaled\n' >"$test_root/active-units"
+  mkdir -p "$test_root/etc/yum.repos.d"
+  printf '[tailscale]\nname=Tailscale stable\n' \
+    >"$test_root/etc/yum.repos.d/tailscale.repo"
+
+  run_capture env "${test_environment[@]}" MOCK_TAILSCALE_BACKEND_STATE=Running "$@" \
+    "$repo_root/platforms/fedora/scripts/verify-tailscale.sh"
+}
+
+verify_with_installed_repository MOCK_TAILSCALE_GPGCHECK=1
+assert_success
+assert_contains "$TEST_OUTPUT" 'tailscale repository enforces package signatures'
+rm -rf -- "$test_root"
+printf 'PASS: an installed repository with gpgcheck=1 verifies clean\n'
+
+verify_with_installed_repository MOCK_TAILSCALE_GPGCHECK=0
+assert_failure
+assert_contains "$TEST_OUTPUT" 'gpgcheck = 0'
+assert_contains "$TEST_OUTPUT" 'install without signature verification'
+assert_not_contains "$TEST_OUTPUT" 'Tailscale verification passed'
+rm -rf -- "$test_root"
+printf 'PASS: gpgcheck=0 on the installed repository fails verification by name\n'
 
 # --- verification separates "not authenticated" from "could not determine" ---
 #
