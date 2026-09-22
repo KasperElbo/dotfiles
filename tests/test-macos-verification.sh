@@ -372,6 +372,8 @@ ln -s "$repo_root/platforms/macos/stow/aerospace/.local/bin/aerospace-workspace-
 ln -s "$repo_root/git/.config/git/config" "$config/git/config"
 ln -s "$repo_root/mise/.config/mise/config.toml" "$config/mise/config.toml"
 ln -s "$repo_root/nvim-lazyvim/.config/nvim/init.lua" "$config/nvim/init.lua"
+ln -s "$repo_root/nvim-lazyvim/.config/nvim/lazy-lock.json" \
+  "$config/nvim/lazy-lock.json"
 ln -s "$repo_root/platforms/macos/stow/nvim-macos/.config/nvim/lua/plugins/macos.lua" \
   "$config/nvim/lua/plugins/macos.lua"
 ln -s "$repo_root/platforms/macos/stow/ghostty-macos/.config/ghostty/macos.conf" \
@@ -410,6 +412,13 @@ done <"$repo_root/nvim-lazyvim/.config/nvim/mason-packages.txt"
 "$repo_root/tests/support/mason-mock-install.sh" \
   --pins "$repo_root/common/mason-package-versions.txt" "$data/nvim/mason" \
   "${mason_packages[@]}"
+
+# The tracked Lazy lock file, installed. Same reasoning as the Mason inventory
+# above: a plugin directory is what an interrupted clone leaves, so the fixture
+# leaves real checkouts at the pinned commits, taken from the lock file the
+# verifier reads.
+"$repo_root/tests/support/lazy-mock-install.sh" \
+  "$repo_root/nvim-lazyvim/.config/nvim/lazy-lock.json" "$data"
 
 # The pinned Catppuccin tmux checkout.
 tmux_plugin="$data/tmux/plugins/catppuccin"
@@ -547,6 +556,8 @@ for expected in \
   'git runs:' \
   'scp runs:' \
   'Neovim 0.12.5 satisfies the >= 0.12 baseline' \
+  'Lazy plugins match ' \
+  'Neovim starts and reports >= ' \
   "Ghost Pepper is at the pinned $DICTATION_VERSION" \
   'Ghost Pepper has no competing Homebrew cask' \
   "$config/git/config -> $repo_root/git/.config/git/config" \
@@ -576,6 +587,18 @@ expect_one_more_failure() {
   assert_contains "$TEST_OUTPUT" "$2"
   printf 'PASS: %s\n' "$1"
 }
+
+# A plugin the lock file names and the tree does not. This is the case the
+# verify-mode start exists for: before #371 a start that ran first would have
+# installed it, and the plugin check that followed would have credited a
+# machine the run had just repaired.
+macos_withheld_plugin="$(jq -r 'keys[0]' \
+  "$repo_root/nvim-lazyvim/.config/nvim/lazy-lock.json")"
+mv "$data/nvim/lazy/$macos_withheld_plugin" "$root/withheld-plugin"
+run_verifier
+expect_one_more_failure 'a locked plugin missing from the tree is reported, not installed' \
+  "Lazy plugin not installed: $macos_withheld_plugin"
+mv "$root/withheld-plugin" "$data/nvim/lazy/$macos_withheld_plugin"
 
 # A Starship configuration for the wrong flavour: the theme was never applied.
 ln -sfn "$repo_root/starship/.config/starship/catppuccin-mocha.toml" \
