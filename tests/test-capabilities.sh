@@ -644,6 +644,34 @@ python3 "$scratch/scripts/validate-capabilities.py" ||
   _test_die 'an invocation after a message on the same line must still count'
 printf 'PASS: a message before a real invocation does not hide it\n'
 
+# An operator the message merely prints does not end the message. Taking `&&`
+# as spelled would read the rest of the string as code, which reopens the hole
+# one character further along: the echo still runs nothing.
+new_scratch ci-evidence-echoed-operator
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / ".github/workflows/real-install.yml"
+verifier = "./platforms/macos/scripts/verify.sh"
+runs = {verifier, f"{verifier} --defaults"}
+lines = path.read_text(encoding="utf-8").splitlines()
+if not any(line.strip() in runs or line.strip() == f"run: {verifier}" for line in lines):
+    sys.exit("the macOS job no longer runs its verifier, so this case proves nothing")
+kept = []
+for line in lines:
+    stripped = line.strip()
+    if stripped in runs or stripped == f"run: {verifier}":
+        indent = line[: len(line) - len(line.lstrip())]
+        prefix = "run: " if stripped.startswith("run: ") else ""
+        kept.append(f'{indent}{prefix}echo "skipped: would have been && {verifier}"')
+    else:
+        kept.append(line)
+path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'an operator inside a message does not start a command' \
+  'verifier platforms/macos/scripts/verify.sh is not run by .github/workflows/real-install.yml'
+
 # The reader must fail loudly rather than find nothing: a workflow it cannot
 # take a single `run:` block out of would otherwise prove every verifier.
 new_scratch ci-evidence-unreadable

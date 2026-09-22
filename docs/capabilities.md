@@ -339,10 +339,10 @@ the repository once per rule, proving each one can fail:
   file that proves everything. Being shell is not enough either, because a
   message is shell: what a reporting command prints is dropped before either
   rule reads the text, so `echo "skipping ./platforms/macos/scripts/verify.sh"`
-  proves nothing while `echo done && ./verify.sh` still runs the verifier. A PowerShell suite
-  spells repository paths with backslashes, which the check normalizes before
-  looking for the verifier it is evidence for. The verifiers of
-  profiles no real-install job installs are listed in `MOCKED_VERIFIERS` with
+  proves nothing while `echo done && ./verify.sh` still runs the verifier. A
+  PowerShell suite spells repository paths with backslashes, which the check
+  normalizes before looking for the verifier it is evidence for. The verifiers
+  of profiles no real-install job installs are listed in `MOCKED_VERIFIERS` with
   the default fast suite that runs them against a mocked machine instead, and
   that suite must be in `scripts/test.sh`'s default tests and run the verifier.
 - **Selected by CI.** Running a verifier is not installing the capability it is

@@ -923,7 +923,12 @@ REPORTING_COMMAND = re.compile(
     r"^(?P<indent>\s*)(?:echo|printf|info|note|notice|warn|warning|error|die|"
     r"fail|pass|skip|step|log|say|summary|usage)\b(?P<rest>.*)$"
 )
-# Where a reporting command ends and a real one begins on the same line.
+# Where a reporting command ends and a real one begins on the same line. It is
+# looked for in a noise-stripped copy, so an operator the message merely prints
+# does not end it: `echo "a && ./verify.sh"` runs no verifier, and taking the
+# operator as spelled would reopen the hole this closes one character further
+# along. `strip_noise` blanks quoted text in place, so a match in the copy is
+# at the same offset in the line.
 CONTROL_OPERATOR = re.compile(r"(?:&&|\|\||;)")
 
 
@@ -936,6 +941,11 @@ def without_messages(text: str) -> str:
     verifier, and a path inside a string after some other command may be a real
     invocation -- `bash -lc "cd ... && ./verify.sh"` is how the WSL job runs
     its verifier.
+
+    A substitution a message expands does run (`echo "$(./verify.sh)"`), and
+    goes with the message here. That is the direction this errs in on purpose:
+    evidence dropped turns the gate red and someone looks, while evidence
+    invented is the silence GAP-18 is about.
     """
     kept = []
     for line in text.splitlines():
@@ -943,7 +953,7 @@ def without_messages(text: str) -> str:
         if message is None:
             kept.append(line)
             continue
-        operator = CONTROL_OPERATOR.search(message["rest"])
+        operator = CONTROL_OPERATOR.search(strip_noise(message["rest"]))
         kept.append(
             message["indent"] + message["rest"][operator.end():]
             if operator
