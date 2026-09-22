@@ -27,6 +27,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from manifests import supported_platforms  # noqa: E402
+from provenance import VISIBLE_PROVENANCE  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TARGET = ROOT / "docs" / "architecture" / "installation.md"
@@ -88,6 +89,11 @@ def render() -> str:
         "<!-- Generated from the plan_add calls in platforms/*/install.sh by",
         "     scripts/render-install-flows.py. Do not edit between these markers;",
         "     edit the installer and regenerate. -->",
+        "",
+        VISIBLE_PROVENANCE.format(
+            sources="the `plan_add` calls in `platforms/*/install.sh`",
+            renderer="render-install-flows.py",
+        ),
         "",
         "## Per-platform install flow",
         "",

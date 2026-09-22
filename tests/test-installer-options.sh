@@ -175,8 +175,17 @@ run_success "Dictation dry-run" \
 run_success "Dictation dry-run names the pinned provider" \
   "Handy from a pinned, digest-verified release rpm" \
   ./install.sh --dry-run --dictation
+# The dictation capability depends on base alone, so the plan has to name the
+# key the desktop in front of this person actually binds. A tracked Sway
+# configuration is the signal the installer and the verifier both read.
+mkdir -p "$test_root/config/sway"
+printf 'bindsym $mod+o exec pkill -USR2 -x handy\n' >"$test_root/config/sway/config"
 run_success "Standalone dictation dry-run keeps the compositor-owned key" \
   "Super+O, owned by Sway (pkill -USR2 -x handy)" \
+  ./platforms/fedora/scripts/install-dictation.sh --dry-run
+rm -rf "$test_root/config/sway"
+run_success "Standalone dictation dry-run names the Plasma shortcut with no Sway" \
+  "handy --toggle-transcription" \
   ./platforms/fedora/scripts/install-dictation.sh --dry-run
 run_success "Standalone dictation dry-run configures no cloud transcription" \
   "local only; no account, API key or cloud endpoint" \

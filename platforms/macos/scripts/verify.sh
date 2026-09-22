@@ -197,6 +197,24 @@ else
   pass "Zsh login environment activates Homebrew, Starship, and mise"
 fi
 
+# HOMEBREW_PREFIX is read by common/verify-ocaml.sh and scripts/bootstrap-macos.sh
+# to find Homebrew rather than assume the Apple Silicon path. Both fall back to
+# /opt/homebrew when it is unset, which is correct today and hides the variable
+# never being exported at all, so assert the export itself: a fallback that is
+# always taken proves nothing about the environment it claims to read.
+# The expected value comes from Homebrew itself rather than from the file under
+# test, so this asks whether the login shell agrees with the machine.
+# shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
+login_prefix="$(zsh -lic 'printf "%s" "${HOMEBREW_PREFIX:-}"' 2>/dev/null || true)"
+brew_prefix="$(brew --prefix 2>/dev/null || true)"
+if [[ -z "$brew_prefix" ]]; then
+  fail "Homebrew does not report a prefix, so HOMEBREW_PREFIX cannot be checked"
+elif [[ "$login_prefix" == "$brew_prefix" ]]; then
+  pass "Zsh login environment exports HOMEBREW_PREFIX: $login_prefix"
+else
+  fail "Zsh login environment exports HOMEBREW_PREFIX=${login_prefix:-unset}, but Homebrew reports $brew_prefix"
+fi
+
 # Apple's /bin/zsh and a deliberately selected Homebrew Zsh are both supported,
 # so this asserts registration in /etc/shells rather than one exact path.
 login_shell="$(macos_login_shell_for_user "$USER" || true)"
