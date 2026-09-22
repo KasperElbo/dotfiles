@@ -334,18 +334,40 @@ if [[ -n "$current_theme" ]]; then
   frappe) kde_global_theme="Catppuccin-Frappe-Mauve" ;;
   macchiato) kde_global_theme="Catppuccin-Macchiato-Mauve" ;;
   mocha) kde_global_theme="Catppuccin-Mocha-Mauve" ;;
+  # A flavour this verifier does not know names no KDE global theme. Without
+  # this arm the variable stayed unset and the expansion below aborted the whole
+  # run under set -u, printing no summary (issue #397, GAP-10). The empty value
+  # is not usable as a theme name either: the path it builds is the bare
+  # look-and-feel directory, which exists on every KDE machine, so it must never
+  # reach the -d test below.
+  *) kde_global_theme="" ;;
   esac
-  kde_theme_path="$XDG_DATA_HOME/plasma/look-and-feel/$kde_global_theme"
 
-  if ((kde_selection_status == 0)); then
-    if [[ -d "$kde_theme_path" ]]; then
-      pass "Catppuccin KDE global theme installed: $kde_global_theme"
+  if [[ -z "$kde_global_theme" ]]; then
+    # Say what was not checked rather than skipping quietly. The flavour name is
+    # the entire input to the checks below, so with an unrecognised one nothing
+    # about the KDE global theme has been established, and a run that says
+    # nothing here reads exactly like one where the theme was found.
+    if ((kde_selection_status == 0)); then
+      fail "KDE integration is selected, but flavour '$current_theme' names no" \
+        "KDE global theme; the installed global theme was not verified"
     else
-      fail "KDE integration is selected but its global theme is missing: $kde_theme_path"
+      not_observed "flavour '$current_theme' names no KDE global theme, so no" \
+        "leftover KDE theme could be looked for"
     fi
-  elif ((kde_selection_status == 1)) && [[ -d "$kde_theme_path" ]]; then
-    warning "KDE integration is not selected, but $kde_theme_path exists;" \
-      "the theme command will not apply it"
+  else
+    kde_theme_path="$XDG_DATA_HOME/plasma/look-and-feel/$kde_global_theme"
+
+    if ((kde_selection_status == 0)); then
+      if [[ -d "$kde_theme_path" ]]; then
+        pass "Catppuccin KDE global theme installed: $kde_global_theme"
+      else
+        fail "KDE integration is selected but its global theme is missing: $kde_theme_path"
+      fi
+    elif ((kde_selection_status == 1)) && [[ -d "$kde_theme_path" ]]; then
+      warning "KDE integration is not selected, but $kde_theme_path exists;" \
+        "the theme command will not apply it"
+    fi
   fi
 fi
 
@@ -477,8 +499,14 @@ for name in local drdk; do
     pass "Machine-local Git config is outside the Stow package: $name"
   fi
 
-  if [[ -L "$file" ]] &&
-    [[ "$(realpath -m "$file")" == "$repo_file" ]]; then
+  # resolved_link_matches, not a spelling comparison. realpath resolves the
+  # link physically while repo_file is built from DOTFILES_ROOT, which is
+  # logical and keeps whatever symlinks the caller walked through, so on a
+  # checkout reached through a symlink the two strings differed although they
+  # named the same file and a link straight into the package read as clean
+  # (issue #398). The same helper decides the AGENTS.md ownership question
+  # below for the same reason.
+  if resolved_link_matches "$file" "$repo_file"; then
     fail "Local Git config still links into the dotfiles repo: $file"
   elif [[ -f "$file" ]]; then
     pass "Local Git config exists: $file"
