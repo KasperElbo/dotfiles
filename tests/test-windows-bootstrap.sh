@@ -96,7 +96,29 @@ scoop_helper="$repo_root/platforms/windows/lib/scoop.ps1"
 grep -Fq 'function Get-ScoopRoot' "$scoop_helper"
 grep -Fq 'function Resolve-ScoopShimCommand' "$scoop_helper"
 grep -Fq 'function Resolve-ScoopCommand' "$scoop_helper"
-grep -Fq "Join-Path (Get-ScoopRoot) 'shims'" "$scoop_helper"
+grep -Fq "Join-Path \$Root 'shims'" "$scoop_helper"
+
+# Bucket and package identity live here too, so install.ps1 and verify.ps1
+# cannot answer "is the declared thing on this machine" differently. A name
+# is not that answer: a bucket is whatever repository was cloned into it, and
+# a resolvable command is whatever program got there first.
+grep -Fq 'function Get-ScoopBucketOwnership' "$scoop_helper"
+grep -Fq 'function Get-ScoopPackageOwnership' "$scoop_helper"
+grep -Fq 'function Get-ScoopBucketOrigin' "$scoop_helper"
+grep -Fq 'function ConvertTo-CanonicalScoopBucketUrl' "$scoop_helper"
+grep -Fq 'function ConvertFrom-ScoopBucketList' "$scoop_helper"
+
+for windows_script in "$installer" "$windows_verifier"; do
+  grep -Fq 'Get-ScoopPackageOwnership' "$windows_script" || {
+    printf 'Scoop package identity must come from the shared helper: %s\n' \
+      "$windows_script" >&2
+    exit 1
+  }
+done
+
+# install.json is Scoop's own record of a finished install and of which bucket
+# supplied it. Nothing else establishes either.
+grep -Fq "Join-Path \$current 'install.json'" "$scoop_helper"
 
 # The selection state decides what verification demands, so what counts as a
 # readable state is declared once and the verifier uses that declaration. A

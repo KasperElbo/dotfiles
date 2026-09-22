@@ -360,6 +360,22 @@ class UnreadablePackageArray(Exception):
     """A package array this check cannot read, which installs packages anyway."""
 
 
+# A line that tells the operator something. The repository's reporting helpers
+# are named alongside `echo`, because a package named in `info "Installing
+# kio-extras"` is a sentence about an install, not an install.
+#
+# `printf` and `cat` are deliberately absent: this repository writes real
+# content with them -- `printf 'herdr = "latest"\n'` is how a mise tool list is
+# composed -- so a line that redirects or pipes its output is kept too, since
+# it is producing something rather than reporting.
+MESSAGE_COMMAND = re.compile(
+    r"^\s*(?:echo|info|note|notice|warn|warning|error|die|fail|pass|skip|step|"
+    r"log|say|summary|usage)\b(?![^\n]*[|>])"
+)
+# The word that opens a heredoc, whose body is data rather than commands.
+HEREDOC = re.compile(r"<<-?\s*(?P<delimiter>[\"\']?[A-Za-z_][\w]*[\"\']?)")
+
+
 def package_arrays(path: pathlib.Path) -> dict[str, list[str]]:
     """Every `<name>packages=(...)` literal array in a shell file.
 
@@ -391,19 +407,57 @@ def package_arrays(path: pathlib.Path) -> dict[str, list[str]]:
     return found
 
 
+def without_heredocs(text: str) -> str:
+    """The same text with the body of every heredoc removed.
+
+    A heredoc body is data the script writes somewhere -- a summary, a unit
+    file, a message -- not a command it runs, and `kio-extras` named in one is
+    not an installation of kio-extras.
+    """
+    kept: list[str] = []
+    closing: str | None = None
+    for line in text.splitlines():
+        if closing is not None:
+            if line.strip() == closing:
+                closing = None
+            continue
+        kept.append(line)
+        opener = HEREDOC.search(line)
+        if opener is not None:
+            closing = opener.group("delimiter").strip("'\"")
+    return "\n".join(kept)
+
+
 def requested_packages(path: pathlib.Path) -> set[str]:
     """The package names an installer file can be said to request.
 
-    A mise configuration is parsed, so a package must be a tool it declares. Any
-    other file is searched for the name as a whole word, in the lines that run
-    something rather than in the whole file: a package named only in a comment
-    is documentation, not an install. Words are split two ways, with and
-    without `@` and `/` as word characters, so a scoped npm package such as
-    `@openai/codex` is found as well as a plain name.
+    A mise configuration is parsed, so a package must be a tool it declares.
+    Any other file is searched for the name as a whole word, in the lines that
+    ask for something rather than in the whole file. Three kinds of line are
+    left out:
+
+    * a comment, which is documentation rather than an install;
+    * a heredoc body, which is text the script writes somewhere;
+    * a line that only reports, because what a script says it is doing is not
+      what it does.
+
+    That last one is the finding. It used to be every line that was not a
+    comment, so dropping `kio-extras` from the KDE installer's dnf array and
+    naming it in an `info "..."` line left the row still claiming to own it --
+    Dolphin's sftp:// support -- while nothing installed it, and the whole of
+    lint stayed green. The same was true of a name in a heredoc body.
+
+    Words are split two ways, with and without `@` and `/` as word characters,
+    so a scoped npm package such as `@openai/codex` is found as well as a
+    plain name.
     """
     if path.suffix == ".toml":
         return {mise_tool_package(spec) for spec in mise_tools(path)}
-    text = code_text(path)
+    text = "\n".join(
+        line
+        for line in without_heredocs(code_text(path)).splitlines()
+        if not MESSAGE_COMMAND.match(line)
+    )
     return set(re.split(r"[^\w.+-]+", text)) | set(re.split(r"[^\w.+@/-]+", text))
 
 
@@ -638,6 +692,13 @@ MOCKED_VERIFIERS = {
     "platforms/fedora-wsl/scripts/verify-containers.sh": "tests/test-containers-wsl.sh",
 }
 
+# A `run:` key, and the block scalar indicators its body may open with. The
+# key may start a step (`- run: |`) or follow one of its siblings; either way
+# `lead` is everything before `run`, so its length is the column the body must
+# be indented past.
+RUN_KEY = re.compile(r"^(?P<lead>\s*(?:-\s+)?)run:(?P<inline>.*)$")
+BLOCK_SCALAR = re.compile(r"[|>][-+]?\d*")
+
 VERIFIER_REFERENCE = re.compile(
     r"(?<![\w-])((?:common|scripts|platforms/[\w-]+/scripts)/verify[\w-]*\.sh)(?![\w-])"
 )
@@ -677,9 +738,14 @@ def code_text(path: pathlib.Path) -> str:
     comment's position is taken from the blanked line and the code is read out
     of the original.
     """
+    return drop_comments(path.read_text(encoding="utf-8").splitlines())
+
+
+def drop_comments(lines: list[str]) -> str:
+    """The code half of each line, keeping the strings, dropping the comments."""
     return "\n".join(
         line[: len(strip_noise(line))]
-        for line in path.read_text(encoding="utf-8").splitlines()
+        for line in lines
         if not line.lstrip().startswith("#")
     )
 
@@ -799,9 +865,57 @@ def default_test_suites() -> set[str]:
     return set(match.group(1).split()) if match else set()
 
 
+class UnreadableWorkflow(Exception):
+    """A workflow whose `run:` blocks could not be read."""
+
+
+def workflow_shell(path: pathlib.Path) -> str:
+    """The shell a workflow runs, without the YAML that surrounds it.
+
+    A workflow is not a script, and searching the whole file for a path finds
+    it wherever it is written -- in a step's `name:`, in an `if:`, in a
+    message a step echoes. None of those run anything, so none of them is
+    evidence that CI runs the thing they name. Only the body of a `run:` key
+    is, so only that is returned.
+
+    The three shapes the workflow writes are all read: the inline scalar
+    (`run: ./x.sh`), the literal block (`run: |`) and the folded block
+    (`run: >-`). A block's body is the lines indented past its key, which is
+    also what ends it -- the next key of the same step, or the next step.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    shell: list[str] = []
+    found = False
+    index = 0
+    while index < len(lines):
+        key = RUN_KEY.match(lines[index])
+        if key is None:
+            index += 1
+            continue
+        found = True
+        margin = len(key["lead"])
+        inline = key["inline"].strip()
+        index += 1
+        if not BLOCK_SCALAR.fullmatch(inline):
+            shell.append(inline)
+            continue
+        while index < len(lines):
+            line = lines[index]
+            if line.strip() and len(line) - len(line.lstrip()) <= margin:
+                break
+            shell.append(line)
+            index += 1
+    if not found:
+        raise UnreadableWorkflow(
+            f"{path.relative_to(ROOT)}: no `run:` step could be read, so the "
+            f"check that CI runs each verifier would pass for want of evidence"
+        )
+    return drop_comments(shell)
+
+
 def real_install_text() -> str:
-    """real-install.yml, plus every sequence or suite one of its steps runs."""
-    workflow = code_text(REAL_INSTALL_WORKFLOW)
+    """The shell real-install.yml runs, plus every sequence or suite it runs."""
+    workflow = workflow_shell(REAL_INSTALL_WORKFLOW)
     texts = [workflow]
     scripts = set(INTEGRATION_SCRIPT.findall(workflow)) | set(
         WINDOWS_SUITE.findall(workflow)

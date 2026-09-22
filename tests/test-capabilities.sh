@@ -480,6 +480,129 @@ sed -i 's/^          \.\/install\.sh --platform macos --theme mocha$/          .
 expect_scratch_rejected 'a bare --rerun is not selection for any platform' \
   'macos/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
 
+# A package is what an installer asks for, not what it says. Dropping
+# kio-extras from the KDE installer's dnf array and naming it in a message, or
+# in a heredoc body, left the row still claiming to own Dolphin's sftp://
+# support while nothing installed it.
+new_scratch requested-in-message
+sed -i 's/^packages=(kio-extras wget)$/packages=(wget)/' \
+  "$scratch/platforms/fedora/scripts/install-kde-theme.sh"
+sed -i 's/    info "\$package is already installed"/    info "kio-extras and $package are already installed"/' \
+  "$scratch/platforms/fedora/scripts/install-kde-theme.sh"
+grep -Fq 'info "kio-extras and $package are already installed"' \
+  "$scratch/platforms/fedora/scripts/install-kde-theme.sh" ||
+  _test_die 'the message fixture did not apply, so this case proves nothing'
+expect_scratch_rejected 'a package named only in a message is not an install' \
+  "fedora/kde: package 'kio-extras' is declared but is not requested by"
+
+new_scratch requested-in-heredoc
+sed -i 's/^packages=(kio-extras wget)$/packages=(wget)/' \
+  "$scratch/platforms/fedora/scripts/install-kde-theme.sh"
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "platforms/fedora/scripts/install-kde-theme.sh"
+text = path.read_text(encoding="utf-8")
+old = '    info "$package is already installed"'
+if text.count(old) != 1:
+    sys.exit("expected exactly one already-installed message to replace")
+body = "    cat <<EOF_NOTE\nkio-extras is provided by the KDE profile\nEOF_NOTE"
+path.write_text(text.replace(old, body), encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'a package named only in a heredoc body is not an install' \
+  "fedora/kde: package 'kio-extras' is declared but is not requested by"
+
+# The other direction of the same rule: content a script really writes is not a
+# message. The AI profile composes its mise tool list with printf, which is the
+# only place herdr is asked for, and that must keep counting.
+new_scratch requested-by-printf
+grep -Fq "printf 'herdr = \"latest\"" "$scratch/common/install-ai.sh" ||
+  _test_die 'the AI installer no longer composes its tool list with printf'
+python3 "$scratch/scripts/validate-capabilities.py" ||
+  _test_die 'a package a printf really writes must still count as requested'
+printf 'PASS: a package written by a printf that composes content still counts\n'
+
+# A workflow is not a script, so only the shell a step runs is evidence that
+# CI runs anything. A step that names a verifier in its `name:` runs nothing,
+# and used to satisfy the rule that the verifier is proven by a real install.
+new_scratch ci-evidence-step-name
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / ".github/workflows/real-install.yml"
+lines = path.read_text(encoding="utf-8").splitlines()
+verifier = "./platforms/parrot-ctf/scripts/verify.sh"
+if sum(line.strip() == verifier for line in lines) < 1:
+    sys.exit("the Parrot job no longer runs its verifier, so this case proves nothing")
+kept = []
+for line in lines:
+    if line.strip() == verifier:
+        kept.append(line.replace(verifier, "true"))
+    elif line.strip().startswith("- name:") and "Verify" in line:
+        kept.append(f"{line} with {verifier}")
+    else:
+        kept.append(line)
+path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'a verifier named only in a step name is not run by CI' \
+  'verifier platforms/parrot-ctf/scripts/verify.sh is not run by .github/workflows/real-install.yml'
+
+# The same rule decides which flags a real installation passed, so an
+# invocation written into a step's name is not that invocation either. Here
+# the whole macOS transition install moves into the step name it already had,
+# which the old reader accepted as the selection it describes.
+new_scratch ci-evidence-named-invocation
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / ".github/workflows/real-install.yml"
+lines = path.read_text(encoding="utf-8").splitlines()
+first = next(
+    (
+        index
+        for index, line in enumerate(lines)
+        if line.strip() == "./install.sh --platform macos --theme mocha"
+    ),
+    None,
+)
+if first is None:
+    sys.exit("the macOS transition install has moved, so this case proves nothing")
+last = next(
+    index for index in range(first, len(lines)) if lines[index].strip() == "--non-interactive"
+)
+invocation = " ".join(lines[index].strip() for index in range(first, last + 1))
+step = next(index for index in range(first, -1, -1) if lines[index].lstrip().startswith("- name:"))
+run = next(index for index in range(first, -1, -1) if lines[index].strip().startswith("run:"))
+kept = lines[:step]
+kept.append(f"      - name: Ran {invocation}")
+kept.extend(lines[step + 1:run])
+kept.append("        run: true")
+kept.extend(lines[last + 1:])
+path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'an invocation written in a step name selects nothing' \
+  'macos/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
+
+# The reader must fail loudly rather than find nothing: a workflow it cannot
+# take a single `run:` block out of would otherwise prove every verifier.
+new_scratch ci-evidence-unreadable
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1]) / ".github/workflows/real-install.yml"
+text = path.read_text(encoding="utf-8")
+if "run:" not in text:
+    sys.exit("the workflow has no run steps, so this case proves nothing")
+path.write_text(re.sub(r"(?m)^(\s*(?:-\s+)?)run:", r"\1shell-script:", text), encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'a workflow with no readable run block is an error, not a pass' \
+  'no `run:` step could be read'
+
 # A comment is not a check. Deleting a verifier's whole LaTeX section and
 # leaving one comment line behind used to satisfy the rule that exists to
 # notice exactly that; only the `# verifies:` marker may speak from a comment.

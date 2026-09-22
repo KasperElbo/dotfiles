@@ -16,25 +16,59 @@
     "CommandPath": null,
     "Bucket": {
       "Name": "noctty",
+      "Path": "C:\\Users\\fixture\\scoop\\buckets\\noctty",
+      "DeclaredUrl": "https://github.com/amanthanvi/scoop-noctty",
       "Exists": false,
-      "Path": "C:\\Users\\fixture\\scoop\\buckets\\noctty"
+      "OriginUrl": null,
+      "OriginMatches": false,
+      "BucketListRead": false,
+      "Registered": null,
+      "ConfiguredUrl": null,
+      "ConfiguredMatches": null,
+      "Owned": false
     },
     "ExtrasBucket": {
       "Name": "extras",
+      "Path": "C:\\Users\\fixture\\scoop\\buckets\\extras",
+      "DeclaredUrl": "https://github.com/ScoopInstaller/Extras",
       "Exists": false,
-      "Path": "C:\\Users\\fixture\\scoop\\buckets\\extras"
+      "OriginUrl": null,
+      "OriginMatches": false,
+      "BucketListRead": false,
+      "Registered": null,
+      "ConfiguredUrl": null,
+      "ConfiguredMatches": null,
+      "Owned": false
     },
     "Package": {
       "Name": "noctty",
+      "QualifiedName": "noctty/noctty",
+      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\noctty\\current",
+      "ExecutablePath": "C:\\Users\\fixture\\scoop\\apps\\noctty\\current\\noctty.exe",
+      "CommandPath": null,
+      "DeclaredBucket": "noctty",
+      "InstalledBucket": null,
+      "MetadataError": null,
       "Exists": false,
-      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\noctty\\current\\noctty.exe",
-      "CommandPath": null
+      "HasManifest": false,
+      "HasExecutable": false,
+      "BucketMatches": false,
+      "Installed": false
     },
     "HandyPackage": {
       "Name": "handy",
+      "QualifiedName": "extras/handy",
+      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\handy\\current",
+      "ExecutablePath": "C:\\Users\\fixture\\scoop\\apps\\handy\\current\\handy.exe",
+      "CommandPath": null,
+      "DeclaredBucket": "extras",
+      "InstalledBucket": null,
+      "MetadataError": null,
       "Exists": false,
-      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\handy\\current\\handy.exe",
-      "CommandPath": null
+      "HasManifest": false,
+      "HasExecutable": false,
+      "BucketMatches": false,
+      "Installed": false
     }
   },
   "Configuration": {

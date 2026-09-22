@@ -241,21 +241,22 @@ function Get-LiveObservation {
     # reporting that as a missing package would fail a healthy machine.
     $scoopRoot = Get-ScoopRoot
     $scoopCommandPath = Resolve-ScoopCommand
-    $nocttyCommandPath = Resolve-ScoopShimCommand -Name 'noctty'
-    $bucketName = $Manifest.Scoop.NocttyBucket.Name
-    $packageName = $Manifest.Scoop.NocttyPackage.Name
-    $executableName = $Manifest.Scoop.NocttyPackage.Executable
-    $bucketPath = Join-Path $scoopRoot "buckets\$bucketName"
-    $packagePath = Join-Path $scoopRoot "apps\$packageName\current"
-    $packageExecutable = Join-Path $packagePath $executableName
 
-    $extrasBucketName = $Manifest.Scoop.ExtrasBucket.Name
-    $handyPackageName = $Manifest.Scoop.HandyPackage.Name
-    $handyExecutableName = $Manifest.Scoop.HandyPackage.Executable
-    $handyCommandPath = Resolve-ScoopShimCommand -Name $handyPackageName
-    $extrasBucketPath = Join-Path $scoopRoot "buckets\$extrasBucketName"
-    $handyPackagePath = Join-Path $scoopRoot "apps\$handyPackageName\current"
-    $handyPackageExecutable = Join-Path $handyPackagePath $handyExecutableName
+    # Bucket and package identity come from the shared predicate in
+    # lib\scoop.ps1, the one install.ps1 asks before it installs anything. No
+    # bucket table is passed here: reading it means running Scoop, and this
+    # script neither mutates nor starts processes it would then have to bound.
+    # The bucket checkout's own remote is what that table reports anyway.
+    $nocttyBucket = Get-ScoopBucketOwnership `
+        -Bucket $Manifest.Scoop.NocttyBucket -Root $scoopRoot
+    $nocttyPackage = Get-ScoopPackageOwnership `
+        -Package $Manifest.Scoop.NocttyPackage `
+        -BucketName $Manifest.Scoop.NocttyBucket.Name -Root $scoopRoot
+    $extrasBucket = Get-ScoopBucketOwnership `
+        -Bucket $Manifest.Scoop.ExtrasBucket -Root $scoopRoot
+    $handyPackage = Get-ScoopPackageOwnership `
+        -Package $Manifest.Scoop.HandyPackage `
+        -BucketName $Manifest.Scoop.ExtrasBucket.Name -Root $scoopRoot
 
     $configurationFiles = @()
     $configDirectory = Join-Path $env:LOCALAPPDATA 'noctty'
@@ -340,28 +341,10 @@ function Get-LiveObservation {
             Available = ($null -ne $scoopCommandPath -and (Test-Path -LiteralPath $scoopRoot -PathType Container))
             Root = $scoopRoot
             CommandPath = $scoopCommandPath
-            Bucket = [pscustomobject]@{
-                Name = $bucketName
-                Exists = Test-Path -LiteralPath $bucketPath -PathType Container
-                Path = $bucketPath
-            }
-            Package = [pscustomobject]@{
-                Name = $packageName
-                Exists = Test-Path -LiteralPath $packageExecutable -PathType Leaf
-                CurrentPath = $packageExecutable
-                CommandPath = $nocttyCommandPath
-            }
-            ExtrasBucket = [pscustomobject]@{
-                Name = $extrasBucketName
-                Exists = Test-Path -LiteralPath $extrasBucketPath -PathType Container
-                Path = $extrasBucketPath
-            }
-            HandyPackage = [pscustomobject]@{
-                Name = $handyPackageName
-                Exists = Test-Path -LiteralPath $handyPackageExecutable -PathType Leaf
-                CurrentPath = $handyPackageExecutable
-                CommandPath = $handyCommandPath
-            }
+            Bucket = $nocttyBucket
+            Package = $nocttyPackage
+            ExtrasBucket = $extrasBucket
+            HandyPackage = $handyPackage
         }
         Configuration = [pscustomobject]@{
             ManagedBlockValid = $managedBlockValid
@@ -384,34 +367,82 @@ function Confirm-ScoopPackageOwnership {
         [object]$Package
     )
 
-    if ($Bucket.Exists) {
-        Write-VerificationPass "Declared Scoop bucket exists: $($Bucket.Name)"
-    }
-    else {
+    # The bucket, by where its checkout points rather than by its name. A
+    # `noctty` or `extras` cloned from somewhere else is the substitution this
+    # whole check exists for, and it reads as present to anything that only
+    # looks for the directory.
+    if (-not $Bucket.Exists) {
         Write-VerificationFailure "Declared Scoop bucket is missing: $($Bucket.Name)"
     }
-
-    if ($Package.Exists) {
-        Write-VerificationPass "Declared Scoop package exists: $($Package.Name)"
+    elseif (-not $Bucket.OriginMatches) {
+        $found = if ($Bucket.OriginUrl) { $Bucket.OriginUrl } else { 'no Git remote' }
+        Write-VerificationFailure (
+            "Scoop bucket $($Bucket.Name) is not $($Bucket.DeclaredUrl): it points at $found"
+        )
     }
     else {
-        Write-VerificationFailure "Declared Scoop package is missing: $($Package.Name)"
+        Write-VerificationPass "Declared Scoop bucket is $($Bucket.DeclaredUrl): $($Bucket.Name)"
     }
 
+    # The package, by Scoop's own record of installing it out of that bucket.
+    # Scoop writes install.json last, so the directory and even the executable
+    # can be there after an install that never finished, and install.json's
+    # bucket field is the only record of which bucket supplied the manifest.
+    if (-not $Package.Exists) {
+        Write-VerificationFailure "Declared Scoop package is missing: $($Package.Name)"
+    }
+    elseif ($Package.MetadataError) {
+        Write-VerificationFailure (
+            "Scoop install metadata for $($Package.Name) is unreadable: $($Package.MetadataError)"
+        )
+    }
+    elseif (-not $Package.HasManifest) {
+        Write-VerificationFailure (
+            "$($Package.Name) has no Scoop manifest, so no install finished there: $($Package.CurrentPath)"
+        )
+    }
+    elseif (-not $Package.HasExecutable) {
+        Write-VerificationFailure "$DisplayName executable is missing: $($Package.ExecutablePath)"
+    }
+    elseif (-not $Package.BucketMatches) {
+        $from = if ($Package.InstalledBucket) { "the '$($Package.InstalledBucket)' bucket" }
+        else { 'no recorded bucket' }
+        Write-VerificationFailure (
+            "$($Package.Name) was installed from $from, not '$($Package.DeclaredBucket)'"
+        )
+    }
+    else {
+        Write-VerificationPass "Declared Scoop package is installed: $($Package.QualifiedName)"
+    }
+
+    $appsRoot = Join-ObservedPath $Scoop.Root 'apps'
+    if (Test-PathWithinRoot -Path $Package.ExecutablePath -Root $appsRoot) {
+        Write-VerificationPass "$DisplayName current executable is Scoop-owned: $($Package.ExecutablePath)"
+    }
+    else {
+        Write-VerificationFailure "$DisplayName current executable is outside Scoop ownership: $($Package.ExecutablePath)"
+    }
+
+    # Whether the shim has reached this session is a usability observation, not
+    # an ownership one, so it warns rather than fails: the session that ran the
+    # install cannot see the registry PATH it just extended, and a same-named
+    # program earlier on PATH shadows a correctly installed package without
+    # making it any less installed. The checks above already decided ownership.
     $shimRoot = Join-ObservedPath $Scoop.Root 'shims'
     if (Test-PathWithinRoot -Path $Package.CommandPath -Root $shimRoot) {
         Write-VerificationPass "$DisplayName resolves through Scoop shims: $($Package.CommandPath)"
     }
-    else {
-        Write-VerificationFailure "$DisplayName resolves outside Scoop shims: $($Package.CommandPath)"
-    }
-
-    $appsRoot = Join-ObservedPath $Scoop.Root 'apps'
-    if (Test-PathWithinRoot -Path $Package.CurrentPath -Root $appsRoot) {
-        Write-VerificationPass "$DisplayName current executable is Scoop-owned: $($Package.CurrentPath)"
+    elseif (-not $Package.CommandPath) {
+        Write-VerificationWarning (
+            "$DisplayName resolves to no command yet; open a new session so the " +
+            'Scoop shims directory reaches PATH'
+        )
     }
     else {
-        Write-VerificationFailure "$DisplayName current executable is outside Scoop ownership: $($Package.CurrentPath)"
+        Write-VerificationWarning (
+            "$DisplayName resolves outside Scoop shims: $($Package.CommandPath) " +
+            'shadows the Scoop-installed executable on this PATH'
+        )
     }
 }
 

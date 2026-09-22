@@ -13,6 +13,7 @@ $testRoot = Join-Path ([IO.Path]::GetTempPath()) (
 )
 $originalLocalAppData = $env:LOCALAPPDATA
 $originalUserProfile = $env:USERPROFILE
+$originalScoopRoot = $env:SCOOP
 
 function Assert-Equal {
     param(
@@ -363,9 +364,49 @@ try {
         'Install-Handy'
     )
 
+    # Builds the part of a Scoop root a case is about, the way Scoop builds it:
+    # a bucket is a git checkout with an origin, and a finished package install
+    # leaves a manifest, the executable and install.json naming the bucket that
+    # supplied it. A fixture that leaves any of those out is a machine in a
+    # state the installer has to notice, not a shortcut.
+    $newScoopBucket = {
+        param([string]$Root, [string]$Name, [AllowNull()][string]$Origin)
+
+        $git = Join-Path (Join-Path (Join-Path $Root 'buckets') $Name) '.git'
+        [IO.Directory]::CreateDirectory($git) | Out-Null
+        if ($null -ne $Origin) {
+            [IO.File]::WriteAllText((Join-Path $git 'config'), @"
+[remote "origin"]
+	url = $Origin
+"@)
+        }
+    }
+
+    $newScoopPackage = {
+        param(
+            [string]$Root,
+            [string]$Name,
+            [string]$Executable,
+            [AllowNull()][string]$Bucket
+        )
+
+        $current = Join-Path (Join-Path (Join-Path $Root 'apps') $Name) 'current'
+        [IO.Directory]::CreateDirectory($current) | Out-Null
+        [IO.File]::WriteAllText((Join-Path $current 'manifest.json'), '{ "version": "1.0.0" }')
+        [IO.File]::WriteAllText((Join-Path $current $Executable), '')
+        if ($null -ne $Bucket) {
+            [IO.File]::WriteAllText(
+                (Join-Path $current 'install.json'),
+                ('{{ "bucket": "{0}" }}' -f $Bucket))
+        }
+    }
+
     # Runs the shipped Install-Handy with Scoop, the native command runner and
     # the step log replaced, so bucket selection, idempotency and dry-run
     # honesty are exercised without Scoop, a network or an elevated session.
+    # The shared ownership predicate is the real lib\scoop.ps1, not a stub:
+    # whether this Scoop root holds the declared bucket and package is the one
+    # question install.ps1 and verify.ps1 must never answer differently.
     $runInstallHandy = {
         param(
             [string]$FunctionText,
@@ -373,7 +414,8 @@ try {
             [string[]]$Buckets,
             [bool]$DryRunValue,
             [string]$ProfileRoot,
-            [string[]]$ResolvableCommands = @()
+            [string[]]$ResolvableCommands = @(),
+            [string]$ScoopRoot = ''
         )
 
         $script:handySteps = @()
@@ -383,6 +425,7 @@ try {
         $DryRun = $DryRunValue
         $WindowsManifest = Import-PowerShellDataFile $ManifestPath
         $env:USERPROFILE = $ProfileRoot
+        $env:SCOOP = $ScoopRoot
 
         function Write-Step {
             param([string]$Message)
@@ -402,8 +445,6 @@ try {
             return $null
         }
 
-        function Resolve-ScoopCommand { return 'C:\fixture\scoop\shims\scoop.ps1' }
-
         function Install-Scoop {
             throw 'Install-Handy bootstrapped Scoop when Scoop was already available.'
         }
@@ -413,31 +454,40 @@ try {
             return $script:handyBuckets
         }
 
+        . (Join-Path $PSScriptRoot '..\platforms\windows\lib\scoop.ps1')
+
+        function Resolve-ScoopCommand { return 'C:\fixture\scoop\shims\scoop.ps1' }
+
         . ([scriptblock]::Create($FunctionText))
 
-        Install-Handy
+        $failure = $null
+        try { Install-Handy }
+        catch { $failure = $_.Exception.Message }
 
         [pscustomobject]@{
             Steps = $script:handySteps
             Commands = $script:handyCommands
+            Failure = $failure
         }
     }
 
+    $extrasUrl = 'https://github.com/ScoopInstaller/Extras'
     $withoutExtras = @(
         'Name Source Updated Manifests',
         'main https://github.com/ScoopInstaller/Main 2026-01-01 1000'
     )
     $withExtras = $withoutExtras + @(
-        'extras https://github.com/ScoopInstaller/Extras 2026-01-01 2000'
+        "extras $extrasUrl 2026-01-01 2000"
     )
     $emptyProfile = Join-Path $testRoot 'HandyAbsent'
     [IO.Directory]::CreateDirectory($emptyProfile) | Out-Null
 
     $dryRun = & $runInstallHandy $handyFunctionText $manifestPath $withoutExtras $true $emptyProfile
+    Assert-Equal -Actual $dryRun.Failure -Expected $null `
+        -Message 'A dry run on a clean machine must not fail.'
     Assert-Equal -Actual $dryRun.Commands.Count -Expected 0 `
         -Message 'A dry run must not run any Scoop command.'
-    if ($dryRun.Steps -notcontains
-        'Would add the extras Scoop bucket: https://github.com/ScoopInstaller/Extras') {
+    if ($dryRun.Steps -notcontains "Would add the extras Scoop bucket: $extrasUrl") {
         throw "A dry run did not describe adding the extras bucket: $($dryRun.Steps -join '; ')"
     }
     if ($dryRun.Steps -notcontains
@@ -445,16 +495,78 @@ try {
         throw "A dry run did not describe installing Handy: $($dryRun.Steps -join '; ')"
     }
 
+    # An already-added bucket is a bucket Scoop lists *and* has on disk at the
+    # declared origin. The list alone is not it: reading only the name is the
+    # defect this case used to model.
+    $bucketPresentProfile = Join-Path $testRoot 'ExtrasPresent'
+    & $newScoopBucket (Join-Path $bucketPresentProfile 'scoop') 'extras' $extrasUrl
     $dryRunBucketPresent = & $runInstallHandy $handyFunctionText $manifestPath `
-        $withExtras $true $emptyProfile
+        $withExtras $true $bucketPresentProfile
+    Assert-Equal -Actual $dryRunBucketPresent.Failure -Expected $null `
+        -Message 'The declared extras bucket was rejected.'
     if ($dryRunBucketPresent.Steps -match 'Would add the extras Scoop bucket') {
         throw 'An already-added extras bucket was described as needing to be added.'
     }
 
+    # Harmless spellings of the same repository are the same repository.
+    foreach ($spelling in @("$extrasUrl.git", "$extrasUrl/", 'https://github.com/scoopinstaller/extras')) {
+        $spellingProfile = Join-Path $testRoot ('ExtrasSpelling-{0}' -f [guid]::NewGuid().ToString('N'))
+        & $newScoopBucket (Join-Path $spellingProfile 'scoop') 'extras' $spelling
+        $spelt = & $runInstallHandy $handyFunctionText $manifestPath `
+            ($withoutExtras + @("extras $spelling 2026-01-01 2000")) $true $spellingProfile
+        Assert-Equal -Actual $spelt.Failure -Expected $null `
+            -Message "The extras bucket spelled '$spelling' was rejected."
+        if ($spelt.Steps -match 'Would add the extras Scoop bucket') {
+            throw "The extras bucket spelled '$spelling' was not recognised as present."
+        }
+    }
+
+    # Fail closed. Scoop keys buckets by name, so `bucket add extras <url>` on a
+    # machine that already has an `extras` reports the existing one as present
+    # and installs out of it. A bucket cloned from another repository is not the
+    # declared one and this run stops rather than installing from it.
+    $substitutedProfile = Join-Path $testRoot 'ExtrasSubstituted'
+    $foreignUrl = 'https://github.com/someone-else/Extras'
+    & $newScoopBucket (Join-Path $substitutedProfile 'scoop') 'extras' $foreignUrl
+    $substituted = & $runInstallHandy $handyFunctionText $manifestPath `
+        ($withoutExtras + @("extras $foreignUrl 2026-01-01 2000")) $false $substitutedProfile
+    Assert-Equal -Actual $substituted.Commands.Count -Expected 0 `
+        -Message 'A substituted extras bucket did not stop the install.'
+    if ($substituted.Failure -notlike "*is already present but is not $extrasUrl*") {
+        throw "A substituted extras bucket was not reported: $($substituted.Failure)"
+    }
+    if ($substituted.Failure -notlike "*points at $foreignUrl*") {
+        throw "A substituted extras bucket did not name what it points at: $($substituted.Failure)"
+    }
+
+    # The table and the checkout disagreeing is the same refusal: whichever of
+    # the two is stale, this is not a machine to install from.
+    $mismatchProfile = Join-Path $testRoot 'ExtrasMismatch'
+    & $newScoopBucket (Join-Path $mismatchProfile 'scoop') 'extras' $extrasUrl
+    $mismatch = & $runInstallHandy $handyFunctionText $manifestPath `
+        ($withoutExtras + @("extras $foreignUrl 2026-01-01 2000")) $false $mismatchProfile
+    Assert-Equal -Actual $mismatch.Commands.Count -Expected 0 `
+        -Message 'A bucket table disagreeing with the checkout did not stop the install.'
+    if ($mismatch.Failure -notlike "*Scoop lists it as $foreignUrl*") {
+        throw ('A stale bucket table was not told from a substituted checkout: ' +
+            "$($mismatch.Failure)")
+    }
+
+    # A bucket directory with no Git configuration is a bucket whose origin
+    # cannot be established, which is not the same as the declared one.
+    $originlessProfile = Join-Path $testRoot 'ExtrasOriginless'
+    & $newScoopBucket (Join-Path $originlessProfile 'scoop') 'extras' $null
+    $originless = & $runInstallHandy $handyFunctionText $manifestPath `
+        ($withoutExtras + @("extras $extrasUrl 2026-01-01 2000")) $false $originlessProfile
+    Assert-Equal -Actual $originless.Commands.Count -Expected 0 `
+        -Message 'A bucket with no Git remote did not stop the install.'
+    if ($originless.Failure -notlike '*has no Git remote*') {
+        throw "A bucket with no Git remote was not reported: $($originless.Failure)"
+    }
+
     $install = & $runInstallHandy $handyFunctionText $manifestPath `
         $withoutExtras $false $emptyProfile
-    if ($install.Commands -notcontains
-        'bucket add extras https://github.com/ScoopInstaller/Extras') {
+    if ($install.Commands -notcontains "bucket add extras $extrasUrl") {
         throw "Handy was installed without adding the extras bucket: $($install.Commands -join '; ')"
     }
     if ($install.Commands -notcontains 'install extras/handy') {
@@ -462,29 +574,73 @@ try {
     }
 
     $rerun = & $runInstallHandy $handyFunctionText $manifestPath `
-        $withExtras $false $emptyProfile
+        $withExtras $false $bucketPresentProfile
     Assert-Equal -Actual $rerun.Commands.Count -Expected 1 `
         -Message 'A rerun re-added the extras bucket.'
 
-    # Idempotency: an installed Handy is left alone, whether it is found
-    # through its Scoop shim or under Scoop's apps directory.
+    # Idempotency: a Handy that Scoop finished installing out of the declared
+    # bucket is left alone.
     $installedProfile = Join-Path $testRoot 'HandyPresent'
-    $installedDirectory = Join-Path $installedProfile 'scoop\apps\handy\current'
-    [IO.Directory]::CreateDirectory($installedDirectory) | Out-Null
-    [IO.File]::WriteAllText((Join-Path $installedDirectory 'handy.exe'), '')
+    $installedRoot = Join-Path $installedProfile 'scoop'
+    & $newScoopBucket $installedRoot 'extras' $extrasUrl
+    & $newScoopPackage $installedRoot 'handy' 'handy.exe' 'extras'
 
     $alreadyInstalled = & $runInstallHandy $handyFunctionText $manifestPath `
-        $withoutExtras $false $installedProfile
+        $withExtras $false $installedProfile
     Assert-Equal -Actual $alreadyInstalled.Commands.Count -Expected 0 `
         -Message 'An installed Handy was installed again.'
     if ($alreadyInstalled.Steps -notcontains 'Handy is already installed') {
         throw "An installed Handy was not reported as present: $($alreadyInstalled.Steps -join '; ')"
     }
 
+    # Scoop writes install.json last, so an apps directory holding a manifest
+    # and the executable is an install that was started. The old fast path
+    # accepted exactly this and skipped the install that would have finished it.
+    $partialProfile = Join-Path $testRoot 'HandyPartial'
+    $partialRoot = Join-Path $partialProfile 'scoop'
+    & $newScoopBucket $partialRoot 'extras' $extrasUrl
+    & $newScoopPackage $partialRoot 'handy' 'handy.exe' $null
+    $partial = & $runInstallHandy $handyFunctionText $manifestPath `
+        $withExtras $false $partialProfile
+    if ($partial.Commands -notcontains 'install extras/handy') {
+        throw ('A half-finished Handy install was treated as complete: ' +
+            "$($partial.Steps -join '; ')")
+    }
+
+    # A Handy that came from somebody else's bucket is not extras/handy, and a
+    # rerun has to install the declared one rather than report it present.
+    $foreignBucketProfile = Join-Path $testRoot 'HandyForeignBucket'
+    $foreignBucketRoot = Join-Path $foreignBucketProfile 'scoop'
+    & $newScoopBucket $foreignBucketRoot 'extras' $extrasUrl
+    & $newScoopPackage $foreignBucketRoot 'handy' 'handy.exe' 'personal'
+    $foreignBucket = & $runInstallHandy $handyFunctionText $manifestPath `
+        $withExtras $false $foreignBucketProfile
+    if ($foreignBucket.Commands -notcontains 'install extras/handy') {
+        throw ('A Handy from another bucket was treated as the declared one: ' +
+            "$($foreignBucket.Steps -join '; ')")
+    }
+
+    # PATH is not an install record. A handy.exe anywhere on PATH used to
+    # satisfy the fast path, which is how an unrelated provider suppressed the
+    # declared Scoop installation.
     $onPath = & $runInstallHandy $handyFunctionText $manifestPath `
-        $withoutExtras $false $emptyProfile @('handy')
-    Assert-Equal -Actual $onPath.Commands.Count -Expected 0 `
-        -Message 'A resolvable handy command was installed again.'
+        $withExtras $false $bucketPresentProfile @('handy')
+    if ($onPath.Commands -notcontains 'install extras/handy') {
+        throw ('A resolvable handy command outside Scoop suppressed the install: ' +
+            "$($onPath.Steps -join '; ')")
+    }
+
+    # A custom $env:SCOOP root is where a healthy install lives on the machines
+    # that set it, and the parent session's PATH says nothing about it.
+    $customRoot = Join-Path $testRoot 'CustomScoopRoot'
+    & $newScoopBucket $customRoot 'extras' $extrasUrl
+    & $newScoopPackage $customRoot 'handy' 'handy.exe' 'extras'
+    $custom = & $runInstallHandy $handyFunctionText $manifestPath `
+        $withExtras $false $emptyProfile @() $customRoot
+    Assert-Equal -Actual $custom.Failure -Expected $null `
+        -Message 'A healthy Handy under a custom $env:SCOOP root was rejected.'
+    Assert-Equal -Actual $custom.Commands.Count -Expected 0 `
+        -Message 'A healthy Handy under a custom $env:SCOOP root was installed again.'
 
     # -----------------------------------------------------------------------
     # The rest of install.ps1's decision and mutation logic. Everything below
@@ -1046,6 +1202,12 @@ try {
                 $WindowsManifest = Import-PowerShellDataFile $ManifestPath
                 $NocttyBucketUrl = $WindowsManifest.Scoop.NocttyBucket.Url
                 $env:USERPROFILE = $ProfileRoot
+                $env:SCOOP = $ProfileRoot
+
+                # The shared ownership predicate, not a stub: whether this
+                # machine already has noctty/noctty is the same question
+                # verify.ps1 asks, and a dry run answers it before it previews.
+                . (Join-Path $PSScriptRoot '..\platforms\windows\lib\scoop.ps1')
 
                 function Write-Step {
                     param([string]$Message)
@@ -1088,6 +1250,7 @@ try {
 finally {
     $env:LOCALAPPDATA = $originalLocalAppData
     $env:USERPROFILE = $originalUserProfile
+    $env:SCOOP = $originalScoopRoot
     if (Test-Path -LiteralPath $testRoot) {
         Remove-Item -LiteralPath $testRoot -Recurse -Force
     }

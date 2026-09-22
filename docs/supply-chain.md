@@ -402,6 +402,13 @@ Ruby Homebrew runs at install time; a `brew` or `cask` argument carrying two
 slashes pulls a package from the same clone. Both forms need a row and an
 annotation, and the row's URL is the tap's repository.
 
+A Scoop bucket is the same thing on Windows, and its URL is declared in
+`platforms/windows/manifest.psd1` rather than written at the `scoop bucket add`
+call, so that manifest is scanned too — a data file that names what a machine
+will clone is code for this purpose, exactly as a `Brewfile` is. A URL declared
+as a manifest value (a `Key = 'https://…'` assignment, which spaces around the
+`=` distinguish from a shell assignment) needs a row and an annotation.
+
 A package registry is another. `"github:owner/repo"` is how Mason names the
 lists every LSP server and debug adapter it installs is resolved through, and
 how mise names a tool it takes straight from a project's releases rather than
@@ -417,7 +424,10 @@ construct writes a host out in full — on its own line or on a continuation of
 it — at least one of the annotations covering it must name a source served by
 that host. A tap names no host, so the same question is asked of the tap
 itself: an annotation covers a tap only when its registered source *is* that
-tap, and a `github:owner/repo` registry the same way. A URL built from a
+tap, a `github:owner/repo` registry the same way, and a declared URL that is a
+GitHub repository root the same way again — github.com serves both Scoop
+buckets and both Mason registries, so the host alone would let each cover the
+others. A URL built from a
 variable names no host the validator can check, and is covered by its
 annotation alone.
 
