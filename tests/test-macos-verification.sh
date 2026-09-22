@@ -44,12 +44,62 @@ stub csrutil <<'EOF'
 #!/usr/bin/env bash
 printf 'System Integrity Protection status: enabled.\n'
 EOF
+# Models what the real spctl answers for this bundle rather than a boolean.
+#
+# The old stub exited 0 for any --assess, which is why the verifier's real
+# defect was invisible to this suite for as long as it existed: on a real Mac
+# `--assess --type execute` can never accept GhostPepper.app, because its
+# Info.plist carries no CFBundlePackageType key and the execute assessment
+# reads that key to decide whether a bundle is an application. It answers that
+# the code is valid but the bundle does not seem to be an app, and exits 3.
+# Only the install assessment reaches a verdict, so only it reports a source.
+#
+# Keeping that asymmetry here is what makes the suite fail if the verifier ever
+# goes back to asking for an execute assessment.
 stub spctl <<'EOF'
 #!/usr/bin/env bash
-case "${1:-}" in
---status) printf 'assessments enabled\n' ;;
---assess) exit "${MOCK_SPCTL_ASSESS_EXIT:-0}" ;;
+assess=false
+type=execute
+target=""
+while (($#)); do
+  case "$1" in
+  --status)
+    printf 'assessments enabled\n'
+    exit 0
+    ;;
+  --assess) assess=true ;;
+  --type)
+    type="$2"
+    shift
+    ;;
+  --type=*) type="${1#--type=}" ;;
+  --verbose*) ;;
+  -*) ;;
+  *) target="$1" ;;
+  esac
+  shift
+done
+[[ "$assess" == true ]] || exit 2
+case "$type" in
+execute)
+  printf '%s: rejected (the code is valid but does not seem to be an app)\n' "$target"
+  exit 3
+  ;;
+install)
+  # A stand-in for an assessment that stalls reaching Apple's notarization
+  # service, so the bound the verifier puts on this probe is exercised.
+  [[ -z "${MOCK_SPCTL_ASSESS_SLEEP:-}" ]] || sleep "$MOCK_SPCTL_ASSESS_SLEEP"
+  status="${MOCK_SPCTL_ASSESS_EXIT:-0}"
+  if ((status == 0)); then
+    printf '%s: accepted\n' "$target"
+    printf 'source=%s\n' "${MOCK_SPCTL_ASSESS_SOURCE:-Notarized Developer ID}"
+  else
+    printf '%s: rejected\n' "$target"
+  fi
+  exit "$status"
+  ;;
 esac
+exit 2
 EOF
 # The signature the optional dictation profile asserts. --display writes to
 # standard error, the way the real codesign does, because that is what the
@@ -465,6 +515,32 @@ run_verifier MOCK_SPCTL_ASSESS_EXIT=3
 expect_more_failures 1 'a Gatekeeper refusal fails verification' \
   'do not work around this by disabling Gatekeeper'
 assert_contains "$TEST_OUTPUT" 'stripping the quarantine attribute'
+
+# The verdict asserted is the notarization source, not the exit status. A
+# Developer-ID-signed build Apple never notarized is accepted by Gatekeeper and
+# exits 0, so a check that read only the status would pass exactly the artifact
+# this one exists to reject.
+run_verifier MOCK_SPCTL_ASSESS_SOURCE='Developer ID'
+expect_more_failures 1 'an accepted but unnotarized build fails verification' \
+  'Gatekeeper accepts Ghost Pepper, but not as a notarized build (source=Developer ID)'
+
+# An assessment that never answers is reported as unobserved rather than as a
+# notarization failure: it reaches Apple's notarization service, so a machine
+# that cannot is not a machine with a bad application.
+run_verifier DOTFILES_DICTATION_ASSESS_TIMEOUT=1 MOCK_SPCTL_ASSESS_SLEEP=5
+assert_eq "$baseline_failures" "$failures" \
+  'a Gatekeeper assessment that does not answer adds no failure'
+assert_contains "$TEST_OUTPUT" 'did not answer within 1s'
+printf 'PASS: %s\n' 'a stalled Gatekeeper assessment warns instead of failing'
+
+# And spctl failing for a reason that is not a denial says so, rather than
+# reporting a notarization failure the machine does not have. Status 2 is
+# spctl's own code for arguments it will not act on -- which is what the
+# execute assessment above would produce if the verifier ever asked for one on
+# something spctl declines to classify.
+run_verifier MOCK_SPCTL_ASSESS_EXIT=2
+expect_more_failures 1 'an spctl that cannot assess is reported as such' \
+  'The Gatekeeper assessment of Ghost Pepper could not be made; spctl exited 2'
 
 # Recorded state that names a different release than the machine has.
 write_dictation_state 1.0.0

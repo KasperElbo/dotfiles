@@ -43,6 +43,12 @@ DICTATION_GHOST_PEPPER_BUNDLE_ID="com.github.matthartman.ghostpepper"
 # Where this profile records what it installed.
 DICTATION_STATE_RELATIVE_PATH="dotfiles/macos-dictation.conf"
 
+# The bound, in seconds, on the Gatekeeper assessment the verifier makes. An
+# assessment may consult Apple's notarization service, so it is a call to
+# another process over the network and gets a bound like every other one.
+# Overridable so a test can drive it without waiting.
+: "${DOTFILES_DICTATION_ASSESS_TIMEOUT:=20}"
+
 # dictation_release_url: the exact release asset this profile installs. The URL
 # is built from the pinned tag so the tag cannot drift from the download.
 dictation_release_url() {

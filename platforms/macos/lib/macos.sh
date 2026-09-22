@@ -230,27 +230,45 @@ end run' -- "$path" 2>&1
 # The bound, in seconds. Overridable so a test can drive it without waiting.
 : "${DOTFILES_TAILSCALE_PROBE_TIMEOUT:=15}"
 
-# macos_tailscale_probe <command> [argument...]: run it under that bound.
+# macos_bounded_probe <seconds> <command> [argument...]: run it under a bound.
 #
 # Passes the command's own output and status through, except that a command
 # the bound had to stop returns 124, or 137 if it ignored the term signal --
 # GNU timeout's own codes, so a caller can tell "did not answer" apart from
 # "answered with a failure". Without a GNU timeout there is nothing to bound
 # it with, so that reports as a timeout rather than running it anyway.
-macos_tailscale_probe() {
-  local status=0
+#
+# The bound is an argument rather than read from one variable, because the
+# probes that need it are unrelated to each other: Tailscale's CLI can block
+# on a permission prompt, and Gatekeeper assessment can reach Apple's
+# notarization service. One knob for both would make a test that shortens one
+# silently shorten the other.
+macos_bounded_probe() {
+  local seconds="$1" status=0
+  shift
 
   command_exists timeout || {
     printf 'GNU timeout is unavailable, so this probe cannot be bounded.\n' >&2
     return 124
   }
 
-  timeout --signal=TERM --kill-after=5 \
-    "$DOTFILES_TAILSCALE_PROBE_TIMEOUT" "$@" || status=$?
+  timeout --signal=TERM --kill-after=5 "$seconds" "$@" || status=$?
   return "$status"
+}
+
+# macos_probe_timed_out <status>: true for the two codes above.
+macos_probe_timed_out() {
+  [[ "$1" == 124 || "$1" == 137 ]]
+}
+
+# macos_tailscale_probe <command> [argument...]: the Tailscale CLI under its
+# own bound. Kept as the name the Tailscale installer and verifier already
+# call, so generalizing the body above changed no caller.
+macos_tailscale_probe() {
+  macos_bounded_probe "$DOTFILES_TAILSCALE_PROBE_TIMEOUT" "$@"
 }
 
 # macos_tailscale_probe_timed_out <status>: true for the two codes above.
 macos_tailscale_probe_timed_out() {
-  [[ "$1" == 124 || "$1" == 137 ]]
+  macos_probe_timed_out "$1"
 }
