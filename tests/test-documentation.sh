@@ -443,6 +443,44 @@ printf 'PASS: a fresh render writes only newlines\n'
 # .gitattributes is what keeps the checkout from introducing them at all.
 assert_file_contains "$repo_root/.gitattributes" 'text=auto eol=lf'
 printf 'PASS: line endings are normalised at the checkout\n'
+# --- A generated region says so on the rendered page ------------------------
+
+# The BEGIN/END markers are HTML comments, and so was the "do not edit"
+# sentence beside them, which every Markdown renderer strips. On the rendered
+# page those four documents announced nothing: a section simply began, and a
+# hand edit inside it was discarded by the next run without a word. The
+# sentence has to survive comment stripping.
+for entry in "${spliced_renderers[@]}"; do
+  read -r renderer target <<<"$entry"
+  python3 - "$repo_root/$target" "$renderer" <<'PYTHON'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+renderer = sys.argv[2]
+text = path.read_text(encoding="utf-8")
+regions = re.findall(
+    r"<!-- BEGIN GENERATED.*?-->(.*?)<!-- END GENERATED.*?-->", text, re.DOTALL
+)
+if not regions:
+    raise SystemExit(f"{path}: no generated region found")
+for index, region in enumerate(regions, 1):
+    # What a CommonMark renderer shows: the HTML comments are gone.
+    rendered = re.sub(r"<!--.*?-->", "", region, flags=re.DOTALL)
+    notice = [
+        line
+        for line in rendered.splitlines()
+        if f"scripts/{renderer}" in line and "discarded" in line
+    ]
+    if not notice:
+        raise SystemExit(
+            f"{path}: generated region {index} carries no visible sentence naming "
+            f"scripts/{renderer} and saying hand edits are discarded"
+        )
+PYTHON
+done
+printf 'PASS: every spliced region names its generator where a reader can see it\n'
 
 # Drift the manifests the new renderers read, and confirm each one notices.
 # These are the exact drifts the documentation audit found by hand.

@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from generated import check_or_write, read_committed  # noqa: E402
 from manifests import platform_profiles, read_tsv, supported_platforms  # noqa: E402
+from provenance import VISIBLE_PROVENANCE  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "config" / "actions.tsv"
@@ -68,6 +69,10 @@ def render() -> str:
         "",
         "<!-- Generated from config/actions.tsv by scripts/render-action-reference.py.",
         "     Do not edit between these markers; edit the registry and regenerate. -->",
+        "",
+        VISIBLE_PROVENANCE.format(
+            sources="`config/actions.tsv`", renderer="render-action-reference.py"
+        ),
         "",
         "## Complete action reference",
         "",

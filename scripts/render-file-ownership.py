@@ -26,6 +26,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from generated import check_or_write, read_committed  # noqa: E402
 from manifests import read_tsv, stow_packages, supported_platforms  # noqa: E402
+from provenance import VISIBLE_PROVENANCE  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CAPABILITIES = ROOT / "config" / "capabilities.tsv"
@@ -80,6 +81,12 @@ def render_stow() -> str:
         "<!-- Generated from the packages=( … ) arrays in common/stow.sh and",
         "     platforms/*/scripts/stow.sh by scripts/render-file-ownership.py.",
         "     Do not edit between these markers; edit the script and regenerate. -->",
+        "",
+        VISIBLE_PROVENANCE.format(
+            sources="the `packages=( … )` arrays in `common/stow.sh` and "
+            "`platforms/*/scripts/stow.sh`",
+            renderer="render-file-ownership.py",
+        ),
         "",
         "Every installation deploys the portable packages at the repository root",
         "and then its own platform tree. `common/stow.sh` is the authoritative",
@@ -154,6 +161,11 @@ def render_state() -> str:
         "<!-- Component state files are generated from the `state` column of",
         "     config/capabilities.tsv by scripts/render-file-ownership.py.",
         "     Do not edit between these markers; edit the manifest and regenerate. -->",
+        "",
+        VISIBLE_PROVENANCE.format(
+            sources="the `state` column of `config/capabilities.tsv`",
+            renderer="render-file-ownership.py",
+        ),
         "",
         "### Component state — `~/.config/dotfiles/<component>.conf`",
         "",

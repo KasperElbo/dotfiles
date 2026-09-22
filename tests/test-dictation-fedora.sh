@@ -186,6 +186,18 @@ install_handy_command() {
   RPM_PRESENT="gtk-layer-shell wtype"
 }
 
+# The dictation capability depends on base alone, so it installs on a Plasma
+# machine that has no Sway session. Which key starts a transcription is the one
+# thing that differs, and the installer reads the same signal the verifier does.
+with_sway_config() {
+  mkdir -p "$test_root/xdg/sway"
+  printf 'bindsym $mod+o exec pkill -USR2 -x handy\n' >"$test_root/xdg/sway/config"
+}
+
+without_sway_config() {
+  rm -rf "$test_root/xdg/sway"
+}
+
 base_environment=(
   env
   "HOME=$test_root/home"
@@ -267,6 +279,7 @@ printf 'PASS: the Handy release is pinned by version and artifact name\n'
 
 # --- dry-run changes nothing and states the provider ----------------------
 
+with_sway_config
 run_installer_as_shipped --dry-run
 assert_success
 assert_contains "$TEST_OUTPUT" 'Provider:           pinned upstream release rpm, verified by SHA-256'
@@ -279,6 +292,16 @@ assert_file_empty "$command_log"
 assert_file_empty "$download_log"
 assert_path_missing "$state_file"
 printf 'PASS: --dry-run describes the pinned provider and mutates nothing\n'
+
+# The same plan on a machine with no Sway session must not name a key nothing
+# binds there.
+without_sway_config
+run_installer_as_shipped --dry-run
+assert_success
+assert_contains "$TEST_OUTPUT" 'handy --toggle-transcription'
+assert_not_contains "$TEST_OUTPUT" 'Super+O'
+with_sway_config
+printf 'PASS: --dry-run names the Plasma shortcut when there is no Sway session\n'
 
 # A dry run is also how an operator discovers the pin is missing, so it has to
 # say so rather than printing a plausible-looking plan.
@@ -311,6 +334,28 @@ if ! grep -Eq '^sudo dnf install -y /.*/Handy-[0-9.]+-1\.x86_64\.rpm$' "$command
   _test_die "the verified rpm was not installed:\n$(cat "$command_log")"
 fi
 printf 'PASS: the pinned rpm is downloaded, verified and installed\n'
+
+# The last thing a successful run prints is the key to press. On a Sway session
+# that is Super+O, which the tracked config binds; on Plasma nothing binds a
+# key until one is created by hand, and telling that person to press Super+O
+# and edit ~/.config/sway/local.conf sends them to a file they do not have.
+assert_contains "$TEST_OUTPUT" 'Press Super+O to start and stop dictation'
+assert_not_contains "$TEST_OUTPUT" 'System Settings'
+
+without_sway_config
+reset_logs
+rm -f "$state_file"
+run_installer "$fixture_rpm"
+assert_success
+assert_contains "$TEST_OUTPUT" 'handy --toggle-transcription'
+assert_contains "$TEST_OUTPUT" 'System Settings'
+assert_not_contains "$TEST_OUTPUT" 'local.conf'
+with_sway_config
+reset_logs
+rm -f "$state_file"
+run_installer "$fixture_rpm"
+assert_success
+printf 'PASS: the closing instructions name the key the desktop actually binds\n'
 
 # Installing an artifact dnf cannot check a signature on must never be bought
 # by telling dnf to stop checking signatures. The digest is what stands in for

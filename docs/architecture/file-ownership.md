@@ -11,6 +11,8 @@ adds its own tree under `platforms/<platform>/stow/`.
      platforms/*/scripts/stow.sh by scripts/render-file-ownership.py.
      Do not edit between these markers; edit the script and regenerate. -->
 
+*Generated from the `packages=( … )` arrays in `common/stow.sh` and `platforms/*/scripts/stow.sh` by `scripts/render-file-ownership.py`. Anything written by hand between the markers around this section is discarded the next time that runs — edit the source and regenerate.*
+
 Every installation deploys the portable packages at the repository root
 and then its own platform tree. `common/stow.sh` is the authoritative
 manifest for the first; each platform's `stow.sh` is for the second.
@@ -82,6 +84,8 @@ yours.
 <!-- Component state files are generated from the `state` column of
      config/capabilities.tsv by scripts/render-file-ownership.py.
      Do not edit between these markers; edit the manifest and regenerate. -->
+
+*Generated from the `state` column of `config/capabilities.tsv` by `scripts/render-file-ownership.py`. Anything written by hand between the markers around this section is discarded the next time that runs — edit the source and regenerate.*
 
 ### Component state — `~/.config/dotfiles/<component>.conf`
 
