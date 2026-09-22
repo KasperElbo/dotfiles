@@ -869,6 +869,7 @@ duplicate_case() {
   verify_reset
   TEST_NPM_GLOBAL_PREFIX="$update_root/npm-prefix" \
     TEST_NPM_GLOBAL_PACKAGES="$1" \
+    TEST_NPM_GLOBAL_STATUS="${2:-0}" \
     VERIFY_MISE_COMMAND="$update_root/bin/mise" \
     PATH="$update_root/bin:$PATH" \
     run_capture probe_counts check_no_global_npm_duplicate @anthropic-ai/claude-code @openai/codex
@@ -1053,5 +1054,33 @@ run_capture probe_counts check_file_contains 'Ghostty override matches' \
   "$contains_root/not-written-yet" 'theme = catppuccin-mocha.conf'
 assert_probe_counts 0 1 0 0
 printf 'PASS: an unreadable file is still a failure, not a silent pass\n'
+# npm reports a dependency problem in the global tree through a non-zero exit
+# while still printing the tree. Keying the not_observed branch on the status
+# alone reported a run that enumerated the prefix and NAMED the duplicate as a
+# run that could not happen, and the verifier exited 0 (issue #396, GAP-35).
+# The same tree, twice, differing only in the exit status.
+duplicate_case "@anthropic-ai/claude-code" 1
+assert_contains "$TEST_OUTPUT" '@anthropic-ai/claude-code is also installed globally with npm'
+assert_probe_counts 0 1 0 0
+printf 'PASS: a duplicate named in the output is a failure whatever npm exited\n'
+
+# Read, and no duplicate in it. The listing may be incomplete, so absence of a
+# duplicate in it is not proof of absence either.
+duplicate_case "" 1
+assert_contains "$TEST_OUTPUT" 'npm exited 1 while listing the active Node prefix'
+assert_probe_counts 0 0 0 1
+printf 'PASS: a non-zero npm that named no duplicate is unobserved, not a pass\n'
+
+# The branch that survives the two above: npm could not run at all, so there
+# is nothing to read. mise is present; npm is not on the PATH it execs into.
+mkdir -p "$update_root/mise-only"
+cp "$update_root/bin/mise" "$update_root/mise-only/mise"
+verify_reset
+VERIFY_MISE_COMMAND="$update_root/mise-only/mise" \
+  PATH="$update_root/mise-only" \
+  run_capture probe_counts check_no_global_npm_duplicate @anthropic-ai/claude-code
+assert_contains "$TEST_OUTPUT" 'npm produced no output under mise'
+assert_probe_counts 0 0 0 1
+printf 'PASS: npm that could not run at all is still unobserved\n'
 
 printf 'Shared verifier tests passed.\n'

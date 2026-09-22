@@ -437,8 +437,18 @@ ln -sf terra-gpg "$mock_bin/gpg"
 rm -- "$mock_bin/zsh"
 cat >"$mock_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
-if [[ "$*" == *'printf "%s\\n" "$PATH"'* ]]; then
-  printf '%s\n' "$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
+login_path="$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
+if [[ "$*" == *'login-path:'* ]]; then
+  # The AI verifier asks for a login PATH through this marker, and asks twice:
+  # once for an interactive login and once for a non-interactive one. This
+  # fixture answers both the same way, because what it models is an installed
+  # machine's login PATH; the difference between the two logins is
+  # tests/test-ai-profile.sh's subject rather than this suite's.
+  printf 'login-path:%s\n' "$login_path"
+elif [[ "$*" == *'printf "%s\\n" "$PATH"'* ]]; then
+  # The mise section of platforms/fedora/scripts/verify.sh asks for the same
+  # PATH without a marker, so both spellings have to be answered here.
+  printf '%s\n' "$login_path"
 fi
 exit 0
 EOF
