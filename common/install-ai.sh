@@ -53,6 +53,11 @@ no_mistakes_expected_sha256="${NO_MISTAKES_INSTALL_SCRIPT_SHA256:-}"
 agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 claude_md_target="$HOME/.claude/CLAUDE.md"
+claude_settings_file="$HOME/.claude/settings.json"
+# The keys that stop Claude Code from installing a second copy of itself. Both,
+# because only builds new enough to read DISABLE_UPDATES honour it, while every
+# build reads DISABLE_AUTOUPDATER. See docs/profiles/ai.md.
+CLAUDE_UPDATE_ENV_KEYS=(DISABLE_UPDATES DISABLE_AUTOUPDATER)
 codex_agents_target="$codex_home/AGENTS.md"
 opencode_agents_target="$XDG_CONFIG_HOME/opencode/AGENTS.md"
 conf_dir="$XDG_CONFIG_HOME/mise/conf.d"
@@ -496,7 +501,17 @@ EOF
 
   cat <<EOF
 
-  3. Link the shared agent-instructions file (common/assets/AGENTS.md,
+  3. Declare ${CLAUDE_UPDATE_ENV_KEYS[*]} = "1" under the "env" key of
+     $claude_settings_file
+     so Claude Code does not install a second copy of itself into the
+     mise-managed Node prefix. Merged into whatever is already there; every
+     other key is preserved. A file that does not parse as JSON, or whose
+     "env" is not an object, is reported and left untouched.
+EOF
+
+  cat <<EOF
+
+  4. Link the shared agent-instructions file (common/assets/AGENTS.md,
      mirrored from KasperElbo/dotfiles-nix's home/AGENTS.md) into every
      harness's global instructions path:
      $claude_md_target
@@ -506,7 +521,7 @@ EOF
      is left untouched, never overwritten.
 EOF
 
-  step=4
+  step=5
   if [[ "$install_firstmate" == "true" ]]; then
     cat <<EOF
 
@@ -566,6 +581,10 @@ fi
 # --- Apply ------------------------------------------------------------------
 
 require_command git
+# Claude Code's own settings file is the only place an update block survives a
+# launch this repository did not start; merging into it needs a JSON reader.
+# jq is a baseline package on every platform that offers the AI profile.
+require_command jq
 
 mise_command="$(resolve_mise_command || true)"
 [[ -n "$mise_command" ]] || die "Required command not found: mise"
@@ -713,6 +732,88 @@ if ! claude_output="$(claude_health_check 2>&1)"; then
     die "Claude Code failed its health check ('claude --version'); automatic repair is limited to the native-binary-missing failure"
   fi
 fi
+
+# Claude Code decides how it was installed by looking at its own executable
+# path. mise's npm backend puts the package under
+# .../npm-anthropic-ai-claude-code/<version>/lib/node_modules/@anthropic-ai/...,
+# which contains /node_modules/@anthropic-ai/, so the tool reads itself as an
+# ordinary global npm install and updates itself with `npm install -g`. npm's
+# global prefix for the mise-managed Node is the Node installation directory,
+# not the backend prefix mise installed into, so that update never replaces the
+# mise copy: it adds a second one beside it, which then shadows the first.
+#
+# `zsh/.zshenv` exports the same keys, but a shell-exported variable only
+# reaches processes descended from a top-level Zsh. Claude Code's own settings
+# file is read by the tool however it was launched, which is the property that
+# makes the block hold. See docs/profiles/ai.md.
+#
+# Merged, never overwritten and never symlinked: Claude Code writes to this
+# file itself, and so does the user. A file that does not parse, or whose `env`
+# is not an object, is reported and left exactly as it is -- guessing at the
+# intent of a configuration file this repository did not write is the one thing
+# an ownership model must not do.
+claude_update_settings_filter() {
+  local key
+  local filter='.env = ((.env // {})'
+
+  for key in "${CLAUDE_UPDATE_ENV_KEYS[@]}"; do
+    filter+=" + {\"$key\": \"1\"}"
+  done
+  printf '%s)\n' "$filter"
+}
+
+claude_update_settings_already_declared() {
+  local file="$1" key
+  for key in "${CLAUDE_UPDATE_ENV_KEYS[@]}"; do
+    jq -e --arg key "$key" '(.env[$key] // null) == "1"' "$file" >/dev/null 2>&1 ||
+      return 1
+  done
+}
+
+write_claude_update_settings() {
+  local file="$claude_settings_file"
+  local filter merged
+
+  ensure_dir "$(dirname "$file")"
+  filter="$(claude_update_settings_filter)"
+
+  if [[ -L "$file" ]]; then
+    warn "Keeping existing symlink, not writing Claude Code's update settings: $file"
+    warn "Claude Code rewrites this file itself; declare ${CLAUDE_UPDATE_ENV_KEYS[*]} in its target by hand."
+    return
+  fi
+
+  if [[ ! -e "$file" ]]; then
+    jq --null-input --sort-keys "{} | $filter" | atomic_write_file "$file"
+    info "Wrote $file (${CLAUDE_UPDATE_ENV_KEYS[*]})"
+    return
+  fi
+
+  if ! jq -e . "$file" >/dev/null 2>&1; then
+    warn "Keeping $file untouched: it is not valid JSON."
+    warn "Declare ${CLAUDE_UPDATE_ENV_KEYS[*]} = \"1\" under its \"env\" key by hand, or Claude Code will keep reinstalling itself outside mise."
+    return
+  fi
+
+  if ! jq -e 'if has("env") then (.env | type) == "object" else true end' \
+    "$file" >/dev/null 2>&1; then
+    warn "Keeping $file untouched: its \"env\" key is not an object."
+    warn "Declare ${CLAUDE_UPDATE_ENV_KEYS[*]} = \"1\" under \"env\" by hand."
+    return
+  fi
+
+  if claude_update_settings_already_declared "$file"; then
+    info "Already declared in $file: ${CLAUDE_UPDATE_ENV_KEYS[*]}"
+    return
+  fi
+
+  merged="$(jq --sort-keys "$filter" "$file")"
+  printf '%s\n' "$merged" | atomic_write_file "$file"
+  info "Declared ${CLAUDE_UPDATE_ENV_KEYS[*]} in $file (other keys preserved)"
+}
+
+info "Keeping Claude Code's updater out of the mise-managed Node prefix"
+write_claude_update_settings
 
 # link_agent_instructions <target>: points a harness's global instructions
 # path at this repository's tracked common/assets/AGENTS.md, so editing one

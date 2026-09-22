@@ -161,10 +161,15 @@ printf '%s\n' "$HOME/.local/bin:$MISE_SHIMS_DIR:$PATH"
 EOF
 chmod +x "$mock_bin/zsh"
 
-for command_name in gh tmux jq; do
+for command_name in gh tmux; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"$mock_bin/$command_name"
   chmod +x "$mock_bin/$command_name"
 done
+
+# jq is the real one: the installer reads and rewrites Claude Code's settings
+# file with it, and a stub that exits 0 without output would let every JSON
+# assertion pass while writing nothing.
+ln -sf "$(command -v jq)" "$mock_bin/jq"
 
 firstmate_origin="$test_root/firstmate-origin"
 mkdir -p "$firstmate_origin"

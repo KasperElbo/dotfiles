@@ -709,6 +709,71 @@ assert_contains "$TEST_OUTPUT" 'the login shell did not answer'
 assert_probe_counts 0 0 0 1
 printf 'PASS: a shell that does not answer the probe is unobserved, not a failure\n'
 
+# --- The block Claude Code reads itself --------------------------------------
+#
+# The login probe above can only speak for a shell it started. Claude Code is
+# routinely launched by something that never read .zshenv, and it reads its own
+# settings file whatever started it, so that file is where the block has to be.
+
+settings_file="$update_root/settings.json"
+
+claude_settings_case() {
+  verify_reset
+  run_capture probe_counts check_claude_update_settings "$settings_file" \
+    DISABLE_UPDATES DISABLE_AUTOUPDATER
+}
+
+printf '{"env":{"DISABLE_UPDATES":"1","DISABLE_AUTOUPDATER":"1"},"model":"opus"}\n' \
+  >"$settings_file"
+claude_settings_case
+assert_contains "$TEST_OUTPUT" "DISABLE_UPDATES=1 in $settings_file"
+assert_contains "$TEST_OUTPUT" "DISABLE_AUTOUPDATER=1 in $settings_file"
+assert_probe_counts 2 0 0 0
+printf 'PASS: both keys declared in the settings file pass\n'
+
+printf '{"env":{"DISABLE_UPDATES":"1"}}\n' >"$settings_file"
+claude_settings_case
+assert_contains "$TEST_OUTPUT" 'DISABLE_AUTOUPDATER is <unset>'
+assert_probe_counts 1 1 0 0
+printf 'PASS: one key missing is a failure naming that key\n'
+
+# "Set to something" is not the test: the tool's gate accepts a value, and
+# anything else leaves the updater free to write into the active Node prefix.
+printf '{"env":{"DISABLE_UPDATES":"true","DISABLE_AUTOUPDATER":"1"}}\n' \
+  >"$settings_file"
+claude_settings_case
+assert_contains "$TEST_OUTPUT" 'DISABLE_UPDATES is true'
+assert_contains "$TEST_OUTPUT" 'not 1'
+assert_probe_counts 1 1 0 0
+printf 'PASS: a key set to another value is a failure, not a pass\n'
+
+printf 'not json {\n' >"$settings_file"
+claude_settings_case
+assert_contains "$TEST_OUTPUT" 'is not valid JSON, so Claude Code reads no settings from it'
+assert_probe_counts 0 1 0 0
+printf 'PASS: an unparseable settings file is a failure\n'
+
+rm -f "$settings_file"
+claude_settings_case
+assert_contains "$TEST_OUTPUT" 'does not exist, so Claude Code'"'"'s updater is unrestricted'
+assert_probe_counts 0 1 0 0
+printf 'PASS: a missing settings file is a failure with the recovery step\n'
+
+# Without jq the file cannot be read, which is a check this context could not
+# make. Calling it a missing block would be a false accusation.
+printf '{"env":{"DISABLE_UPDATES":"1","DISABLE_AUTOUPDATER":"1"}}\n' >"$settings_file"
+mkdir -p "$update_root/nojq"
+for command_name in bash cat printf; do
+  command_path="$(command -v "$command_name" 2>/dev/null || true)"
+  [[ -z "$command_path" ]] || ln -sf "$command_path" "$update_root/nojq/$command_name"
+done
+verify_reset
+PATH="$update_root/nojq" run_capture probe_counts \
+  check_claude_update_settings "$settings_file" DISABLE_UPDATES
+assert_contains "$TEST_OUTPUT" 'jq is unavailable'
+assert_probe_counts 0 0 0 1
+printf 'PASS: no jq is unobserved, not a failure\n'
+
 # --- A duplicate in the active Node prefix -----------------------------------
 
 # mise `exec -- …` runs the command with the fixture bin ahead of PATH, so the
