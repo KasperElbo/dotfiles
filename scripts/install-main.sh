@@ -13,26 +13,56 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# doctor is a subcommand rather than a platform option, and it is recognised
-# wherever it stands in the argument vector rather than as $1 alone: the macOS
-# compatibility bootstrap forwards the original vector unchanged, so
-# ./install.sh --platform macos doctor arrives here with the selector first.
-# Only the value of --platform is skipped, so --platform doctor still names a
-# (nonexistent) platform and is reported as one.
+# The root command grammar, the same one the compatibility entry point states
+# and for the same reason (#373):
+#
+#   ./install.sh [--platform NAME | --platform=NAME] doctor
+#   ./install.sh [any platform options]
+#
+# doctor is a subcommand rather than a platform option, and it is not $1 alone
+# because the macOS compatibility bootstrap forwards the original vector
+# unchanged, so ./install.sh --platform macos doctor arrives here with the
+# selector first. It is read in command position -- the first argument that is
+# neither the --platform selector nor the value it consumes -- and nothing may
+# follow it. Scanning the whole vector for the token instead let any option's
+# value claim the subcommand, so ./install.sh --theme doctor --dry-run exited 0
+# from the read-only report rather than reaching the platform installer that
+# would have rejected doctor as a Catppuccin flavour. --platform doctor still
+# names a (nonexistent) platform and is reported as one, because the selector
+# consumes it before command position is reached.
 subcommand=""
-skip_argument=false
+subcommand_trailing=()
+command_position_taken=false
+scan_expect_platform=false
 for argument in "$@"; do
-  if [[ "$skip_argument" == true ]]; then
-    skip_argument=false
+  if [[ "$command_position_taken" == true ]]; then
+    subcommand_trailing+=("$argument")
+    continue
+  fi
+  if [[ "$scan_expect_platform" == true ]]; then
+    scan_expect_platform=false
     continue
   fi
   case "$argument" in
-  --platform) skip_argument=true ;;
-  doctor) subcommand="doctor" ;;
+  --platform) scan_expect_platform=true ;;
+  --platform=*) ;;
+  doctor)
+    subcommand="doctor"
+    command_position_taken=true
+    ;;
+  *) command_position_taken=true ;;
   esac
 done
 
 if [[ "$subcommand" == doctor ]]; then
+  # The report takes no arguments of its own, so anything after it was meant
+  # for something else and is reported rather than dropped in silence.
+  if ((${#subcommand_trailing[@]} > 0)); then
+    printf 'ERROR: doctor takes no arguments (got %s)\n' \
+      "${subcommand_trailing[0]}" >&2
+    printf 'Usage: ./install.sh [--platform NAME] doctor\n' >&2
+    exit 1
+  fi
   exec "$BASH" "$repo_root/scripts/doctor.sh"
 fi
 
