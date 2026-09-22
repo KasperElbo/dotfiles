@@ -15,6 +15,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
 # shellcheck source=lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fedora.sh"
+# The --help listing of persistent options, generated from
+# config/install-options.tsv by scripts/render-installer-usage.py so a flag the
+# parser accepts cannot go undocumented.
+# shellcheck source=lib/usage-options.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/usage-options.sh"
 
 theme="$THEME_DEFAULT_FLAVOUR"; theme_explicit=false; install_kde=auto; install_latex=auto; install_ocaml=false
 run_dev_workflows=false
@@ -37,30 +42,14 @@ Usage: ./install.sh --platform fedora [options]
 Direct entry point: ./platforms/fedora/install.sh [options]
 
 Options:
-  --theme FLAVOUR    latte, frappe, macchiato, mocha (default: macchiato)
-  --kde/--no-kde     KDE integration (default: auto-detect)
-  --latex/--no-latex LaTeX toolchain (default: ask interactively, otherwise off)
-  --ocaml/--no-ocaml
-  --sway/--no-sway
-  --vm-host          KVM/QEMU + libvirt host profile
-  --vm-guest         Explicit Fedora KVM/QEMU guest profile
-  --hardening/--no-hardening
-  --desktop-tools/--no-desktop-tools
-  --desktop-tools-force-defaults
-  --dictation/--no-dictation
-                     Voice dictation (Handy), bound to Super+O by Sway
-  --containers/--no-containers
-  --containers-api-socket
-  --tailscale/--no-tailscale
-  --ai/--no-ai       Claude Code and Herdr profile
-  --codex/--no-codex, --firstmate/--no-firstmate
-  --gnhf/--no-gnhf, --backpass/--no-backpass
-                     AI subcomponents are additive: omitting one leaves it
-                     installed. --no-<component> is the only thing that
-                     removes one, and it confirms first.
-  --hardware MODEL   ga402xz or ga402rk
-  --secure-boot      Require Secure Boot for selected hardware
-  --charge-limit N   ASUS battery limit (40-100)
+EOF
+  usage_persistent_options
+  cat <<'EOF'
+
+  AI subcomponents are additive: omitting one leaves it installed.
+  --no-<component> is the only thing that removes one, and it confirms first.
+
+Execution controls, for this run only:
   --dev-workflows    Run the disposable development workflow smoke tests
   --dry-run          Show the resolved plan without changing anything
   --non-interactive  Never prompt; resolve every choice from the given
