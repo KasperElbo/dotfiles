@@ -140,6 +140,19 @@ NETWORK_PATTERNS = [
     (re.compile(r"(?<![\w./-])curl(?![\w-])\s+(?:-|\S+://)"), "curl"),
     (re.compile(r"(?<![\w./-])wget(?![\w-])\s+(?:-|\S+://)"), "wget"),
     (re.compile(r"Invoke-WebRequest|Invoke-RestMethod"), "powershell-download"),
+    # PowerShell's package verbs. Each one resolves a name against a
+    # configured repository and runs what comes back, so the repository is a
+    # trust root and the module is code. The CI job that installs
+    # PSScriptAnalyzer carried its annotation for a long time with no pattern
+    # to hold it there: deleting the annotation, and installing an entirely
+    # different module, both left the validator exiting 0.
+    (
+        re.compile(
+            r"(?<![\w-])(?i:(?:Install|Save|Update)-(?:Module|Script|PSResource)"
+            r"|Register-PSRepository)(?![\w-])"
+        ),
+        "powershell-package",
+    ),
     (re.compile(r"(?<![\w-])git\s+(?:-C\s+\S+\s+)?(?:clone|fetch|ls-remote)(?![\w-])"), "git-remote"),
     # The same clone written as an argument vector rather than a command line,
     # which is how Lua, Python and PowerShell spawn git. ``vim.fn.system({
