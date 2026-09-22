@@ -184,4 +184,198 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "an argv arm could not be parsed"
 printf 'PASS: an argv arm the reader cannot parse is a build error\n'
 
+# --- The declared default is the installer's own default --------------------
+
+# The manifest and the generated reference both publish this column as fact,
+# and nothing compared it with the value the installer starts from: flipping
+# the macOS `defaults` row passed every validator, every render gate and every
+# suite while the installer went on defaulting it to true.
+test_new_root
+manifest="$TEST_ROOT/drifted-default.tsv"
+python3 - "$repo_root/config/install-options.tsv" "$manifest" <<'PYTHON'
+import pathlib
+import sys
+
+source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+lines = source.read_text(encoding="utf-8").splitlines()
+for number, line in enumerate(lines):
+    fields = line.split("\t")
+    if fields[:2] == ["macos", "defaults"]:
+        fields[5] = "false"
+        lines[number] = "\t".join(fields)
+        break
+else:
+    raise SystemExit("the macos defaults row this case flips is gone")
+target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PYTHON
+run_capture env "INSTALL_OPTION_MANIFEST=$manifest" \
+  python3 "$repo_root/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "macos: the manifest gives defaults the default 'false', but platforms/macos/install.sh starts with apply_defaults='true'"
+printf 'PASS: a declared default the installer contradicts fails, by name\n'
+
+# The same check from the other side, and through the one indirection the
+# installers use: the flavour default is stated once in a shared library and
+# assigned from there by all four.
+scratch_tree
+replace_line "$tree/common/lib/theme-selection.sh" 'THEME_DEFAULT_FLAVOUR=macchiato' \
+  'THEME_DEFAULT_FLAVOUR=latte'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "fedora: the manifest gives theme the default 'macchiato', but platforms/fedora/install.sh starts with theme='latte'"
+printf 'PASS: a default stated through a shared library is resolved and compared\n'
+
+# --- An enumerated value set is read by something ---------------------------
+
+# `--theme nonsense` was accepted by the installer, recorded, published in the
+# generated reference, and refused by bin/.local/bin/theme at the end of the
+# install: the registry's list and the runtime's case statement were two
+# hand-written lists with no gate between them.
+test_new_root
+manifest="$TEST_ROOT/extra-flavour.tsv"
+sed 's/latte|frappe|macchiato|mocha/latte|frappe|macchiato|mocha|nonsense/' \
+  "$repo_root/config/install-options.tsv" >"$manifest"
+run_capture env "INSTALL_OPTION_MANIFEST=$manifest" \
+  python3 "$repo_root/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest offers theme 'nonsense', which bin/.local/bin/theme does not cover"
+printf 'PASS: a flavour the registry offers and the runtime refuses fails\n'
+
+test_new_root
+manifest="$TEST_ROOT/fewer-flavours.tsv"
+sed 's/latte|frappe|macchiato|mocha/latte|macchiato|mocha/' \
+  "$repo_root/config/install-options.tsv" >"$manifest"
+run_capture env "INSTALL_OPTION_MANIFEST=$manifest" \
+  python3 "$repo_root/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "bin/.local/bin/theme covers theme 'frappe'"
+printf 'PASS: a flavour the runtime accepts and the registry drops fails\n'
+
+scratch_tree
+replace_line "$tree/bin/.local/bin/theme" '  latte|frappe|macchiato|mocha)' \
+  '  latte|macchiato|mocha)'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest offers theme 'frappe', which bin/.local/bin/theme does not cover"
+printf 'PASS: a flavour deleted from the runtime fails against the registry\n'
+
+# An enumeration nothing is held to is documentation, not a contract, so a
+# consumer row that goes missing fails rather than quietly relaxing the check.
+test_new_root
+consumers="$TEST_ROOT/no-consumers.tsv"
+head -1 "$repo_root/config/option-consumers.tsv" >"$consumers"
+run_capture env "OPTION_CONSUMER_MANIFEST=$consumers" \
+  python3 "$repo_root/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "macos: the manifest enumerates theme values, but"
+assert_contains "$TEST_OUTPUT" "names nothing that reads them"
+printf 'PASS: an enumerated option with no declared consumer fails\n'
+
+# A consumer that no longer branches on the value it is registered for is
+# unreadable, not compliant.
+scratch_tree
+replace_line "$tree/bin/.local/bin/theme" 'case "$flavour" in' 'case "${flavour:-}" in'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'no `case "$flavour" in`'
+printf 'PASS: a consumer whose case this check cannot find fails\n'
+
+
+# --- Every shape a consumer states its values in ----------------------------
+
+# The registry was held to one consumer and ten others kept their own copy of
+# the four flavours, so a flavour added to the manifest was accepted by the
+# installer, recorded, and then ignored by Neovim, missing from Starship and
+# refused by the Windows theme script. Each shape below is one of those copies,
+# and each case is the drift that used to pass.
+
+scratch_tree
+replace_line "$tree/nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua" \
+  '    mocha = true,' '    mocha = false,'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "which nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua does not cover"
+printf 'PASS: a flavour missing from the Neovim table fails\n'
+
+scratch_tree
+replace_line "$tree/platforms/windows/set-noctty-theme.ps1" \
+  "    [ValidateSet('latte', 'frappe', 'macchiato', 'mocha')]" \
+  "    [ValidateSet('latte', 'frappe', 'macchiato')]"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "which platforms/windows/set-noctty-theme.ps1 does not cover"
+printf 'PASS: a flavour missing from the PowerShell parameter set fails\n'
+
+scratch_tree
+replace_line "$tree/scripts/update-starship-themes.sh" '  mocha' '  # mocha'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "which scripts/update-starship-themes.sh does not cover"
+printf 'PASS: a flavour missing from the Starship generator fails\n'
+
+scratch_tree
+replace_line "$tree/platforms/macos/scripts/verify.sh" \
+  'for flavour in latte frappe macchiato mocha; do' \
+  'for flavour in latte frappe macchiato; do'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "which platforms/macos/scripts/verify.sh does not cover"
+printf 'PASS: a flavour a verifier stops checking assets for fails\n'
+
+# The Fedora hook reads two different things through "$1", so the row names the
+# function as well: the flavour case, not the Ghostty reload case.
+scratch_tree
+hook="$tree/platforms/fedora/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh"
+replace_line "$hook" "  latte) printf 'Catppuccin-Latte-Mauve\n' ;;" \
+  "  # latte) printf 'Catppuccin-Latte-Mauve\n' ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "theme-hooks.d/fedora.sh does not cover"
+printf 'PASS: a flavour dropped from a function-scoped case fails\n'
+
+# The asset half: a flavour the registry offers with nothing on disk to stow,
+# and a file on disk for a flavour nothing can select.
+scratch_tree
+rm -f "$tree/theme-assets/.local/share/wallpapers/catppuccin-mocha.webp"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "which theme-assets/.local/share/wallpapers/catppuccin-{value}.webp does not cover"
+printf 'PASS: a flavour with no wallpaper on disk fails\n'
+
+scratch_tree
+cp "$tree/theme-assets/.local/share/wallpapers/catppuccin-mocha.webp" \
+  "$tree/theme-assets/.local/share/wallpapers/catppuccin-espresso.webp"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "covers theme 'espresso'"
+printf 'PASS: an asset for a flavour the registry does not offer fails\n'
+
+# A lock-screen wallpaper is not a flavour called mocha-lock: the two patterns
+# share a directory and a prefix, and reading one as the other would have made
+# the whole directory drift from the registry in both directions at once.
+run_capture python3 "$repo_root/scripts/validate-install-options.py"
+assert_success
+printf 'PASS: two file patterns in one directory read as their own values\n'
+
+# A kind the check cannot read is an error: a consumer whose shape is unknown
+# enforces nothing, and reading that as agreement is the defect itself.
+test_new_root
+consumers="$TEST_ROOT/unreadable-kind.tsv"
+sed 's/\tshell-case\t/\tvibes\t/' "$repo_root/config/option-consumers.tsv" >"$consumers"
+run_capture env "OPTION_CONSUMER_MANIFEST=$consumers" \
+  python3 "$repo_root/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "declares the kind 'vibes', which this check cannot read"
+printf 'PASS: a consumer kind this check cannot read fails\n'
+
 printf 'Installer option parser validation passed.\n'

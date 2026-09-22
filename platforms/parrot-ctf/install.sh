@@ -129,16 +129,16 @@ apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
 apply_theme() { theme_apply_stowed "$theme"; }
 verify_parrot() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/verify.sh"; }
 
-plan_add system 'Install Parrot-owned working-environment prerequisites' apply preflight_parrot apply_system : 'platforms/parrot-ctf/scripts/install-system.sh; security catalogue unchanged' 'platforms/parrot-ctf/scripts/install-system.sh'
-plan_add guest 'Install and activate KVM/QEMU guest integration' apply : apply_guest : 'qemu-guest-agent and SPICE; host secrets and shared folders remain disabled' 'platforms/parrot-ctf/scripts/install-guest-integration.sh'
-plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "common/setup-local.sh parrot-ctf $theme" 'common/setup-local.sh'
-plan_add stow 'Deploy the reduced portable and narrow Parrot configuration' apply : apply_stow : 'platforms/parrot-ctf/scripts/stow.sh' 'platforms/parrot-ctf/scripts/stow.sh'
-plan_add terminal 'Install the pinned Nerd Font, bat themes, and Konsole profile' apply : apply_terminal : 'platforms/parrot-ctf/scripts/install-terminal.sh' 'platforms/parrot-ctf/scripts/install-terminal.sh'
-plan_add mise 'Install the narrow mise-managed uv and Neovim runtimes' apply : apply_mise : 'common/install-mise.sh' 'common/install-mise.sh'
-plan_add nvim 'Restore the reduced LazyVim/Mason inventory for Parrot' apply : apply_nvim : 'common/install-neovim-tools.sh --profile parrot-ctf' 'common/install-neovim-tools.sh'
-plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh' 'common/install-tmux-theme.sh'
-plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme" ''
-plan_add verify 'Verify the complete Parrot guest' verify : verify_parrot : 'platforms/parrot-ctf/scripts/verify.sh' 'platforms/parrot-ctf/scripts/verify.sh'
+plan_add system 'Install Parrot-owned working-environment prerequisites' apply preflight_parrot apply_system 'platforms/parrot-ctf/scripts/install-system.sh; security catalogue unchanged' 'platforms/parrot-ctf/scripts/install-system.sh'
+plan_add guest 'Install and activate KVM/QEMU guest integration' apply : apply_guest 'qemu-guest-agent and SPICE; host secrets and shared folders remain disabled' 'platforms/parrot-ctf/scripts/install-guest-integration.sh'
+plan_add local 'Initialize machine-local Git and theme state' apply : apply_local "common/setup-local.sh parrot-ctf $theme" 'common/setup-local.sh'
+plan_add stow 'Deploy the reduced portable and narrow Parrot configuration' apply : apply_stow 'platforms/parrot-ctf/scripts/stow.sh' 'platforms/parrot-ctf/scripts/stow.sh'
+plan_add terminal 'Install the pinned Nerd Font, bat themes, and Konsole profile' apply : apply_terminal 'platforms/parrot-ctf/scripts/install-terminal.sh' 'platforms/parrot-ctf/scripts/install-terminal.sh'
+plan_add mise 'Install the narrow mise-managed uv and Neovim runtimes' apply : apply_mise 'common/install-mise.sh' 'common/install-mise.sh'
+plan_add nvim 'Restore the reduced LazyVim/Mason inventory for Parrot' apply : apply_nvim 'common/install-neovim-tools.sh --profile parrot-ctf' 'common/install-neovim-tools.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux 'common/install-tmux-theme.sh' 'common/install-tmux-theme.sh'
+plan_add theme 'Apply the selected theme' apply : apply_theme "theme $theme" ''
+plan_add verify 'Verify the complete Parrot guest' verify : verify_parrot 'platforms/parrot-ctf/scripts/verify.sh' 'platforms/parrot-ctf/scripts/verify.sh'
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
