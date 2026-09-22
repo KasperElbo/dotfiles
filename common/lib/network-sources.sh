@@ -40,8 +40,19 @@ network_sources_hosts() {
     return 1
   }
 
-  awk -F'\t' -v manifest="$manifest" '
-    NR == FNR {
+  # Which of the two inputs a record came from is decided by an ARGV
+  # assignment between them, not by `NR == FNR`. That idiom means "still on
+  # the first file", which is only the same thing while the first file has
+  # records: with nothing on stdin the manifest became the first file, every
+  # one of its rows was swallowed into the wanted-set, and the header check
+  # below never ran. A registry with no url, component or consumers column
+  # then reported success, and it did so in exactly the case that matters --
+  # a plan with no networked step contributes no scripts, so the offline run
+  # is the one where the schema went unchecked. `pass=rows` is evaluated when
+  # awk reaches it in ARGV, after stdin is exhausted and before the manifest
+  # is opened, whether or not stdin held anything.
+  awk -F'\t' -v manifest="$manifest" -v pass=wanted '
+    pass == "wanted" {
       if ($0 != "") wanted[$0] = 1
       next
     }
@@ -79,5 +90,5 @@ network_sources_hosts() {
       if (failed) exit 1
       for (i = 1; i <= hosts; i++) printf "%s\t%s\n", order[i], components[order[i]]
     }
-  ' - "$manifest"
+  ' - pass=rows "$manifest"
 }
