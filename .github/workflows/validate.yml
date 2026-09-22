@@ -123,6 +123,19 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # PowerShell's static-analysis floor. It lives here rather than in
+      # scripts/lint.sh because that script runs in a Fedora container with no
+      # pwsh, and a lint step that skips itself when its tool is missing is the
+      # one shape this repository will not accept.
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        # network-source: psscriptanalyzer
+        run: Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Repository PSGallery -Scope CurrentUser -Force
+
+      - name: Analyse every tracked PowerShell file
+        shell: pwsh
+        run: ./tests/test-windows-static-analysis.ps1
+
       - name: Test Windows bootstrap helpers
         shell: pwsh
         run: ./tests/test-windows-bootstrap.ps1

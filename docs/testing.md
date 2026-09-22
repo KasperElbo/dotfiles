@@ -85,8 +85,24 @@ request and on pushes to `main`. It has four independent jobs:
 | --- | --- | --- |
 | `repository` (Repository validation) | `ubuntu-latest`, inside a pinned `fedora:44` container | `./scripts/lint.sh`, then a clone of the lazy.nvim revision `nvim-lazyvim/.config/nvim/lazy-lock.json` pins, `./scripts/test.sh`, and a whitespace check (`git diff --check`) against the PR's base |
 | `cheatsheets` (Printable cheat sheets) | `ubuntu-latest`, inside the same pinned `fedora:44` container, with a LaTeX toolchain installed | `./docs/cheatsheets/verify.sh`, then asserts the compiled PDFs are left untracked |
-| `windows` (Windows PowerShell validation) | `windows-latest` | `tests/test-windows-bootstrap.ps1`, `tests/test-windows-verifier.ps1`, and a `verify.ps1` smoke test against a fixture |
+| `windows` (Windows PowerShell validation) | `windows-latest` | PSScriptAnalyzer at the pinned version, then `tests/test-windows-static-analysis.ps1`, `tests/test-windows-bootstrap.ps1`, `tests/test-windows-verifier.ps1`, and a `verify.ps1` smoke test against a fixture |
 | `macos` (macOS 26 arm64 validation) | `macos-26` | `tests/integration/macos-dotnet-debug.sh`, `./scripts/lint.sh`, portable-verifier/shell-test/profile-state suites, a `--dry-run` macOS install, `tests/test-macos.sh`/`tests/test-macos-ai.sh`/`tests/test-ocaml-verification.sh`, and the same ranged whitespace check the `repository` job runs |
+
+PowerShell's static analysis lives in the `windows` job rather than in
+`./scripts/lint.sh`, because that script runs in a Fedora container with no
+`pwsh` and a lint step that quietly skips itself when its tool is missing reads
+as a pass forever after. The rules are
+[`PSScriptAnalyzerSettings.psd1`](../PSScriptAnalyzerSettings.psd1) at the
+repository root, which editors with PSScriptAnalyzer support read as well, and
+each exclusion in it states why the rule does not apply here.
+`tests/test-windows-static-analysis.ps1` analyses the PowerShell files
+`git ls-files` reports rather than a list of its own, so a new `.ps1` cannot be
+added outside the gate, and it then analyses fixtures that must be reported -- an
+unapproved verb, a reversed `$null` comparison, a file that does not parse -- and
+fixtures each exclusion must silence, so a rule set that had stopped applying
+cannot pass as a clean tree. The analyser version is pinned on both sides: the
+job installs it and the suite refuses to run against any other, so a runner
+image that already ships a different PSScriptAnalyzer cannot supply it instead.
 
 `./scripts/test.sh` is the normal aggregate runner that the `repository` job
 above invokes. It:

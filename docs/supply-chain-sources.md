@@ -33,6 +33,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 |---|---|---|---|---|---|---|---|---|
 | `netcoredbg-legacy-release` | netcoredbg x64 build used as a debugger contract control | Samsung | `archive` | `user` | `3.1.3-1062` | release tag | `https-tls` | manual-bump |
 | `opam-repository` | OCaml Platform packages | OCaml | `package-registry` | `user` | `5.5.0 compiler` | opam switch list | `registry-tls` | manual-bump |
+| `psscriptanalyzer` | PSScriptAnalyzer rules for the Windows PowerShell validation job | Microsoft | `package-registry` | `user` | `1.24.0` | 1.24.0 | `registry-tls` | manual-bump |
 
 ## Tier: `version-line`
 
@@ -102,6 +103,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `parrot-boundary-image` | `docker.io/parrotsec/core:latest` | pin the previous digest | `.github/workflows/real-install.yml` |
 | `parrot-os-repos` | `https://deb.parrot.sh` | sudo apt-get install --reinstall | `platforms/parrot-ctf/scripts/install-system.sh` |
 | `pin-freshness-probe` | `https://github.com` | not-applicable | `scripts/check-pin-freshness.sh` `config/pin-freshness.tsv` |
+| `psscriptanalyzer` | `https://www.powershellgallery.com` | pin the previous version | `.github/workflows/validate.yml` |
 | `rpmfusion-free-release` | `https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-free-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `rpmfusion-nonfree-release` | `https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-nonfree-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `scoop-extras-bucket` | `https://github.com/ScoopInstaller/Extras` | scoop bucket rm extras | `platforms/windows/install.ps1` |
