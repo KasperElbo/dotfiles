@@ -25,7 +25,10 @@ zshrc="$repo_root/zsh/.config/zsh/.zshrc"
 
 sandbox_bin="$root/sandbox-bin"
 tool_bin="$root/tool-bin"
-mkdir -p "$sandbox_bin" "$tool_bin" "$root/config/fzf/themes"
+# Claude Code is mise-owned, so it lives here and nowhere else: it becomes
+# reachable only once `mise activate` has run, which is late in .zshrc.
+mise_shims="$root/mise-shims"
+mkdir -p "$sandbox_bin" "$tool_bin" "$mise_shims" "$root/config/fzf/themes"
 
 # A minimal real PATH: the shared config must work with nothing but coreutils.
 for command_name in bash cat chmod dirname env file grep head mkdir mktemp mv rm sort tar gzip xz; do
@@ -39,9 +42,15 @@ cat >"$tool_bin/zoxide" <<'EOF'
 #!/usr/bin/env bash
 printf 'z() { builtin cd "$@"; }\nzi() { builtin cd "$@"; }\n'
 EOF
-cat >"$tool_bin/mise" <<'EOF'
+# mise activation is what puts mise-managed tools on PATH, and that is the
+# whole point for anything the AI profile installs through the npm backend. A
+# fake that only sets a marker would let a gate that runs before activation
+# pass here and fail on every real machine, so this one prepends the shims
+# directory the way the real `mise activate zsh` output does.
+cat >"$tool_bin/mise" <<EOF
 #!/usr/bin/env bash
 printf 'export DOTFILES_TEST_MISE_ACTIVATED=1\n'
+printf 'export PATH=%q:\$PATH\n' "$mise_shims"
 EOF
 cat >"$tool_bin/starship" <<'EOF'
 #!/usr/bin/env bash
@@ -62,8 +71,9 @@ ZSH
 EOF
 printf '#!/usr/bin/env bash\nexit 0\n' >"$tool_bin/eza"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$tool_bin/bat"
-printf '#!/usr/bin/env bash\nexit 0\n' >"$tool_bin/claude"
 chmod +x "$tool_bin"/*
+printf '#!/usr/bin/env bash\nexit 0\n' >"$mise_shims/claude"
+chmod +x "$mise_shims/claude"
 
 printf '# Catppuccin fzf colors\nexport DOTFILES_TEST_FZF_THEME=1\n' \
   >"$root/config/fzf/themes/catppuccin-fzf-macchiato.sh"
@@ -273,6 +283,12 @@ printf 'PASS: present integrations are activated normally\n'
 # The alias has to earn its place twice: the `ai` capability must be installed,
 # and Claude Code must actually be on PATH. Either one missing leaves the
 # shell without it.
+#
+# Claude Code is reachable here only through the mise shims directory that the
+# `mise` fake puts on PATH when .zshrc activates it, which is what a real
+# machine looks like. That is deliberate: the gate used to sit with the other
+# aliases, ~100 lines above `mise activate`, so `command -v claude` answered
+# "absent" everywhere and `cld` was never defined.
 
 install_state="$root/state/dotfiles/install.conf"
 mkdir -p "${install_state%/*}"
@@ -299,11 +315,25 @@ assert_success
 assert_contains "$TEST_OUTPUT" 'claude --dangerously-skip-permissions'
 printf 'PASS: cld starts Claude Code where the ai capability is installed\n'
 
+# The regression itself, stated as its own assertion: the only claude on this
+# machine arrives with mise, so a gate asked before activation cannot see it.
+resolved="$(run_zsh full xterm-256color 'command -v claude')"
+assert_eq "$mise_shims/claude" "$resolved" \
+  'claude must be reachable only through the mise shims directory'
+printf 'PASS: the alias is decided after mise has put Claude Code on PATH\n'
+
 # Recorded, then removed by hand: an alias that resolves to nothing is worse
 # than no alias.
-run_capture run_zsh bare xterm-256color 'alias cld'
+mv "$mise_shims/claude" "$mise_shims/claude.removed"
+run_capture run_zsh full xterm-256color 'alias cld'
 assert_status 1
 printf 'PASS: cld is undefined when Claude Code is gone from PATH\n'
+mv "$mise_shims/claude.removed" "$mise_shims/claude"
+
+# No mise at all: nothing activates, so nothing reaches the shims directory.
+run_capture run_zsh bare xterm-256color 'alias cld'
+assert_status 1
+printf 'PASS: cld is undefined when mise never activated\n'
 
 rm -f "$install_state"
 

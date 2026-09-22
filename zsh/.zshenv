@@ -29,11 +29,14 @@ export PATH
 # update` and `claude install` able to do exactly the same thing, which is not
 # what "mise owns this package" means.
 #
-# Set here rather than behind the AI profile because this file is read by every
-# top-level Zsh, interactive or not, and exported from there into everything
-# that shell starts, which is what makes the setting effective however Claude
-# Code is started. On a machine that never selected the AI profile the variable
-# simply has no reader.
+# This is the second line and not the block. It covers every top-level Zsh,
+# interactive or not, and everything such a shell starts -- but a Claude Code
+# launched by something that is not a descendant of one, an editor or a session
+# that predates the install, reads none of this file. The block itself is the
+# `env` key of ~/.claude/settings.json, which the tool reads however it was
+# started; common/install-ai.sh declares it and common/verify-ai.sh proves it.
+# See docs/profiles/ai.md. On a machine that never selected the AI profile this
+# variable simply has no reader.
 export DISABLE_UPDATES=1
 
 # Platform environment policy must run before .zshrc executes any commands.
