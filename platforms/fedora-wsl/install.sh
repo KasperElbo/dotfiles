@@ -194,20 +194,20 @@ apply_ai() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interac
 apply_theme() { theme_apply_stowed "$theme"; }
 verify_wsl() { plan_command_run wsl_verify_command; }
 
-plan_add system 'Install Fedora command-line prerequisites and Linux-native mise' apply preflight_wsl apply_system : "Set Zsh as the user's default login shell. $(plan_command_note wsl_system_command)" 'platforms/fedora-wsl/scripts/install-system.sh'
-plan_add interop 'Preserve explicit Windows executable interop without Windows PATH entries' apply : apply_interop : "$(plan_command_note wsl_interop_command); enabled=true, appendWindowsPath=false" 'platforms/fedora-wsl/scripts/configure-interop.sh'
-[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora OCaml build prerequisites' apply : apply_ocaml_native : "$(plan_command_note wsl_ocaml_native_command)" 'platforms/fedora/scripts/install-ocaml.sh'
-[[ "$install_latex" != true ]] || plan_add latex 'Install the optional Fedora-owned LaTeX toolchain' apply : apply_latex : "$(plan_command_note wsl_latex_command); latexmk, latexindent, Biber" 'platforms/fedora/scripts/install-latex.sh'
-plan_add local 'Initialize machine-local Git and theme state' apply : apply_local : "$(plan_command_note wsl_local_command)" 'common/setup-local.sh'
-plan_add stow 'Deploy portable and Fedora WSL configuration' apply : apply_stow : "$(plan_command_note wsl_stow_command)" 'platforms/fedora-wsl/scripts/stow.sh'
-plan_add mise 'Install mise-managed Linux runtimes and developer CLIs' apply : apply_mise : "$(plan_command_note wsl_mise_command)" 'common/install-mise.sh'
-plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim : "$(plan_command_note wsl_nvim_command)" 'common/install-neovim-tools.sh'
-[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch' apply : apply_ocaml : "$(plan_command_note wsl_ocaml_command)" 'common/install-ocaml.sh'
-[[ "$install_containers" != true ]] || plan_add containers 'Install the optional rootless Podman profile' apply : apply_containers : "$(plan_command_note wsl_containers_command)" 'platforms/fedora-wsl/scripts/install-containers.sh'
-plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : "$(plan_command_note wsl_tmux_command)" 'common/install-tmux-theme.sh'
-[[ "$install_ai" != true ]] || plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$(plan_command_note wsl_ai_command)" 'common/install-ai.sh'
-plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme" ''
-plan_add verify 'Verify WSL detection, Linux command ownership, and runtime startup' verify : verify_wsl : "$(plan_command_note wsl_verify_command)" 'platforms/fedora-wsl/scripts/verify.sh'
+plan_add system 'Install Fedora command-line prerequisites and Linux-native mise' apply preflight_wsl apply_system "Set Zsh as the user's default login shell. $(plan_command_note wsl_system_command)" 'platforms/fedora-wsl/scripts/install-system.sh'
+plan_add interop 'Preserve explicit Windows executable interop without Windows PATH entries' apply : apply_interop "$(plan_command_note wsl_interop_command); enabled=true, appendWindowsPath=false" 'platforms/fedora-wsl/scripts/configure-interop.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Fedora OCaml build prerequisites' apply : apply_ocaml_native "$(plan_command_note wsl_ocaml_native_command)" 'platforms/fedora/scripts/install-ocaml.sh'
+[[ "$install_latex" != true ]] || plan_add latex 'Install the optional Fedora-owned LaTeX toolchain' apply : apply_latex "$(plan_command_note wsl_latex_command); latexmk, latexindent, Biber" 'platforms/fedora/scripts/install-latex.sh'
+plan_add local 'Initialize machine-local Git and theme state' apply : apply_local "$(plan_command_note wsl_local_command)" 'common/setup-local.sh'
+plan_add stow 'Deploy portable and Fedora WSL configuration' apply : apply_stow "$(plan_command_note wsl_stow_command)" 'platforms/fedora-wsl/scripts/stow.sh'
+plan_add mise 'Install mise-managed Linux runtimes and developer CLIs' apply : apply_mise "$(plan_command_note wsl_mise_command)" 'common/install-mise.sh'
+plan_add nvim 'Restore LazyVim and install the Mason inventory' apply : apply_nvim "$(plan_command_note wsl_nvim_command)" 'common/install-neovim-tools.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch' apply : apply_ocaml "$(plan_command_note wsl_ocaml_command)" 'common/install-ocaml.sh'
+[[ "$install_containers" != true ]] || plan_add containers 'Install the optional rootless Podman profile' apply : apply_containers "$(plan_command_note wsl_containers_command)" 'platforms/fedora-wsl/scripts/install-containers.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux "$(plan_command_note wsl_tmux_command)" 'common/install-tmux-theme.sh'
+[[ "$install_ai" != true ]] || plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai "$(plan_command_note wsl_ai_command)" 'common/install-ai.sh'
+plan_add theme 'Apply the selected theme' apply : apply_theme "theme $theme" ''
+plan_add verify 'Verify WSL detection, Linux command ownership, and runtime startup' verify : verify_wsl "$(plan_command_note wsl_verify_command)" 'platforms/fedora-wsl/scripts/verify.sh'
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF

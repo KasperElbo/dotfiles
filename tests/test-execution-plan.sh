@@ -18,8 +18,8 @@ source "$repo_root/common/lib/execution-plan.sh"
 log="$(mktemp)"; trap 'rm -f -- "$log" "$log.failure" "$log.first-failure" "$log.two-statement"' EXIT
 one() { printf 'one\n' >>"$log"; }
 two() { printf 'two\n' >>"$log"; }
-plan_add one 'First step' apply : one : rerunnable ''
-plan_add two 'Second step' apply : two : rerunnable ''
+plan_add one 'First step' apply : one rerunnable ''
+plan_add two 'Second step' apply : two rerunnable ''
 rendered="$(plan_render)"
 plan_execute >/dev/null
 [[ "$(paste -sd, "$log")" == one,two ]]
@@ -28,8 +28,8 @@ printf 'Shared execution plan ordering passed.\n'
 
 fail_step() { return 23; }
 plan_reset
-plan_add first-broken 'First injected failure' apply : fail_step : rerunnable ''
-plan_add first-pending 'Still pending' apply : two : rerunnable ''
+plan_add first-broken 'First injected failure' apply : fail_step rerunnable ''
+plan_add first-pending 'Still pending' apply : two rerunnable ''
 if plan_execute >"$log.first-failure" 2>&1; then
   printf 'First-step execution-plan failure unexpectedly passed.\n' >&2; exit 1
 fi
@@ -38,9 +38,9 @@ grep -Fq 'Pending steps: first-pending' "$log.first-failure"
 printf 'Execution-plan empty-completed diagnostics passed.\n'
 
 plan_reset
-plan_add 'done' 'Completed step' apply : one : rerunnable ''
-plan_add broken 'Injected failure' apply : fail_step : rerunnable ''
-plan_add pending 'Pending step' apply : two : rerunnable ''
+plan_add 'done' 'Completed step' apply : one rerunnable ''
+plan_add broken 'Injected failure' apply : fail_step rerunnable ''
+plan_add pending 'Pending step' apply : two rerunnable ''
 if plan_execute >"$log.failure" 2>&1; then
   printf 'Injected execution-plan failure unexpectedly passed.\n' >&2; exit 1
 fi
@@ -62,8 +62,8 @@ guarded_two_statement_step() {
   always_succeeds
 }
 plan_add guarded 'Two-statement action guarding its fallible command' \
-  apply : guarded_two_statement_step : rerunnable ''
-plan_add unreached 'Must not run after the failure' apply : two : rerunnable ''
+  apply : guarded_two_statement_step rerunnable ''
+plan_add unreached 'Must not run after the failure' apply : two rerunnable ''
 if plan_execute >"$log.two-statement" 2>&1; then
   printf 'A failing two-statement action was reported as successful.\n' >&2
   exit 1
@@ -87,7 +87,27 @@ unguarded_two_statement_step() {
   always_succeeds
 }
 plan_add unguarded 'Two-statement action without the guard' \
-  apply : unguarded_two_statement_step : rerunnable ''
+  apply : unguarded_two_statement_step rerunnable ''
 plan_execute >/dev/null 2>&1 ||
   { printf 'The unguarded shape now propagates; update the contract comment in common/lib/execution-plan.sh.\n' >&2; exit 1; }
 printf 'Execution-plan errexit-suppression contract confirmed.\n'
+
+# The verify slot is gone, so the old eight-argument call is now an arity
+# error rather than a step whose seventh argument is silently read as its note.
+# That is the whole point of dropping the slot instead of leaving it as a
+# convention: a stale call site is a refusal at source time, not a plan that
+# runs with its note and its scripts shifted one place to the left.
+plan_reset
+arity_output="$(
+  plan_add stale 'A call still passing the verify slot' \
+    apply : one : rerunnable '' 2>&1
+)" && {
+  printf 'plan_add accepted the retired eight-argument shape.\n' >&2
+  exit 1
+}
+grep -Fq 'plan_add requires id, label, phase, preflight, apply, note and scripts' \
+  <<<"$arity_output" || {
+  printf 'plan_add refused the eight-argument shape without naming its arguments.\n' >&2
+  exit 1
+}
+printf 'Execution-plan arity refuses the retired verify slot.\n'
