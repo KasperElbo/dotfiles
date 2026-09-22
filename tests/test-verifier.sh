@@ -502,8 +502,18 @@ mason_stylua_link() {
   printf '%s\n' "$mason_case_root/nvim/mason/bin/stylua"
 }
 
+# The decoy is built here rather than borrowed from the system: /bin/true is
+# absent on macOS, and a dangling link would be caught by the executable test
+# that was already there, so the case would stop exercising this one.
+unrelated_binary="$root/unrelated-bin/true"
+mkdir -p "$(dirname "$unrelated_binary")"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$unrelated_binary"
+chmod +x "$unrelated_binary"
+
 mason_case_begin link-to-unrelated-binary
-ln -sf /bin/true "$(mason_stylua_link)"
+ln -sf "$unrelated_binary" "$(mason_stylua_link)"
+[[ -x "$(mason_stylua_link)" ]] ||
+  _test_die 'the repointed link must stay executable, or this case proves nothing'
 mason_case_check
 assert_verifier_counts 1 1 0
 assert_file_contains "$root/mason.out" 'bin/stylua resolves to'
