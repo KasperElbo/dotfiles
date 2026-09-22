@@ -17,7 +17,34 @@ modern_bash_reexec ./scripts/lint.sh "$script_path" "$@" || exit 2
 set -euo pipefail
 cd "$repo_root"
 
-mapfile -d '' shell_files < <(git ls-files -z -- '*.sh')
+# Python decides the shell lint file set (below) as well as running every
+# validator further down, so the interpreter is checked against its floor in
+# config/tool-floors.tsv here: an old or absent interpreter is named once,
+# rather than failing inside whichever consumer first uses newer syntax.
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'python3 is required but was not found in PATH.\n' >&2
+  exit 1
+fi
+
+# shellcheck source=../common/lib/tool-floors.sh
+source "$repo_root/common/lib/tool-floors.sh"
+tool_floor_check python3 || exit 1
+
+# The file set comes from scripts/list-shell-files.py rather than from a glob
+# here, because `*.sh` decides scope by extension and a command installed onto
+# PATH does not carry one. Fourteen tracked programs -- bin/.local/bin/theme,
+# doctor, the stowed Sway and WSL interop commands, and the Wayland session
+# command the display manager runs -- sat outside both checks below until that
+# changed. The reader enforces its own floor: every file the old glob matched
+# must still be in the set it returns.
+#
+# The list goes through a file rather than a process substitution so that a
+# failing reader fails the run: `mapfile < <(cmd)` reports mapfile's status,
+# not the command's, and would leave a short list looking like a clean one.
+shell_file_list="$(mktemp)"
+trap 'rm -f "$shell_file_list"' EXIT
+./scripts/list-shell-files.py --print0 >"$shell_file_list"
+mapfile -d '' shell_files <"$shell_file_list"
 
 if ((${#shell_files[@]} == 0)); then
   printf 'No tracked shell files found.\n' >&2
@@ -40,18 +67,6 @@ printf 'Running ShellCheck...\n'
 # that ShellCheck adds or removes between versions do not fail CI on version
 # drift alone (see docs/testing.md's "Contributor toolchain" section).
 shellcheck -x -P SCRIPTDIR -s bash -S warning "${shell_files[@]}"
-
-if ! command -v python3 >/dev/null 2>&1; then
-  printf 'python3 is required but was not found in PATH.\n' >&2
-  exit 1
-fi
-
-# Everything below this line is Python. Check the interpreter against its floor
-# in config/tool-floors.tsv here, so an old interpreter is named once rather
-# than failing inside whichever validator first uses newer syntax.
-# shellcheck source=../common/lib/tool-floors.sh
-source "$repo_root/common/lib/tool-floors.sh"
-tool_floor_check python3 || exit 1
 
 printf 'Checking generated Starship configurations...\n'
 ./scripts/update-starship-themes.sh --check

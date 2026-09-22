@@ -56,11 +56,14 @@ fi
 # Refuse before linking anything. Stow aborts on the first conflicting package,
 # but only after the packages before it are already linked, so without this a
 # run that hits a conflict leaves a partly stowed HOME behind.
+#
+# A package directory this checkout does not have is a missing package, not a
+# package to leave out, so it is passed to the check like every other one and
+# refuses the run. Skipping it instead deployed none of that package's
+# configuration and still reported success.
 specs=()
 for package in "${packages[@]}"; do
-  # A package directory this checkout does not have is reported by the loop
-  # below as a skip, which is not a conflict in HOME.
-  [[ ! -d "$DOTFILES_ROOT/$package" ]] || specs+=("$DOTFILES_ROOT::$package")
+  specs+=("$DOTFILES_ROOT::$package")
 done
 preflight_stow_packages "${specs[@]}" ||
   die "Refusing to stow; nothing in $HOME was changed."
@@ -70,10 +73,7 @@ info "Stowing portable dotfiles into $HOME"
 for package in "${packages[@]}"; do
   package_dir="$DOTFILES_ROOT/$package"
 
-  if [[ ! -d "$package_dir" ]]; then
-    warn "Skipping missing package: $package"
-    continue
-  fi
+  [[ -d "$package_dir" ]] || die "Missing Stow package: $package"
 
   info "Stowing $package"
   stow \

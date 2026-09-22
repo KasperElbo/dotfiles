@@ -36,9 +36,22 @@ stub() {
 
 # --- Apple Silicon platform --------------------------------------------------
 
+# `list --cask` answers, rather than exiting non-zero the way this stub used to
+# for everything but --prefix. A Homebrew that cannot answer is a real state the
+# competing-cask check has to report as unobserved, so it is a case below and
+# not the fixture's resting state (issue #396, GAP-24).
 stub brew <<'EOF'
 #!/usr/bin/env bash
-[[ "${1:-}" == --prefix ]] && printf '/opt/homebrew\n'
+case "${1:-} ${2:-}" in
+"--prefix ")
+  printf '/opt/homebrew\n'
+  ;;
+"list --cask")
+  printf '%s' "${MOCK_BREW_CASKS:-}"
+  exit "${MOCK_BREW_CASK_EXIT:-0}"
+  ;;
+*) exit 1 ;;
+esac
 EOF
 stub csrutil <<'EOF'
 #!/usr/bin/env bash
@@ -117,19 +130,126 @@ exit 0
 EOF
 # `defaults read <bundle>/Contents/Info CFBundleShortVersionString`, answered
 # from the one-line fixture plist below.
+# `defaults read`, answering both the dictation profile's version read and the
+# managed-defaults section's per-key reads. The store is a fixture file, so a
+# case can change or withdraw exactly one key. A key the store does not hold
+# reports the way a never-written key does: non-zero, with nothing on stdout.
 stub defaults <<'EOF'
 #!/usr/bin/env bash
-[[ "${1:-}" == read && "${3:-}" == CFBundleShortVersionString ]] || exit 1
-plist="$2.plist"
-[[ -f "$plist" ]] || exit 1
-value="$(sed -n 's/^version=//p' "$plist" | head -n 1)"
-[[ -n "$value" ]] || exit 1
-printf '%s\n' "$value"
+[[ "${1:-}" == read ]] || exit 1
+domain="${2:-}"
+key="${3:-}"
+if [[ "$key" == CFBundleShortVersionString ]]; then
+  plist="$domain.plist"
+  [[ -f "$plist" ]] || exit 1
+  value="$(sed -n 's/^version=//p' "$plist" | head -n 1)"
+  [[ -n "$value" ]] || exit 1
+  printf '%s\n' "$value"
+  exit 0
+fi
+[[ -f "${MOCK_DEFAULTS_DB:-}" ]] || exit 1
+while IFS='|' read -r stored_domain stored_key stored_value; do
+  [[ "$stored_domain" == "$domain" && "$stored_key" == "$key" ]] || continue
+  printf '%s\n' "$stored_value"
+  exit 0
+done <"$MOCK_DEFAULTS_DB"
+exit 1
 EOF
+# file(1), as the verifier calls it: `file -bL <path>`. -b is honoured here
+# because suppressing the filename is the whole fix. While this stub prefixed
+# every answer with the path, the netcoredbg fixture -- whose path ends in
+# /tools/netcoredbg/osx-arm64/netcoredbg -- could not be given a non-arm64
+# answer at all, so the suite could not express the case below (issue #390,
+# GAP-19). MOCK_FILE_PATH names one file to describe differently, so a case
+# changes one fact and the other architecture checks keep their verdicts.
 stub file <<'EOF'
 #!/usr/bin/env bash
-printf '%s: Mach-O 64-bit executable arm64\n' "${!#}"
+brief=false
+target=""
+while (($#)); do
+  case "$1" in
+  -*) [[ "$1" != *b* ]] || brief=true ;;
+  *) target="$1" ;;
+  esac
+  shift
+done
+description='Mach-O 64-bit executable arm64'
+if [[ -n "${MOCK_FILE_PATH:-}" && "$target" == "$MOCK_FILE_PATH" ]]; then
+  description="${MOCK_FILE_DESCRIPTION:-$description}"
+fi
+if [[ "$brief" == true ]]; then
+  printf '%s\n' "$description"
+else
+  printf '%s: %s\n' "$target" "$description"
+fi
 EOF
+# Podman, over an image store the suite owns. The store is a file rather than
+# the stub's own idea of state, so a case can preload it and the suite can read
+# back what the verifier left behind instead of taking the verifier's word for
+# it (issue #372). The stub records every argv it is handed, which is how the
+# --pull policy the probe chose is asserted.
+stub podman <<'EOF'
+#!/usr/bin/env bash
+store="${MOCK_PODMAN_IMAGES:-}"
+[[ -z "${MOCK_PODMAN_ARGV:-}" ]] || printf '%s\n' "$*" >>"$MOCK_PODMAN_ARGV"
+
+image_id() {
+  [[ -n "$store" && -f "$store" ]] || return 1
+  awk -F '\t' -v name="$1" \
+    '$1 == name { print $2; found = 1 } END { exit found ? 0 : 1 }' "$store"
+}
+forget_image() {
+  [[ -n "$store" && -f "$store" ]] || return 1
+  awk -F '\t' -v name="$1" '$1 != name' "$store" >"$store.next" &&
+    mv "$store.next" "$store"
+}
+
+case "${1:-}" in
+info)
+  [[ "${2:-}" == --format ]] || exit 0
+  printf 'true\n'
+  ;;
+image)
+  [[ "${2:-}" == inspect ]] || exit 1
+  shift 2
+  [[ "${1:-}" != --format ]] || shift 2
+  image_id "${1:-}" >/dev/null
+  ;;
+rmi)
+  shift
+  [[ "${1:-}" != --force ]] || shift
+  image_id "${1:-}" >/dev/null || exit 1
+  [[ "${MOCK_PODMAN_RMI_EXIT:-0}" == 0 ]] || exit "$MOCK_PODMAN_RMI_EXIT"
+  forget_image "${1:-}"
+  ;;
+run)
+  shift
+  pull=missing
+  while (($#)); do
+    case "$1" in
+    --rm) ;;
+    --pull=*) pull="${1#--pull=}" ;;
+    *) break ;;
+    esac
+    shift
+  done
+  image="${1:-}"
+  if ! image_id "$image" >/dev/null; then
+    if [[ "$pull" == never ]]; then
+      printf 'Error: %s: image not known\n' "$image" >&2
+      exit 125
+    fi
+    printf '%s\t%s\n' "$image" 'sha256:pulled-by-this-run' >>"$store"
+  fi
+  # A run that hangs after the pull, so a case can interrupt one.
+  [[ -z "${MOCK_PODMAN_RUN_HANG:-}" ]] || sleep "$MOCK_PODMAN_RUN_HANG"
+  [[ "${MOCK_PODMAN_RUN_EXIT:-0}" == 0 ]] || exit "$MOCK_PODMAN_RUN_EXIT"
+  printf 'aarch64\n'
+  ;;
+*) exit 1 ;;
+esac
+EOF
+
 stub dscl <<'EOF'
 #!/usr/bin/env bash
 printf 'UserShell: %s\n' "$MOCK_ZSH"
@@ -326,6 +446,37 @@ EOF_STATE
 }
 write_dictation_state
 
+# --- Managed macOS defaults --------------------------------------------------
+#
+# The thirteen keys apply-defaults.sh writes, with the values `defaults read`
+# answers for them. Derived from the installer's own array by a parse of its
+# own, rather than from the verifier's reader, so a reader that had stopped
+# seeing rows cannot agree with the fixture about what the set is.
+macos_defaults_db="$root/defaults-db"
+screenshot_directory="$home/Pictures/Screenshots"
+awk -F '|' -v screenshots="$screenshot_directory" -v quote="'" '
+  /^managed_defaults=\(/ { inside = 1; next }
+  inside && /^\)/ { inside = 0 }
+  !inside { next }
+  {
+    gsub("^[[:space:]]*" quote "|" quote "[[:space:]]*$", "")
+    value = $4
+    if (value == "__SCREENSHOT_DIRECTORY__") {
+      value = screenshots
+    } else if ($3 == "bool") {
+      value = (value == "true") ? 1 : 0
+    }
+    print $1 "|" $2 "|" value
+  }
+' "$repo_root/platforms/macos/scripts/apply-defaults.sh" >"$macos_defaults_db"
+# The six settings the old five-entry subset never read. If the installer stops
+# writing one, this suite says so rather than quietly testing less.
+for managed_key in tilesize orientation AppleShowAllFiles ShowStatusBar \
+  location type KeyRepeat InitialKeyRepeat; do
+  grep -q "|$managed_key|" "$macos_defaults_db" ||
+    _test_die "the managed defaults fixture no longer covers $managed_key"
+done
+
 # The deterministic mise context is install-time state that the verifier reads
 # and never writes (issue #345), so the fixture provides it as an installed
 # machine would.
@@ -352,9 +503,14 @@ verify_environment=(
 )
 
 # run_verifier [VAR=value ...]: the verifier's output and failure count.
+# verifier_flags holds the optional-section flags the run is made with; they go
+# after the script, where env would otherwise read them as its own options.
 failures=0
+verifier_flags=()
 run_verifier() {
-  run_capture "${verify_environment[@]}" "$@" "$repo_root/platforms/macos/scripts/verify.sh"
+  run_capture "${verify_environment[@]}" "$@" \
+    "$repo_root/platforms/macos/scripts/verify.sh" \
+    ${verifier_flags[@]+"${verifier_flags[@]}"}
   assert_failure
   [[ "$(sed $'s/\033\\[[0-9;]*m//g' <<<"$TEST_OUTPUT")" =~ macOS\ verification\ failed:\ ([0-9]+)\ failure ]] ||
     _test_die "the macOS verifier did not report a failure summary:\n$TEST_OUTPUT"
@@ -475,13 +631,71 @@ run_verifier
 expect_one_more_failure 'a resolvable command that cannot run fails verification' \
   "stow resolves to $mock_bin/stow but does not run: 'stow --version' exited 127"
 
-# --- Optional dictation profile: one broken fact at a time -------------------
-
 # The previous case left a deliberately broken `stow` in place. Restore it, so
 # the cases below are measured against the same healthy baseline as every
 # other case rather than against one extra standing failure.
 rm "$mock_bin/stow"
 ln -s /usr/bin/true "$mock_bin/stow"
+
+# --- Architecture checks read file(1)'s description, not its echo of the path -
+#
+# check_arm64_file matched `file -L` output, which begins with the path it was
+# handed. The bundled debugger is checked at .../tools/netcoredbg/osx-arm64/
+# netcoredbg, so "arm64" was guaranteed present in the text being matched and
+# the check could not fail for an architecture reason (issue #390, GAP-19).
+
+run_verifier "MOCK_FILE_PATH=$debugger" \
+  'MOCK_FILE_DESCRIPTION=Mach-O 64-bit executable x86_64'
+expect_one_more_failure 'an x86_64 bundled netcoredbg fails verification' \
+  'EasyDotnet bundled netcoredbg does not report arm64 or universal architecture'
+
+# The same check used to accept a download that is not an executable at all,
+# for the same reason.
+run_verifier "MOCK_FILE_PATH=$debugger" \
+  'MOCK_FILE_DESCRIPTION=HTML document text'
+expect_one_more_failure 'an HTML error page in place of netcoredbg fails verification' \
+  'EasyDotnet bundled netcoredbg does not report arm64 or universal architecture'
+
+# --- Managed macOS defaults: the whole set the installer writes --------------
+
+verifier_flags=(--defaults)
+
+# checked_defaults <output>: the domain|key pairs the run actually read back.
+checked_defaults() {
+  sed $'s/\033\\[[0-9;]*m//g' <<<"$1" |
+    sed -n 's/^[^ ]* \(NSGlobalDomain\|com\.apple\.[a-z]*\) \([A-Za-z-]*\) \(=\|expected\) .*/\1|\2/p' |
+    sort -u
+}
+
+run_verifier "MOCK_DEFAULTS_DB=$macos_defaults_db"
+assert_eq "$baseline_failures" "$failures" \
+  'a machine carrying every managed default: failure count'
+assert_eq "$(cut -d '|' -f 1,2 <"$macos_defaults_db" | sort -u)" \
+  "$(checked_defaults "$TEST_OUTPUT")" \
+  'the managed defaults the verifier reads are exactly the ones apply-defaults.sh writes'
+while IFS='|' read -r managed_domain managed_key managed_value; do
+  assert_contains "$TEST_OUTPUT" "$managed_domain $managed_key = $managed_value"
+done <"$macos_defaults_db"
+printf 'PASS: every managed default the installer writes is read back\n'
+
+# A screenshot default changed on the machine. The old five-entry subset named
+# neither screencapture key, so this reported nothing.
+sed 's#^com\.apple\.screencapture|type|png$#com.apple.screencapture|type|jpg#' \
+  "$macos_defaults_db" >"$root/defaults-db-screenshot"
+run_verifier "MOCK_DEFAULTS_DB=$root/defaults-db-screenshot"
+expect_one_more_failure 'a changed screenshot format fails verification' \
+  'com.apple.screencapture type expected png, got jpg'
+
+# A keyboard default reverted to the system's own, which reads as unset.
+grep -v '^NSGlobalDomain|KeyRepeat|' "$macos_defaults_db" \
+  >"$root/defaults-db-keyrepeat"
+run_verifier "MOCK_DEFAULTS_DB=$root/defaults-db-keyrepeat"
+expect_one_more_failure 'a reverted key-repeat default fails verification' \
+  'NSGlobalDomain KeyRepeat expected 2, got unset'
+
+verifier_flags=()
+
+# --- Optional dictation profile: one broken fact at a time -------------------
 
 # expect_more_failures <count> <description> <message>
 expect_more_failures() {
@@ -542,6 +756,21 @@ run_verifier MOCK_SPCTL_ASSESS_EXIT=2
 expect_more_failures 1 'an spctl that cannot assess is reported as such' \
   'The Gatekeeper assessment of Ghost Pepper could not be made; spctl exited 2'
 
+# A Homebrew that cannot answer is not a Homebrew that answered "no cask". The
+# check used to discard both the status and stderr, so grep ran on the empty
+# string and reported the absence of evidence as evidence of absence -- the one
+# check in this section that did not fail closed (issue #396, GAP-24).
+run_verifier MOCK_BREW_CASK_EXIT=2
+assert_eq "$baseline_failures" "$failures" \
+  'a Homebrew that cannot list casks: failure count'
+assert_contains "$TEST_OUTPUT" 'Homebrew did not list its casks (exit 2)'
+printf 'PASS: %s\n' 'a Homebrew that cannot list casks is unobserved, not a clean bill'
+
+# And a cask that really does provide Ghost Pepper is still a failure.
+run_verifier MOCK_BREW_CASKS=ghost-pepper
+expect_more_failures 1 'a competing Homebrew cask fails verification' \
+  'A Homebrew cask also provides Ghost Pepper'
+
 # Recorded state that names a different release than the machine has.
 write_dictation_state 1.0.0
 run_verifier
@@ -565,6 +794,93 @@ assert_contains "$TEST_OUTPUT" 'Dictation profile is not installed (not selected
 printf 'PASS: an unselected dictation profile verifies cleanly\n'
 mv "$root/GhostPepper.app" "$dictation_app"
 mv "$root/macos-dictation.conf" "$dictation_state"
+
+# --- Container verification restores the image state it found ----------------
+#
+# `podman run` on an image this machine does not have pulls it and keeps it, so
+# a check documented as read-only left a container image in local storage
+# (issue #372). These cases read the image store itself, before and after, so
+# what is asserted is the machine's state rather than the verifier's account of
+# it -- the verifier deliberately makes no claim about this.
+
+macos_podman_store="$root/podman-images"
+macos_podman_argv="$root/podman-argv"
+macos_smoke_image='docker.io/library/alpine:latest'
+
+# run_container_verifier [VAR=value ...]: a --containers run, over an image
+# store and an argv log this suite owns.
+run_container_verifier() {
+  : >"$macos_podman_argv"
+  run_capture "${verify_environment[@]}" \
+    "MOCK_PODMAN_IMAGES=$macos_podman_store" \
+    "MOCK_PODMAN_ARGV=$macos_podman_argv" "$@" \
+    "$repo_root/platforms/macos/scripts/verify.sh" --containers
+}
+
+# A machine that does not have the image. The probe pulls it, and storage is
+# left as it was found.
+: >"$macos_podman_store"
+run_container_verifier
+assert_contains "$TEST_OUTPUT" 'Containers run as ARM64'
+assert_eq '' "$(cat "$macos_podman_store")" \
+  'the image the smoke run introduced was left behind'
+printf 'PASS: a smoke run removes the image it introduced\n'
+
+# A machine that already has it. The tag must still name the same image ID
+# afterwards, and the probe must not have gone looking for a newer one.
+printf '%s\t%s\n' "$macos_smoke_image" 'sha256:the-copy-this-machine-had' \
+  >"$macos_podman_store"
+run_container_verifier
+assert_contains "$TEST_OUTPUT" 'Containers run as ARM64'
+assert_eq "$(printf '%s\t%s' "$macos_smoke_image" 'sha256:the-copy-this-machine-had')" \
+  "$(cat "$macos_podman_store")" \
+  'the image the machine already had did not survive verification unchanged'
+assert_contains "$(cat "$macos_podman_argv")" '--pull=never'
+printf 'PASS: an image the machine already had keeps its tag and its ID\n'
+
+# A smoke run that fails after the pull. The verdict is a failure and storage
+# is still restored.
+: >"$macos_podman_store"
+run_container_verifier MOCK_PODMAN_RUN_EXIT=1
+assert_contains "$TEST_OUTPUT" 'Container architecture is unknown'
+assert_eq '' "$(cat "$macos_podman_store")" \
+  'a failed smoke run left the image it introduced behind'
+printf 'PASS: a failed smoke run removes the image it introduced\n'
+
+# An interruption. The stub pulls and then hangs, and the run is signalled, so
+# the restore has to come from the handler rather than from the line after the
+# probe -- which this run never reaches. SIGTERM rather than SIGINT, because a
+# non-interactive shell starts a background job with SIGINT ignored and Bash
+# will not install a trap for a signal that was ignored on entry, so a SIGINT
+# here would prove nothing. The verifier traps all three of INT, TERM and HUP.
+: >"$macos_podman_store"
+"${verify_environment[@]}" "MOCK_PODMAN_IMAGES=$macos_podman_store" \
+  MOCK_PODMAN_RUN_HANG=5 \
+  "$repo_root/platforms/macos/scripts/verify.sh" --containers \
+  >"$root/interrupted.log" 2>&1 &
+interrupted_pid=$!
+for _ in $(seq 1 200); do
+  [[ -s "$macos_podman_store" ]] && break
+  sleep 0.1
+done
+[[ -s "$macos_podman_store" ]] ||
+  _test_die "the interrupted case never reached the smoke run:\n$(cat "$root/interrupted.log")"
+kill -TERM "$interrupted_pid"
+wait "$interrupted_pid" 2>/dev/null || true
+assert_eq '' "$(cat "$macos_podman_store")" \
+  'an interrupted verification left the image it introduced behind'
+if grep -Fq 'macOS verification' "$root/interrupted.log"; then
+  _test_die "the interrupted run reached its summary, so it was not interrupted:\n$(cat "$root/interrupted.log")"
+fi
+printf 'PASS: an interrupted smoke run removes the image it introduced\n'
+
+# A removal that fails is said out loud rather than passed over, because the
+# image is then still on the machine.
+: >"$macos_podman_store"
+run_container_verifier MOCK_PODMAN_RMI_EXIT=1
+assert_contains "$TEST_OUTPUT" "Verification pulled $macos_smoke_image and could not remove it again"
+printf 'PASS: an image that could not be removed again is reported\n'
+: >"$macos_podman_store"
 
 # --- The verifier reads the mise context and never writes it ---------------
 #

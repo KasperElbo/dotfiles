@@ -26,7 +26,9 @@ import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from generated import check_or_write, read_committed  # noqa: E402
 from manifests import supported_platforms  # noqa: E402
+from provenance import VISIBLE_PROVENANCE  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TARGET = ROOT / "docs" / "architecture" / "installation.md"
@@ -89,6 +91,11 @@ def render() -> str:
         "     scripts/render-install-flows.py. Do not edit between these markers;",
         "     edit the installer and regenerate. -->",
         "",
+        VISIBLE_PROVENANCE.format(
+            sources="the `plan_add` calls in `platforms/*/install.sh`",
+            renderer="render-install-flows.py",
+        ),
+        "",
         "## Per-platform install flow",
         "",
         "Every installer builds one ordered execution plan and then runs it. The",
@@ -137,16 +144,14 @@ def splice(existing: str, generated: str) -> str:
 
 
 def main() -> int:
-    existing = TARGET.read_text(encoding="utf-8")
-    updated = splice(existing, render())
-    if "--check" in sys.argv:
-        if existing != updated:
-            print(f"Generated install flows are stale: {TARGET}", file=sys.stderr)
-            print("Run ./scripts/render-install-flows.py", file=sys.stderr)
-            return 1
-        return 0
-    TARGET.write_text(updated, encoding="utf-8")
-    return 0
+    updated = splice(read_committed(TARGET), render())
+    return check_or_write(
+        TARGET,
+        updated,
+        sys.argv,
+        stale="Generated install flows are stale",
+        remedy="./scripts/render-install-flows.py",
+    )
 
 
 if __name__ == "__main__":

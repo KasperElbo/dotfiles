@@ -16,12 +16,48 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/tool-floors.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
 verify_reset
-manual() { printf '\033[1;33mMANUAL ASSURANCE REQUIRED:\033[0m %s\n' "$*"; }
+# A manual assurance is an outcome this run could not establish, so it goes
+# through the counted helper. It used to be a bare printf with no counter, and
+# four "NOT OBSERVED:" lines were printed the same way, so a healthy run ended
+# on the unqualified "Parrot CTF verification passed." while reporting six
+# degraded outcomes -- among them that the account's shell change had not taken
+# effect yet, and that host isolation cannot be proven from the guest.
+# finish_verification reserves that wording for zero failures, zero warnings
+# and zero unobserved checks, and now sees them (issue #396, GAP-21).
+manual() { warning "MANUAL ASSURANCE REQUIRED: $*"; }
 
 command_diagnostics() {
   local command_name="$1"
   printf '  command -v: %s\n' "$(command -v "$command_name" 2>/dev/null || printf 'missing')" >&2
   type -a "$command_name" >&2 2>/dev/null || true
+}
+
+# font_charset_covers <fontconfig charset> <hex codepoint>: whether any range
+# in the charset contains the codepoint.
+#
+# The test used to be `grep -Eq 'e0b0(-e0c8)?'`, which reduces to "does this
+# text contain e0b0", so the answer turned on how fontconfig happened to split
+# its ranges rather than on coverage, and gave three different wrong ones: a
+# range e0a0-e0d4, which does contain U+E0B0, failed; f0001-f1af0, which does
+# not contain U+F000, passed, and that is a range Nerd Font charsets genuinely
+# carry; and 1e0b0-1e0b5, which covers none of the Powerline block, passed too
+# (issue #390, GAP-23). A bound is read as a number here rather than matched as
+# text. Ranges are compared in Bash arithmetic because Parrot's awk is mawk,
+# which has no strtonum.
+font_charset_covers() {
+  local charset="$1"
+  local target=$((16#$2))
+  local entry low high
+
+  while read -r entry; do
+    [[ "$entry" =~ ^[0-9a-fA-F]+(-[0-9a-fA-F]+)?$ ]] || continue
+    low=$((16#${entry%%-*}))
+    high=$((16#${entry##*-}))
+    if ((target >= low && target <= high)); then
+      return 0
+    fi
+  done < <(tr -s '[:space:]' '\n' <<<"$charset")
+  return 1
 }
 
 is_apt_owned_command() {
@@ -45,6 +81,24 @@ if require_guest_channels; then
 else
   exit 1
 fi
+
+# The PATH a fresh Zsh login is given, captured BEFORE this verifier touches
+# its own. establish_parrot_command_environment appends /usr/local/sbin,
+# /usr/sbin, /sbin and, when it exists, /snap/bin, using append_path, which
+# also strips prior duplicates of the entry it adds. Asserting afterwards that
+# $PATH retains those entries therefore asserts what this script did two lines
+# earlier, whatever the deployed Zsh hook does, and the duplicate scan could
+# not see a duplicate of any of the six directories just added -- precisely
+# the ones an unconditionally-appending profile would duplicate (issue #398,
+# GAP-20). The marker idiom is the one the macOS verifier uses: a login shell
+# is free to write before the printf, so the answer is taken from the marked
+# line rather than from the whole of stdout.
+# shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
+configured_login_path="$(
+  zsh -lic 'printf "\n__DOTFILES_VERIFY_PATH__%s\n" "$PATH"' 2>/dev/null |
+    sed -n 's/^__DOTFILES_VERIFY_PATH__//p' |
+    tail -n 1
+)"
 
 # Match the environment installed for the next login shell. Verification must
 # not depend on whether the caller has restarted Bash/Zsh since installation.
@@ -253,28 +307,40 @@ for command_name in "${protected_tools[@]}"; do
   fi
 done
 
-for required_path in /usr/bin /bin /usr/local/sbin /usr/sbin /sbin; do
-  case ":$PATH:" in
-  *":$required_path:"*) pass "PATH retains $required_path" ;;
-  *) fail "PATH is missing standard Parrot directory: $required_path" ;;
-  esac
-done
+# A login that answered nothing leaves these three checks with no evidence at
+# all. Falling back to $PATH is what made them tautologies, so the absence is
+# reported instead.
+if [[ -z "$configured_login_path" ]]; then
+  fail "A fresh Zsh login did not report a PATH, so the deployed command" \
+    "environment could not be read; the checks below need it"
+else
+  for required_path in /usr/bin /bin /usr/local/sbin /usr/sbin /sbin; do
+    case ":$configured_login_path:" in
+    *":$required_path:"*) pass "The Zsh login PATH retains $required_path" ;;
+    *) fail "The Zsh login PATH is missing standard Parrot directory: $required_path" ;;
+    esac
+  done
 
-duplicate_paths="$(
-  tr ':' '\n' <<<"$PATH" | awk 'NF && seen[$0]++ { print }' | sort -u
-)"
-if [[ -z "$duplicate_paths" ]]; then
-  pass "PATH entries are unique"
-else
-  fail "PATH contains duplicate entries: ${duplicate_paths//$'\n'/, }"
-fi
-if [[ -d /snap/bin ]]; then
-  case ":$PATH:" in
-  *:/snap/bin:*) pass "PATH retains the installed Snap command directory" ;;
-  *) fail "PATH is missing the installed Snap command directory: /snap/bin" ;;
-  esac
-else
-  pass "Snap is absent, so /snap/bin is deliberately omitted"
+  duplicate_paths="$(
+    tr ':' '\n' <<<"$configured_login_path" | awk 'NF && seen[$0]++ { print }' | sort -u
+  )"
+  if [[ -z "$duplicate_paths" ]]; then
+    pass "Zsh login PATH entries are unique"
+  else
+    fail "The Zsh login PATH contains duplicate entries: ${duplicate_paths//$'\n'/, }"
+  fi
+
+  # The appender and this check keying on the same -d /snap/bin predicate is
+  # what made the Snap case a tautology. This one asks the deployed hook, which
+  # reaches its own decision from the same directory but in the login shell.
+  if [[ -d /snap/bin ]]; then
+    case ":$configured_login_path:" in
+    *:/snap/bin:*) pass "The Zsh login PATH retains the installed Snap command directory" ;;
+    *) fail "The Zsh login PATH is missing the installed Snap command directory: /snap/bin" ;;
+    esac
+  else
+    pass "Snap is absent, so /snap/bin is deliberately omitted"
+  fi
 fi
 
 selected_theme="macchiato"
@@ -302,11 +368,19 @@ else
 fi
 font_file="$(fc-match --format='%{file}\n' 'Hack Nerd Font Mono' 2>/dev/null || true)"
 font_charset="$(fc-query --format='%{charset}\n' "$font_file" 2>/dev/null || true)"
-if grep -Eq 'e0b0(-e0c8)?' <<<"$font_charset" &&
-  grep -Eq 'f000(-f381)?' <<<"$font_charset"; then
+# U+E0B0 is the Powerline separator Starship's prompt draws with, and U+F000
+# stands for the Nerd Font private-use block the theme's icons come from.
+uncovered_glyphs=()
+for representative_glyph in e0b0 f000; do
+  font_charset_covers "$font_charset" "$representative_glyph" ||
+    uncovered_glyphs+=("U+${representative_glyph^^}")
+done
+if [[ -z "$font_charset" ]]; then
+  fail "fontconfig reported no character set for ${font_file:-the terminal font}"
+elif ((${#uncovered_glyphs[@]} == 0)); then
   pass "Terminal font covers representative Starship Powerline and Nerd Font glyphs"
 else
-  fail "Terminal font lacks representative Starship glyph coverage"
+  fail "Terminal font does not cover ${uncovered_glyphs[*]}: ${font_file:-unknown}"
 fi
 
 konsole_profile="$XDG_DATA_HOME/konsole/Dotfiles-Parrot-CTF.profile"
@@ -364,7 +438,7 @@ shared_mounts="$(
     awk '$1 == "9p" || $1 == "virtiofs" { print }'
 )"
 if [[ -z "$shared_mounts" ]]; then
-  printf 'NOT OBSERVED: mounted 9p or virtiofs host filesystem\n'
+  not_observed "mounted 9p or virtiofs host filesystem"
 else
   fail "Host filesystem passthrough is mounted: ${shared_mounts//$'\n'/; }"
 fi
@@ -373,7 +447,7 @@ runtime_dir="/run/user/$(id -u)"
 for socket_name in SSH_AUTH_SOCK GPG_AGENT_INFO; do
   socket_path="${!socket_name:-}"
   if [[ -z "$socket_path" ]]; then
-    printf 'NOT OBSERVED: %s forwarding socket\n' "$socket_name"
+    not_observed "$socket_name forwarding socket"
   elif [[ "$socket_path" == "$runtime_dir/"* ]]; then
     printf 'VERIFIED: %s uses a guest runtime path: %s\n' "$socket_name" "$socket_path"
     manual "confirm the local process behind $socket_name is not backed by an added host channel"
@@ -388,10 +462,10 @@ if command_exists gpgconf; then
   elif [[ -n "$gpg_socket" ]]; then
     manual "review nonstandard GPG agent socket path: $gpg_socket"
   else
-    printf 'NOT OBSERVED: GPG agent socket\n'
+    not_observed "GPG agent socket"
   fi
 else
-  printf 'NOT OBSERVED: gpgconf-based GPG agent socket evidence\n'
+  not_observed "gpgconf-based GPG agent socket evidence"
 fi
 manual "guest observations cannot prove libvirt NAT, absence of inactive passthrough devices, or host-side forwarding; run the host verifier with --domain"
 

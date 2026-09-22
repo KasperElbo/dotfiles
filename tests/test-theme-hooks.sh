@@ -71,10 +71,16 @@ EOF
   cat >"$mock_bin/pkill" <<'EOF'
 #!/usr/bin/env bash
 printf 'pkill %s\n' "$*" >>"$MOCK_LOG"
+[[ "$*" != "-USR2 -x ghostty" ]] || exit "${MOCK_GHOSTTY_RELOAD_EXIT:-0}"
 EOF
   cat >"$mock_bin/tmux" <<'EOF'
 #!/usr/bin/env bash
-exit 1
+if [[ "$1" == "list-sessions" ]]; then
+  [[ "${MOCK_TMUX_SERVER:-false}" == "true" ]] || exit 1
+  printf '0: 1 windows\n'
+  exit 0
+fi
+printf 'tmux %s\n' "$*" >>"$MOCK_LOG"
 EOF
   chmod +x "$mock_bin"/*
 
@@ -381,6 +387,77 @@ run_theme
 assert_success
 assert_not_contains "$TEST_OUTPUT" 'Ghostty'
 printf 'PASS: a profile without Ghostty gets no Ghostty guidance\n'
+
+# A reload that was attempted and failed is not the same answer as no running
+# instance, and it used to be reported as one: reload_ghostty returned 1 for
+# both, it was called bare in an `if` rather than through theme_action, and so
+# a failed reload was recorded neither as applied nor failed nor skipped while
+# the command still reported a complete application (GAP-29 of #397).
+new_machine 'base,dotnet-debug'
+mkdir -p "$machine/config/ghostty"
+run_theme MOCK_GHOSTTY_RUNNING=true MOCK_GHOSTTY_RELOAD_EXIT=1
+assert_failure
+assert_file_contains "$mock_log" 'pkill -USR2 -x ghostty'
+assert_contains "$TEST_OUTPUT" 'was applied only partially'
+assert_contains "$TEST_OUTPUT" 'fedora:ghostty'
+assert_not_contains "$TEST_OUTPUT" 'no running instance reloaded'
+assert_not_contains "$TEST_OUTPUT" 'configuration reload requested'
+printf 'PASS: a failed Ghostty reload is recorded, not reported as absent\n'
+
+# And with nothing running it is a named skip rather than an unrecorded effect.
+new_machine 'base,dotnet-debug'
+mkdir -p "$machine/config/ghostty"
+run_theme
+assert_success
+assert_contains "$TEST_OUTPUT" 'Not applicable on this machine'
+assert_contains "$TEST_OUTPUT" 'fedora:ghostty (no running instance to reload)'
+printf 'PASS: no Ghostty instance is a named skip\n'
+
+# --- The tmux reload reports what it did (GAP-27 of #397) -------------------
+#
+# reload_tmux returned 0 both when tmux was absent and when no server was
+# running, so `theme_action tmux reload_tmux` recorded `applied` for a reload
+# that never happened. The no-server case is the everyday one, and the command
+# named tmux in its "Applied:" list on a machine with no tmux at all.
+
+# An isolated PATH, because tmux is in every platform's base package set and
+# is on this runner too: a mock that merely exits nonzero still answers
+# `command -v`, so the absent case needs a PATH with no tmux on it anywhere.
+new_machine 'base,dotnet-debug'
+no_tmux_bin="$machine/no-tmux-bin"
+mkdir -p "$no_tmux_bin"
+for mock in "$mock_bin"/*; do
+  [[ "$(basename "$mock")" != tmux ]] || continue
+  ln -s "$mock" "$no_tmux_bin/$(basename "$mock")"
+done
+for required in awk bash basename cat chmod dirname mkdir mktemp mv readlink; do
+  ln -s "$(command -v "$required")" "$no_tmux_bin/$required"
+done
+run_capture env \
+  HOME="$machine/home" \
+  XDG_CONFIG_HOME="$machine/config" \
+  XDG_DATA_HOME="$machine/data" \
+  XDG_STATE_HOME="$machine/state" \
+  PATH="$no_tmux_bin" \
+  MOCK_LOG="$mock_log" \
+  "$theme_command" mocha
+assert_success
+assert_contains "$TEST_OUTPUT" 'tmux (tmux is not installed)'
+printf 'PASS: an absent tmux is a named skip, not an applied action\n'
+
+new_machine 'base,dotnet-debug'
+run_theme
+assert_success
+assert_contains "$TEST_OUTPUT" 'tmux (no tmux server is running)'
+printf 'PASS: no running tmux server is a named skip\n'
+
+new_machine 'base,dotnet-debug'
+run_theme MOCK_TMUX_SERVER=true
+assert_success
+assert_file_contains "$mock_log" 'tmux source-file'
+assert_not_contains "$TEST_OUTPUT" 'tmux (no tmux server is running)'
+assert_not_contains "$TEST_OUTPUT" 'tmux (tmux is not installed)'
+printf 'PASS: a running tmux server is really reloaded\n'
 
 # --- The Fedora WSL Noctty bridge ------------------------------------------
 

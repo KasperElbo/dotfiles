@@ -94,8 +94,45 @@ printf '# Stranded\n\nNothing points here.\n' >"$tree/docs/platforms/stranded.md
 git -C "$tree" add -A
 run_capture python3 "$validator" --root "$tree"
 assert_failure
-assert_contains "$TEST_OUTPUT" "nothing links to this document"
+assert_contains "$TEST_OUTPUT" "links to this document"
 printf 'PASS: a document nothing links to fails\n'
+
+# The rule is reachability from an entry point, not "something links to me".
+# Counting inbound links passes a pair of pages that link to each other with
+# nothing pointing into the pair, which is what a documentation split leaves
+# behind: a new sub-index, its children linking back, and the sub-index never
+# added to docs/README.md.
+new_tree
+cat >"$tree/docs/platforms/island.md" <<'EOF'
+# Island
+
+See [the other side](other.md).
+EOF
+cat >"$tree/docs/platforms/other.md" <<'EOF'
+# Other side
+
+Back to [the island](island.md).
+EOF
+git -C "$tree" add -A
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" "island.md"
+assert_contains "$TEST_OUTPUT" "other.md"
+printf 'PASS: a mutually-linked cluster nothing points into fails\n'
+
+# A page reached only through another page is not an orphan: the traversal has
+# to follow links outward, not stop at the entry points.
+new_tree
+cat >"$tree/docs/platforms/deep.md" <<'EOF'
+# Deep
+
+A page the index reaches through Fedora.
+EOF
+printf '\nSee [the deep page](deep.md).\n' >>"$tree/docs/platforms/fedora.md"
+git -C "$tree" add -A
+run_capture python3 "$validator" --root "$tree"
+assert_success
+printf 'PASS: a page reached through another page is not an orphan\n'
 
 # --- Stale issue claims ----------------------------------------------------
 
@@ -326,6 +363,124 @@ PYTHON
   assert_contains "$TEST_OUTPUT" "stale"
 done
 printf 'PASS: a hand edit inside a generated block is rejected\n'
+
+# --- The gates compare bytes, not a normalised reading ----------------------
+
+# Every gate read its target with pathlib.Path.read_text(), which is text mode
+# with newline=None, so \r\n and a lone \r arrived as \n and the comparison was
+# against a normalised view. A file whose committed bytes differ from a fresh
+# render passed, and running the renderer then changed the file. A bare \r in
+# the middle of a line is the sharp case: `git diff --check` does not flag it
+# either, so nothing else in CI would have caught it.
+line_ending_renderers=(
+  "render-capability-matrix.py docs/reference/capability-matrix.md"
+  "render-installer-options.py docs/reference/installer-options.md"
+  "render-verifier-reference.py docs/reference/verifiers.md"
+  "render-supply-chain.py docs/supply-chain-sources.md"
+  "render-action-reference.py docs/reference/keybindings.md"
+  "render-package-ownership.py docs/architecture/package-ownership.md"
+  "render-install-flows.py docs/architecture/installation.md"
+  "render-file-ownership.py docs/architecture/file-ownership.md"
+)
+
+endings_scratch="$TEST_ROOT/line-endings"
+mkdir -p "$endings_scratch"
+
+for mutation in bare-cr crlf; do
+  for entry in "${line_ending_renderers[@]}"; do
+    read -r renderer target <<<"$entry"
+    backup="$endings_scratch/$(basename "$target")"
+    cp "$repo_root/$target" "$backup"
+
+    python3 - "$repo_root/$target" "$mutation" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+raw = path.read_bytes()
+if sys.argv[2] == "crlf":
+    path.write_bytes(raw.replace(b"\n", b"\r\n"))
+else:
+    # One newline replaced by a carriage return. Universal-newline decoding
+    # turns it back into a newline; the bytes on disk are not what a fresh
+    # render writes. It has to land inside the generated region, because that
+    # is the only part of a spliced page a renderer rewrites -- a stray \r in
+    # the hand-written prose is not drift the renderer could repair.
+    marker = raw.find(b"<!-- BEGIN GENERATED")
+    start = raw.index(b"\n", marker) + 1 if marker != -1 else len(raw) // 2
+    index = raw.index(b"\n", start)
+    path.write_bytes(raw[:index] + b"\r" + raw[index + 1:])
+PYTHON
+
+    run_capture python3 "$repo_root/scripts/$renderer" --check
+    cp "$backup" "$repo_root/$target"
+    assert_failure
+    assert_contains "$TEST_OUTPUT" "stale"
+  done
+done
+printf 'PASS: every render --check gate compares bytes, not normalised text\n'
+
+# And the write path must not introduce the endings it now rejects: a renderer
+# that wrote through text mode would be rejected by its own gate on a platform
+# whose text mode translates.
+for entry in "${line_ending_renderers[@]}"; do
+  read -r renderer target <<<"$entry"
+  backup="$endings_scratch/$(basename "$target")"
+  cp "$repo_root/$target" "$backup"
+  run_capture python3 "$repo_root/scripts/$renderer"
+  assert_success
+  if python3 -c 'import pathlib, sys; sys.exit(0 if b"\r" in pathlib.Path(sys.argv[1]).read_bytes() else 1)' \
+    "$repo_root/$target"; then
+    cp "$backup" "$repo_root/$target"
+    _test_die "$renderer wrote a carriage return into $target"
+  fi
+  run_capture python3 "$repo_root/scripts/$renderer" --check
+  cp "$backup" "$repo_root/$target"
+  assert_success
+done
+printf 'PASS: a fresh render writes only newlines\n'
+
+# .gitattributes is what keeps the checkout from introducing them at all.
+assert_file_contains "$repo_root/.gitattributes" 'text=auto eol=lf'
+printf 'PASS: line endings are normalised at the checkout\n'
+# --- A generated region says so on the rendered page ------------------------
+
+# The BEGIN/END markers are HTML comments, and so was the "do not edit"
+# sentence beside them, which every Markdown renderer strips. On the rendered
+# page those four documents announced nothing: a section simply began, and a
+# hand edit inside it was discarded by the next run without a word. The
+# sentence has to survive comment stripping.
+for entry in "${spliced_renderers[@]}"; do
+  read -r renderer target <<<"$entry"
+  python3 - "$repo_root/$target" "$renderer" <<'PYTHON'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+renderer = sys.argv[2]
+text = path.read_text(encoding="utf-8")
+regions = re.findall(
+    r"<!-- BEGIN GENERATED.*?-->(.*?)<!-- END GENERATED.*?-->", text, re.DOTALL
+)
+if not regions:
+    raise SystemExit(f"{path}: no generated region found")
+for index, region in enumerate(regions, 1):
+    # What a CommonMark renderer shows: the HTML comments are gone.
+    rendered = re.sub(r"<!--.*?-->", "", region, flags=re.DOTALL)
+    notice = [
+        line
+        for line in rendered.splitlines()
+        if f"scripts/{renderer}" in line and "discarded" in line
+    ]
+    if not notice:
+        raise SystemExit(
+            f"{path}: generated region {index} carries no visible sentence naming "
+            f"scripts/{renderer} and saying hand edits are discarded"
+        )
+PYTHON
+done
+printf 'PASS: every spliced region names its generator where a reader can see it\n'
 
 # Drift the manifests the new renderers read, and confirm each one notices.
 # These are the exact drifts the documentation audit found by hand.
