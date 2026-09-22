@@ -143,11 +143,20 @@ writes nothing below `XDG_DATA_HOME` or `XDG_CONFIG_HOME`; only the ordinary
 start as its control.
 
 The flag makes the start harmless; it does not make it a verdict. Whether a
-plugin tree is complete and pinned is the verifier's own question, answered
-from the profile's lock file before Neovim is started at all. That shared
-check, and the platform verifiers setting this flag when they start Neovim,
-land with the change that gives all four platforms the same Neovim contract;
-today the configuration honours the flag and only the test suite sets it.
+plugin tree is complete and pinned is the verifier's own question, and
+`check_lazy_plugin_state` answers it from the profile's lock file before Neovim
+is started at all: every plugin the lock file names has to be checked out, at
+the exact commit, with `lazy.nvim` itself named like any other entry when it is
+missing. A plugin the lock file does not name is a warning, because nothing
+here owns it.
+
+All four platforms now ask both questions the same way, against their own
+profile's lock file and inventory — Fedora, Fedora WSL and macOS against the
+workstation profile, the Parrot guest against its reduced one. Before this,
+"Neovim tooling passed" meant four different things: only Fedora and Parrot
+started the editor at all, and only Parrot proved plugin commits. Every start
+is bounded by the same timeout, so a machine that cannot finish starting is
+reported rather than waited on.
 
 Installation is the opposite case and deliberately unflagged:
 `common/install-neovim-tools.sh` *is* the thing that builds the tree, and it
