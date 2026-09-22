@@ -169,13 +169,18 @@ printf 'Complete non-mutating Stow preflight passed.\n'
 # previously free to lose its exemption argument with the suite still green.
 
 # retired_link_home <name>: a HOME carrying all three retired links.
+# The second argument is the spelling of the checkout the earlier layout
+# linked through, defaulting to this one. A machine that reaches its checkout
+# by a symlink carries links spelled that way, which is what the symlinked
+# case below needs.
 retired_link_home() {
   local home="$test_root/$1"
-  local stow_dir="$repo_root/platforms/fedora/stow"
+  local checkout="${2:-$repo_root}"
+  local stow_dir="$checkout/platforms/fedora/stow"
   mkdir -p "$home/.config/sway" "$home/.config/waybar" \
     "$home/.local/share/wallpapers"
-  ln -s "$repo_root/sway/.config/sway/config" "$home/.config/sway/config"
-  ln -s "$repo_root/waybar/.config/waybar/style.css" \
+  ln -s "$checkout/sway/.config/sway/config" "$home/.config/sway/config"
+  ln -s "$checkout/waybar/.config/waybar/style.css" \
     "$home/.config/waybar/style.css"
   ln -s "$stow_dir/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
     "$home/.local/share/wallpapers/catppuccin-macchiato.webp"
@@ -245,6 +250,72 @@ for retired in 'Stow conflict [sway]' 'Stow conflict [waybar]' \
   }
 done
 printf 'PASS: removing the exemption argument makes that preflight refuse\n'
+
+# ... and the same HOME reached through a symlinked checkout, which is the
+# case the migration was silently a no-op for (issue #398, GAP-36).
+# DOTFILES_ROOT is built with a logical cd/pwd, so it keeps whatever symlinks
+# the invocation walked through, while a resolved link target is physical.
+# The retired prefix was spelled from the logical root, so on such a machine
+# nothing matched: zero links were detected, zero exemptions were emitted, and
+# preflight then refused the very machines the migration exists for. ostree
+# Fedora reaches every home directory this way.
+symlinked_checkout="$test_root/checkout-link"
+ln -s "$repo_root" "$symlinked_checkout"
+
+symlinked_home="$(retired_link_home symlinked-home "$symlinked_checkout")"
+run_migrating_install "$symlinked_checkout/install.sh" "$symlinked_home" \
+  "$test_root/symlinked"
+if grep -Fq 'Stow conflict' "$test_root/symlinked"; then
+  printf 'The Fedora installer refused a symlinked checkout carrying the retired links:\n' >&2
+  grep -F 'Stow conflict' "$test_root/symlinked" >&2
+  exit 1
+fi
+grep -Fq 'Install Fedora system packages' "$test_root/symlinked" || {
+  printf 'The symlinked-checkout installer never reached its execution plan:\n' >&2
+  tail -n 20 "$test_root/symlinked" >&2
+  exit 1
+}
+printf 'PASS: the exemption survives a checkout reached through a symlink\n'
+
+# The negative control, for the same reason as the one above: spelling the
+# prefix from the logical root again must bring the refusal back, and only for
+# the symlinked spelling -- a physical checkout passed either way, which is
+# why this went unnoticed.
+logical_tree="$test_root/logical-prefix-tree"
+mkdir -p "$logical_tree"
+tar -C "$repo_root" --exclude=.git -cf - . | tar -C "$logical_tree" -xf -
+python3 - "$logical_tree/platforms/fedora/lib/fedora.sh" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+resolved = '  retired_prefix="${canonical_root%/}/$retired_prefix"'
+if resolved not in text:
+    raise SystemExit(
+        "fedora_retired_stow_links no longer builds its retired prefix from a "
+        "resolved root; update this negative control with the line it uses"
+    )
+path.write_text(
+    text.replace(resolved, '  retired_prefix="${DOTFILES_ROOT%/}/$retired_prefix"', 1),
+    encoding="utf-8",
+)
+PYTHON
+
+logical_checkout="$test_root/logical-checkout-link"
+ln -s "$logical_tree" "$logical_checkout"
+logical_home="$(retired_link_home logical-home "$logical_checkout")"
+run_migrating_install "$logical_checkout/install.sh" "$logical_home" \
+  "$test_root/logical-prefix"
+for retired in 'Stow conflict [sway]' 'Stow conflict [waybar]' \
+  'Stow conflict [theme-assets]'; do
+  grep -Fq "$retired" "$test_root/logical-prefix" || {
+    printf 'A logical retired prefix did not produce %s through a symlink:\n' "$retired" >&2
+    tail -n 20 "$test_root/logical-prefix" >&2
+    exit 1
+  }
+done
+printf 'PASS: a logical retired prefix refuses a symlinked checkout\n'
 
 # Each installer resolves its selected capability set in one function, read by
 # the selection check, preflight and the lifecycle record that ./doctor and

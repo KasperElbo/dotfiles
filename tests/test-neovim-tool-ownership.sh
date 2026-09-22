@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 lazyvim_config="$repo_root/nvim-lazyvim/.config/nvim"
+# shellcheck source=lib/lazy-nvim.sh
+source "$repo_root/tests/lib/lazy-nvim.sh"
 
 fail() {
   printf 'Neovim ownership test failed: %s\n' "$*" >&2
@@ -205,11 +207,27 @@ grep -Fq 'init' <<<"$validator_output" ||
 # The verifier's Neovim baseline check runs Lua through an Ex command, where an
 # uncaught error never reaches the exit status. It must convert a failed check
 # into `cquit` rather than relying on the error propagating on its own.
-fedora_verifier="$repo_root/platforms/fedora/scripts/verify.sh"
-assert_contains "$fedora_verifier" 'vim.cmd("cquit 1")'
-if grep -Fq '+lua assert(' "$fedora_verifier"; then
-  fail "verifier asserts in an Ex command, where a Lua failure cannot fail the run"
-fi
+#
+# The assertion follows the rule rather than the file: the Lua used to be
+# written out in the Fedora verifier, and now neovim_verify_floor_assertion in
+# the shared library builds it for all four platforms.
+verify_library="$repo_root/common/lib/verify.sh"
+assert_contains "$verify_library" 'cquit 1'
+assert_contains "$verify_library" 'neovim_verify_floor_assertion'
+# And the platforms ask for it through that helper rather than rolling their
+# own, which is what keeps the rule in one place.
+for platform_verifier in "$repo_root"/platforms/*/scripts/verify.sh; do
+  grep -Fq 'nvim --headless' "$platform_verifier" || continue
+  grep -Fq 'cquit' "$platform_verifier" &&
+    fail "platform verifier writes its own floor assertion: ${platform_verifier#"$repo_root/"}"
+done
+# Wherever the Lua is written, it must not lean on assert: an uncaught Lua
+# error raised from an Ex command never reaches the exit status.
+for lua_host in "$verify_library" "$repo_root"/platforms/*/scripts/verify.sh; do
+  if grep -Fq '+lua assert(' "$lua_host"; then
+    fail "asserts in an Ex command, where a Lua failure cannot fail the run: ${lua_host#"$repo_root/"}"
+  fi
+done
 
 formatting_config="$lazyvim_config/lua/plugins/formatting.lua"
 assert_contains "$formatting_config" 'cs = { "csharpier" }'

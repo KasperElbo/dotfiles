@@ -242,6 +242,30 @@ repository is not `1`, and when the fingerprint pinned for the running Fedora
 release is missing from the RPM keyring. When the running release has no
 pinned row it warns instead, mirroring the installer.
 
+## Every repository, re-checked after install
+
+Terra is not the only trust root this installer establishes, and every one of
+these bootstraps returns early for good once its repository exists. A
+repository shipped or later edited with `gpgcheck=0` therefore keeps
+installing root-privileged packages unchecked, and only a verifier can say
+so. `verify_repo_trust_root` in
+[`platforms/fedora/lib/fedora.sh`](../platforms/fedora/lib/fedora.sh) is the
+one implementation, asking DNF what it will actually enforce rather than
+reading one file's spelling of it, and all three callers use it:
+
+- **Terra**, as part of the signing-key check above.
+- **Tailscale**, from `verify-tailscale.sh`. Whatever the fetched `.repo`
+  file says becomes `/etc/yum.repos.d/tailscale.repo` verbatim, including its
+  `gpgcheck` setting and its `gpgkey` URL, and nothing looked at it again.
+- **RPM Fusion**, from `verify.sh`, for every repository the two release
+  packages own rather than only the base pair — the `updates` repositories
+  are where later packages actually come from. The repository ids come from
+  each package's own file list, so a repository RPM Fusion adds later is
+  checked without this repository being told about it.
+
+A machine with no RPM Fusion repositories reports that it has none. A
+section that prints nothing reads as a section that found nothing wrong.
+
 **The remaining boundary** is a Fedora release newer than the pinned set. There
 is no fingerprint to compare against, so the installer prints the downloaded
 key's fingerprint and refuses to continue unless a human acknowledges it —
@@ -338,15 +362,20 @@ an unregistered `curl`, `wget`, PowerShell download, remote `git clone`/`fetch`,
 `--repofrompath`, remote release RPM, or container image, and on the three
 constructs that give the machine a new package trust root: a DNF repository
 added with `dnf config-manager addrepo`, a signing key imported with
-`rpm --import`, however their argument is spelled, and a Homebrew tap. It also fails on a registry
+`rpm --import`, however their argument is spelled, a Homebrew tap, a
+package-registry reference, and a PowerShell package verb (`Install-Module`
+and its `Save-`/`Update-`/`-Script`/`-PSResource` siblings, and
+`Register-PSRepository`), each of which resolves a name against a configured
+repository and runs what comes back. It also fails on a registry
 row whose tier and integrity mechanism contradict each other, and on one whose
 `integrity` is `image-digest-pinned` while a consumer names some other
 reference — a digest the job does not pull is a claim about a run that never
 happens.
 
-A construct counts however it is written. A clone spelled as an argument
-vector — `vim.fn.system({ "git", "clone", … })`, which is how the Neovim
-bootstrap spawns it — is the same clone as a command line. A container image
+A construct counts however it is written. A clone or a download spelled as an
+argument vector — `vim.fn.system({ "git", "clone", … })` or
+`vim.fn.system({ "curl", … })`, which is how the Neovim bootstrap spawns
+them — is the same clone or download as a command line. A container image
 written as Docker Hub shorthand, `parrotsec/core:latest`, pulls the same code
 as `docker.io/parrotsec/core:latest`; shorthand counts when the line puts it in
 a container context (a `docker`/`podman` command, a workflow `container:` or
@@ -373,6 +402,13 @@ Ruby Homebrew runs at install time; a `brew` or `cask` argument carrying two
 slashes pulls a package from the same clone. Both forms need a row and an
 annotation, and the row's URL is the tap's repository.
 
+A package registry is another. `"github:owner/repo"` is how Mason names the
+lists every LSP server and debug adapter it installs is resolved through, and
+how mise names a tool it takes straight from a project's releases rather than
+from mise's own registry; one of this repository's two Mason registries is a
+personal fork. Each reference needs a row and an annotation, and the row's URL
+is that repository.
+
 An annotation covers what it names, not whatever construct happens to follow
 it. Two rules enforce that. First, an annotation belongs to the construct it
 introduces: the walk up from a construct stops at the first line of code, so a
@@ -381,8 +417,17 @@ construct writes a host out in full — on its own line or on a continuation of
 it — at least one of the annotations covering it must name a source served by
 that host. A tap names no host, so the same question is asked of the tap
 itself: an annotation covers a tap only when its registered source *is* that
-tap. A URL built from a variable names no host the validator can check, and is
-covered by its annotation alone.
+tap, and a `github:owner/repo` registry the same way. A URL built from a
+variable names no host the validator can check, and is covered by its
+annotation alone.
+
+The walk up from a construct passes through a line the next one continues: a
+trailing backslash, or an `&&`/`||` left hanging at the end of a condition,
+since a comment cannot be written between the halves of either. A trailing
+comma is deliberately not a continuation. List elements are written one per
+line, so treating each as a continuation of the one above would hand every
+element the first one's annotation — exactly the inheritance the first rule
+refuses.
 
 A construct that genuinely reaches no external network (a loopback probe, a
 request to the container under test) is annotated
@@ -472,3 +517,64 @@ repository uses is the ephemeral CI token described above, which is supplied
 by GitHub Actions to its own job. Staged installer content lives in a
 mode-0600 file inside a 0700 directory and is deleted immediately after it
 runs. Tests use fixtures, never real secrets.
+
+### The gate behind that claim
+
+`./scripts/scan-secrets.sh` scans the working tree and every commit reachable
+from `HEAD` with a version-pinned [gitleaks](https://github.com/gitleaks/gitleaks),
+using the upstream default rules as published for that version. It is one
+command, run identically by a contributor and by the "Scan for committed
+credentials" step in `.github/workflows/validate.yml`, which is why the
+scanner is a pinned binary rather than a GitHub Action: an action runs only
+inside a workflow, so it could not be run before a push and a fork could not
+run it at all.
+
+The step is not optional, and not only by convention.
+`scripts/validate-repository-hygiene.py` requires `validate.yml` to invoke the
+scanner, so removing the step — or commenting it out — fails lint rather than
+quietly removing the coverage. `tests/test-repository-hygiene.sh` proves both
+halves: that the gate catches a credential using the exact command CI runs,
+and that the tree is refused when the gate is taken away.
+
+**History is scanned on every run, not just a commit range.** A credential
+deleted from the working tree is still a credential, reachable by anyone with
+the repository; scanning only the diff would report the deletion as clean. At
+the current size this costs about a second for the whole history, so the
+cheaper option would buy nothing. `--range A..B` exists for when that stops
+being true, and the decision to switch should be made on a measurement rather
+than on principle.
+
+Findings are redacted. The rule, the file and the line are printed; the
+matched value never is, so a CI log does not become the second place a leaked
+credential lives.
+
+The allowlist in `.gitleaks.toml` is empty, because it can be: the tree and
+the full history are clean against the default rules. That file states the two
+rules for adding an entry — scope it to the one literal, and say why the
+literal cannot be a credential — and says why generating a credential-shaped
+string at runtime is better than allowlisting one for good.
+
+GitHub's own secret scanning and push protection are worth enabling on the
+repository as well, in **Settings → Code security**. They are complementary
+rather than a substitute: they act on pushes to GitHub, while this gate runs
+on a workstation before the push and in any fork.
+
+### Bumping the secret scanner
+
+The pin is five lines at the top of `scripts/scan-secrets.sh`: `version` and
+one SHA-256 per supported platform. Take the digests from upstream's own
+`gitleaks_<version>_checksums.txt` in the same release rather than computing
+them from a download, so the value recorded is the one upstream published:
+
+```bash
+version=8.30.1
+curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v$version/gitleaks_${version}_checksums.txt"
+```
+
+Then update `version` and the four digests, and run `./scripts/scan-secrets.sh`
+once. A new release can add rules, so a bump can turn the gate red on content
+that passed yesterday; that is the gate working, and the finding is triaged
+like any other rather than pinned away from.
+
+`scripts/check-pin-freshness.sh` reports when a newer release exists, through
+the `gitleaks-release` row in `config/pin-freshness.tsv`.

@@ -182,6 +182,16 @@ ASUS hardware profile already uses for firmware packages, and installs `mpv`
 from there. This is the standard Fedora community path to full multimedia
 codec support and remains RPM/DNF-owned; no other profile depends on it.
 
+The two release packages are what install the keys every later RPM Fusion
+package is checked against, so until they are installed there is nothing on
+the machine to check *them* against: Fedora's keyring carries no RPM Fusion
+key and dnf's `localpkg_gpgcheck` is off by default. The bootstrap therefore
+installs `distribution-gpg-keys` first — a Fedora-signed package carrying the
+RPM Fusion keys — imports the two keys for the running release, and only then
+installs the release packages with `--setopt=localpkg_gpgcheck=1`. A release
+whose keys that package does not carry is refused rather than installed
+unverified.
+
 ## Parrot / APT
 
 The `parrot-ctf` profile installs only shell/editor/Python prerequisites and

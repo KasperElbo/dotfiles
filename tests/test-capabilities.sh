@@ -459,6 +459,76 @@ sed -i "s|^      - name: Run clean install, verifier, rerun and state transition
 expect_scratch_rejected 'a flag named only in a step title is not selection' \
   'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
 
+# Evidence is per platform. Twelve rows claimed a real installation because
+# the flags were read as one flat set, so --ocaml and the five AI flags on the
+# macOS job satisfied the Fedora and Fedora WSL rows as well; nothing on those
+# platforms had ever passed them.
+new_scratch selection-other-platform
+sed -i 's/  --ocaml --ai --codex --firstmate --gnhf --backpass --non-interactive/  --ai --codex --firstmate --gnhf --backpass --non-interactive/' \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+grep -Fq -- '--ocaml' "$scratch/.github/workflows/real-install.yml" ||
+  _test_die 'the macOS job must still pass --ocaml, or this case proves nothing'
+expect_scratch_rejected 'a flag passed only on another platform is not evidence here' \
+  'fedora/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
+
+# A rerun replays a selection rather than stating one, so it names no platform
+# and is evidence for none: the flags it reinstalls are counted where they were
+# first passed.
+new_scratch selection-rerun-only
+sed -i 's/^          \.\/install\.sh --platform macos --theme mocha$/          .\/install.sh --rerun/' \
+  "$scratch/.github/workflows/real-install.yml"
+expect_scratch_rejected 'a bare --rerun is not selection for any platform' \
+  'macos/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
+
+# A comment is not a check. Deleting a verifier's whole LaTeX section and
+# leaving one comment line behind used to satisfy the rule that exists to
+# notice exactly that; only the `# verifies:` marker may speak from a comment.
+new_scratch mention-comment-only
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "platforms/fedora/scripts/verify.sh"
+lines = path.read_text(encoding="utf-8").splitlines()
+start = next(index for index, line in enumerate(lines) if "latex" in line.lower())
+end = next(
+    (
+        index
+        for index in range(start + 1, len(lines))
+        if lines[index].startswith('section "') and "latex" not in lines[index].lower()
+    ),
+    len(lines),
+)
+kept = lines[:start] + ["# TODO: the latex checks were removed"] + lines[end:]
+path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'a verification section replaced by a comment is rejected' \
+  'verifier platforms/fedora/scripts/verify.sh never mentions latex'
+
+# The marker is the one thing a comment may say, so a section that performs a
+# check the capability's name does not appear in still passes when it is marked.
+new_scratch mention-marker
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "latex" && $2 == "fedora" {$11="platforms/macos/scripts/verify.sh"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$scratch/config/capabilities.tsv"
+if python3 "$scratch/scripts/validate-capabilities.py" 2>/dev/null; then
+  printf 'mention-marker: the unmarked control passed, so this case proves nothing.\n' >&2
+  exit 1
+fi
+sed -i '2i # verifies: latex' "$scratch/platforms/macos/scripts/verify.sh"
+python3 "$scratch/scripts/validate-capabilities.py" || {
+  printf 'mention-marker: a section carrying the verifies marker must pass.\n' >&2
+  exit 1
+}
+printf 'PASS: an explicit verifies marker is accepted where the name is absent\n'
+
+# Every declared verifier is held to the rule, not only platforms/*/verify.sh:
+# a row naming a dedicated verifier used to get no mention check at all.
+new_scratch mention-dedicated
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "containers" && $2 == "fedora" {$11="platforms/fedora/scripts/verify-tailscale.sh"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$scratch/config/capabilities.tsv"
+expect_scratch_rejected 'a dedicated verifier that never mentions its capability is rejected' \
+  'verifier platforms/fedora/scripts/verify-tailscale.sh never mentions containers'
+
 # The schema a component state file must declare is registry data, because
 # scripts/doctor.sh compares a machine's state files against it (#342). Each of
 # the three rules that keeps it honest is proven able to fail.

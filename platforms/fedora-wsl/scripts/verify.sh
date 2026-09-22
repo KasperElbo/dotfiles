@@ -506,6 +506,14 @@ section "Neovim tooling"
 check_version_at_least "Neovim" "$(tool_version nvim)" "$(tool_floor nvim)"
 check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
 
+# Until this, "Neovim tooling passed" meant something different here than on
+# Fedora: the version and the Mason inventory, and nothing about the plugins or
+# about whether the configuration loads at all. Both questions are asked the
+# same way on every platform now, the plugin tree from the deployed lock file
+# first because a start would otherwise fill in what it found missing (#371).
+check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
+check_neovim_starts Neovim "$(tool_floor nvim)"
+
 section "Catppuccin tmux"
 
 check_catppuccin_tmux
@@ -559,7 +567,10 @@ section "OCaml profile"
 # starts (issue #396, GAP-07). The sub-verifier prints which world it found;
 # this line only reports that it ran and was satisfied. Fedora's twin already
 # words it neutrally.
-if DOTFILES_NATIVE_PREFIX=/usr "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+if DOTFILES_NATIVE_PREFIX=/usr \
+  DOTFILES_NATIVE_OWNER=opam \
+  DOTFILES_NATIVE_OWNER_QUERY='rpm -qf --queryformat %{NAME}' \
+  "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
   pass "OCaml profile verification completed"
 else
   fail "OCaml profile verification failed"

@@ -125,6 +125,31 @@ def strip_noise(line: str) -> str:
     return "".join(out)
 
 
+def code_line(line: str) -> str:
+    """One line with its comment dropped and everything else left as written.
+
+    ``strip_noise`` preserves every character's position and stops at the
+    comment, so the blanked line's length is where the code ends: the blanking
+    locates the comment without being what is read back. That matters because
+    ``strip_noise`` also empties quoted text, which is right for a command name
+    -- a reader's name inside a string is not a call -- and wrong for anything
+    whose value lives in a string. ``"$DOTFILES_ROOT/config"`` is a real read
+    of that variable, an assignment's value and a ``case`` subject are real
+    text, and all three come back blank from ``strip_noise``.
+
+    It strips the comment and nothing else, deliberately. A version that also
+    trimmed whitespace or removed quotes would lose the distinction between
+    ``ai_codex=''``, the empty string that means a sub-flag was omitted, and a
+    variable that was never set.
+    """
+    return line[: len(strip_noise(line))]
+
+
+def code_text(text: str) -> str:
+    """The same for a whole file: every line with its comment dropped."""
+    return "\n".join(code_line(line) for line in text.splitlines())
+
+
 def commands(text: str) -> set[str]:
     """Every word this shell text runs as a command."""
     found: set[str] = set()

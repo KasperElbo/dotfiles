@@ -17,7 +17,15 @@ jobs:
   repository:
     name: Repository validation
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A hang detector, not a performance target. This job lints every tracked
+    # shell file and runs the whole suite, so it is the long one, and it grows
+    # whenever either does: 9m11s, 9m19s and 9m58s on 22 September against a
+    # 10-minute budget, then a kill at 10m00s once the suite reached 89. A
+    # budget set near the measured runtime fails every pull request in flight
+    # at once, and does it as `cancelled` rather than `failure`, which reads
+    # like a flake rather than the wall it is. Twenty leaves about ten minutes
+    # spare, which at roughly 4.5 seconds a suite is room for another hundred.
+    timeout-minutes: 20
     # Pinned by digest so a validation run is reproducible against one
     # exact base image. This is docker.io/library/fedora:44 as of
     # 2026-09-14; see config/network-sources.tsv (validation-image-fedora).
@@ -37,12 +45,23 @@ jobs:
       - name: Install validation dependencies
         run: >-
           dnf --assumeyes --setopt=install_weak_deps=False
-          install git jq neovim python3 ripgrep ShellCheck stow zsh
+          install git jq neovim python3 ripgrep ShellCheck stow tar zsh
 
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The secret scan below reads every commit, not just the tip, and
+          # the whitespace check compares against the event's base.
           fetch-depth: 0
+
+      # The same command a contributor runs. It is not folded into
+      # scripts/lint.sh because lint must stay runnable with no network,
+      # and it runs before lint because a committed credential is worth
+      # knowing about before anything else about the change.
+      # scripts/validate-repository-hygiene.py requires this step to exist,
+      # so deleting it fails lint rather than quietly removing the gate.
+      - name: Scan for committed credentials
+        run: ./scripts/scan-secrets.sh
 
       - name: Validate shell scripts
         run: ./scripts/lint.sh
