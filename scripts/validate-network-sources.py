@@ -97,6 +97,11 @@ KINDS = {
 }
 
 ANNOTATION = re.compile(r"network-source:\s*([A-Za-z0-9,+-]+)")
+# How far above a construct an annotation may be written, and what it may be
+# written through: comment lines in any of this repository's languages, and
+# blank lines between them.
+ANNOTATION_LOOKBACK = 4
+COMMENT_LINE = re.compile(r"(?:#|--|//|;)")
 
 # Reserved annotation for a flagged construct that reaches no external network:
 # a loopback/in-container probe, or a transfer whose host is the machine under
@@ -146,6 +151,18 @@ NETWORK_PATTERNS = [
     # same trust as a literal one.
     (re.compile(r"config-manager\s+(?:addrepo|--add-repo)(?![\w-])"), "dnf-addrepo"),
     (re.compile(r"(?<![\w.-])rpm(?:keys)?\s+(?:-\S+\s+)*--import(?![\w-])"), "rpm-key-import"),
+    # A Homebrew tap is a git clone of a third-party repository, and every
+    # formula in it is Ruby that Homebrew runs at install time -- a trust root
+    # with its own owner. ``Brewfile`` has been in SCANNED_NAMES since this
+    # validator was written, on exactly that reasoning, but no pattern here
+    # could match a line one holds, so the entry answered nothing: a hostile
+    # ``tap`` plus two packages from it passed the gate silently. The second
+    # pattern is a package pulled from a non-core tap, which is the same trust
+    # root reached without naming it on its own line. Neither form carries a
+    # scheme, so literal_hosts finds no host and the annotation alone covers
+    # them, which is the right answer for a reference that is not a URL.
+    (re.compile(r"""^\s*tap\s+["'][\w.-]+/[\w.-]+["']"""), "homebrew-tap"),
+    (re.compile(r"""^\s*(?:brew|cask)\s+["'][\w.-]+/[\w.-]+/"""), "homebrew-tap-package"),
     (re.compile(r"(?:docker\.io|ghcr\.io|quay\.io|registry\.fedoraproject\.org)/\S+"), "container-image"),
     # Docker Hub shorthand: ``parrotsec/core:latest`` names a registry-qualified
     # image with the registry left out, and pulls exactly as much code as the
@@ -205,6 +222,20 @@ IMAGE_HOST = re.compile(
 # Hosts that are the machine itself: what `local-only` is allowed to cover.
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
 
+# A Homebrew tap reference carries no scheme and no host, so the host check
+# below has nothing to compare and an annotation would cover any tap written
+# near it. What a tap names instead is a repository: `tap "owner/name"` clones
+# https://github.com/owner/homebrew-name, and a `brew`/`cask` argument with two
+# slashes pulls a package from that same clone. These two read both ends of
+# that identity so a tap is covered only by a source that is actually it.
+HOMEBREW_TAP_LABELS = {"homebrew-tap", "homebrew-tap-package"}
+HOMEBREW_TAP_REFERENCE = re.compile(
+    r"""^\s*(?:tap|brew|cask)\s+["'](?P<owner>[\w.-]+)/(?P<name>[\w.-]+)["'/]"""
+)
+HOMEBREW_TAP_REPOSITORY = re.compile(
+    r"^https://github\.com/(?P<owner>[\w.-]+)/homebrew-(?P<name>[\w.-]+?)(?:\.git)?/?$"
+)
+
 
 def fail(message: str) -> None:
     print(f"network sources: {message}", file=sys.stderr)
@@ -255,6 +286,29 @@ def source_hosts(rows: list[dict[str, str]]) -> dict[str, set[str]]:
     return {
         row["id"]: literal_hosts(row["url"], image_reference=True) for row in rows
     }
+
+
+def named_taps(text: str) -> set[str]:
+    """Every Homebrew tap this text names, as ``owner/name``, lower case."""
+    found = set()
+    for line in text.splitlines():
+        match = HOMEBREW_TAP_REFERENCE.match(line)
+        if match:
+            found.add(f"{match.group('owner').lower()}/{match.group('name').lower()}")
+    return found
+
+
+def source_taps(rows: list[dict[str, str]]) -> dict[str, set[str]]:
+    """The Homebrew tap each registered source is, when its url is one."""
+    taps = {}
+    for row in rows:
+        match = HOMEBREW_TAP_REPOSITORY.match(row["url"].strip())
+        taps[row["id"]] = (
+            {f"{match.group('owner').lower()}/{match.group('name').lower()}"}
+            if match
+            else set()
+        )
+    return taps
 
 
 def tracked_files() -> list[pathlib.Path]:
@@ -366,7 +420,9 @@ def load_registry() -> tuple[list[dict[str, str]], int]:
     return rows, errors
 
 
-def scan_for_unregistered(hosts_by_source: dict[str, set[str]]) -> int:
+def scan_for_unregistered(
+    hosts_by_source: dict[str, set[str]], taps_by_source: dict[str, set[str]]
+) -> int:
     known = set(hosts_by_source)
     errors = 0
     role_patterns = shell_file_role_patterns(ROOT)
@@ -392,11 +448,31 @@ def scan_for_unregistered(hosts_by_source: dict[str, set[str]]) -> int:
             if stripped.startswith("#") and "network-source:" not in stripped:
                 continue
 
-            # Every annotation in the window counts, not just the nearest one,
-            # so a construct covered by two sources stays covered -- and so
-            # that the host check below sees everything that was claimed.
+            # Every annotation attached to this construct counts, not just the
+            # nearest one, so a construct covered by two sources stays covered
+            # -- and so that the checks below see everything that was claimed.
+            #
+            # Attached means the construct's own line, or the comment block
+            # directly above it. The walk stops at the first line of code,
+            # because an annotation belongs to the construct it introduces and
+            # not to whatever is written under that one: a fixed lookback of a
+            # few lines let a download appended below an annotated call inherit
+            # its provenance, which is the opposite of what this file means by
+            # "proximity is not provenance".
             annotated: set[str] = set()
-            for candidate in [line] + lines[max(0, index - 4):index]:
+            # A backslash-continued invocation is one construct whichever of
+            # its lines matched, and its annotation sits above the first of
+            # them, so the walk starts there.
+            start = index
+            while start > 0 and lines[start - 1].rstrip().endswith("\\"):
+                start -= 1
+            candidates = list(lines[start:index + 1])
+            for cursor in range(start - 1, max(-1, start - 1 - ANNOTATION_LOOKBACK), -1):
+                previous = lines[cursor].strip()
+                if previous and not COMMENT_LINE.match(previous):
+                    break
+                candidates.append(lines[cursor])
+            for candidate in candidates:
                 match = ANNOTATION.search(candidate)
                 if match:
                     annotated.update(match.group(1).split(","))
@@ -441,6 +517,26 @@ def scan_for_unregistered(hosts_by_source: dict[str, set[str]]) -> int:
                     f"it actually fetches"
                 )
                 errors += 1
+
+            # The same rule for a tap, which names a repository rather than a
+            # host. Without it the annotation on one tap would cover every
+            # other tap within the window above, which in a Brewfile is the
+            # next few packages.
+            if matched in HOMEBREW_TAP_LABELS:
+                taps = named_taps(line)
+                covered_taps: set[str] = set()
+                for source_id in annotated:
+                    covered_taps |= taps_by_source.get(source_id, set())
+                for tap in sorted(taps - covered_taps):
+                    fail(
+                        f"{relative}:{index + 1}: this {matched} installs from the "
+                        f"Homebrew tap {tap}, which none of the annotated sources is "
+                        f"({', '.join(sorted(annotated))}); register "
+                        f"https://github.com/{tap.split('/')[0]}/"
+                        f"homebrew-{tap.split('/')[1]} in "
+                        f"config/network-sources.tsv and annotate the line with it"
+                    )
+                    errors += 1
     return errors
 
 
@@ -448,7 +544,7 @@ def main() -> int:
     rows, errors = load_registry()
     if not rows:
         return 1 if errors else 0
-    errors += scan_for_unregistered(source_hosts(rows))
+    errors += scan_for_unregistered(source_hosts(rows), source_taps(rows))
     return 1 if errors else 0
 
 

@@ -544,7 +544,7 @@ path = pathlib.Path(sys.argv[1])
 lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
 for index, line in enumerate(lines):
     if line.startswith("plan_add verify "):
-        lines.insert(index, "plan_add invented 'An unplanned step' apply : apply_invented : '' ''\n")
+        lines.insert(index, "plan_add invented 'An unplanned step' apply : apply_invented '' ''\n")
         break
 else:
     raise SystemExit("no verify step in the Parrot installer")
@@ -899,8 +899,8 @@ claim_negative generators docs/capabilities.md \
 
 # The manifest count the README carried while config/ already held one more.
 claim_negative manifests README.md \
-  'says 8 manifests under config/, but it holds 9' \
-  sed -i 's/^Nine manifests under/Eight manifests under/' "$repo_root/README.md"
+  'says 9 manifests under config/, but it holds 10' \
+  sed -i 's/^Ten manifests under/Nine manifests under/' "$repo_root/README.md"
 
 # A manifest that exists but never made it into the table.
 claim_negative manifests README.md \
