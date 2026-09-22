@@ -53,14 +53,11 @@ TEST_DIRECTORY = "tests/"
 # function in common/verify-ai.sh with a different contract.
 MENTION = re.compile(rf"(?<![A-Za-z0-9_]){HELPER}(?![A-Za-z0-9_])")
 
-# The call sites not yet migrated, and how many each still has. The Fedora WSL
-# verifier carries open findings of its own (GAP-07, GAP-11), so it is migrated
-# by the thread that fixes those rather than swept here. The Fedora verifier's
-# entry is gone because its 18 call sites are migrated in this same change, and
-# with the entry gone that file is governed like every other one.
-MIGRATING = {
-    "platforms/fedora-wsl/scripts/verify.sh": 11,
-}
+# Every call site outside tests/ now names its Stow source, so nothing is
+# listed here. The dictionary stays because it is the migration's own record:
+# a file added to it is one the weak form is tolerated in, by an exact count,
+# until that count reaches zero and the entry has to go.
+MIGRATING: dict[str, int] = {}
 
 # A call, once its `\`-continued lines are joined: the helper at the start of a
 # statement, then its arguments.
