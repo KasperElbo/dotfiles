@@ -711,11 +711,69 @@ if [[ "$dictation_disposition" != absent ]]; then
       "pinned $DICTATION_GHOST_PEPPER_TEAM_ID"
   fi
 
-  if spctl --assess --type execute "$dictation_app" >/dev/null 2>&1; then
-    pass "Gatekeeper accepts Ghost Pepper (Developer ID signed and notarized)"
-  else
+  # Notarization, and why this asks spctl for an *install* assessment.
+  #
+  # `spctl --assess --type execute` is the obvious call to make here, and it is
+  # the one this check used to make. It can never pass for this bundle. Ghost
+  # Pepper's Info.plist carries no CFBundlePackageType key, and that key is
+  # what the execute assessment reads to decide whether a bundle is an
+  # application at all, so spctl answers
+  #
+  #   GhostPepper.app: rejected (the code is valid but does not seem to be an app)
+  #
+  # and exits 3. That is a refusal to classify the bundle rather than a
+  # security verdict -- spctl states in the same line that the code is valid --
+  # but 3 is also the status for a genuine denial, so reading the status alone
+  # reported a notarization failure on a correctly installed machine, on every
+  # machine, every time. Confirmed on a clean macOS 26 runner against the
+  # pinned artifact and on a workstation where the application runs.
+  #
+  # `--type install` assesses the same bundle without first asking what kind of
+  # bundle it is, and answers with Gatekeeper's own verdict and source:
+  #
+  #   GhostPepper.app: accepted
+  #   source=Notarized Developer ID
+  #
+  # That source string is the assertion, not the exit status. A status of 0
+  # would also be satisfied by `source=Developer ID`, which is a signed build
+  # Apple never notarized, so passing on the status would accept exactly the
+  # artifact this check exists to reject.
+  #
+  # Two things this deliberately does not assert. The bundle carries no
+  # stapled notarization ticket: upstream staples the ticket to the disk image,
+  # so `xcrun stapler validate` on the installed application always reports
+  # none, and asserting one would fail on a correct install. And the download
+  # is fetched with curl, which sets no quarantine attribute, so there is no
+  # Gatekeeper first-launch assessment to observe either.
+  #
+  # The probe is bounded because an assessment may reach Apple's notarization
+  # service; see the comment above macos_bounded_probe.
+  dictation_assess=""
+  dictation_assess_status=0
+  dictation_assess="$(macos_bounded_probe "$DOTFILES_DICTATION_ASSESS_TIMEOUT" \
+    spctl --assess --type install --verbose=4 "$dictation_app" 2>&1)" ||
+    dictation_assess_status=$?
+  # No pipe into head: with pipefail a producer killed by SIGPIPE fails the
+  # pipeline exactly when the match is found.
+  dictation_assess_source="$(sed -n '/^source=/{s/^source=//p;q;}' <<<"$dictation_assess")"
+  dictation_assess_first="${dictation_assess%%$'\n'*}"
+  if macos_probe_timed_out "$dictation_assess_status"; then
+    warning "The Gatekeeper assessment of Ghost Pepper did not answer within ${DOTFILES_DICTATION_ASSESS_TIMEOUT}s, so its notarization was not read; the assessment may be waiting on Apple's notarization service"
+  elif ((dictation_assess_status == 0)) &&
+    [[ "$dictation_assess_source" == "Notarized Developer ID" ]]; then
+    pass "Gatekeeper accepts Ghost Pepper (source=$dictation_assess_source)"
+  elif ((dictation_assess_status == 0)); then
+    fail "Gatekeeper accepts Ghost Pepper, but not as a notarized build" \
+      "(source=${dictation_assess_source:-none}); the pinned release is" \
+      "notarized, so this is not the reviewed artifact"
+  elif ((dictation_assess_status == 3)); then
     fail "Gatekeeper does not accept Ghost Pepper; do not work around this by" \
-      "disabling Gatekeeper or stripping the quarantine attribute"
+      "disabling Gatekeeper or stripping the quarantine attribute." \
+      "spctl said: ${dictation_assess_first:-nothing}"
+  else
+    fail "The Gatekeeper assessment of Ghost Pepper could not be made; spctl" \
+      "exited $dictation_assess_status saying:" \
+      "${dictation_assess_first:-nothing}"
   fi
 
   if [[ -f "$dictation_state" ]]; then

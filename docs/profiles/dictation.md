@@ -346,11 +346,36 @@ and has been Apple-notarized since v2.0.0, so Gatekeeper accepts it as it
 ships. The installer therefore never removes a quarantine attribute, never
 runs `spctl --master-disable` or `csrutil disable`, and never strips or
 re-signs anything; the application is copied with `ditto`, which preserves the
-signature, and left for Gatekeeper to assess on its first launch. The
-verifier asserts all of this rather than assuming it: that the signature
-verifies, that it is the pinned Developer ID team, and that `spctl --assess`
-accepts the bundle — which for a Developer ID application is what proves the
-notarization ticket is good.
+signature. The verifier asserts all of this rather than assuming it: that the
+signature verifies strict, that it is the pinned Developer ID team, and that
+Gatekeeper's own assessment of the bundle reports
+`source=Notarized Developer ID`.
+
+Two details of how that is asserted, both of which cost this profile a broken
+check once and are easy to reintroduce:
+
+- **The assessment asks `spctl --assess --type install`, not `--type
+  execute`.** Ghost Pepper's `Info.plist` carries no `CFBundlePackageType`
+  key, and the execute assessment reads that key to decide whether a bundle is
+  an application at all. Given this bundle it answers `rejected (the code is
+  valid but does not seem to be an app)` and exits 3 — a refusal to classify
+  the bundle, sharing its exit status with a genuine denial. The install
+  assessment does reach a verdict, and reports the notarization source, which
+  is the fact worth asserting: a plain `source=Developer ID` would be a signed
+  build Apple never notarized.
+- **The installed bundle carries no stapled notarization ticket, and that is
+  correct.** Upstream staples the ticket to the disk image, so
+  `xcrun stapler validate` passes on `GhostPepper.dmg` and reports
+  `does not have a ticket stapled to it` for the application, both inside the
+  mounted image and after installation. Gatekeeper resolves the ticket without
+  it. Nothing should assert a stapled ticket on the bundle; that would fail on
+  every correct install.
+
+One thing this profile does not get to claim: because the disk image is
+downloaded with `curl`, which sets no `com.apple.quarantine` attribute, there
+is no Gatekeeper first-launch prompt and no first-launch assessment to
+observe. The assertion above is the evidence that the build is notarized; the
+application opening is not.
 
 Had Ghost Pepper not been notarized, this profile would have required an
 exception to that position and would not have been added.

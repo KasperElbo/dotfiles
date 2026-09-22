@@ -168,8 +168,10 @@ Both prompts are interactive by design, and nothing here scripts or bypasses
 them:
 
   1. Open Ghost Pepper (it lives in the menu bar; open it once from
-     $applications_dir). Gatekeeper checks the Developer ID signature and the
-     notarization ticket on that first launch -- leave Gatekeeper enabled.
+     $applications_dir). Nothing here weakened Gatekeeper and nothing needs
+     to: the build is Developer ID signed and Apple-notarized, which the
+     verifier asserts from Gatekeeper's own assessment of the bundle rather
+     than from the application opening -- leave Gatekeeper enabled.
   2. Microphone: approve the prompt on the first recording, or grant it in
      System Settings -> Privacy & Security -> Microphone.
   3. Accessibility: System Settings -> Privacy & Security -> Accessibility,
