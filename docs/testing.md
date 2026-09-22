@@ -405,6 +405,33 @@ Three suites carry the invariants from the AI/mise/supply-chain workstream:
   interrupted transition and its recovery, and a lost state file. Each step
   asserts both the profile state and the filesystem.
 
+### The shell registry reader
+
+`common/lib/manifest.sh` is the single read path for `config/capabilities.tsv`,
+`install-options.tsv`, `command-providers.tsv`, `tool-floors.tsv`,
+`pin-freshness.tsv` and `actions.tsv` from shell, and it had no suite of its
+own: the only test that reached it did so incidentally through
+`capability_field`. `tests/test-manifest-reader.sh` holds it to its stated
+contract by execution — the header it refuses (a repeated column, a column the
+caller names and the file lacks), the arguments it refuses, the difference
+between `manifest_values` answering nothing and `manifest_field` finding
+nothing, and a value containing a backslash, which is the case the library's
+`ENVIRON` indirection exists for.
+
+It also closes a disagreement between the two readers of the same registries.
+Given a three-column header and a two-field row, `scripts/lib/manifests.py`
+refused the file and this one printed an empty value and returned 0, so a
+truncated `packages` column read as "this capability installs nothing" and the
+installer reported success (issue #387, NC-05). The Python validator runs in
+CI; this library is what runs on a user's machine during `./install.sh` and
+`platforms/*/scripts/verify.sh`, where no validator ever runs, so it is the
+reader that most needed the rule. Every data row is now held to the header's
+column count, naming the line and the columns that are missing or past the end.
+
+`manifest_field` checks the whole manifest rather than stopping at its own
+match, and the suite asserts that: a guard that stops guarding once the caller
+has its answer would let a malformed row below the first match through unseen.
+
 ### Repository hygiene
 
 `tests/test-repository-hygiene.sh` owns the rules in
