@@ -196,20 +196,6 @@ if _dotfiles_integration bat 'cat is the plain system cat'; then
   alias cat='bat'
 fi
 
-# `cld` starts Claude Code with permission prompts disabled. The flag is the
-# only way in: a `permissions.defaultMode` of `bypassPermissions` is ignored
-# when it comes from repo-level settings, and the mode cannot be raised once
-# the session is running.
-#
-# Gated on the `ai` capability rather than `_dotfiles_integration`: that
-# capability is opt-in and off by default, so an absent Claude Code is a
-# deliberate choice, not the reduced functionality `shell-integrations`
-# reports. The command check keeps a recorded-but-since-removed install from
-# leaving behind an alias that resolves to nothing.
-if _dotfiles_capability ai && command -v claude >/dev/null 2>&1; then
-  alias cld='claude --dangerously-skip-permissions'
-fi
-
 # --- Archive helpers --------------------------------------------------------
 #
 # `tar ARCHIVE PATH...` is a create shorthand and nothing else: the first
@@ -312,6 +298,26 @@ fi
 # never needs to edit shell startup files.
 [[ ! -r "$HOME/.opam/opam-init/init.zsh" ]] ||
   source "$HOME/.opam/opam-init/init.zsh" >/dev/null 2>/dev/null
+
+# `cld` starts Claude Code with permission prompts disabled. The flag is the
+# only way in: a `permissions.defaultMode` of `bypassPermissions` is ignored
+# when it comes from repo-level settings, and the mode cannot be raised once
+# the session is running.
+#
+# Gated on the `ai` capability rather than `_dotfiles_integration`: that
+# capability is opt-in and off by default, so an absent Claude Code is a
+# deliberate choice, not the reduced functionality `shell-integrations`
+# reports. The command check keeps a recorded-but-since-removed install from
+# leaving behind an alias that resolves to nothing.
+#
+# Deliberately below `mise activate`, and not up with the other aliases: the
+# AI profile installs Claude Code through mise's npm backend, so `claude` only
+# exists on PATH once mise has activated. Asked any earlier, the command check
+# answers "absent" on every machine that has it, and the alias is never
+# defined.
+if _dotfiles_capability ai && command -v claude >/dev/null 2>&1; then
+  alias cld='claude --dangerously-skip-permissions'
+fi
 
 # Startship Theming
 export STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/starship/catppuccin-${DOTFILES_THEME}.toml"
