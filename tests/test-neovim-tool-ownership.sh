@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 lazyvim_config="$repo_root/nvim-lazyvim/.config/nvim"
+# shellcheck source=lib/lazy-nvim.sh
+source "$repo_root/tests/lib/lazy-nvim.sh"
 
 fail() {
   printf 'Neovim ownership test failed: %s\n' "$*" >&2

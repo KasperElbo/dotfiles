@@ -216,10 +216,25 @@ if [[ -n "$mise_command" ]]; then
 fi
 check_version_at_least "Neovim" "$nvim_version" "$(tool_floor nvim)"
 
+# Through run_mise, as the version read two lines above already is. Called
+# directly, mise resolved from this verifier's working directory with no
+# ceiling, so a stray directory configuration anywhere at or above it decided
+# which Neovim started -- and the check reported a pass earned in a context the
+# verifier had just declared non-deterministic. In the suite's contaminated
+# run, "Neovim unknown does not satisfy the >= 0.12 baseline" and "Reduced
+# LazyVim profile starts headlessly" were printed by the same run.
+#
+# The bound stays: timeout moves inside `mise exec`, because run_mise is a
+# shell function and timeout can only run a program. It goes around nvim
+# itself, which is what was being bounded. The assignment is exported in a
+# subshell rather than written as a prefix, because a `VAR=x func` prefix on a
+# function call leaves VAR set in the shell afterwards.
 nvim_log="$(mktemp)"
-if [[ -n "$mise_command" ]] &&
-  DOTFILES_NVIM_PROFILE=parrot-ctf timeout --kill-after=10s 2m \
-    "$mise_command" exec -- nvim --headless +qa >"$nvim_log" 2>&1; then
+if [[ -n "$mise_command" ]] && (
+  export DOTFILES_NVIM_PROFILE=parrot-ctf
+  run_mise "$mise_command" exec -- \
+    timeout --kill-after=10s 2m nvim --headless +qa
+) >"$nvim_log" 2>&1; then
   pass "Reduced LazyVim profile starts headlessly"
 else
   fail "Reduced LazyVim profile failed headless startup"

@@ -180,6 +180,15 @@ section "Terra trust root"
 verify_terra_trust_root
 
 # ---------------------------------------------------------------------------
+# RPM Fusion trust root (checked when the repositories are present: the
+# desktop-tools installer adds them once and never looks at them again)
+# ---------------------------------------------------------------------------
+
+section "RPM Fusion trust root"
+
+verify_rpm_fusion_trust_root
+
+# ---------------------------------------------------------------------------
 # Login shell
 # ---------------------------------------------------------------------------
 
@@ -573,7 +582,10 @@ fi
 
 section "OCaml profile"
 
-if DOTFILES_NATIVE_PREFIX=/usr "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+if DOTFILES_NATIVE_PREFIX=/usr \
+  DOTFILES_NATIVE_OWNER=opam \
+  DOTFILES_NATIVE_OWNER_QUERY='rpm -qf --queryformat %{NAME}' \
+  "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
   pass "Optional OCaml profile"
 else
   fail "Optional OCaml profile verification failed"

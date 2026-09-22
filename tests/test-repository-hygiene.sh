@@ -310,6 +310,79 @@ run_capture python3 "$guard_validator" --root "$guard_tree"
 assert_success
 printf 'PASS: reaching common.sh through a guarded sibling is accepted\n'
 
+# The fixture's own path is composed from a variable, because
+# check_repository_references above refuses a tracked file that names a
+# repository path which does not exist, and this one deliberately does not.
+guard_lib="$guard_tree/common/lib"
+
+# A name in prose is not a call. This checker read each library as one string
+# and matched the symbol anywhere in it, so a library whose only mention of
+# `die` and `warn` was ordinary English in a comment was told to add a guard
+# for functions it never calls. Six libraries in this tree mention a
+# common.sh function in a comment and nowhere else, so this was not
+# hypothetical; they only passed because they source common.sh for other
+# reasons.
+cat >"$guard_lib/prose.sh" <<'EOF_PROSE'
+#!/usr/bin/env bash
+
+# This library calls nothing from common.sh. The paragraph below is prose:
+# callers should die rather than continue when the input is malformed, and
+# the installer will warn about it first. Nothing here reads DOTFILES_ROOT
+# or XDG_STATE_HOME either.
+
+prose_value() {
+  printf 'x\n'
+}
+EOF_PROSE
+
+# The rest of the tree is clean at this point, so the whole run passing is a
+# stronger statement than the absence of one message: nothing about this file
+# is demanded at all.
+run_capture python3 "$guard_validator" --root "$guard_tree"
+assert_success
+printf 'PASS: a common.sh name in a comment is not read as a call\n'
+
+# The same words as code, so the demand is still made where it is due. The
+# variable half keeps strings, because "$DOTFILES_ROOT/config" is a real read.
+cat >"$guard_lib/prose.sh" <<'EOF_CALLS'
+#!/usr/bin/env bash
+
+prose_value() {
+  [[ -n "${1:-}" ]] || die "prose_value needs an argument"
+  printf '%s\n' "$DOTFILES_ROOT/$1"
+}
+EOF_CALLS
+
+run_capture python3 "$guard_validator" --root "$guard_tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'prose.sh uses DOTFILES_ROOT, die'
+printf 'PASS: the same names as code are still demanded, strings included\n'
+
+# A guard that has been commented out sources nothing. The block was matched
+# in the raw text, so a commented `if` line above an unguarded file could
+# satisfy it; reading the file as code removes that shape entirely.
+cat >"$guard_lib/prose.sh" <<'EOF_COMMENTED'
+#!/usr/bin/env bash
+
+# if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+#   # shellcheck source=common.sh
+#   source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+# fi
+
+prose_value() {
+  die "always"
+}
+EOF_COMMENTED
+
+run_capture python3 "$guard_validator" --root "$guard_tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'prose.sh uses die'
+printf 'PASS: a commented-out guard does not satisfy the rule\n'
+
+rm -f "$guard_lib/prose.sh"
+run_capture python3 "$guard_validator" --root "$guard_tree"
+assert_success
+
 # --- Workflow actions must be pinned to a commit ---------------------------
 
 # A tag is whatever its owner last pointed it at, so an action pinned to one
