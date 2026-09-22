@@ -418,8 +418,12 @@ if (($# == 2)); then
   }'
   exit 0
 fi
-printf 'pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:\n'
-printf 'fpr:::::::::%s:\n' "$MOCK_FPR"
+# MOCK_FPR is a list, because an armoured key file is a concatenation of key
+# blocks and the cases below need to serve one carrying more than one key.
+for fingerprint in $MOCK_FPR; do
+  printf 'pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:\n'
+  printf 'fpr:::::::::%s:\n' "$fingerprint"
+done
 EOF
 cat >"$terra_bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -448,7 +452,9 @@ printf 'dnf %s\n' "$*" >>"$MOCK_LOG"
 EOF
 chmod +x "$terra_bin"/*
 
-# run_terra <releasever> <served fingerprint> [env assignment ...]
+# run_terra <releasever> <served fingerprint>... [env assignment ...]
+# The served fingerprints are one space-separated argument: one per key block
+# the fetched file is made to carry.
 # shellcheck disable=SC2016 # $1 is the inner shell's positional argument.
 run_terra() {
   local releasever="$1" fingerprint="$2"
@@ -496,6 +502,31 @@ assert_success
 assert_contains "$TEST_OUTPUT" "caller's explicit acknowledgement"
 assert_file_contains "$terra_log" 'rpm --import'
 printf 'PASS: an acknowledged unpinned key is imported\n'
+
+# `rpm --import` trusts every key block in the file it is handed, so a check
+# that reads one fingerprint out of that file is not a check on the file. The
+# shape that makes the difference concrete is a file whose first block is the
+# pinned key and whose second is anyone else's: it satisfies any single-value
+# comparison and still installs the second key. It has to be refused on the
+# count alone, and the empty command log is the load-bearing half of the
+# assertion, because a refusal that happens after the import is not a refusal.
+run_terra 90 "$terra_pinned_fpr $terra_other_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'holds 2 OpenPGP keys'
+assert_contains "$TEST_OUTPUT" "$terra_pinned_fpr"
+assert_contains "$TEST_OUTPUT" "$terra_other_fpr"
+assert_file_empty "$terra_log"
+printf 'PASS: a key file smuggling a second key past the pin is refused before any import\n'
+
+# The same count rule has to hold where there is no pin to fall back on, or the
+# acknowledgement becomes the hole the pin no longer is: an operator who names
+# one fingerprint must not thereby import a key they were never shown.
+run_terra 91 "$terra_other_fpr $terra_pinned_fpr" \
+  TERRA_TRUST_KEY_FINGERPRINT="$terra_other_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'holds 2 OpenPGP keys'
+assert_file_empty "$terra_log"
+printf 'PASS: an acknowledgement cannot carry a second, unnamed key into the keyring\n'
 
 # --- Terra: the verifier re-asserts the trust root on every run ------------
 

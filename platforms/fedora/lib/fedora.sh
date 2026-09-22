@@ -97,10 +97,22 @@ terra_pinned_fingerprint() {
     "$TERRA_KEY_MANIFEST" 2>/dev/null || true
 }
 
-# terra_key_fingerprint <path>: primary fingerprint of an ASCII-armoured key.
-terra_key_fingerprint() {
+# terra_key_fingerprints <path>: the primary fingerprint of every key in an
+# ASCII-armoured key file, one per line, upper case.
+#
+# Plural on purpose. An armoured key file is a concatenation of key blocks, not
+# a single key, and `rpm --import` trusts every block in the file it is handed.
+# A check that reads one fingerprint out of such a file therefore describes
+# less than the import does, which is the whole of the file. The same pub/fpr
+# pairing rpm_keyring_fingerprints below relies on is what separates primary
+# keys from subkeys: a bare `fpr` filter conflates the two, so the flag is what
+# makes "primary fingerprint" mean that.
+terra_key_fingerprints() {
   gpg --show-keys --with-colons -- "$1" 2>/dev/null |
-    awk -F: '$1 == "fpr" { print $10; exit }'
+    awk -F: '
+      $1 == "pub" { primary = 1; next }
+      $1 == "fpr" && primary { print toupper($10); primary = 0 }
+    '
 }
 
 # terra_release_installed: true when this machine already has the Terra
@@ -120,7 +132,9 @@ terra_release_installed() {
 # silently accepted: the fingerprint is printed and must be acknowledged with
 # TERRA_TRUST_KEY_FINGERPRINT, or confirmed interactively.
 ensure_terra_repository() {
-  local releasever key_url repo_url staged pinned observed work_dir
+  local releasever key_url repo_url staged pinned work_dir
+  local observed_list fingerprint
+  local -a observed
 
   if terra_release_installed; then
     info "Terra repository already installed"
@@ -147,26 +161,50 @@ ensure_terra_repository() {
   # network-source: terra-signing-key
   fetch_to_file "$key_url" "$staged" "the Terra $releasever signing key"
 
-  observed="$(terra_key_fingerprint "$staged")"
-  [[ -n "$observed" ]] ||
+  mapfile -t observed < <(terra_key_fingerprints "$staged")
+  ((${#observed[@]} > 0)) ||
     die "Downloaded Terra key is not a usable OpenPGP public key: $key_url"
+  printf -v observed_list '%s, ' "${observed[@]}"
+  observed_list="${observed_list%, }"
+
+  # Exactly one key, and no other count, because `sudo rpm --import` below
+  # trusts the whole file rather than the block a check happened to read.
+  # Compare a single fingerprint against the pin and a file whose first block
+  # is the pinned Terra key and whose second is anyone else's satisfies the
+  # pin and still installs the second key, which is the substitution
+  # config/terra-keys.tsv exists to prevent. Counting is what closes that,
+  # and a count of one is the only answer that lets "the key in this file"
+  # name one thing: Terra publishes a single key per release, so a second
+  # block is not a shape to accommodate, it is a reason to stop and be looked
+  # at by a human.
+  ((${#observed[@]} == 1)) ||
+    die "The downloaded Terra $releasever key file holds ${#observed[@]} OpenPGP keys and the import below would trust every one of them: $observed_list ($key_url)"
 
   pinned="$(terra_pinned_fingerprint "$releasever")"
   if [[ -n "$pinned" ]]; then
-    [[ "$observed" == "$pinned" ]] ||
-      die "Terra $releasever signing key fingerprint mismatch: expected $pinned, got $observed"
-    info "Terra $releasever signing key matches the pinned fingerprint $observed"
+    [[ "${observed[0]}" == "$pinned" ]] ||
+      die "Terra $releasever signing key fingerprint mismatch: expected $pinned, got ${observed[0]}"
+    info "Terra $releasever signing key matches the pinned fingerprint ${observed[0]}"
   else
     warn "No pinned Terra signing key for Fedora $releasever in $TERRA_KEY_MANIFEST."
-    warn "Downloaded key fingerprint: $observed"
+    # Every fingerprint, not the first: an acknowledgement is only informed if
+    # the operator was shown everything the import would trust.
+    for fingerprint in "${observed[@]}"; do
+      warn "Downloaded key fingerprint: $fingerprint"
+    done
     if [[ -n "${TERRA_TRUST_KEY_FINGERPRINT:-}" ]]; then
-      [[ "${TERRA_TRUST_KEY_FINGERPRINT^^}" == "$observed" ]] ||
-        die "TERRA_TRUST_KEY_FINGERPRINT does not match the downloaded key: $observed"
+      # The acknowledgement has to cover the whole set for the same reason the
+      # count above has to be one: it is checked against every fingerprint in
+      # the file, so it can never stand in for a key the caller never named.
+      for fingerprint in "${observed[@]}"; do
+        [[ "${TERRA_TRUST_KEY_FINGERPRINT^^}" == "$fingerprint" ]] ||
+          die "TERRA_TRUST_KEY_FINGERPRINT does not match the downloaded key: $observed_list"
+      done
       warn "Accepting the Terra key on the caller's explicit acknowledgement."
-    elif [[ -t 0 ]] && confirm "Trust Terra signing key $observed for Fedora $releasever?"; then
+    elif [[ -t 0 ]] && confirm "Trust Terra signing key $observed_list for Fedora $releasever?"; then
       warn "Accepting the Terra key on interactive confirmation."
     else
-      die "Refusing to import an unpinned Terra signing key. Verify $observed against https://docs.terrapkg.com, then add it to $TERRA_KEY_MANIFEST or rerun with TERRA_TRUST_KEY_FINGERPRINT=$observed"
+      die "Refusing to import an unpinned Terra signing key. Verify $observed_list against https://docs.terrapkg.com, then add it to $TERRA_KEY_MANIFEST or rerun with TERRA_TRUST_KEY_FINGERPRINT=$observed_list"
     fi
   fi
 
