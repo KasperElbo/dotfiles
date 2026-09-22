@@ -97,10 +97,39 @@ _theme_isolated() {
 theme_action() {
   local name="$1"
   shift
+
+  theme_action_or_skip "$name" '' '' "$@"
+}
+
+# theme_action_or_skip <name> <skip-status> <reason> <command> [arguments...]
+#
+# theme_action, plus one exit status the command uses to say the thing it acts
+# on is not installed. That outcome is recorded with theme_action_skipped and
+# the given reason; every other status is recorded exactly as theme_action
+# records it.
+#
+# It exists because applied and failed are not the only outcomes an action can
+# have. One that reaches another system has a third: the other half is not
+# there yet. Without a status to say so, that case is indistinguishable from
+# an application -- the command ran, found nothing to do, and exited 0 -- and
+# the summary reports a flavour as applied where nothing was applied. A hook
+# cannot correct that after the fact, because theme_action has already
+# recorded the run by the time it returns.
+#
+# An empty skip-status means there is no such outcome, which is what
+# theme_action passes.
+theme_action_or_skip() {
+  local name="$1" skip_status="$2" skip_reason="$3"
+  shift 3
   local _theme_status=0 status
 
   _theme_isolated "$@"
   status="$_theme_status"
+
+  if [[ -n "$skip_status" ]] && ((status == skip_status)); then
+    theme_action_skipped "$name" "$skip_reason"
+    return 0
+  fi
 
   if ((status == 0)); then
     _theme_record applied "$name"
