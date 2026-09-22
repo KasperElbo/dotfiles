@@ -480,6 +480,49 @@ sed -i 's/^          \.\/install\.sh --platform macos --theme mocha$/          .
 expect_scratch_rejected 'a bare --rerun is not selection for any platform' \
   'macos/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
 
+# A package is what an installer asks for, not what it says. Dropping
+# kio-extras from the KDE installer's dnf array and naming it in a message, or
+# in a heredoc body, left the row still claiming to own Dolphin's sftp://
+# support while nothing installed it.
+new_scratch requested-in-message
+sed -i 's/^packages=(kio-extras wget)$/packages=(wget)/' \
+  "$scratch/platforms/fedora/scripts/install-kde-theme.sh"
+sed -i 's/    info "\$package is already installed"/    info "kio-extras and $package are already installed"/' \
+  "$scratch/platforms/fedora/scripts/install-kde-theme.sh"
+grep -Fq 'info "kio-extras and $package are already installed"' \
+  "$scratch/platforms/fedora/scripts/install-kde-theme.sh" ||
+  _test_die 'the message fixture did not apply, so this case proves nothing'
+expect_scratch_rejected 'a package named only in a message is not an install' \
+  "fedora/kde: package 'kio-extras' is declared but is not requested by"
+
+new_scratch requested-in-heredoc
+sed -i 's/^packages=(kio-extras wget)$/packages=(wget)/' \
+  "$scratch/platforms/fedora/scripts/install-kde-theme.sh"
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "platforms/fedora/scripts/install-kde-theme.sh"
+text = path.read_text(encoding="utf-8")
+old = '    info "$package is already installed"'
+if text.count(old) != 1:
+    sys.exit("expected exactly one already-installed message to replace")
+body = "    cat <<EOF_NOTE\nkio-extras is provided by the KDE profile\nEOF_NOTE"
+path.write_text(text.replace(old, body), encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'a package named only in a heredoc body is not an install' \
+  "fedora/kde: package 'kio-extras' is declared but is not requested by"
+
+# The other direction of the same rule: content a script really writes is not a
+# message. The AI profile composes its mise tool list with printf, which is the
+# only place herdr is asked for, and that must keep counting.
+new_scratch requested-by-printf
+grep -Fq "printf 'herdr = \"latest\"" "$scratch/common/install-ai.sh" ||
+  _test_die 'the AI installer no longer composes its tool list with printf'
+python3 "$scratch/scripts/validate-capabilities.py" ||
+  _test_die 'a package a printf really writes must still count as requested'
+printf 'PASS: a package written by a printf that composes content still counts\n'
+
 # A workflow is not a script, so only the shell a step runs is evidence that
 # CI runs anything. A step that names a verifier in its `name:` runs nothing,
 # and used to satisfy the rule that the verifier is proven by a real install.
