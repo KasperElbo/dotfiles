@@ -71,15 +71,20 @@ successful configuration in place, so a broken attempt never costs a machine
 its ability to reapply the configuration it actually had.
 
 That also means a failed run has nothing for `--rerun` to reapply, so it ends
-by printing the literal command that reproduces the selection it was
-attempting:
+by printing the literal command that finishes the run it was attempting:
 
 ```text
 ==> Safe rerun: ./install.sh --platform fedora-wsl --theme mocha --no-ocaml --latex --no-containers --no-ai --non-interactive
 ```
 
 Every platform renders that line from the same selection the record stores, so
-it names the machine you asked for rather than the platform's defaults.
+it names the machine you asked for rather than the platform's defaults. Every
+option is spelled out as it resolved, which is why an option you never typed can
+appear as its explicit negative (`--no-ocaml` above). A transient control that
+added work to the failed run, such as `--dev-workflows`, is appended too: it is
+still not remembered, but leaving it out would silently skip that work on the
+rerun. `--dry-run` shows the line as `Rerun if this run fails:` before
+anything runs.
 
 ### Validation, errors and migration
 

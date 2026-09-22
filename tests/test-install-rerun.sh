@@ -384,7 +384,7 @@ printf 'PASS: persistent options agree with the capability manifest\n'
 # Parrot users back to the platform defaults (#225, DOC-036).
 for platform in fedora fedora-wsl macos parrot-ctf; do
   installer="$repo_root/platforms/$platform/install.sh"
-  grep -Fq "DOTFILES_RERUN_COMMAND=\"\$(install_lifecycle_rerun_command $platform \"\$install_selection\")\"" \
+  grep -Fq "DOTFILES_RERUN_COMMAND=\"\$(install_lifecycle_rerun_command $platform \"\$install_selection\"" \
     "$installer" ||
     _test_die "$platform does not render its failure hint from the resolved selection"
   if grep -Eq "DOTFILES_RERUN_COMMAND='|build_rerun_command" "$installer"; then
@@ -414,5 +414,56 @@ degraded_command="$(install_lifecycle_rerun_command macos 'theme:mocha,removed-o
 assert_eq './install.sh --platform macos --non-interactive' "$degraded_command" \
   'rerun command for an uninterpretable selection'
 printf 'PASS: a failed install is told the command that reproduces its selection\n'
+
+# The command a failed run prints must finish that run's work, not only restore
+# its configuration. A flag that adds work to the plan but has no persistent
+# option row -- today the --dev-workflows smoke tests -- is exactly what the
+# selection leaves out, so every such flag the manifests declare is driven
+# through the installer here: the printed command, run as a dry run, must
+# resolve to the very plan the original run had.
+plan_of() { sed -n '/^Resolved steps/,/^$/p' <<<"$1"; }
+failed_rerun_of() { sed -n 's/^Rerun if this run fails: //p' <<<"$1"; }
+
+check_failed_rerun_finishes_plan() {
+  local platform="$1" original rerun_command
+  local -a rerun_argv=()
+  shift
+  run_capture "$repo_root/install.sh" --platform "$platform" --dry-run "$@"
+  assert_success
+  original="$TEST_OUTPUT"
+  rerun_command="$(failed_rerun_of "$original")"
+  [[ -n "$rerun_command" ]] || _test_die "$platform printed no failed-run command"
+  # Split on whitespace rather than evaluating the displayed text; nothing in
+  # these fixtures needs quoting, and this proves it stayed that way.
+  [[ "$rerun_command" != *[\\\'\"]* ]] ||
+    _test_die "$platform failed-run command needs shell quoting: $rerun_command"
+  read -r -a rerun_argv <<<"$rerun_command"
+  assert_eq ./install.sh "${rerun_argv[0]}" "$platform failed-run command entry point"
+  run_capture "$repo_root/install.sh" "${rerun_argv[@]:1}" --dry-run
+  assert_success
+  assert_eq "$(plan_of "$original")" "$(plan_of "$TEST_OUTPUT")" \
+    "$platform plan of the failed-run command for: $*"
+  assert_eq "$rerun_command" "$(failed_rerun_of "$TEST_OUTPUT")" \
+    "$platform failed-run command is not a fixed point for: $*"
+}
+
+transient_work_cases=0
+while read -r platform flag; do
+  [[ -f "$repo_root/platforms/$platform/install.sh" ]] || continue
+  check_failed_rerun_finishes_plan "$platform" --theme mocha "$flag"
+  transient_work_cases=$((transient_work_cases + 1))
+done < <(awk -F '\t' '
+  NR == FNR { if (FNR > 1) persistent[$1 SUBSEP $4] = 1; next }
+  FNR > 1 && $4 != "-" && !(($2 SUBSEP $4) in persistent) { print $2, $4 }
+' "$repo_root/config/install-options.tsv" "$repo_root/config/capabilities.tsv")
+((transient_work_cases > 0)) ||
+  _test_die 'the manifests declare no transient work flag; this check proves nothing'
+
+# The installation that exposed the gap: --dev-workflows was requested and
+# still pending, and the printed command dropped it.
+check_failed_rerun_finishes_plan macos --theme mocha --containers --tailscale \
+  --defaults --dev-workflows --ai --codex --firstmate --gnhf --backpass --dictation
+assert_contains "$TEST_OUTPUT" '[dev-workflows]'
+printf 'PASS: a failed install is told a command that finishes its plan\n'
 
 printf 'Installer --rerun lifecycle, round-trip and refusal tests passed.\n'
