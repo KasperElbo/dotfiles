@@ -480,6 +480,70 @@ sed -i 's/^          \.\/install\.sh --platform macos --theme mocha$/          .
 expect_scratch_rejected 'a bare --rerun is not selection for any platform' \
   'macos/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
 
+# Selecting a flag is not installing it. Two invocations in this workflow pass
+# flags and install nothing, and each was enough on its own to satisfy a row.
+#
+# The first is the Fedora sequence's negative run, whose *failure* is the
+# assertion: an invalid package is injected and the installer has to abort. It
+# passes --kde and --sway, so the positive sequence could stop selecting KDE
+# with fedora/kde still claiming a real installation. Its
+# `# ci-selection: not-an-installation` annotation is what takes it out of the
+# walk, and this case proves the annotation is load-bearing rather than
+# decorative.
+new_scratch selection-expect-failure
+sed -i "s|^install_command='./install.sh --platform fedora --kde --sway --no-latex \\\\$|install_command='./install.sh --platform fedora --sway --no-latex \\\\|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+grep -Fq -- '--kde' "$scratch/tests/integration/fedora-clean-install.sh" ||
+  _test_die 'the negative run must still pass --kde, or this case proves nothing'
+expect_scratch_rejected 'a flag passed only by a run asserted to fail is not evidence' \
+  'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
+
+# The second is a dry run, which resolves the plan and stops. It needs no
+# annotation because --dry-run says it itself.
+new_scratch selection-dry-run
+sed -i "s|^install_command='./install.sh --platform fedora --kde --sway --no-latex \\\\$|install_command='./install.sh --platform fedora --sway --no-latex \\\\|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+sed -i "s|^base_command='.*$|base_command='./install.sh --platform fedora --sway --no-latex --non-interactive'|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+sed -i "s|^printf '\\\\n==> Clean Fedora installation\\\\n'$|run_as_user './install.sh --platform fedora --kde --dry-run'\n\nprintf '\\\\n==> Clean Fedora installation\\\\n'|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+grep -Fq -- '--kde --dry-run' "$scratch/tests/integration/fedora-clean-install.sh" ||
+  _test_die 'the dry run must pass --kde, or this case proves nothing'
+expect_scratch_rejected 'a flag passed only by a dry run is not evidence' \
+  'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
+
+# Carrying the annotations through is what lets the walk see them, and a
+# comment is still not something CI runs. Nothing skips comments here: an
+# annotation fences the line it is written on, so one that quotes an invocation
+# fences that invocation out by the rule that fences the real one below it.
+# This pins that, because it is the property, not the mechanism, that matters.
+new_scratch selection-annotation-comment
+sed -i "s|^install_command='./install.sh --platform fedora --kde --sway --no-latex \\\\$|install_command='./install.sh --platform fedora --sway --no-latex \\\\|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+sed -i "s|^base_command='.*$|base_command='./install.sh --platform fedora --sway --no-latex --non-interactive'|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+sed -i "s|^# ci-selection: not-an-installation an injected.*$|# ci-selection: not-an-installation ./install.sh --platform fedora --kde would install it|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+expect_scratch_rejected 'an invocation quoted inside an annotation is not selection' \
+  'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
+
+# A fence is a claim, so a claim this walk cannot act on is a build error
+# rather than a comment it skips: a misspelled one would silently leave the row
+# resting on the run whose failure is asserted.
+new_scratch selection-unknown-claim
+sed -i 's/ci-selection: not-an-installation an injected/ci-selection: not-an-instalation an injected/' \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+expect_scratch_rejected 'an unrecognised ci-selection claim is rejected' \
+  "unknown ci-selection claim 'not-an-instalation'"
+
+# And a fence with no reason is one nobody can review, like a ci_scope
+# exclusion with no why.
+new_scratch selection-unexplained-fence
+sed -i 's/ci-selection: not-an-installation an injected invalid package aborts this run/ci-selection: not-an-installation/' \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+expect_scratch_rejected 'a ci-selection fence with no reason is rejected' \
+  'must say why this invocation installs nothing'
+
 # A package is what an installer asks for, not what it says. Dropping
 # kio-extras from the KDE installer's dnf array and naming it in a message, or
 # in a heredoc body, left the row still claiming to own Dolphin's sftp://

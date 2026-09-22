@@ -57,6 +57,31 @@ whose Podman machine cannot start on a hosted runner, because that runner is
 itself a virtual machine and `vfkit` has no nested virtualisation to use. An
 exclusion the workflow contradicts fails, so it cannot outlive its reason.
 
+Being *selected* is not the same as being *installed*, and two invocations in
+that workflow pass flags while installing nothing. A **dry run** resolves the
+plan and stops; its own `--dry-run` says so, so the selection walk skips it
+without being told. An **expect-failure run** is one whose non-zero exit is
+the assertion — the Fedora sequence proves an injected invalid package aborts
+the installer, and the Parrot job proves a non-QEMU container is refused —
+and nothing in the invocation distinguishes that from a real one. Those carry
+
+```sh
+# ci-selection: not-an-installation <why>
+```
+
+on the invocation's own line or in the comment block directly above it, the
+same adjacency `# network-source:` uses: the block above the construct, ending
+at the first line of code, so an annotation never covers whatever is written
+under the thing it introduces. The reason is required, for the same review
+value as `excluded:<why>`, and a claim the walk does not recognise fails the
+build rather than being skipped.
+
+Without this the flags of a run asserted to fail were evidence like any
+other. The Fedora negative run passes `--kde --sway`, so the positive sequence
+could stop selecting KDE with `fedora/kde` still claiming a real installation
+that no successful run performed. The annotation is what makes a row rest on a
+run that completed.
+
 `state` and `state_profile` are two names for one file and move together. The
 file name belongs to the capability on its platform, so macOS keeps its
 container record in `macos-containers.conf` beside the Fedora one; the schema

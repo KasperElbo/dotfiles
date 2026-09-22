@@ -720,6 +720,30 @@ WINDOWS_SUITE = re.compile(r"(?<![\w-])(tests/[\w.-]+\.ps1)(?![\w-])")
 CI_EXCLUDED = "excluded:"
 INSTALL_ENTRY_POINT = "./install.sh"
 CAPABILITY_FLAG = re.compile(r"(?<![\w-])--[\w-]+")
+# Flags that say the invocation carrying them installs nothing, whatever else
+# it selects. They need no annotation because the invocation declares it
+# itself: a dry run resolves the plan and stops, and -h/--help prints usage and
+# exits before any step runs.
+#
+# Matched against the invocation's own text rather than against the flags
+# CAPABILITY_FLAG found, because that pattern only reads long options: `-h` put
+# in a set beside them would have been a fence that could never fire.
+NON_INSTALLING = re.compile(r"(?<![\w-])(?:--dry-run|--help|-h)(?![\w-])")
+# The annotation that fences an invocation whose *failure* is what CI asserts.
+# `claim` is the vocabulary and `why` is required, like ci_scope's
+# `excluded:<why>`: a fence with no reason is a fence nobody can review.
+SELECTION_ANNOTATION = re.compile(
+    r"#\s*ci-selection:\s*(?P<claim>[\w-]+)\s*(?P<why>.*?)\s*$"
+)
+SELECTION_NOT_INSTALLED = "not-an-installation"
+# How far above a construct an annotation may sit, and what ends the walk. A
+# blank line does not: a comment block separated from its construct by one is
+# still that construct's. The first line of *code* does, because an annotation
+# belongs to the construct it introduces and not to whatever follows that one
+# -- the same rule `# network-source:` follows, for the same reason.
+SELECTION_LOOKBACK = 6
+SELECTION_COMMENT = re.compile(r"^\s*#")
+SELECTION_CONTINUED = re.compile(r"(?:\\|&&|\|\|)$")
 # Which platform an invocation installs, which is the platform its flags are
 # evidence for.
 SELECTED_PLATFORM = re.compile(r"--platform[= ]+(?P<platform>[\w-]+)")
@@ -727,7 +751,7 @@ SOURCE_LINE = re.compile(r'^\s*(?:source|\.)\s+"(.+)"\s*$')
 SOURCE_PREFIXES = ('$(dirname "${BASH_SOURCE[0]}")/', "$DOTFILES_ROOT/")
 
 
-def code_text(path: pathlib.Path) -> str:
+def code_text(path: pathlib.Path, keep_annotations: bool = False) -> str:
     """A shell or YAML file with its comments dropped, code and strings kept.
 
     A name in a comment is prose, not an invocation; only what the file runs
@@ -738,16 +762,35 @@ def code_text(path: pathlib.Path) -> str:
     comment's position is taken from the blanked line and the code is read out
     of the original.
     """
-    return drop_comments(path.read_text(encoding="utf-8").splitlines())
-
-
-def drop_comments(lines: list[str]) -> str:
-    """The code half of each line, keeping the strings, dropping the comments."""
-    return "\n".join(
-        line[: len(strip_noise(line))]
-        for line in lines
-        if not line.lstrip().startswith("#")
+    return drop_comments(
+        path.read_text(encoding="utf-8").splitlines(), keep_annotations
     )
+
+
+def drop_comments(lines: list[str], keep_annotations: bool = False) -> str:
+    """The code half of each line, keeping the strings, dropping the comments.
+
+    `keep_annotations` keeps whole-line `# ci-selection:` comments and nothing
+    else, for the one caller that has to read them. A trailing comment is still
+    cut from a code line, and every other comment line is still dropped, so the
+    guarantee the rest of this file relies on is unchanged: a path or a flag
+    written in prose is not something the file runs.
+
+    The selection walk needs no comment-skip of its own for the lines this
+    keeps. An annotation is a fence, and a fence covers the line it is written
+    on, so an annotation that quotes an invocation fences that invocation out
+    by the same rule that fences the real one below it. Widening what this
+    keeps would break that, which is why it keeps one vocabulary and not
+    comments in general.
+    """
+    kept = []
+    for line in lines:
+        if line.lstrip().startswith("#"):
+            if keep_annotations and SELECTION_ANNOTATION.search(line):
+                kept.append(line)
+            continue
+        kept.append(line[: len(strip_noise(line))])
+    return "\n".join(kept)
 
 
 def mentions_path(text: str, path: str) -> bool:
@@ -869,7 +912,7 @@ class UnreadableWorkflow(Exception):
     """A workflow whose `run:` blocks could not be read."""
 
 
-def workflow_shell(path: pathlib.Path) -> str:
+def workflow_shell(path: pathlib.Path, keep_annotations: bool = False) -> str:
     """The shell a workflow runs, without the YAML that surrounds it.
 
     A workflow is not a script, and searching the whole file for a path finds
@@ -910,19 +953,26 @@ def workflow_shell(path: pathlib.Path) -> str:
             f"{path.relative_to(ROOT)}: no `run:` step could be read, so the "
             f"check that CI runs each verifier would pass for want of evidence"
         )
-    return drop_comments(shell)
+    return drop_comments(shell, keep_annotations)
 
 
-def real_install_text() -> str:
-    """The shell real-install.yml runs, plus every sequence or suite it runs."""
-    workflow = workflow_shell(REAL_INSTALL_WORKFLOW)
+def real_install_text(keep_annotations: bool = False) -> str:
+    """The shell real-install.yml runs, plus every sequence or suite it runs.
+
+    `keep_annotations` carries the `# ci-selection:` comments through, for the
+    selection walk that has to read them. Every other caller asks a question
+    about what CI runs, where a comment is prose.
+    """
+    workflow = workflow_shell(REAL_INSTALL_WORKFLOW, keep_annotations)
     texts = [workflow]
     scripts = set(INTEGRATION_SCRIPT.findall(workflow)) | set(
         WINDOWS_SUITE.findall(workflow)
     )
     for script in sorted(scripts):
         if (ROOT / script).is_file():
-            texts.append(code_text(ROOT / script).replace("\\", "/"))
+            texts.append(
+                code_text(ROOT / script, keep_annotations).replace("\\", "/")
+            )
     return "\n".join(texts)
 
 
@@ -948,6 +998,24 @@ def install_selections(text: str) -> dict[str, set[str]]:
     Reading the flags rather than searching the file for them is what makes
     this a check about *selection*: `--kde` written in a comment, in a step
     name or in an unrelated command is not a machine that installed KDE.
+
+    An invocation that installs nothing is not selection evidence either, and
+    that is a different question from which flags it passes. Two shapes of it
+    run in this workflow today:
+
+    - A **dry run** resolves the plan and stops. Its own `--dry-run` says so,
+      so it is fenced out mechanically and needs no annotation.
+    - An **expect-failure run** is one whose non-zero exit is the assertion --
+      the Fedora sequence proves an invalid package aborts the installer, and
+      the Parrot job proves a non-QEMU container is refused. Nothing in the
+      invocation itself distinguishes that from a real one, so it carries a
+      `# ci-selection: not-an-installation <why>` annotation and the walk
+      skips it.
+
+    Both were counted before, and each alone was enough to satisfy a row: the
+    Fedora negative run carries `--kde --sway`, so dropping `--kde` from the
+    positive sequence left `fedora/kde` still claiming a real installation
+    that no successful run performed.
     """
     flags: dict[str, set[str]] = {}
     lines = text.splitlines()
@@ -972,10 +1040,75 @@ def install_selections(text: str) -> dict[str, set[str]]:
         platform = SELECTED_PLATFORM.search(joined)
         if platform is None:
             continue
+        if NON_INSTALLING.search(joined):
+            continue
+        if selection_fence(lines, index) is not None:
+            continue
         flags.setdefault(platform.group("platform"), set()).update(
             CAPABILITY_FLAG.findall(joined)
         )
     return flags
+
+
+def selection_fence(lines: list[str], index: int) -> re.Match[str] | None:
+    """The `# ci-selection:` annotation attached to the invocation at `index`.
+
+    Attached means the construct's own lines, or the comment block above the
+    first of them. An invocation is often a continuation of a line further up
+    -- inside a `$(docker run ... \\` capture, say -- and the annotation
+    belongs above the whole construct, so the walk finds that first line before
+    it starts reading comments.
+    """
+    start = index
+    while start > 0 and SELECTION_CONTINUED.search(lines[start - 1].rstrip()):
+        start -= 1
+    candidates = list(lines[start:index + 1])
+    for cursor in range(start - 1, max(-1, start - 1 - SELECTION_LOOKBACK), -1):
+        previous = lines[cursor]
+        if previous.strip() and not SELECTION_COMMENT.match(previous):
+            break
+        candidates.append(previous)
+    for candidate in candidates:
+        found = SELECTION_ANNOTATION.search(candidate)
+        if found:
+            return found
+    return None
+
+
+def check_selection_annotations(text: str) -> int:
+    """Every `# ci-selection:` annotation is one this file knows and can act on.
+
+    A fence is a claim that an invocation installs nothing, and it removes that
+    invocation's flags from the evidence a capability row leans on. A
+    misspelled claim that silently did nothing would leave the row resting on a
+    run whose failure is asserted, which is the defect the fence exists to
+    stop, so an annotation this walk cannot act on is a build error rather than
+    a comment to skip.
+    """
+    errors = 0
+    # The annotation is quoted rather than located. This text is the workflow
+    # and every script it runs joined together, so a line number in it names a
+    # line in no file; the comment's own words are what a reader can search
+    # for.
+    for line in text.splitlines():
+        found = SELECTION_ANNOTATION.search(line)
+        if found is None:
+            continue
+        if found["claim"] != SELECTION_NOT_INSTALLED:
+            fail(
+                f"unknown ci-selection claim {found['claim']!r} in "
+                f"{line.strip()!r}; the only one is "
+                f"{SELECTION_NOT_INSTALLED!r}"
+            )
+            errors += 1
+        elif not found["why"]:
+            fail(
+                f"{line.strip()!r}: a '# ci-selection: "
+                f"{SELECTION_NOT_INSTALLED}' annotation must say why this "
+                f"invocation installs nothing"
+            )
+            errors += 1
+    return errors
 
 
 def check_capability_ci_selection(rows: list[dict[str, str]]) -> int:
@@ -993,7 +1126,9 @@ def check_capability_ci_selection(rows: list[dict[str, str]]) -> int:
     control installs nothing, so running its verifier is the whole capability.
     """
     errors = 0
-    selections = install_selections(real_install_text())
+    annotated = real_install_text(keep_annotations=True)
+    errors += check_selection_annotations(annotated)
+    selections = install_selections(annotated)
     for row in rows:
         where = f"{row['platform']}/{row['capability']}"
         selected = selections.get(row["platform"], set())
