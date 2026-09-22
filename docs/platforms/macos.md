@@ -394,6 +394,16 @@ the cross-platform profile's boundary and this repository's existing "no
 automated login" stance for every other identity/authentication step (Git, SSH,
 `gh auth login`).
 
+Its closing summary reports what the machine actually looks like rather than
+assuming a fresh install. It looks for the CLI both on `PATH` and inside the app
+bundle, reads the connection state once with a bounded, read-only
+`tailscale status --json`, and prints only the steps still outstanding: a
+machine that is already connected with the CLI enabled is told nothing is left
+to set up. If the state cannot be read (no CLI anywhere, no `jq`, a probe that
+fails or does not answer, or an unrecognized state), the step still succeeds and
+prints the full sign-in guidance. The summary never signs in, connects, or
+installs the CLI for you.
+
 The Tailscale CLI is optional on macOS and is not installed by this profile.
 Enable it yourself from the app's Settings (CLI section, "Install Now"; asks for
 your admin password once) to get a plain `tailscale` command at

@@ -476,6 +476,241 @@ assert_file_contains "$repo_root/platforms/macos/scripts/verify.sh" \
   'macos_tailscale_probe_timed_out "$status_probe"'
 printf 'PASS: the macOS verifier handles a probe that did not answer\n'
 
+# --- the macOS installer's closing guidance reflects the machine ------------
+#
+# The macOS installer ends by telling the person what is still left to do. It
+# used to print the fresh-install to-do list unconditionally, so a machine that
+# was already signed in, with the command-line tool already on PATH, was told
+# it was not connected and offered a tool it already had. Each case below is a
+# mocked Apple Silicon machine: Homebrew and `open` are fixtures, the
+# application bundle lives in a temporary directory selected through
+# MACOS_APPLICATIONS_DIR, and the command-line tool on PATH is a second fixture
+# that is only put on PATH when the case says the person enabled it. Both
+# answer `status --json` from the case's environment and log every call.
+
+new_macos_root() {
+  local root
+  root="$(mktemp -d)"
+  mkdir -p "$root/bin" "$root/cli" "$root/config" "$root/home" \
+    "$root/applications/Tailscale.app/Contents/MacOS"
+  : >"$root/commands.log"
+
+  cat >"$root/bin/brew" <<'EOF'
+#!/usr/bin/env bash
+printf 'brew %s\n' "$*" >>"$COMMAND_LOG"
+[[ "${1:-}" != --prefix ]] || printf '/opt/homebrew\n'
+exit 0
+EOF
+
+  cat >"$root/bin/open" <<'EOF'
+#!/usr/bin/env bash
+printf 'open %s\n' "$*" >>"$COMMAND_LOG"
+EOF
+
+  # One fixture serves as both tools. MOCK_<WHICH>_* picks each one's answer,
+  # so a case can make the tool on PATH and the bundle disagree.
+  local which
+  for which in path bundle; do
+    cat >"$root/tailscale-$which" <<EOF
+#!/usr/bin/env bash
+which=$which
+EOF
+    cat >>"$root/tailscale-$which" <<'EOF'
+printf 'tailscale[%s] %s\n' "$which" "$*" >>"$COMMAND_LOG"
+prefix="MOCK_${which^^}"
+state_var="${prefix}_STATE" exit_var="${prefix}_EXIT"
+raw_var="${prefix}_RAW" hang_var="${prefix}_HANG"
+[[ "$*" == 'status --json' ]] || exit 0
+[[ "${!hang_var:-false}" != true ]] || exec sleep 3600
+[[ "${!exit_var:-0}" == 0 ]] || exit "${!exit_var}"
+if [[ -n "${!raw_var:-}" ]]; then
+  printf '%s\n' "${!raw_var}"
+else
+  printf '{"BackendState":"%s","Self":{"Online":true}}\n' "${!state_var:-NeedsLogin}"
+fi
+EOF
+  done
+  cp "$root/tailscale-bundle" \
+    "$root/applications/Tailscale.app/Contents/MacOS/Tailscale"
+  cp "$root/tailscale-path" "$root/cli/tailscale"
+  chmod +x "$root/bin"/* "$root/cli/tailscale" \
+    "$root/applications/Tailscale.app/Contents/MacOS/Tailscale"
+  printf '%s\n' "$root"
+}
+
+# run_macos_installer <root> <with-path-cli: true|false> [VAR=value ...]
+run_macos_installer() {
+  local root="$1" with_path_cli="$2"
+  shift 2
+  local search_path="$PATH"
+  [[ "$with_path_cli" != true ]] || search_path="$root/cli:$search_path"
+  run_capture timeout --signal=TERM --kill-after=5 60 env \
+    "HOME=$root/home" \
+    "XDG_CONFIG_HOME=$root/config" \
+    "PATH=$root/bin:$search_path" \
+    "COMMAND_LOG=$root/commands.log" \
+    "HOMEBREW_BIN=$root/bin/brew" \
+    "MACOS_APPLICATIONS_DIR=$root/applications" \
+    "DOTFILES_TEST_UNAME_S=Darwin" \
+    "DOTFILES_TEST_UNAME_M=arm64" \
+    "DOTFILES_TEST_MACOS=true" \
+    "DOTFILES_TAILSCALE_PROBE_TIMEOUT=2" \
+    "$@" \
+    "$repo_root/platforms/macos/scripts/install-tailscale.sh"
+}
+
+# assert_full_guidance: the interactive steps a fresh install needs.
+assert_full_guidance() {
+  assert_contains "$TEST_OUTPUT" 'Finish setup interactively:'
+  assert_contains "$TEST_OUTPUT" 'Approve the Network Extension permission prompt'
+  assert_contains "$TEST_OUTPUT" 'sign in to your tailnet'
+  assert_not_contains "$TEST_OUTPUT" 'Nothing is left to set up'
+}
+
+assert_no_setup_steps() {
+  assert_not_contains "$TEST_OUTPUT" 'Finish setup interactively:'
+  assert_not_contains "$TEST_OUTPUT" 'Approve the Network Extension'
+  assert_not_contains "$TEST_OUTPUT" 'not connected yet'
+}
+
+assert_cli_offered() {
+  local root="$1"
+  assert_contains "$TEST_OUTPUT" 'Optional: enable the command-line tool'
+  assert_contains "$TEST_OUTPUT" \
+    "$root/applications/Tailscale.app/Contents/MacOS/Tailscale status"
+}
+
+# assert_only_read <root>: the installer asked for state and nothing else. It
+# never signs in, brings the tailnet up or changes a setting for the person.
+assert_only_read() {
+  local root="$1"
+  assert_file_not_contains "$root/commands.log" ' up'
+  assert_file_not_contains "$root/commands.log" ' login'
+  assert_file_not_contains "$root/commands.log" ' set'
+  if grep -F 'tailscale[' "$root/commands.log" | grep -Fv 'status --json'; then
+    fail_with_context 'The macOS installer ran a tailscale command other than a status read'
+  fi
+}
+
+# A fresh install: only the application bundle, nothing signed in. This is the
+# case the original guidance was written for, and it must still get all of it.
+root="$(new_macos_root)"
+run_macos_installer "$root" false MOCK_BUNDLE_STATE=NeedsLogin
+assert_success
+assert_contains "$TEST_OUTPUT" 'Tailscale is installed but not connected yet (it reports NeedsLogin).'
+assert_full_guidance
+assert_cli_offered "$root"
+assert_contains "$TEST_OUTPUT" 'No account/tailnet policy is set by this installer.'
+assert_file_contains "$root/commands.log" 'brew install --cask tailscale-app'
+assert_file_contains "$root/commands.log" 'tailscale[bundle] status --json'
+assert_only_read "$root"
+rm -rf -- "$root"
+printf 'PASS: macOS fresh install gets the full interactive guidance\n'
+
+# The machine the wrong guidance was reported from: connected, with the
+# command-line tool already on PATH. Nothing is left, and it says so.
+root="$(new_macos_root)"
+run_macos_installer "$root" true MOCK_PATH_STATE=Running MOCK_BUNDLE_STATE=Running
+assert_success
+assert_contains "$TEST_OUTPUT" 'Tailscale is connected to a tailnet and the tailscale command is'
+assert_contains "$TEST_OUTPUT" "available at $root/cli/tailscale. Nothing is left to set up."
+assert_no_setup_steps
+assert_not_contains "$TEST_OUTPUT" 'Optional: enable the command-line tool'
+assert_not_contains "$TEST_OUTPUT" 'Until then'
+assert_file_contains "$root/commands.log" 'tailscale[path] status --json'
+assert_file_not_contains "$root/commands.log" 'tailscale[bundle]'
+assert_only_read "$root"
+rm -rf -- "$root"
+printf 'PASS: macOS connected machine with the CLI on PATH is told nothing is left\n'
+
+# Connected through the bundle, but the command-line tool was never enabled:
+# only the optional tool is still outstanding.
+root="$(new_macos_root)"
+run_macos_installer "$root" false MOCK_BUNDLE_STATE=Running
+assert_success
+assert_contains "$TEST_OUTPUT" 'Tailscale is connected to a tailnet.'
+assert_no_setup_steps
+assert_cli_offered "$root"
+assert_not_contains "$TEST_OUTPUT" 'Nothing is left to set up'
+rm -rf -- "$root"
+printf 'PASS: macOS connected machine without the CLI is offered only the CLI\n'
+
+# The command-line tool is enabled but nobody is signed in: the sign-in steps
+# remain, and the tool is reported rather than offered.
+root="$(new_macos_root)"
+run_macos_installer "$root" true MOCK_PATH_STATE=NeedsLogin
+assert_success
+assert_contains "$TEST_OUTPUT" 'not connected yet (it reports NeedsLogin).'
+assert_full_guidance
+assert_contains "$TEST_OUTPUT" "The tailscale command is available at $root/cli/tailscale."
+assert_not_contains "$TEST_OUTPUT" 'Optional: enable the command-line tool'
+rm -rf -- "$root"
+printf 'PASS: macOS signed-out machine with the CLI keeps the sign-in steps only\n'
+
+# Both places are checked: a tool on PATH that cannot answer does not stand in
+# for the bundle, which is asked next.
+root="$(new_macos_root)"
+run_macos_installer "$root" true MOCK_PATH_EXIT=1 MOCK_BUNDLE_STATE=Running
+assert_success
+assert_file_contains "$root/commands.log" 'tailscale[path] status --json'
+assert_file_contains "$root/commands.log" 'tailscale[bundle] status --json'
+assert_contains "$TEST_OUTPUT" 'Nothing is left to set up.'
+rm -rf -- "$root"
+printf 'PASS: macOS falls back to the bundle when the CLI on PATH fails\n'
+
+# Detection must never fail the step. Every way the state can go unread ends
+# in success with the full, conservative guidance, and names what went wrong.
+root="$(new_macos_root)"
+started="$(date +%s)"
+run_macos_installer "$root" true MOCK_PATH_HANG=true MOCK_BUNDLE_STATE=Running
+elapsed=$(($(date +%s) - started))
+assert_success
+((elapsed < 30)) ||
+  fail_with_context "The installer waited ${elapsed}s on a status probe that never answers"
+assert_contains "$TEST_OUTPUT" 'its connection state could not be read'
+assert_contains "$TEST_OUTPUT" "'tailscale status --json' did not answer within 2s"
+assert_full_guidance
+# The application is what is not answering, so it is not asked a second time.
+assert_file_not_contains "$root/commands.log" 'tailscale[bundle]'
+rm -rf -- "$root"
+printf 'PASS: macOS status probe that hangs is bounded and falls back to full guidance\n'
+
+root="$(new_macos_root)"
+run_macos_installer "$root" true MOCK_PATH_EXIT=1 MOCK_BUNDLE_EXIT=1
+assert_success
+assert_contains "$TEST_OUTPUT" "its connection state could not be read"
+assert_contains "$TEST_OUTPUT" "'tailscale status --json' failed"
+assert_full_guidance
+rm -rf -- "$root"
+printf 'PASS: macOS status probe that fails falls back to full guidance\n'
+
+root="$(new_macos_root)"
+run_macos_installer "$root" false MOCK_BUNDLE_RAW='not json'
+assert_success
+assert_contains "$TEST_OUTPUT" 'did not report a BackendState'
+assert_full_guidance
+rm -rf -- "$root"
+printf 'PASS: macOS malformed status output falls back to full guidance\n'
+
+root="$(new_macos_root)"
+run_macos_installer "$root" false MOCK_BUNDLE_STATE=SomethingNew
+assert_success
+assert_contains "$TEST_OUTPUT" 'unrecognized BackendState: SomethingNew'
+assert_full_guidance
+rm -rf -- "$root"
+printf 'PASS: macOS unrecognized backend state falls back to full guidance\n'
+
+root="$(new_macos_root)"
+rm -- "$root/applications/Tailscale.app/Contents/MacOS/Tailscale"
+run_macos_installer "$root" false
+assert_success
+assert_contains "$TEST_OUTPUT" 'no Tailscale command-line tool was found to ask'
+assert_full_guidance
+assert_contains "$TEST_OUTPUT" 'Optional: enable the command-line tool'
+assert_not_contains "$TEST_OUTPUT" 'Until then'
+rm -rf -- "$root"
+printf 'PASS: macOS with no command-line tool anywhere falls back to full guidance\n'
+
 # --- repository hygiene: no embedded credentials -----------------------
 #
 # Flag names like --advertise-exit-node or --accept-routes are expected to
