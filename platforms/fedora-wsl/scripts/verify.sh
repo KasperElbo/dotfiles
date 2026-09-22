@@ -506,6 +506,14 @@ section "Neovim tooling"
 check_version_at_least "Neovim" "$(tool_version nvim)" "$(tool_floor nvim)"
 check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
 
+# Until this, "Neovim tooling passed" meant something different here than on
+# Fedora: the version and the Mason inventory, and nothing about the plugins or
+# about whether the configuration loads at all. Both questions are asked the
+# same way on every platform now, the plugin tree from the deployed lock file
+# first because a start would otherwise fill in what it found missing (#371).
+check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
+check_neovim_starts Neovim "$(tool_floor nvim)"
+
 section "Catppuccin tmux"
 
 check_catppuccin_tmux
