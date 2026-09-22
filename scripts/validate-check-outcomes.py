@@ -114,6 +114,12 @@ def read_ledger() -> dict[str, int] | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("trace", help="the file DOTFILES_VERIFY_TRACE was set to")
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="write config/check-outcomes.tsv from this trace instead of checking "
+             "against it, for the first run and after fixtures are added",
+    )
     arguments = parser.parse_args()
 
     trace_path = pathlib.Path(arguments.trace)
@@ -131,6 +137,22 @@ def main() -> int:
             "pass for want of evidence; DOTFILES_VERIFY_TRACE reached no verifier"
         )
         return 1
+
+    if arguments.record:
+        rows = ["\t".join(FIELDS)]
+        for verifier in verifiers():
+            sites = call_sites(verifier)
+            if not sites:
+                continue
+            uncovered = sum(
+                1
+                for line in sites
+                if not {"pass", "fail"} <= outcomes.get((verifier, line), set())
+            )
+            rows.append(f"{verifier}\t{uncovered}\t{len(sites)} check_* call sites")
+        LEDGER.write_text("\n".join(rows) + "\n", encoding="utf-8")
+        print(f"Wrote {LEDGER.relative_to(ROOT)} from {arguments.trace}.")
+        return 0
 
     recorded = read_ledger()
     if recorded is None:

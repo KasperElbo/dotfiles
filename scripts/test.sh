@@ -255,9 +255,17 @@ fi
 # call sites and would report every other one as uncovered. So the trace is
 # armed here and read once the suites are done.
 if ((${#selected_tests[@]} == 0)); then
-  check_outcome_trace="$(mktemp -t dotfiles-verify-trace.XXXXXX)"
-  export DOTFILES_VERIFY_TRACE="$check_outcome_trace"
-  trap 'rm -f "$check_outcome_trace"' EXIT
+  if [[ -n "${DOTFILES_VERIFY_TRACE:-}" ]]; then
+    # A caller that chose the file wants to keep it: recording the starting
+    # counts needs the trace after the run, and so does the suite that proves
+    # this gate can fail.
+    check_outcome_trace="$DOTFILES_VERIFY_TRACE"
+    : >"$check_outcome_trace"
+  else
+    check_outcome_trace="$(mktemp -t dotfiles-verify-trace.XXXXXX)"
+    export DOTFILES_VERIFY_TRACE="$check_outcome_trace"
+    trap 'rm -f "$check_outcome_trace"' EXIT
+  fi
 fi
 
 if ((${#selected_tests[@]} == 0)); then
