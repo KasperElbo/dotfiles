@@ -662,6 +662,60 @@ check_mason_inventory() {
   return "$status"
 }
 
+# How long any verifier will wait for the deployed configuration to start.
+# Every platform uses the same bound, because a start that needs longer than
+# this is a machine to report and not one to keep waiting on: the Fedora
+# verifier used to apply no bound at all, and a failed lazy.nvim clone left it
+# blocked on getchar() with nothing to end the run.
+NEOVIM_VERIFY_START_TIMEOUT="${NEOVIM_VERIFY_START_TIMEOUT:-2m}"
+
+# neovim_verify_floor_assertion <floor>
+#
+# The Ex command that makes Neovim assert its own version. A Lua error raised
+# from an Ex command never reaches the exit status, so the assertion has to
+# call cquit itself rather than rely on the error propagating
+# (tests/test-neovim-tool-ownership.sh holds it to that). Written once here
+# because all four platforms ask the same question.
+neovim_verify_floor_assertion() {
+  printf '+lua if vim.fn.has("nvim-%s") ~= 1 then vim.cmd("cquit 1") end\n' "$1"
+}
+
+# check_neovim_starts <label> <floor> [command ...]
+#
+# Start the deployed configuration and prove it both loads and meets the floor,
+# without changing the machine. DOTFILES_NVIM_VERIFY=1 is what makes that true:
+# without it the configuration clones a missing lazy.nvim and installs every
+# plugin the profile names and does not find, so the start repaired the tree
+# the verifier was inspecting and then credited the result (#371).
+#
+# The command defaults to nvim on PATH. A platform that has to reach Neovim
+# some other way passes its own, as long as it names a program: this bounds the
+# start with timeout, which cannot run a shell function.
+check_neovim_starts() {
+  local label="$1" floor="$2"
+  shift 2
+  local log status=0
+  [[ $# -gt 0 ]] || set -- nvim
+
+  log="$(mktemp)"
+  DOTFILES_NVIM_VERIFY=1 timeout --kill-after=10s \
+    "$NEOVIM_VERIFY_START_TIMEOUT" \
+    "$@" --headless "$(neovim_verify_floor_assertion "$floor")" +qa \
+    >"$log" 2>&1 || status=$?
+
+  if ((status == 0)); then
+    pass "$label starts and reports >= $floor"
+  elif ((status == 124 || status == 137)); then
+    fail "$label did not finish starting within $NEOVIM_VERIFY_START_TIMEOUT"
+    sed 's/^/  /' "$log" >&2
+  else
+    fail "$label startup/version check failed (requires >= $floor)"
+    sed 's/^/  /' "$log" >&2
+  fi
+  rm -f -- "$log"
+  return "$status"
+}
+
 # lazy_plugin_root
 #
 # Where lazy.nvim checks plugins out. Neovim's stdpath("data") is

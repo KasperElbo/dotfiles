@@ -179,15 +179,17 @@ chmod +x "$mock_bin/zsh"
 
 cat >"$mock_bin/git" <<'EOF'
 #!/usr/bin/env bash
-# The Catppuccin tmux fixture is a real repository; only the Lazy plugin
-# checkouts are simulated from the lockfile.
+# The Catppuccin tmux checkout and the Lazy plugin checkouts are both real
+# repositories, so every question the verifier asks about a checkout is
+# answered by Git reading the fixture. A mock that answered rev-parse from the
+# lock file would agree with the lock file by construction: the healthy case
+# would pass on a machine with no plugins at all, and the damage case below
+# could not fail.
 if [[ "${1:-}" == -C && "${2:-}" == "$MOCK_TMUX_PLUGIN" ]]; then
   exec /usr/bin/git "$@"
 fi
-if [[ "${1:-}" == -C && "${3:-}" == rev-parse && "${4:-}" == HEAD ]]; then
-  plugin_name="$(basename "$2")"
-  jq -r --arg plugin "$plugin_name" '.[$plugin].commit // empty' "$MOCK_LAZY_LOCK"
-  exit 0
+if [[ "${1:-}" == -C && "${2:-}" == "$MOCK_LAZY_ROOT"/* ]]; then
+  exec /usr/bin/git "$@"
 fi
 exit 0
 EOF
@@ -253,9 +255,14 @@ mapfile -t parrot_mason_packages < <(
 "$mason_mock_install" --pins "$repo_root/common/mason-package-versions.txt" \
   "$parrot_mason_root" "${parrot_mason_packages[@]}"
 
-while IFS= read -r plugin_name; do
-  mkdir -p "$data/nvim/lazy/$plugin_name"
-done < <(jq -r 'keys[]' "$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/lazy-lock.json")
+parrot_lazy_lock="$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/lazy-lock.json"
+
+# A plugin directory is not a checkout either: an interrupted clone leaves one
+# behind. The fixture leaves what a finished Lazy install leaves, taking the
+# commits from the profile's own lock file so a bumped pin cannot leave this
+# suite describing a machine no lock file describes.
+"$repo_root/tests/support/lazy-mock-install.sh" \
+  "$parrot_lazy_lock" "$data"
 
 # The pinned Catppuccin tmux checkout, as common/install-tmux-theme.sh leaves it.
 tmux_plugin="$data/tmux/plugins/catppuccin"
@@ -289,7 +296,7 @@ verify_environment=(
   "PATH=$mock_bin:/usr/bin:/bin"
   "MISE_DATA_DIR=$data/mise"
   "MOCK_NVIM=$nvim_install"
-  "MOCK_LAZY_LOCK=$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/lazy-lock.json"
+  "MOCK_LAZY_ROOT=$data/nvim/lazy"
   "MOCK_TMUX_PLUGIN=$tmux_plugin"
   "MOCK_ZSH=$mock_bin/zsh"
   "MOCK_FONT=$data/fonts/HackNerdFont/$font_pin/HackNerdFontMono-Regular.ttf"
@@ -380,10 +387,25 @@ printf 'PASS: the Parrot verifier checks exactly the registry package rows\n'
 grep -Fq 'python3 remains Parrot/APT-owned' <<<"$verification_output"
 grep -Fq 'Neovim 0.12.5 satisfies the >= 0.12 baseline' <<<"$verification_output"
 grep -Fq 'Mason inventory exactly matches the reduced Parrot profile' <<<"$verification_output"
-grep -Fq 'Reduced LazyVim plugins match the Parrot lockfile' <<<"$verification_output"
+grep -Fq 'Lazy plugins match ' <<<"$verification_output"
 grep -Fq 'VERIFIED: default route/interface observed' <<<"$verification_output"
 grep -Fq 'NOT OBSERVED: mounted 9p or virtiofs host filesystem' <<<"$verification_output"
 grep -Fq 'MANUAL ASSURANCE REQUIRED:' <<<"$verification_output"
+
+# Negative control for the plugin check: it is the reason the start above is
+# run in verify mode, so it has to be able to fail. A plugin the lock file
+# names and the tree does not is what a repairing start used to erase.
+missing_plugin="$(jq -r 'keys[0]' "$parrot_lazy_lock")"
+mv "$data/nvim/lazy/$missing_plugin" "$test_root/withheld-plugin"
+if "${verify_environment[@]}" \
+  "$repo_root/platforms/parrot-ctf/scripts/verify.sh" \
+  >"$test_root/missing-plugin.log" 2>&1; then
+  printf 'Parrot verification accepted a lockfile plugin that is not installed.\n' >&2
+  exit 1
+fi
+grep -Fq "Lazy plugin not installed: $missing_plugin" "$test_root/missing-plugin.log"
+mv "$test_root/withheld-plugin" "$data/nvim/lazy/$missing_plugin"
+printf 'PASS: a locked plugin missing from the tree is reported, not installed\n'
 
 mkdir -p "$data/nvim/mason/packages/roslyn"
 if "${verify_environment[@]}" \

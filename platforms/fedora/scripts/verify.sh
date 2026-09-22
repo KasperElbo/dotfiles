@@ -559,18 +559,18 @@ section "Neovim tooling"
 
 check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"
 
+# The plugin tree is proved from the deployed lock file before Neovim is
+# started, because the start cannot prove it: the configuration installs
+# whatever the profile names and does not find, so a start that reached the end
+# only showed that anything missing had since been fetched. The lock file read
+# is the stowed copy under XDG_CONFIG_HOME, not the repository's, so it
+# verifies what was actually deployed.
+check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
+
 # The floor comes from config/tool-floors.tsv like every other enforcer of it,
-# and Neovim itself asserts it, which also proves it starts: a Lua error raised
-# from an Ex command never reaches the exit status, so this check must turn a
-# failed version test into `cquit` itself rather than rely on the error
-# propagating (tests/test-neovim-tool-ownership.sh holds it to that).
-nvim_floor="$(tool_floor nvim)"
-nvim_baseline_lua='+lua if vim.fn.has("nvim-'"$nvim_floor"'") ~= 1 then vim.cmd("cquit 1") end'
-if nvim --headless "$nvim_baseline_lua" +qa >/dev/null 2>&1; then
-  pass "Neovim starts and reports >= $nvim_floor"
-else
-  fail "Neovim startup/version check failed (requires >= $nvim_floor)"
-fi
+# and Neovim itself asserts it, which also proves it starts. The shared helper
+# owns the bound and the verify-mode environment.
+check_neovim_starts Neovim "$(tool_floor nvim)"
 
 # ---------------------------------------------------------------------------
 # Optional OCaml profile

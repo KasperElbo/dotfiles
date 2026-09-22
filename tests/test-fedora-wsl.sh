@@ -6,6 +6,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # The mocked bootstrap leaves behind what a real Mason install leaves behind,
 # so common/lib/mason.sh reads it as installed.
 export MASON_MOCK_INSTALL="$repo_root/tests/support/mason-mock-install.sh"
+export LAZY_MOCK_INSTALL="$repo_root/tests/support/lazy-mock-install.sh"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 
@@ -545,6 +546,14 @@ for argument in "$@"; do
     mkdir -p "$XDG_DATA_HOME/nvim/lazy/mason.nvim"
   fi
 
+  # A real '+Lazy! restore' checks out every plugin the profile's lock file
+  # names. A fixture that stopped at mason.nvim would model a machine whose
+  # plugin tree was never restored, and the verifier is right to fail that.
+  if [[ "$argument" == '+Lazy! restore' ]]; then
+    "${LAZY_MOCK_INSTALL:?the suite must export the Lazy install fixture}" \
+      "$XDG_CONFIG_HOME/nvim/lazy-lock.json" "$XDG_DATA_HOME"
+  fi
+
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
     # A real install leaves a receipt, a payload and a bin link behind, and
     # common/lib/mason.sh reads all three; a directory alone is what an
@@ -781,6 +790,26 @@ grep -Fq 'Catppuccin tmux is at v2.3.0-1-g' "$test_root/tmux-drift.log"
 grep -Fq 'not the pinned v2.3.0' "$test_root/tmux-drift.log"
 git -C "$wsl_tmux_plugin" checkout -q --detach v2.3.0
 printf 'PASS: Fedora WSL verification warns about a Catppuccin tmux checkout past the pin\n'
+
+# The two questions #371 added to this verifier, asserted on the run above,
+# which is the only one here that has to succeed. This guest had no Neovim
+# start at all before, so both lines are new evidence and both have to appear.
+grep -Fq 'Lazy plugins match ' "$test_root/tmux-drift.log"
+grep -Fq 'Neovim starts and reports >= ' "$test_root/tmux-drift.log"
+printf 'PASS: Fedora WSL verification reports Lazy plugin state and a bounded Neovim start\n'
+
+# Negative control for the pair: the tree is read, not repaired.
+wsl_withheld_plugin="$(jq -r 'keys[0]' "$bootstrap_config/nvim/lazy-lock.json")"
+mv "$bootstrap_data/nvim/lazy/$wsl_withheld_plugin" "$test_root/withheld-plugin"
+if "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/lazy-missing.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a locked plugin that is not installed\n' >&2
+  exit 1
+fi
+grep -Fq "Lazy plugin not installed: $wsl_withheld_plugin" "$test_root/lazy-missing.log"
+mv "$test_root/withheld-plugin" "$bootstrap_data/nvim/lazy/$wsl_withheld_plugin"
+printf 'PASS: Fedora WSL verification reports a locked plugin the tree is missing\n'
 
 bootstrap_identity="$(sha256sum "$bootstrap_config/git/local")"
 bootstrap_notes="$(sha256sum "$bootstrap_home/notes")"
