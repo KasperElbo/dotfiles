@@ -16,6 +16,22 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 
+# Root ignores directory permissions, so an unwritable fixture refuses nobody
+# when the suite runs as root, as it does in the Fedora validation container.
+# There the refusal cases run as the unprivileged `nobody` account instead,
+# through the python3 that the Linux validation toolchain always carries. It is
+# resolved before the PATH is isolated, because only this one case needs it.
+unprivileged=()
+if ((EUID == 0)); then
+  unprivileged=("$(type -P python3)" -c '
+import os, sys
+os.setgroups([])
+os.setgid(65534)
+os.setuid(65534)
+os.execvp(sys.argv[1], sys.argv[1:])') ||
+    { printf 'TEST FAILURE: running as root needs python3 to drop privileges\n' >&2; exit 1; }
+fi
+
 test_install_cleanup_trap
 test_isolate_path git sha256sum
 
@@ -177,6 +193,13 @@ printf 'PASS: --no-dictation turns the selection back off\n'
 assert_file_contains "$repo_root/platforms/macos/bootstrap-help.txt" '--dictation/--no-dictation'
 printf 'PASS: the platform help advertises the flag\n'
 
+# The step's preflight is what refuses an account that cannot write to
+# /Applications before any other step has run. A dry run stops before
+# preflight, so its plan cannot show the wiring; the plan registration can.
+assert_file_contains "$repo_root/platforms/macos/install.sh" \
+  'apply dictation_preflight apply_dictation'
+printf 'PASS: the dictation step registers its write-access preflight\n'
+
 # --- A mocked Apple Silicon machine ------------------------------------------
 
 new_test_root() {
@@ -323,8 +346,31 @@ run_installer() {
   done
   mapfile -t environment < <(fixture_environment "$root")
   run_capture env "${environment[@]}" "${overrides[@]}" \
-    "$STAGED_INSTALLER" "${arguments[@]}"
+    "${RUN_AS[@]}" "$STAGED_INSTALLER" "${arguments[@]}"
 }
+
+# run_preflight <root>: the dictation step's plan preflight, sourced from the
+# staged checkout exactly as platforms/macos/install.sh runs it before any step.
+run_preflight() {
+  local root="$1"
+  local environment=()
+  mapfile -t environment < <(fixture_environment "$root")
+  # shellcheck disable=SC2016 # The payload expands in the child bash, not here.
+  run_capture env "${environment[@]}" "${RUN_AS[@]}" bash -c '
+    set -euo pipefail
+    # shellcheck disable=SC1090,SC1091
+    source "$1/common/lib/common.sh"
+    # shellcheck disable=SC1090,SC1091
+    source "$1/platforms/macos/lib/macos.sh"
+    # shellcheck disable=SC1090,SC1091
+    source "$1/platforms/macos/lib/dictation.sh"
+    dictation_preflight
+  ' _ "$root/checkout"
+}
+
+# The command prefix run_installer and run_preflight run under: empty, except
+# for the refusal cases while the suite runs as root.
+RUN_AS=()
 
 # --- The standalone dry run mutates nothing ----------------------------------
 
@@ -454,6 +500,74 @@ assert_file_contains "$root/applications/$pinned_app/Contents/Info.plist" \
   "version=$pinned_version"
 assert_file_not_contains "$root/applications/$pinned_app/Contents/MacOS/GhostPepper" stale
 printf 'PASS: a build other than the pinned one is replaced\n'
+
+# --- An account that cannot write to the applications directory -------------
+#
+# The failure this reproduces: an installation run by an account that is not,
+# at that moment, allowed to write to /Applications. On a Mac whose
+# administrator rights are granted for a limited time, that is the same account
+# before and after the grant takes effect, so the refusal must name the account
+# and the directory, and it must leave nothing behind: no download, no mounted
+# image, no staging copy, no state. The plan preflight refuses the same account
+# before any step runs, and the step refuses it again in case the answer
+# changed in between.
+
+root="$(new_test_root)"
+MOCK_PAYLOAD_PATH="$root/payload/GhostPepper.dmg"
+STAGED_INSTALLER="$(stage_repository "$root")"
+chmod 0555 "$root/applications"
+RUN_AS=("${unprivileged[@]}")
+if ((EUID == 0)); then
+  # `nobody` has to reach the staged checkout and the isolated PATH to run.
+  chmod 0755 "$root" "${TEST_PATH_ROOTS[@]}"
+fi
+refused_account="$("${RUN_AS[@]}" id -un)"
+
+run_preflight "$root"
+assert_failure
+assert_contains "$TEST_OUTPUT" "Cannot write to $root/applications as $refused_account"
+assert_contains "$TEST_OUTPUT" "dseditgroup -o checkmember -m $refused_account admin"
+assert_contains "$TEST_OUTPUT" 'nothing was downloaded or installed'
+assert_file_empty "$root/commands.log"
+printf 'PASS: the preflight refuses an account that cannot write there, naming it\n'
+
+run_installer "$root"
+assert_failure
+assert_contains "$TEST_OUTPUT" "Cannot write to $root/applications as $refused_account"
+assert_contains "$TEST_OUTPUT" "dseditgroup -o checkmember -m $refused_account admin"
+assert_file_empty "$root/commands.log"
+assert_path_missing "$root/mounted"
+remaining="$(find "$root/applications" -mindepth 1 -maxdepth 1 | wc -l | tr -d '[:space:]')"
+assert_eq 0 "$remaining" 'a refused install left something in the applications directory'
+assert_path_missing "$root/config/dotfiles/macos-dictation.conf"
+printf 'PASS: the step refuses it too, before downloading, mounting or staging anything\n'
+RUN_AS=()
+# Writable again, so an unprivileged `rm -rf` can remove the fixture.
+chmod 0755 "$root/applications"
+
+# --- The pinned build needs no write access to be recognised ----------------
+#
+# Once the pinned build is installed, neither the preflight nor the step writes
+# to the applications directory, so an account that cannot write there any
+# more (a time-limited administrator whose grant has expired) still passes.
+
+root="$(new_test_root)"
+MOCK_PAYLOAD_PATH="$root/payload/GhostPepper.dmg"
+STAGED_INSTALLER="$(stage_repository "$root")"
+mkdir -p "$root/applications/$pinned_app/Contents/MacOS"
+printf 'version=%s\n' "$pinned_version" >"$root/applications/$pinned_app/Contents/Info.plist"
+chmod 0555 "$root/applications"
+
+run_preflight "$root"
+assert_success
+run_installer "$root"
+assert_success
+assert_contains "$TEST_OUTPUT" 'already installed'
+assert_file_not_contains "$root/commands.log" 'curl'
+assert_file_not_contains "$root/commands.log" 'hdiutil'
+assert_file_line "$root/config/dotfiles/macos-dictation.conf" "version=$pinned_version"
+printf 'PASS: an installed pinned build passes without write access to the directory\n'
+chmod 0755 "$root/applications"
 
 # --- Privacy: the installer writes nothing into the checkout -----------------
 #

@@ -21,6 +21,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
 # shellcheck source=lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/macos.sh"
+# shellcheck source=lib/dictation.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/dictation.sh"
 # shellcheck source=lib/install-actions.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/install-actions.sh"
 
@@ -219,7 +221,7 @@ plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' ap
 [[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Homebrew OCaml prerequisites' apply : apply_ocaml_native : 'platforms/macos/scripts/install-ocaml.sh' 'platforms/macos/scripts/install-ocaml.sh'
 [[ "$install_containers" != true ]] || plan_add containers 'Install and start a rootless Podman machine' apply : apply_containers : 'Run an ARM64 smoke test with the Podman machine.' 'platforms/macos/scripts/install-containers.sh'
 [[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale profile (Homebrew cask, interactive login).' apply : apply_tailscale : 'Authentication and Network Extension approval remain interactive.' 'platforms/macos/scripts/install-tailscale.sh'
-[[ "$install_dictation" != true ]] || plan_add dictation 'Install the optional dictation profile (pinned Ghost Pepper disk image).' apply : apply_dictation : 'Microphone and Accessibility approval remain interactive.' 'platforms/macos/scripts/install-dictation.sh'
+[[ "$install_dictation" != true ]] || plan_add dictation 'Install the optional dictation profile (pinned Ghost Pepper disk image).' apply dictation_preflight apply_dictation : 'Microphone and Accessibility approval remain interactive.' 'platforms/macos/scripts/install-dictation.sh'
 plan_add local 'Initialize local Git and theme state' apply : apply_local : "common/setup-local.sh macos $theme" 'common/setup-local.sh'
 plan_add stow 'Deploy shared and macOS configuration' apply : apply_stow : 'platforms/macos/scripts/stow.sh' 'platforms/macos/scripts/stow.sh'
 plan_add mise 'Install mise-managed runtimes' apply : apply_mise : 'common/install-mise.sh' 'common/install-mise.sh'
