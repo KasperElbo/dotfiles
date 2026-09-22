@@ -98,6 +98,25 @@ grep -Fq 'function Resolve-ScoopShimCommand' "$scoop_helper"
 grep -Fq 'function Resolve-ScoopCommand' "$scoop_helper"
 grep -Fq "Join-Path (Get-ScoopRoot) 'shims'" "$scoop_helper"
 
+# The selection state decides what verification demands, so what counts as a
+# readable state is declared once and the verifier uses that declaration. A
+# [bool] cast over whatever JSON held is not a reading of a boolean: PowerShell
+# reads the non-empty string "false" as true, so a hand-edited "false" read as
+# selected and an empty array read as not selected.
+selection_state_helper="$repo_root/platforms/windows/lib/selection-state.ps1"
+[[ -f "$selection_state_helper" ]]
+grep -Fq 'function Read-WindowsSelectionState' "$selection_state_helper"
+grep -Fq 'WindowsSelectionFlags' "$selection_state_helper"
+grep -Fq -- '-isnot [bool]' "$selection_state_helper"
+grep -Fq "Join-Path \$PSScriptRoot 'lib\selection-state.ps1'" "$windows_verifier"
+
+# Selection flags are read through that declaration, never cast from whatever
+# the file happened to hold.
+if grep -Fq '[bool]$property.Value' "$windows_verifier"; then
+  printf 'Selection flags must be JSON booleans, not values cast to one.\n' >&2
+  exit 1
+fi
+
 for windows_script in "$installer" "$windows_verifier"; do
   grep -Fq "Join-Path \$PSScriptRoot 'lib\\scoop.ps1'" "$windows_script" || {
     printf 'Scoop resolution must come from the shared helper: %s\n' \
