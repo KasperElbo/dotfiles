@@ -64,9 +64,10 @@ run_root_prefix_contract() {
   # The expected sequence, in call order; with root="" these are the exact
   # commands the helpers ran before HARDENING_ROOT existed.
   local expected=(
-    "test -f $root$contract_path"
-    "cat -- $root$contract_path"
-    "stat -c %a $root$contract_path"
+    "-n true"
+    "-n test -f $root$contract_path"
+    "-n cat -- $root$contract_path"
+    "-n stat -c %a $root$contract_path"
     "test -f $root$contract_path"
     "install -D -m 0644 -o root -g root $tmp-1 $root$contract_path"
     "test -f $root$contract_path"
@@ -98,6 +99,12 @@ run_root_prefix_contract() {
 #!/usr/bin/env bash
 installed="$TEST_STUB_ROOT/state/installed"
 touch "$installed"
+# Verification asks sudo whether it can answer at all before it reads
+# anything, and every read it then makes carries -n.
+if [[ "$1" == -n ]]; then
+  shift
+  [[ "$1" != true ]] || exit 0
+fi
 target="${*: -1}"
 case "$1" in
 test | stat) grep -Fxq -- "$target" "$installed" ;;
@@ -157,6 +164,26 @@ EOF
   fi
 
   printf 'PASS: owned drop-in commands with HARDENING_ROOT %s\n' "$mode"
+}
+
+# assert_non_interactive_sudo <command-log> <first-line>: fails unless every
+# sudo call the log records from <first-line> on carries -n.
+#
+# Verification is documented as read-only and is run from scripts, timers and
+# sessions with no terminal to answer on, so a password prompt there is a hang,
+# not a question. The installer's own calls come earlier in the same log and
+# may legitimately ask, which is why this reads a slice rather than the file.
+assert_non_interactive_sudo() {
+  local command_log="$1"
+  local first_line="$2"
+  local interactive
+
+  interactive="$(
+    sed -n "$((first_line + 1)),\$p" "$command_log" |
+      grep '^sudo ' | grep -v '^sudo -n ' || true
+  )"
+  [[ -z "$interactive" ]] ||
+    _test_die "verification ran sudo without -n, so it can stop on a password prompt:\n$interactive"
 }
 
 # install_date_and_restorecon_mocks <bin>: `date +%s` answers MOCK_EPOCH so the
@@ -349,6 +376,9 @@ run_scenario() {
   local mock_bin="$test_root/bin"
   local command_log="$test_root/commands.log"
   local fake_root="$test_root/fake-root"
+  # A root that holds none of the drop-ins, for the case where the unprivileged
+  # read cannot see them and sudo will not answer without a password.
+  local unreadable_root="$test_root/unreadable-root"
   local selinux_state="$test_root/state/selinux"
   local active_units="$test_root/state/active-units"
   local enabled_units="$test_root/state/enabled-units"
@@ -409,18 +439,21 @@ run_scenario() {
     "$fake_root"/etc/audit/rules.d/90-dotfiles-hardening.rules
   test_stub_allow "$test_root" sudo sysctl -p \
     "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
-  test_stub_allow "$test_root" sudo auditctl -l
+  test_stub_allow "$test_root" sudo -n auditctl -l
   # Verification reads owned drop-ins it cannot see unprivileged. These are
-  # reads and stats only; no write form of sudo is ever allowed here.
+  # reads and stats only; no write form of sudo is ever allowed here, and each
+  # one is -n, because verification must never stop on a password prompt.
+  test_stub_allow "$test_root" sudo -n true
   for owned_path in \
     /etc/security/faillock.conf.d/90-dotfiles-hardening.conf \
     /etc/sudoers.d/90-dotfiles-hardening \
     /etc/audit/rules.d/90-dotfiles-hardening.rules \
     /etc/sysctl.d/90-dotfiles-hardening.conf \
     /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf; do
-    test_stub_allow "$test_root" sudo stat -c '%a' "$fake_root$owned_path"
-    test_stub_allow "$test_root" sudo cat -- "$fake_root$owned_path"
-    test_stub_allow "$test_root" sudo test -f "$fake_root$owned_path"
+    test_stub_allow "$test_root" sudo -n stat -c '%a' "$fake_root$owned_path"
+    test_stub_allow "$test_root" sudo -n cat -- "$fake_root$owned_path"
+    test_stub_allow "$test_root" sudo -n test -f "$fake_root$owned_path"
+    test_stub_allow "$test_root" sudo -n test -f "$unreadable_root$owned_path"
   done
   test_stub_allow "$test_root" sudo systemctl enable --now auditd.service
   test_stub_allow "$test_root" sudo systemctl enable --now dnf5-automatic.timer
@@ -659,6 +692,19 @@ EOF
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >>"$COMMAND_LOG"
 
+# Verification asks whether sudo can answer without a password before it reads
+# anything, and carries -n on every read afterwards. MOCK_SUDO_UNAUTHORIZED
+# models an expired sudo timestamp: -n is refused the way sudo refuses it, and
+# a bare sudo (the installer's, which may legitimately ask) is untouched.
+if [[ "${1:-}" == -n ]]; then
+  if [[ "${MOCK_SUDO_UNAUTHORIZED:-false}" == true ]]; then
+    printf 'sudo: a password is required\n' >&2
+    exit 1
+  fi
+  shift
+  [[ "${1:-}" != true ]] || exit 0
+fi
+
 rewrite() {
   case "$1" in
   /etc/* | /var/*) printf '%s' "$FAKE_ROOT$1" ;;
@@ -811,13 +857,15 @@ SUDO_EOF
     assert_file_line "$state_file" 'ssh=not-present'
   fi
 
-  local verify_output
+  local verify_output verify_sudo_calls_before
+  verify_sudo_calls_before="$(wc -l <"$command_log")"
   if ! verify_output="$("${test_environment[@]}" \
     "$repo_root/platforms/fedora/scripts/verify-hardening.sh" 2>&1)"; then
     _test_die "[$scenario_name] verify-hardening.sh reported failures:\n$verify_output"
     return 1
   fi
 
+  assert_non_interactive_sudo "$command_log" "$verify_sudo_calls_before"
   assert_contains "$verify_output" 'SELinux is enforcing'
   assert_contains "$verify_output" 'firewalld.service is enabled and active'
   # Every repository-owned control is actually inspected on the happy path,
@@ -869,8 +917,11 @@ SUDO_EOF
     local backup="$test_root/state/mutation-backup"
 
     run_verify() {
+      local sudo_calls_before
+      sudo_calls_before="$(wc -l <"$command_log")"
       run_capture "${test_environment[@]}" "$@" \
         "$repo_root/platforms/fedora/scripts/verify-hardening.sh"
+      assert_non_interactive_sudo "$command_log" "$sudo_calls_before"
     }
 
     # 1. A deleted owned artifact.
@@ -1027,6 +1078,37 @@ SUDO_EOF
     assert_failure
     assert_contains "$TEST_OUTPUT" 'recorded state is'
     cp -p "$backup" "$state_file"
+
+    # 8b. sudo will not answer without a password, and the drop-ins are not
+    #     readable unprivileged. Verification must say what it could not read
+    #     and carry on, because an unreadable control is not an absent one:
+    #     reporting drift here would send someone to reinstall a machine that
+    #     is fine, and the run must not stop on a prompt either.
+    run_verify HARDENING_ROOT="$unreadable_root" MOCK_SUDO_UNAUTHORIZED=true
+    assert_success
+    assert_contains "$TEST_OUTPUT" \
+      'faillock policy drop-in could not be read without a sudo password'
+    assert_contains "$TEST_OUTPUT" \
+      'sudo logfile drop-in could not be read without a sudo password'
+    assert_contains "$TEST_OUTPUT" \
+      'auditd watch rules could not be read without a sudo password'
+    assert_contains "$TEST_OUTPUT" \
+      'hardening sysctl drop-in could not be read without a sudo password'
+    assert_contains "$TEST_OUTPUT" \
+      'sshd hardening drop-in applied could not be read without a sudo password'
+    assert_contains "$TEST_OUTPUT" 'reading the loaded audit rules needs sudo'
+    assert_contains "$TEST_OUTPUT" "run 'sudo -v' first"
+    assert_not_contains "$TEST_OUTPUT" 'is missing:'
+    assert_not_contains "$TEST_OUTPUT" 'no longer matches the policy'
+
+    # 8c. The same absent drop-ins with sudo able to answer are drift, and
+    #     have to be reported as such. Without this case 8b would pass just as
+    #     well on a verifier that had stopped checking these files at all.
+    run_verify HARDENING_ROOT="$unreadable_root"
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'faillock policy drop-in is missing'
+    assert_contains "$TEST_OUTPUT" 'install-hardening.sh'
+    assert_not_contains "$TEST_OUTPUT" 'could not be read without a sudo password'
 
     # 9. An unmet *recommendation* stays a warning: disabled Secure Boot is
     #    firmware state this profile never touches.

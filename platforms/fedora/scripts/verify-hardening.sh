@@ -74,6 +74,18 @@ if [[ -e "$hardening_state" ]]; then
   fi
 fi
 
+# unreadable_without_password <label> <path>
+#
+# A control this verifier could not read is not a control that is gone. Saying
+# so is the whole point of the distinction: reporting an unreadable drop-in as
+# missing would send someone to re-run the installer over a machine that is
+# fine, and reporting it as present would be a guess.
+unreadable_without_password() {
+  not_observed "$1 could not be read without a sudo password, so whether it" \
+    "is still the file the installer wrote was not checked: $2 -- run" \
+    "'sudo -v' first, or run verification as root"
+}
+
 # check_owned_root_file <label> <drop-in>
 #
 # An owned drop-in has to exist, carry the mode the installer set, and still
@@ -91,27 +103,46 @@ fi
 check_owned_root_file() {
   local label="$1"
   local dropin="$2"
-  local path expected_mode actual_mode content expected
+  local path expected_mode actual_mode content expected status
 
   path="$(hardening_dropin_path "$dropin")"
   # stat(1) reports a mode without the leading zero install(1) is given.
   expected_mode="$(hardening_dropin_mode "$dropin")"
   expected_mode="${expected_mode#0}"
 
-  if ! managed_root_file_exists "$path"; then
+  managed_root_file_exists "$path"
+  status=$?
+  case "$status" in
+  0) ;;
+  1)
     fail "$label is missing: $path (created by the hardening profile; re-run" \
       "./scripts/install-hardening.sh to restore it)"
     return 1
-  fi
+    ;;
+  *)
+    unreadable_without_password "$label" "$path"
+    return 0
+    ;;
+  esac
 
-  actual_mode="$(managed_root_file_mode "$path" || true)"
+  status=0
+  actual_mode="$(managed_root_file_mode "$path")" || status=$?
+  if ((status == 2)); then
+    unreadable_without_password "$label" "$path"
+    return 0
+  fi
   if [[ "$actual_mode" != "$expected_mode" ]]; then
     fail "$label has mode ${actual_mode:-unknown}, expected $expected_mode:" \
       "$path"
     return 1
   fi
 
-  content="$(managed_root_file_read "$path")"
+  status=0
+  content="$(managed_root_file_read "$path")" || status=$?
+  if ((status == 2)); then
+    unreadable_without_password "$label" "$path"
+    return 0
+  fi
   expected="$(hardening_dropin_content "$dropin")"
   if [[ "$content" != "$expected" ]]; then
     fail "$label no longer matches the policy the hardening profile wrote:" \
@@ -263,6 +294,11 @@ else
         not_observed "auditctl is unavailable, so whether the watch rules" \
           "are loaded into the running kernel audit subsystem could not be" \
           "read"
+      elif ! hardening_privileged_read_available; then
+        not_observed "reading the loaded audit rules needs sudo, and" \
+          "verification never asks for a password, so whether the watch" \
+          "rules reached the running kernel was not checked -- run 'sudo -v'" \
+          "first, or run verification as root"
       else
         # Every rule the installer wrote has to be in the running kernel, not
         # merely something carrying one of its keys: a partial load leaves the
@@ -270,7 +306,7 @@ else
         # can put in a rule of their own. auditctl prints a loaded watch back
         # in the spelling the rules file uses, so the comparison is line for
         # line against the same source the file was written from.
-        loaded_rules="$(sudo auditctl -l 2>/dev/null || true)"
+        loaded_rules="$(sudo -n auditctl -l 2>/dev/null || true)"
         missing_rule=""
         while IFS= read -r audit_rule; do
           [[ -n "$audit_rule" ]] || continue
