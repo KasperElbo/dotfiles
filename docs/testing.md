@@ -511,6 +511,41 @@ that removing the session command's row from `config/shell-file-roles.tsv`
 fails validation: `governed()` claims any `platforms/*/assets/*` file carrying
 a shell shebang, so that program's mode is somebody's responsibility too.
 
+### Every symlink check names its Stow source
+
+`check_symlink <link> <expected-root> [expected-source]` proves five things
+without the third argument: the link exists, it is a symlink, its referent
+exists, it canonicalises, and the referent is inside the expected package root.
+None of those is "it points at the right file", so a link redirected at another
+file in the same package was reported green (issue #369).
+
+The third argument is optional in the helper, which is what let the call sites
+migrate one platform at a time — and equally what would let the weak form come
+back unnoticed, because a two-argument call is not a syntax error and its
+output is a tick like any other.
+`scripts/validate-symlink-checks.py` is therefore what answers "is the
+migration finished": every call site outside `tests/` passes an expected
+source, except the files listed in that script's `MIGRATING` table with the
+exact number of two-argument calls left in each. An exact count rather than a
+floor, so neither direction is silent — adding a weak call site to a listed
+file fails, and migrating one fails too, with the instruction to lower the
+number — and the entry must go when it reaches zero, so the list cannot outlive
+the migration.
+
+The suites under `tests/` are out of scope: `tests/test-verifier.sh` calls the
+two-argument form on purpose, to prove the containment verdicts the helper
+still owes when no source is given.
+
+The expected source is written out per call site, read off the package layout,
+rather than derived from the deployed path. Deriving it would recompute the
+same `$HOME`-relative mapping Stow itself applied, so a wrong link and a wrong
+expectation would agree.
+
+`tests/test-repository-hygiene.sh` proves the gate can fail: it runs the real
+checker against fixture trees carrying a two-argument call, a weak call beyond
+a recorded count, a migrated call still listed, a shape the checker cannot
+parse, and no call sites at all.
+
 ### Compatibility wrappers, file modes and names
 
 `tests/test-compat-wrappers.sh` owns the deprecation policy (issue #161). A

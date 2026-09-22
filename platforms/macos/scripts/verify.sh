@@ -283,18 +283,40 @@ else
   fail "Account login shell is not a registered Zsh: ${login_shell:-unknown}"
 fi
 
+# Every link is checked against the exact repository file Stow should have
+# linked, not only against the package that owns it. A link redirected at
+# another file inside the expected package resolved under the expected root and
+# was reported green (issue #369).
+#
+# The third argument is written out per link, read off the package layout,
+# rather than derived from the deployed path: deriving it would recompute the
+# same $HOME-relative mapping Stow itself applied, so a wrong link and a wrong
+# expectation would agree. Spelled out, this states what the file on disk is
+# supposed to be.
 section "Configuration links"
-check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/"
-check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh/"
-check_symlink "$XDG_CONFIG_HOME/zsh/platform-env.zsh" "$DOTFILES_ROOT/platforms/macos/stow/zsh-platform/"
-check_symlink "$XDG_CONFIG_HOME/zsh/platform.zsh" "$DOTFILES_ROOT/platforms/macos/stow/zsh-platform/"
-check_symlink "$XDG_CONFIG_HOME/aerospace/aerospace.toml" "$DOTFILES_ROOT/platforms/macos/stow/aerospace/"
-check_symlink "$HOME/.local/bin/aerospace-workspace-grid" "$DOTFILES_ROOT/platforms/macos/stow/aerospace/"
-check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git/"
-check_symlink "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise/"
-check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim/"
-check_symlink "$XDG_CONFIG_HOME/nvim/lua/plugins/macos.lua" "$DOTFILES_ROOT/platforms/macos/stow/nvim-macos/"
-check_symlink "$XDG_CONFIG_HOME/ghostty/macos.conf" "$DOTFILES_ROOT/platforms/macos/stow/ghostty-macos/"
+macos_stow="$DOTFILES_ROOT/platforms/macos/stow"
+check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh" \
+  "$DOTFILES_ROOT/zsh/.zshenv"
+check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh" \
+  "$DOTFILES_ROOT/zsh/.config/zsh/.zshrc"
+check_symlink "$XDG_CONFIG_HOME/zsh/platform-env.zsh" "$macos_stow/zsh-platform" \
+  "$macos_stow/zsh-platform/.config/zsh/platform-env.zsh"
+check_symlink "$XDG_CONFIG_HOME/zsh/platform.zsh" "$macos_stow/zsh-platform" \
+  "$macos_stow/zsh-platform/.config/zsh/platform.zsh"
+check_symlink "$XDG_CONFIG_HOME/aerospace/aerospace.toml" "$macos_stow/aerospace" \
+  "$macos_stow/aerospace/.config/aerospace/aerospace.toml"
+check_symlink "$HOME/.local/bin/aerospace-workspace-grid" "$macos_stow/aerospace" \
+  "$macos_stow/aerospace/.local/bin/aerospace-workspace-grid"
+check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git" \
+  "$DOTFILES_ROOT/git/.config/git/config"
+check_symlink "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise" \
+  "$DOTFILES_ROOT/mise/.config/mise/config.toml"
+check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim" \
+  "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/init.lua"
+check_symlink "$XDG_CONFIG_HOME/nvim/lua/plugins/macos.lua" "$macos_stow/nvim-macos" \
+  "$macos_stow/nvim-macos/.config/nvim/lua/plugins/macos.lua"
+check_symlink "$XDG_CONFIG_HOME/ghostty/macos.conf" "$macos_stow/ghostty-macos" \
+  "$macos_stow/ghostty-macos/.config/ghostty/macos.conf"
 
 # verifies: terminal -- Ghostty is the macOS terminal, installed from the
 # Brewfile with the baseline.
@@ -348,10 +370,16 @@ section "Theme"
 # here rather than with the other Stow links because it is theme integration:
 # a Mac missing it is one where `theme` silently does no desktop work.
 check_symlink "$XDG_CONFIG_HOME/dotfiles/theme-hooks.d/macos.sh" \
-  "$DOTFILES_ROOT/platforms/macos/stow/theme-hooks/"
+  "$macos_stow/theme-hooks" \
+  "$macos_stow/theme-hooks/.config/dotfiles/theme-hooks.d/macos.sh"
+# theme-assets is one shared package at the top of the checkout rather than a
+# macOS copy, which is why its root is not under $macos_stow. Each flavour has
+# its own image, so the expected source carries the flavour too: without it a
+# link to catppuccin-latte.webp satisfied the mocha check.
 for flavour in latte frappe macchiato mocha; do
   check_symlink "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}.webp" \
-    "$DOTFILES_ROOT/theme-assets/"
+    "$DOTFILES_ROOT/theme-assets" \
+    "$DOTFILES_ROOT/theme-assets/.local/share/wallpapers/catppuccin-${flavour}.webp"
 done
 
 theme_file="$XDG_CONFIG_HOME/dotfiles/theme"
