@@ -813,3 +813,159 @@ grep -Fq 'Claude Code starts in a fresh Zsh login' "$test_root/bootstrap.log"
 grep -Fqx "$bootstrap_bin/zsh" "$bootstrap_shell_state"
 
 printf 'Fedora WSL platform composition, safety and idempotency tests passed.\n'
+
+# ---------------------------------------------------------------------------
+# A Linux-spelled shim that resolves to a Windows executable (issue #396,
+# GAP-11)
+#
+# command -v answers with the first PATH hop and does not follow symlinks, so
+# asking is_windows_path about that spelling said nothing about where the
+# command ends up. bat is one of the names the verifier probes, and probing
+# runs it -- through WSL interop, on a machine the verifier has just called
+# Linux-native.
+# ---------------------------------------------------------------------------
+
+windows_shim_dir="$test_root/windows-shim"
+mkdir -p "$windows_shim_dir"
+cp "$bootstrap_bin/mock-command" "$windows_shim_dir/bat.exe"
+ln -s bat.exe "$windows_shim_dir/bat"
+
+if "${bootstrap_environment[@]}" \
+  "PATH=$windows_shim_dir:$bootstrap_home/.local/bin:$bootstrap_bin:$PATH" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/windows-shim.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a shim resolving to a Windows executable.\n' >&2
+  exit 1
+fi
+grep -Fq "bat resolves to a Windows executable: $windows_shim_dir/bat.exe" \
+  "$test_root/windows-shim.log"
+if grep -Fq "bat runs: $windows_shim_dir/bat" "$test_root/windows-shim.log"; then
+  printf 'Fedora WSL verification reported a Windows shim as a working Linux command.\n' >&2
+  exit 1
+fi
+printf 'PASS: Fedora WSL verification refuses a Linux-spelled shim that resolves to a .exe\n'
+
+# The same question asked of the AI commands, which report "is Linux-native"
+# in so many words and so must mean the resolved target.
+ai_shim_dir="$test_root/windows-ai-shim"
+mkdir -p "$ai_shim_dir"
+cp "$bootstrap_bin/mock-command" "$ai_shim_dir/claude.exe"
+ln -s claude.exe "$ai_shim_dir/claude"
+# The verifier puts mise's shims at the front of PATH itself, so the shim has
+# to be the only claude there is for this question to reach the loop at all.
+mv "$bootstrap_data/mise/shims/claude" "$test_root/claude-shim-aside"
+"${bootstrap_environment[@]}" \
+  "PATH=$ai_shim_dir:$bootstrap_home/.local/bin:$bootstrap_bin:$PATH" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/windows-ai-shim.log" 2>&1 ||
+  : # The fixture fails for other reasons too; the lines below are the assertion.
+mv "$test_root/claude-shim-aside" "$bootstrap_data/mise/shims/claude"
+if grep -Fq "claude is Linux-native: $ai_shim_dir/claude" \
+  "$test_root/windows-ai-shim.log"; then
+  printf 'Fedora WSL verification called a .exe shim Linux-native.\n' >&2
+  exit 1
+fi
+grep -Fq "claude resolves to a Windows executable: $ai_shim_dir/claude.exe" \
+  "$test_root/windows-ai-shim.log"
+printf 'PASS: "is Linux-native" is a claim about the resolved target, not the spelling\n'
+
+# ---------------------------------------------------------------------------
+# The OCaml line reports what the sub-verifier established (issue #396, GAP-07)
+#
+# common/verify-ocaml.sh exits 0 for three different worlds, one of which is
+# "not selected and not installed". ocaml is disabled for fedora-wsl, so that
+# is the world a stock machine is in, and the caller used to answer it with a
+# green line claiming the compiler starts.
+# ---------------------------------------------------------------------------
+
+grep -Fq 'OCaml profile is not selected and not installed (not applicable)' \
+  "$test_root/bootstrap.log" ||
+  {
+    printf 'The Fedora WSL fixture did not reach the unselected OCaml world.\n' >&2
+    exit 1
+  }
+if grep -Fq 'OCaml compiler and Platform tools start inside WSL' \
+  "$test_root/bootstrap.log"; then
+  printf 'Fedora WSL verification claims the OCaml compiler starts on a machine that never selected it.\n' >&2
+  exit 1
+fi
+grep -Fq 'OCaml profile verification completed' "$test_root/bootstrap.log"
+printf 'PASS: the OCaml line reports what the sub-verifier established, not one of its three worlds\n'
+
+# ---------------------------------------------------------------------------
+# Every Stow link is checked against the exact file Stow should have linked
+# (issue #369)
+#
+# The containment guarantee alone accepted a link redirected at any other file
+# in the same package. Each call site now names its source; these two cases ask
+# whether the names are real and whether the guarantee is live.
+# ---------------------------------------------------------------------------
+
+wsl_verifier="$repo_root/platforms/fedora-wsl/scripts/verify.sh"
+mapfile -t wsl_symlink_calls < <(
+  awk '
+    { line = line $0 }
+    /\\$/ { sub(/\\$/, " ", line); next }
+    { print line; line = "" }
+  ' "$wsl_verifier" |
+    grep -E '^[[:space:]]*check_symlink ' | sed 's/^[[:space:]]*//'
+)
+((${#wsl_symlink_calls[@]} > 0)) || {
+  printf 'No check_symlink call was read out of the Fedora WSL verifier.\n' >&2
+  exit 1
+}
+
+wsl_checked_sources=0
+for wsl_call in "${wsl_symlink_calls[@]}"; do
+  mapfile -t wsl_call_arguments < <(
+    (
+      # Read by the eval below, which is the call's own source text.
+      # shellcheck disable=SC2034
+      DOTFILES_ROOT="$repo_root"
+      # The link side names a machine, not this checkout.
+      HOME="/nonexistent-fixture-home"
+      # shellcheck disable=SC2034
+      XDG_CONFIG_HOME="$HOME/.config"
+      eval "set -- $wsl_call"
+      shift
+      printf '%s\n' "$@"
+    )
+  )
+  ((${#wsl_call_arguments[@]} == 3)) || {
+    printf 'check_symlink names no Stow source, so it can only prove containment: %s\n' \
+      "$wsl_call" >&2
+    exit 1
+  }
+  wsl_expected_root="${wsl_call_arguments[1]%/}"
+  wsl_expected_source="${wsl_call_arguments[2]}"
+  [[ -e "$wsl_expected_source" ]] || {
+    printf 'check_symlink names a Stow source this checkout does not have: %s\n' \
+      "$wsl_expected_source" >&2
+    exit 1
+  }
+  [[ "$wsl_expected_source" == "$wsl_expected_root/"* ]] || {
+    printf 'check_symlink names a source outside the package it declares: %s\n' \
+      "$wsl_expected_source" >&2
+    exit 1
+  }
+  wsl_checked_sources=$((wsl_checked_sources + 1))
+done
+printf 'PASS: all %d Stow sources the Fedora WSL verifier names exist under the package it declares\n' \
+  "$wsl_checked_sources"
+
+# And the guarantee is live: the deployed link is repointed at another file in
+# the same package, which containment alone accepted.
+mislinked="$bootstrap_config/zsh/platform.zsh"
+ln -sfn \
+  "$repo_root/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform-env.zsh" \
+  "$mislinked"
+if "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/mislinked.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a link at the wrong file in the right package.\n' >&2
+  exit 1
+fi
+grep -Fq 'is not the file Stow should have linked' "$test_root/mislinked.log"
+grep -Fq "$repo_root/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform.zsh" \
+  "$test_root/mislinked.log"
+printf 'PASS: a link into the right package but at the wrong file fails verification\n'

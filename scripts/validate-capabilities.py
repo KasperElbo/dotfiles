@@ -659,6 +659,9 @@ WINDOWS_SUITE = re.compile(r"(?<![\w-])(tests/[\w.-]+\.ps1)(?![\w-])")
 CI_EXCLUDED = "excluded:"
 INSTALL_ENTRY_POINT = "./install.sh"
 CAPABILITY_FLAG = re.compile(r"(?<![\w-])--[\w-]+")
+# Which platform an invocation installs, which is the platform its flags are
+# evidence for.
+SELECTED_PLATFORM = re.compile(r"--platform[= ]+(?P<platform>[\w-]+)")
 SOURCE_LINE = re.compile(r'^\s*(?:source|\.)\s+"(.+)"\s*$')
 SOURCE_PREFIXES = ('$(dirname "${BASH_SOURCE[0]}")/', "$DOTFILES_ROOT/")
 
@@ -809,8 +812,17 @@ def real_install_text() -> str:
     return "\n".join(texts)
 
 
-def install_selections(text: str) -> set[str]:
-    """Every flag passed to an `./install.sh` invocation in `text`.
+def install_selections(text: str) -> dict[str, set[str]]:
+    """The flags each platform's `./install.sh` invocations pass, per platform.
+
+    Per platform, because a flag is evidence for the row of the platform it was
+    passed on and no other. One flat set said `--ocaml` on the macOS job proved
+    the Fedora and Fedora WSL rows too, and twelve rows claimed a real
+    installation that had never happened.
+
+    An invocation with no `--platform` contributes to no platform: `--rerun`
+    replays a selection made by an earlier invocation, which is where those
+    flags are already counted.
 
     The arguments of one invocation are not one line. A YAML folded scalar
     (`run: >-`) and a Bash backslash continuation both spread them over
@@ -823,7 +835,7 @@ def install_selections(text: str) -> set[str]:
     this a check about *selection*: `--kde` written in a comment, in a step
     name or in an unrelated command is not a machine that installed KDE.
     """
-    flags: set[str] = set()
+    flags: dict[str, set[str]] = {}
     lines = text.splitlines()
     for index, line in enumerate(lines):
         _, separator, arguments = line.partition(INSTALL_ENTRY_POINT)
@@ -842,7 +854,13 @@ def install_selections(text: str) -> set[str]:
                 break
             invocation.append(following)
             cursor += 1
-        flags.update(CAPABILITY_FLAG.findall(" ".join(invocation)))
+        joined = " ".join(invocation)
+        platform = SELECTED_PLATFORM.search(joined)
+        if platform is None:
+            continue
+        flags.setdefault(platform.group("platform"), set()).update(
+            CAPABILITY_FLAG.findall(joined)
+        )
     return flags
 
 
@@ -861,9 +879,10 @@ def check_capability_ci_selection(rows: list[dict[str, str]]) -> int:
     control installs nothing, so running its verifier is the whole capability.
     """
     errors = 0
-    selected = install_selections(real_install_text())
+    selections = install_selections(real_install_text())
     for row in rows:
         where = f"{row['platform']}/{row['capability']}"
+        selected = selections.get(row["platform"], set())
         scope = row["ci_scope"]
         flag = row["cli_flag"]
         selectable = (

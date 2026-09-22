@@ -38,3 +38,15 @@ ensure_tailscale_repository() {
   sudo dnf config-manager addrepo --overwrite \
     --from-repofile="$TAILSCALE_REPO_URL"
 }
+
+# verify_tailscale_trust_root: whatever the fetched .repo file says becomes
+# /etc/yum.repos.d/tailscale.repo verbatim, including its gpgcheck setting and
+# its gpgkey URL, and ensure_tailscale_repository returns early for good
+# afterwards -- so a repository shipped or later edited with gpgcheck=0 keeps
+# installing root-privileged packages unchecked and nothing would say so.
+# Silent when the repository is absent, because the profile is optional.
+# Source common/lib/verify.sh and platforms/fedora/lib/fedora.sh first.
+verify_tailscale_trust_root() {
+  tailscale_repo_installed || return 0
+  verify_repo_trust_root tailscale Tailscale
+}

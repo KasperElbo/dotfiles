@@ -459,6 +459,27 @@ sed -i "s|^      - name: Run clean install, verifier, rerun and state transition
 expect_scratch_rejected 'a flag named only in a step title is not selection' \
   'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
 
+# Evidence is per platform. Twelve rows claimed a real installation because
+# the flags were read as one flat set, so --ocaml and the five AI flags on the
+# macOS job satisfied the Fedora and Fedora WSL rows as well; nothing on those
+# platforms had ever passed them.
+new_scratch selection-other-platform
+sed -i 's/  --ocaml --ai --codex --firstmate --gnhf --backpass --non-interactive/  --ai --codex --firstmate --gnhf --backpass --non-interactive/' \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+grep -Fq -- '--ocaml' "$scratch/.github/workflows/real-install.yml" ||
+  _test_die 'the macOS job must still pass --ocaml, or this case proves nothing'
+expect_scratch_rejected 'a flag passed only on another platform is not evidence here' \
+  'fedora/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
+
+# A rerun replays a selection rather than stating one, so it names no platform
+# and is evidence for none: the flags it reinstalls are counted where they were
+# first passed.
+new_scratch selection-rerun-only
+sed -i 's/^          \.\/install\.sh --platform macos --theme mocha$/          .\/install.sh --rerun/' \
+  "$scratch/.github/workflows/real-install.yml"
+expect_scratch_rejected 'a bare --rerun is not selection for any platform' \
+  'macos/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
+
 # A comment is not a check. Deleting a verifier's whole LaTeX section and
 # leaving one comment line behind used to satisfy the rule that exists to
 # notice exactly that; only the `# verifies:` marker may speak from a comment.

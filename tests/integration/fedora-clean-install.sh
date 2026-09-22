@@ -157,10 +157,20 @@ fi
 docker exec --user dotfiles --env HOME=/home/dotfiles "$container" \
   git config --global --add safe.directory /workspace
 
+# GITHUB_TOKEN and GH_TOKEN are forwarded for the optional-profile install
+# below: two of the AI components resolve their own "latest" release through
+# api.github.com, and mise asks the same API about its GitHub-backed tools.
+# Unauthenticated that is 60 requests an hour shared with every other tenant on
+# the runner's address, which the macOS job has failed on with nothing wrong on
+# its own side. Both spellings, because an upstream that reads either finds it.
+# They are empty outside CI and the workflow's permissions are contents:read,
+# so the token can read this repository and nothing else.
 run_as_user() {
   docker exec --user dotfiles \
     --env HOME=/home/dotfiles \
     --env USER=dotfiles \
+    --env "GITHUB_TOKEN=${GITHUB_TOKEN:-}" \
+    --env "GH_TOKEN=${GH_TOKEN:-}" \
     --workdir /workspace \
     "$container" bash -lc "$1"
 }
@@ -194,11 +204,21 @@ run_as_negative_user() {
 # a capability that is never selected here is never installed or verified end
 # to end, whatever its verifier mentions. --latex stays off and says so in the
 # registry's ci_scope column, because TeX Live is gigabytes on every run.
-install_command='./install.sh --platform fedora --kde --sway --no-latex --non-interactive'
+#
+# The optional profiles are selected in the positive sequence only. Their rows
+# claimed real-installation evidence while nothing on this platform had ever
+# passed their flags: the check that was meant to catch that read one flat set
+# of flags for every platform, so the macOS job's --ocaml and --ai satisfied
+# the Fedora and Fedora WSL rows too. The negative case keeps the base command,
+# because what it proves is that an invalid package stops the installer, and
+# installing an AI profile first would only make it slower to prove.
+base_command='./install.sh --platform fedora --kde --sway --no-latex --non-interactive'
+install_command='./install.sh --platform fedora --kde --sway --no-latex \
+  --ocaml --ai --codex --firstmate --gnhf --backpass --non-interactive'
 
 printf '\n==> Invalid package must fail through the real installer\n'
 set +e
-negative_output="$(run_as_negative_user "$install_command" 2>&1)"
+negative_output="$(run_as_negative_user "$base_command" 2>&1)"
 negative_status=$?
 set -e
 printf '%s\n' "$negative_output"
@@ -232,7 +252,7 @@ run_as_user "$install_command"
 run_as_user './platforms/fedora/scripts/verify.sh'
 
 printf '\n==> Selected-state transition (theme macchiato -> mocha)\n'
-run_as_user './install.sh --platform fedora --theme mocha --kde --sway --no-latex --non-interactive'
+run_as_user "$install_command --theme mocha"
 run_as_user "grep -Fxq mocha \"\${XDG_CONFIG_HOME:-\$HOME/.config}/dotfiles/theme\""
 run_as_user './platforms/fedora/scripts/verify.sh'
 
