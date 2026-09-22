@@ -516,7 +516,13 @@ expect_scratch_rejected 'a flag passed only by a dry run is not evidence' \
 # comment is still not something CI runs. Nothing skips comments here: an
 # annotation fences the line it is written on, so one that quotes an invocation
 # fences that invocation out by the rule that fences the real one below it.
-# This pins that, because it is the property, not the mechanism, that matters.
+#
+# Unlike the four above, this one is not a regression: it pins a property of an
+# annotation that did not exist before, so there is nothing for it to have
+# caught, and against the pre-fix tree it passes for an unrelated reason -- the
+# seds leave --kde nowhere at all, which that tree rejects correctly. It earns
+# its place by holding the property once the fence is here, not by having
+# failed beforehand.
 new_scratch selection-annotation-comment
 sed -i "s|^install_command='./install.sh --platform fedora --kde --sway --no-latex \\\\$|install_command='./install.sh --platform fedora --sway --no-latex \\\\|" \
   "$scratch/tests/integration/fedora-clean-install.sh"
