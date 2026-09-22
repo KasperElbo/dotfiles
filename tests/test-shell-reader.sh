@@ -52,6 +52,10 @@ elif question == "bodies":
         print(f"{name}: {' '.join(body.split())}")
 elif question == "outside":
     print(" ".join(shell.outside_functions(text).split()))
+elif question == "code":
+    # Printed between markers, because what this answers about is exactly the
+    # whitespace and quoting an unmarked print would hide.
+    print(f"[{shell.code_text(text)}]")
 elif question == "spans":
     for name, opened, closed, _ in shell.function_spans(text.splitlines()):
         print(f"{name} {opened} {closed}")
@@ -193,5 +197,42 @@ run_capture reader outside <<<'not_a_definition()
 printf "still here"'
 assert_success
 assert_contains "$TEST_OUTPUT" 'still here'
+
+# --- code_line drops the comment and nothing else ---------------------------
+
+# Two validators needed the same thing and had started to write it twice: the
+# text of a line with its comment gone, but its strings intact. strip_noise
+# cannot answer that, because blanking quoted text is right for a command name
+# and wrong for anything whose value lives in a string.
+
+run_capture reader code <<<'path="$DOTFILES_ROOT/config"  # where it lives'
+assert_success
+assert_eq '[path="$DOTFILES_ROOT/config"  ]' "$TEST_OUTPUT" \
+  'a variable read inside double quotes survives, and the comment goes'
+
+# The empty string an omitted sub-flag is recorded as. Trimming or unquoting
+# here would make it indistinguishable from a variable that was never set.
+run_capture reader code <<<"ai_codex=''"
+assert_success
+assert_eq "[ai_codex='']" "$TEST_OUTPUT" 'an empty assignment is left exactly as written'
+
+# `#` opens a comment only at the start of a word, which is what leaves
+# parameter expansion and the argument count alone.
+run_capture reader code <<<'printf "%s" "${name#prefix}" "$#"'
+assert_success
+assert_eq '[printf "%s" "${name#prefix}" "$#"]' "$TEST_OUTPUT" \
+  'a hash inside an expansion opens no comment'
+
+run_capture reader code <<<'# nothing but a comment'
+assert_success
+assert_eq '[]' "$TEST_OUTPUT" 'a comment line reads as no code at all'
+
+# A `#` inside a string is text, not a comment opener.
+run_capture reader code <<<'printf "%s\n" "count: #1"  # really a comment'
+assert_success
+assert_eq '[printf "%s\n" "count: #1"  ]' "$TEST_OUTPUT" \
+  'a hash inside a string is kept and the real comment is dropped'
+
+printf 'PASS: code_line strips the comment and leaves everything else\n'
 
 printf 'Shared shell reader tests passed.\n'
