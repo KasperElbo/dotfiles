@@ -89,6 +89,12 @@ exec)
 uninstall)
   [[ $# -eq 2 ]] || reject "$@"
   printf '%s\n' "$2" >>"${MISE_UNINSTALL_LOG:-/dev/null}"
+  # A real mise uninstall can fail -- the package is busy, its directory is
+  # not writable, the backend errors. The tool stays installed when it does.
+  if [[ -n "${MOCK_MISE_UNINSTALL_FAIL:-}" && "$2" == "$MOCK_MISE_UNINSTALL_FAIL" ]]; then
+    printf 'mise fixture: refusing to uninstall %s\n' "$2" >&2
+    exit 1
+  fi
   case "$2" in
   npm:@openai/codex) rm -rf -- "$MISE_INSTALLS_DIR/codex" "$MISE_SHIMS_DIR/codex" ;;
   npm:*)
@@ -200,6 +206,7 @@ install_ai() {
     MISE_EXPECTED_CONTEXT="$mise_context" \
     FIRSTMATE_REPO_URL="$firstmate_origin" \
     MOCK_NO_MISTAKES_LAYOUT="${MOCK_NO_MISTAKES_LAYOUT:-direct}" \
+    MOCK_MISE_UNINSTALL_FAIL="${MOCK_MISE_UNINSTALL_FAIL:-}" \
     "$repo_root/common/install-ai.sh" "$@"
 }
 
@@ -557,5 +564,45 @@ assert_path_missing "$no_mistakes_target"
 assert_path_missing "$no_mistakes_binary"
 verify_ai >/dev/null
 printf 'PASS: restoring the recorded launcher makes the component ownable again\n'
+
+# --- 19. A failed uninstall is refused, not recorded as a removal -----------
+#
+# The conf file is the only record of what was previously declared, so a
+# rewrite that drops a spec whose uninstall then fails makes the failure
+# permanent: nothing is stale on the next run, so the uninstall is never
+# retried, while the tool stays on disk and the state file says it is gone.
+# Both halves are asserted here, and the recovery at the end is what proves
+# the declaration really did survive.
+
+install_ai --codex --non-interactive >"$test_root/uninstall-fail-add.log" 2>&1 ||
+  { cat "$test_root/uninstall-fail-add.log" >&2; exit 1; }
+state_says 'codex=mise-npm'
+assert_path_executable "$mise_shims/codex"
+
+if MOCK_MISE_UNINSTALL_FAIL='npm:@openai/codex' \
+  install_ai --no-codex --non-interactive \
+  >"$test_root/uninstall-fail.log" 2>&1; then
+  printf 'install-ai.sh reported success after mise failed to uninstall\n' >&2
+  exit 1
+fi
+assert_file_contains "$test_root/uninstall-fail.log" 'it is still installed'
+assert_file_contains "$test_root/uninstall-fail.log" 'Refusing to record a removal that did not happen'
+assert_file_contains "$test_root/uninstall-fail.log" 'this run changed nothing'
+# The tool is still there, and the profile still says so.
+assert_path_executable "$mise_shims/codex"
+state_says 'codex=mise-npm'
+# The declaration survived, which is what lets the next run retry.
+assert_file_contains "$conf_file" '"npm:@openai/codex"'
+printf 'PASS: a failed uninstall is refused rather than recorded\n'
+
+# Recovery: with mise working again, the same command completes.
+: >"$uninstall_log"
+install_ai --no-codex --non-interactive >"$test_root/uninstall-retry.log" 2>&1 ||
+  { cat "$test_root/uninstall-retry.log" >&2; exit 1; }
+assert_file_contains "$uninstall_log" 'npm:@openai/codex'
+assert_path_missing "$mise_shims/codex"
+state_says 'codex=disabled'
+assert_file_not_contains "$conf_file" '"npm:@openai/codex"'
+printf 'PASS: the refused removal is retried and completes on the next run\n'
 
 printf 'AI optional-component transition tests passed.\n'
