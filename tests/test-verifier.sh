@@ -107,6 +107,74 @@ check_symlink "$root/home/plain" "$root/repo/pkg" || true
 assert_verifier_counts 0 1 0
 assert_eq "plain" "$(cat "$root/home/plain")" "regular-file negative check must not modify the path"
 
+# --- The exact Stow source --------------------------------------------------
+#
+# Containment proves the link points somewhere below the right package, which
+# a link redirected at another file in the SAME package also satisfies: a
+# manual mislink, a faulty migration or a Stow-layout regression could send a
+# configuration path at the wrong repository file and be reported green
+# (issue #369). A third argument makes the final test exact identity.
+printf 'Exact Stow source\n'
+
+printf 'readme\n' >"$root/repo/pkg/README"
+source_file="$root/repo/pkg/config/file"
+
+ln -s "$source_file" "$root/home/exact-absolute"
+verify_reset
+check_symlink "$root/home/exact-absolute" "$root/repo/pkg" "$source_file"
+assert_verifier_counts 1 0 0
+
+# The same source spelled relatively, and reached through a symlinked parent:
+# both sides are canonicalized, so neither spelling changes the answer.
+ln -s ../repo/pkg/config/file "$root/home/exact-relative"
+ln -sfn "$root/repo" "$root/repo-link"
+verify_reset
+check_symlink "$root/home/exact-relative" "$root/repo/pkg" \
+  "$root/repo-link/pkg/config/file"
+assert_verifier_counts 1 0 0
+
+# The reproduction from the issue: the intended source and an unrelated file
+# in the same package, with the link pointing at the wrong one. Containment
+# alone reported this as owned.
+ln -s "$root/repo/pkg/README" "$root/home/wrong-file-same-package"
+verify_reset
+run_capture probe_counts check_symlink "$root/home/wrong-file-same-package" \
+  "$root/repo/pkg" "$source_file"
+assert_contains "$TEST_OUTPUT" 'is not the file Stow should have linked'
+assert_contains "$TEST_OUTPUT" "expected=$source_file"
+assert_probe_counts 0 1 0 0
+
+# A source that is not in this checkout at all is a failure naming it, rather
+# than an equality against the empty string that no link could satisfy or,
+# worse, one that any link could.
+verify_reset
+run_capture probe_counts check_symlink "$root/home/exact-absolute" \
+  "$root/repo/pkg" "$root/repo/pkg/config/never-written"
+assert_contains "$TEST_OUTPUT" 'does not exist in this checkout'
+assert_probe_counts 0 1 0 0
+
+# The five properties the helper already had keep their verdicts and their
+# wording when the exact source is supplied.
+verify_reset
+run_capture probe_counts check_symlink "$root/home/other-checkout" \
+  "$root/repo/pkg" "$source_file"
+assert_contains "$TEST_OUTPUT" 'is not owned by the expected package'
+assert_probe_counts 0 1 0 0
+
+verify_reset
+run_capture probe_counts check_symlink "$root/home/dangling" \
+  "$root/repo/pkg" "$source_file"
+assert_contains "$TEST_OUTPUT" 'is a dangling symlink'
+assert_probe_counts 0 1 0 0
+
+verify_reset
+run_capture probe_counts check_symlink "$root/home/plain" \
+  "$root/repo/pkg" "$source_file"
+assert_contains "$TEST_OUTPUT" 'is not a symlink'
+assert_probe_counts 0 1 0 0
+
+printf 'PASS: a link to the wrong file in the right package fails only when the exact source is given\n'
+
 printf 'mise ownership\n'
 mkdir -p "$root/mise-managed/bin" "$root/mise-data/shims" "$root/external"
 cat >"$root/mise-bin" <<EOF

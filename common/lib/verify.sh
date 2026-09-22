@@ -408,17 +408,31 @@ verify_path_is_within_root() {
   [[ "$path" == "$root" || "$path" == "$root/"* ]]
 }
 
-# check_symlink <link> <expected-root>
+# check_symlink <link> <expected-root> [expected-source]
 #
 # An owned Stow link has five independent properties: the link object exists,
 # it is a symlink, its referent exists, canonical resolution succeeds, and the
-# resolved referent is inside the exact expected package root. The final test
+# resolved referent is inside the exact expected package root. The root test
 # is component-aware so /repo/dotfiles-other never satisfies /repo/dotfiles.
+#
+# Those five prove the link points somewhere below the right package. They do
+# not prove it points at the right file: a link redirected at another file in
+# the same package passed, so a manual mislink, a faulty migration or a
+# Stow-layout regression could send a configuration path at the wrong
+# repository file and still be reported green (issue #369).
+#
+# <expected-source> is that sixth property. Given it, the resolved referent
+# must be that exact file and no other. Both sides are canonicalized first, so
+# a relative and an absolute spelling of the same source agree, and so does a
+# checkout reached through a symlink. Call sites that do not pass it keep the
+# weaker containment guarantee and say so by their argument count.
 check_symlink() {
   local link="$1"
   local expected_root="${2%/}"
+  local expected_source="${3:-}"
   local resolved=""
   local canonical_root=""
+  local canonical_source=""
 
   if [[ ! -e "$link" && ! -L "$link" ]]; then
     fail "$link is missing; expected Stow ownership under $expected_root"
@@ -440,13 +454,27 @@ check_symlink() {
     return 1
   fi
 
-  if verify_path_is_within_root "$resolved" "$canonical_root"; then
-    pass "$link -> $resolved"
-    return 0
+  if ! verify_path_is_within_root "$resolved" "$canonical_root"; then
+    fail "$link is not owned by the expected package; resolved=$resolved expected=$canonical_root"
+    return 1
   fi
 
-  fail "$link is not owned by the expected package; resolved=$resolved expected=$canonical_root"
-  return 1
+  if [[ -n "$expected_source" ]]; then
+    canonical_source="$(verify_canonical_existing_path "$expected_source" 2>/dev/null || true)"
+    if [[ -z "$canonical_source" ]]; then
+      fail "$link cannot be checked against its Stow source: $expected_source" \
+        "does not exist in this checkout"
+      return 1
+    fi
+    if [[ "$resolved" != "$canonical_source" ]]; then
+      fail "$link is owned by $canonical_root but is not the file Stow should" \
+        "have linked; resolved=$resolved expected=$canonical_source"
+      return 1
+    fi
+  fi
+
+  pass "$link -> $resolved"
+  return 0
 }
 
 check_system_service_active() {
