@@ -84,6 +84,9 @@ cat >"$mock_bin/qdbus6" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$*" == *"var result = []"* ]]; then
   printf 'qdbus capture\n' >>"$MOCK_LOG"
+  # plasmashell not answering: qdbus writes the error to stderr, which the
+  # caller discards, and prints nothing usable on stdout.
+  [[ "${MOCK_QDBUS_CAPTURE_FAILS:-false}" != "true" ]] || exit 1
   printf '%s\n' '[{"id":7,"plugin":"org.kde.image","config":{"values":{},"groups":{"General":{"values":{"Image":"file:///home/test/Pictures/custom.jpg"},"groups":{}}}}}]'
 else
   printf 'qdbus restore %s\n' "$*" >>"$MOCK_LOG"
@@ -281,6 +284,63 @@ grep -Fqx 'swaymsg reload' "$mock_log"
 grep -Fqx -- 'pkill -SIGUSR2 waybar' "$mock_log"
 grep -Fqx 'seat * xcursor_theme catppuccin-mocha-mauve-cursors 24' \
   "$test_root/xdg/dotfiles/sway-theme.conf"
+
+# --- --preserve-wallpaper without a readable wallpaper state (GAP-38 of #397)
+#
+# Preserving the wallpaper means snapshotting it, letting lookandfeeltool
+# replace it, and writing it back. With no snapshot there is no way to honour
+# both halves of the request. apply-kde-theme.sh used to print a line to
+# stderr and skip the global theme -- the most visible part of the apply --
+# then exit 0, so the hook recorded `applied` and the command reported
+# "Catppuccin mocha selected." with the Plasma global theme untouched.
+
+: >"$mock_log"
+if HOME="$test_root/home" \
+  XDG_CONFIG_HOME="$test_root/xdg" \
+  XDG_DATA_HOME="$test_root/home/.local/share" \
+  XDG_STATE_HOME="$test_root/unreadable-state" \
+  PATH="$mock_bin:$sandbox_bin" \
+  MOCK_LOG="$mock_log" \
+  MOCK_QDBUS_CAPTURE_FAILS="true" \
+  "$theme_command" mocha --preserve-wallpaper >"$test_root/unreadable.out" 2>&1; then
+  printf 'An unreadable KDE wallpaper state reported a complete application.\n' >&2
+  exit 1
+fi
+grep -Fq 'was applied only partially' "$test_root/unreadable.out"
+grep -Fq 'fedora:kde' "$test_root/unreadable.out"
+grep -Fq 'the global theme was not applied' "$test_root/unreadable.out"
+if grep -Fq 'lookandfeeltool ' "$mock_log"; then
+  printf 'The global theme was applied after the wallpaper snapshot failed.\n' >&2
+  exit 1
+fi
+printf 'PASS: an unreadable wallpaper state fails rather than reporting applied\n'
+
+# qdbus is not installed, required or declared anywhere in this repository, so
+# a KDE machine without it is ordinary rather than broken. That is a skip with
+# its reason said out loud, not a failure and not a silent complete apply.
+no_qdbus_bin="$test_root/no-qdbus-bin"
+mkdir -p "$no_qdbus_bin"
+for mock in "$mock_bin"/*; do
+  [[ "$(basename "$mock")" != qdbus6 ]] || continue
+  ln -s "$mock" "$no_qdbus_bin/$(basename "$mock")"
+done
+
+: >"$mock_log"
+HOME="$test_root/home" \
+XDG_CONFIG_HOME="$test_root/xdg" \
+XDG_DATA_HOME="$test_root/home/.local/share" \
+XDG_STATE_HOME="$test_root/no-qdbus-state" \
+PATH="$no_qdbus_bin:$sandbox_bin" \
+MOCK_LOG="$mock_log" \
+  "$theme_command" mocha --preserve-wallpaper >"$test_root/no-qdbus.out" 2>&1
+grep -Fq 'Not applicable on this machine' "$test_root/no-qdbus.out"
+grep -Fq 'qdbus is not installed' "$test_root/no-qdbus.out"
+grep -Fq 'Catppuccin mocha selected.' "$test_root/no-qdbus.out"
+if grep -Fq 'lookandfeeltool ' "$mock_log"; then
+  printf 'A machine without qdbus applied the global theme anyway.\n' >&2
+  exit 1
+fi
+printf 'PASS: --preserve-wallpaper without qdbus is a named skip, not a claim\n'
 
 # --- The command chooses its interpreter before loading anything (#255) ------
 

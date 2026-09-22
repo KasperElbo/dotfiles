@@ -261,15 +261,45 @@ ensure_dir() {
   mkdir -p "$1"
 }
 
+# canonical_path_spelling <path>: one canonical spelling for a path whose final
+# component need not exist. The containing directory is canonicalized
+# physically; the final component is left as written, so this answers for a
+# file that has been deleted as long as its directory is still there.
+#
+# This is the single spelling rule. Verifier ownership checks, the Stow
+# preflight and resolve_existing_path below all decide whether two paths name
+# the same file by comparing the strings this prints, so a second copy of the
+# rule is a way for correctly stowed links to start reading as owned by
+# another checkout without the function that changed ever being suspected.
+canonical_path_spelling() {
+  local path="$1"
+  local directory name
+
+  directory="$(cd -P -- "$(dirname -- "$path")" 2>/dev/null && pwd)" || return 1
+  name="$(basename -- "$path")"
+
+  # Joining '/' with a child using the generic '%s/%s' form produces '//usr'.
+  # Although POSIX permits a special interpretation for exactly two leading
+  # slashes, ownership checks need one stable canonical spelling.
+  if [[ "$directory" == / ]]; then
+    printf '/%s\n' "${name#/}"
+  else
+    printf '%s/%s\n' "$directory" "$name"
+  fi
+}
+
 # resolve_existing_path <path>: the path an existing file ultimately names,
 # with every symlink in the chain followed and the directory canonicalized.
 # Basic readlink is all this uses, because macOS only grew 'readlink -f' in
 # recent releases and this repository supports Apple's tools as shipped.
 # Fails when the path does not exist, when a link dangles, or when the chain
 # loops; the bound is explicit rather than left to the kernel.
+#
+# The spelling of the answer is canonical_path_spelling's to decide, so this
+# chases the chain and then delegates rather than carrying its own copy.
 resolve_existing_path() {
   local path="$1"
-  local target directory name iteration=0
+  local target canonical iteration=0
 
   [[ -e "$path" || -L "$path" ]] || return 1
 
@@ -286,39 +316,9 @@ resolve_existing_path() {
   done
 
   [[ -e "$path" ]] || return 1
-  directory="$(cd -P -- "$(dirname -- "$path")" 2>/dev/null && pwd)" || return 1
-  name="$(basename -- "$path")"
-  [[ -e "$directory/$name" ]] || return 1
-
-  # Joining '/' with a child using the generic '%s/%s' form produces '//usr'.
-  # Although POSIX permits a special interpretation for exactly two leading
-  # slashes, verifier ownership checks need one stable canonical spelling.
-  if [[ "$directory" == / ]]; then
-    printf '/%s\n' "${name#/}"
-  else
-    printf '%s/%s\n' "$directory" "$name"
-  fi
-}
-
-# canonical_path_spelling <path>: one canonical spelling for a path whose final
-# component need not exist. The containing directory is canonicalized
-# physically; the final component is left as written, so this answers for a
-# file that has been deleted as long as its directory is still there.
-canonical_path_spelling() {
-  local path="$1"
-  local directory name
-
-  directory="$(cd -P -- "$(dirname -- "$path")" 2>/dev/null && pwd)" || return 1
-  name="$(basename -- "$path")"
-
-  # Joining '/' with a child using the generic '%s/%s' form produces '//usr'.
-  # Although POSIX permits a special interpretation for exactly two leading
-  # slashes, ownership checks need one stable canonical spelling.
-  if [[ "$directory" == / ]]; then
-    printf '/%s\n' "${name#/}"
-  else
-    printf '%s/%s\n' "$directory" "$name"
-  fi
+  canonical="$(canonical_path_spelling "$path")" || return 1
+  [[ -e "$canonical" ]] || return 1
+  printf '%s\n' "$canonical"
 }
 
 resolve_symlink_target() {

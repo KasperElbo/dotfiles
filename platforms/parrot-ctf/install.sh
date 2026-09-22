@@ -89,15 +89,18 @@ capability_validate_selection parrot-ctf "${selected_capabilities[@]}" ||
   die 'The selected capabilities cannot be installed on parrot-ctf.'
 
 preflight_parrot() {
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads. It is a pure
+  # lexical comparison with no prerequisites, so it really can go first --
+  # ahead of preflight_sudo, which prompts for a password on a run that is
+  # about to be refused.
+  preflight_xdg_layout
   require_regular_user
   require_parrot
   require_qemu_vm >/dev/null
   require_guest_channels
   preflight_platform_command_providers parrot-ctf
   preflight_sudo "$interactive"
-  # First, and before every other check: an unsupported XDG root would have
-  # Stow deploy to a place the rest of the install never reads.
-  preflight_xdg_layout
   preflight_writable_path "$HOME"
   preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"
@@ -123,7 +126,7 @@ apply_terminal() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-terminal
 apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
 apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh" --profile parrot-ctf; }
 apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
-apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
+apply_theme() { theme_apply_stowed "$theme"; }
 verify_parrot() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/verify.sh"; }
 
 plan_add system 'Install Parrot-owned working-environment prerequisites' apply preflight_parrot apply_system : 'platforms/parrot-ctf/scripts/install-system.sh; security catalogue unchanged' 'platforms/parrot-ctf/scripts/install-system.sh'

@@ -157,9 +157,22 @@ chmod +x "$mock_bin/npm"
 # the stale shell PATH that launches the installer/verifier.
 cat >"$mock_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
-if [[ $# -eq 2 && "$1" == -lic && "$2" == 'printf "%s\\n" "$PATH"' ]]; then
-  printf '%s\n' "$HOME/.local/bin:$MISE_SHIMS_DIR:$PATH"
-  exit 0
+# Both logins the tracked Zsh package produces, answered through the
+# verifier's own marker. .zshenv is read by every top-level Zsh and puts
+# ~/.local/bin first; mise is activated in .zshrc, so only the INTERACTIVE
+# login carries the shims. A fixture that answered both the same way would
+# model away the defect the second probe exists to catch.
+if [[ $# -eq 2 && "$2" == 'printf "login-path:%s\n" "$PATH"' ]]; then
+  case "$1" in
+  -lic)
+    printf 'login-path:%s\n' "$MISE_SHIMS_DIR:$HOME/.local/bin:$PATH"
+    exit 0
+    ;;
+  -lc)
+    printf 'login-path:%s\n' "$HOME/.local/bin:/usr/bin:/bin"
+    exit 0
+    ;;
+  esac
 fi
 printf 'strict zsh fixture rejected unsupported argv: %s\n' "$*" >&2
 exit 96
@@ -649,6 +662,88 @@ assert_contains "$verify_full_output" 'tasks-axi is mise-managed'
 assert_contains "$verify_full_output" 'quota-axi is mise-managed'
 assert_contains "$verify_full_output" 'backpass is mise-managed'
 assert_contains "$verify_full_output" 'acpx is mise-managed'
+
+# --- A copy that wins the login mise never activates (issue #396, GAP-33) ---
+#
+# The configured login PATH is captured from an INTERACTIVE login, which is
+# the one shell where mise activation necessarily wins: the tracked Zsh
+# package activates mise in .zshrc, while .zshenv -- read by every top-level
+# Zsh -- puts ~/.local/bin first and adds no mise paths. So a non-mise copy in
+# ~/.local/bin was reported as mise-owned, although it is what the next
+# non-interactive login runs.
+printf '#!/usr/bin/env bash\nexit 0\n' >"$home/.local/bin/claude"
+chmod +x "$home/.local/bin/claude"
+if login_shadow_output="$(env \
+  HOME="$home" XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" \
+  CODEX_HOME="$home/.codex" \
+  MISE_DATA_DIR="$mise_data" MISE_SHIMS_DIR="$mise_shims" \
+  MISE_INSTALLS_DIR="$mise_installs" \
+  PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
+  VERIFY_CONFIGURED_LOGIN_PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
+  VERIFY_NONINTERACTIVE_LOGIN_PATH="$home/.local/bin:$mock_bin" \
+  "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf '%s\n' "$login_shadow_output" >&2
+  printf 'verify-ai.sh accepted a non-mise claude that the non-interactive login runs\n' >&2
+  exit 1
+fi
+assert_contains "$login_shadow_output" \
+  'claude resolves outside mise in a login that is not interactive'
+rm -f -- "$home/.local/bin/claude"
+
+# The same two logins with nothing shadowing must pass, so the assertion above
+# is about the copy in ~/.local/bin and not about the second probe existing.
+if ! login_clean_output="$(env \
+  HOME="$home" XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" \
+  CODEX_HOME="$home/.codex" \
+  MISE_DATA_DIR="$mise_data" MISE_SHIMS_DIR="$mise_shims" \
+  MISE_INSTALLS_DIR="$mise_installs" \
+  PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
+  VERIFY_CONFIGURED_LOGIN_PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
+  VERIFY_NONINTERACTIVE_LOGIN_PATH="$home/.local/bin:$mock_bin" \
+  "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf '%s\n' "$login_clean_output" >&2
+  printf 'verify-ai.sh failed a machine whose non-interactive login shadows nothing\n' >&2
+  exit 1
+fi
+assert_contains "$login_clean_output" 'claude is mise-managed'
+
+# --- A record that does not state a selection (issue #396, GAP-32) ----------
+#
+# profile_state_required_keys requires only claude_code, herdr, codex and
+# firstmate of an ai record, so an ai.conf written before the other keys
+# existed is still valid and readable. Reading an absent key into a bare
+# variable turned it into the empty string, which lost every "== installed",
+# "== cloned" and "== mise-npm" comparison: the verifier printed "FirstMate
+# cloned" and "lavish-axi is not installed (neither FirstMate nor backpass
+# selected)" in the SAME run -- a combination no installation can produce,
+# since install-ai.sh forces lavish-axi on with either -- exited 0, and
+# skipped the provenance comparison removal depends on.
+state_file="$config/dotfiles/ai.conf"
+cp "$state_file" "$test_root/ai.conf.complete"
+legacy_keys="$(grep -E '^(profile|claude_code|herdr|codex|firstmate|treehouse|gnhf)=' \
+  "$test_root/ai.conf.complete")"
+[[ -n "$legacy_keys" ]] ||
+  _test_die 'the installed ai.conf carried none of the pre-19e8db8 keys, so this case proves nothing'
+printf '%s\n' "$legacy_keys" >"$state_file"
+
+if legacy_output="$("${test_environment[@]}" "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf '%s\n' "$legacy_output" >&2
+  printf 'verify-ai.sh passed a record that does not state a selection\n' >&2
+  exit 1
+fi
+assert_contains "$legacy_output" 'FirstMate cloned'
+assert_contains "$legacy_output" \
+  'records FirstMate or backpass as selected but does not record lavish-axi'
+assert_not_contains "$legacy_output" \
+  'lavish-axi is not installed (neither FirstMate nor backpass selected)'
+# A selection that was never recorded is not a selection that was declined, so
+# the recovery is to record it rather than to delete the component.
+assert_contains "$legacy_output" 'No Mistakes is present'
+assert_contains "$legacy_output" 'does not record whether it was selected (no_mistakes is absent)'
+assert_not_contains "$legacy_output" \
+  "No Mistakes is not selected but $no_mistakes_target is still present"
+cp "$test_root/ai.conf.complete" "$state_file"
+printf 'PASS: an AI record that does not state a selection is reported as such, not as "not selected"\n'
 
 # A genuinely competing executable ahead of mise's shim must still fail.
 shadow_bin="$test_root/shadow-bin"

@@ -399,6 +399,66 @@ verifier_environment=(
 )
 exercise_matrix 'Fedora WSL'
 
+# --- Part 2b: the AI leftover sweep under a symlinked checkout ---------------
+#
+# The AI section's unselected arm is the one place a verifier still asks about
+# files the profile owns outside its own state, and three of its six probes
+# compared a physically canonicalized link target against $agents_source,
+# which is built from DOTFILES_ROOT -- a logical cd/pwd that keeps the
+# symlinks the invocation walked through. Reached through a symlink the two
+# spellings differ although they name the same file, so the sweep silently
+# degraded to its three plain -f/-e/-d probes and a real leftover reported as
+# "AI profile is not installed" (issue #398, GAP-08). Fires on every ostree
+# Fedora, where /home is a symlink to var/home, and on any symlinked checkout.
+#
+# The installer already used the shipped helper for this same comparison, so
+# what this holds is the two sides of one predicate to one answer.
+record_selection base
+remove_state ai
+
+mkdir -p "$root/home/.claude"
+ln -sfn "$repo_root/common/assets/AGENTS.md" "$root/home/.claude/CLAUDE.md"
+
+checkout_link="$root/checkout-through-a-symlink"
+ln -sfn "$repo_root" "$checkout_link"
+
+for invocation_root in "$repo_root" "$checkout_link"; do
+  optional_capabilities=("${fedora_capabilities[@]}")
+  verifier_command="$invocation_root/platforms/fedora/scripts/verify.sh"
+  verifier_summary='Fedora verification'
+  verifier_environment=()
+  run_verifier
+  assert_contains "$verifier_output" \
+    'AI profile is not selected, but AI-owned files remain'
+  assert_not_contains "$verifier_output" 'AI profile is not installed (not selected)'
+
+  optional_capabilities=("${wsl_capabilities[@]}")
+  verifier_command="$invocation_root/platforms/fedora-wsl/scripts/verify.sh"
+  verifier_summary='Fedora WSL verification'
+  verifier_environment=(
+    "WSL_DISTRO_NAME=FedoraLinux"
+    "OS_RELEASE_FILE=$root/os-release"
+    "PATH=$root/bin:$PATH"
+  )
+  run_verifier
+  assert_contains "$verifier_output" \
+    'AI profile is not selected, but AI-owned files remain'
+  assert_not_contains "$verifier_output" 'AI profile is not installed (not selected)'
+done
+printf 'PASS: an AI leftover is reported whether the checkout is reached directly or through a symlink\n'
+
+# The same machine with the leftover removed still reports the profile absent,
+# so what the two runs above prove is the leftover and not a wording that
+# cannot say anything else.
+rm -f -- "$root/home/.claude/CLAUDE.md"
+verifier_command="$checkout_link/platforms/fedora/scripts/verify.sh"
+verifier_summary='Fedora verification'
+verifier_environment=()
+optional_capabilities=("${fedora_capabilities[@]}")
+run_verifier
+assert_contains "$verifier_output" 'AI profile is not installed (not selected)'
+printf 'PASS: with the leftover gone the same invocation reports the profile absent\n'
+
 # --- Part 3: the same shape in every top-level verifier ----------------------
 #
 # The defect was one idiom repeated down a file, so the guard against its

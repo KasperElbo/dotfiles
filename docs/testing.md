@@ -43,7 +43,10 @@ or if a mise configuration this repository provisions pins a tool below its own
 floor. "Stops reading it" is decided by reading the consumer as shell: the
 reader has to be the word that starts a command, in a code path the file
 reaches, so a mention in a comment, inside a string, or in a function nothing
-calls does not count. The reader names are derived from
+calls does not count. How that code path is written makes no difference:
+`tool_floor_check nvim || exit 1` and `if ! tool_floor_check nvim; then exit 1;
+fi` both enforce the floor, and a function whose brace sits on its own line is
+as uncalled as one whose brace does not. The reader names are derived from
 [`common/lib/tool-floors.sh`](../common/lib/tool-floors.sh) rather than written
 into the validator, so renaming one cannot leave the check hunting for a name
 that no longer exists. A mise pin is read the way mise reads it: the key may be
@@ -82,8 +85,24 @@ request and on pushes to `main`. It has four independent jobs:
 | --- | --- | --- |
 | `repository` (Repository validation) | `ubuntu-latest`, inside a pinned `fedora:44` container | `./scripts/lint.sh`, then a clone of the lazy.nvim revision `nvim-lazyvim/.config/nvim/lazy-lock.json` pins, `./scripts/test.sh`, and a whitespace check (`git diff --check`) against the PR's base |
 | `cheatsheets` (Printable cheat sheets) | `ubuntu-latest`, inside the same pinned `fedora:44` container, with a LaTeX toolchain installed | `./docs/cheatsheets/verify.sh`, then asserts the compiled PDFs are left untracked |
-| `windows` (Windows PowerShell validation) | `windows-latest` | `tests/test-windows-bootstrap.ps1`, `tests/test-windows-verifier.ps1`, and a `verify.ps1` smoke test against a fixture |
+| `windows` (Windows PowerShell validation) | `windows-latest` | PSScriptAnalyzer at the pinned version, then `tests/test-windows-static-analysis.ps1`, `tests/test-windows-bootstrap.ps1`, `tests/test-windows-verifier.ps1`, and a `verify.ps1` smoke test against a fixture |
 | `macos` (macOS 26 arm64 validation) | `macos-26` | `tests/integration/macos-dotnet-debug.sh`, `./scripts/lint.sh`, portable-verifier/shell-test/profile-state suites, a `--dry-run` macOS install, `tests/test-macos.sh`/`tests/test-macos-ai.sh`/`tests/test-ocaml-verification.sh`, and the same ranged whitespace check the `repository` job runs |
+
+PowerShell's static analysis lives in the `windows` job rather than in
+`./scripts/lint.sh`, because that script runs in a Fedora container with no
+`pwsh` and a lint step that quietly skips itself when its tool is missing reads
+as a pass forever after. The rules are
+[`PSScriptAnalyzerSettings.psd1`](../PSScriptAnalyzerSettings.psd1) at the
+repository root, which editors with PSScriptAnalyzer support read as well, and
+each exclusion in it states why the rule does not apply here.
+`tests/test-windows-static-analysis.ps1` analyses the PowerShell files
+`git ls-files` reports rather than a list of its own, so a new `.ps1` cannot be
+added outside the gate, and it then analyses fixtures that must be reported -- an
+unapproved verb, a reversed `$null` comparison, a file that does not parse -- and
+fixtures each exclusion must silence, so a rule set that had stopped applying
+cannot pass as a clean tree. The analyser version is pinned on both sides: the
+job installs it and the suite refuses to run against any other, so a runner
+image that already ships a different PSScriptAnalyzer cannot supply it instead.
 
 `./scripts/test.sh` is the normal aggregate runner that the `repository` job
 above invokes. It:
@@ -97,7 +116,15 @@ above invokes. It:
 - exits non-zero when any required suite fails;
 - accepts `--fail-fast` for local debugging;
 - accepts explicit suite paths for targeted debugging without requiring
-  unrelated aggregate-only tools.
+  unrelated aggregate-only tools;
+- refuses a suite path that resolves outside this checkout's `tests/`
+  directory, absolute or through `..`, before anything is executed. The runner
+  is a general-purpose executor of the path it is handed, and
+  `.claude/settings.json` pre-approves `./scripts/test.sh tests/...` for agent
+  sessions opened in this repository — a rule an agent matcher reads as a
+  prefix. Without containment the two compose into a standing approval to run
+  any file on the machine, and the refused path is counted as a failed suite
+  rather than credited as a passing one.
 
 `DOTFILES_TEST_REQUIRED_COMMANDS` can be set to request runner-level dependency
 preflight explicitly. Missing commands in that list are a **runner error**, not
@@ -457,6 +484,32 @@ changed and nothing is regenerated, and the generated document is hand-edited;
 both fail, and the checker never silently repairs the tracked file. The suite
 also asserts that the README stays an entry point rather than growing back
 into the operating manual.
+
+### What the shell lint gate checks
+
+`./scripts/lint.sh` reads its file set from `scripts/list-shell-files.py`, not
+from a glob. The rule is the shebang, not the extension: a tracked file is
+linted if it ends in `.sh` **or** its first line names `bash` or `sh`. That
+distinction is the whole point. A command installed onto `PATH` does not carry
+an extension, and fourteen tracked Bash programs — `bin/.local/bin/theme`,
+`doctor`, the stowed Sway and WSL interop commands, and
+`platforms/fedora/assets/dotfiles-sway`, which is the Wayland session `Exec=`
+the display manager runs to start the desktop — were therefore checked by
+nothing. A hard syntax error could be appended to any of them and the gate
+still printed "Shell validation passed" (issue #384, NC-01).
+
+The reader enforces its own floor: every file the old `*.sh` glob matched must
+still be in the set it returns, or it fails rather than printing a shorter
+list, so a regression in the reader cannot quietly narrow coverage back.
+
+`tests/test-lint-file-selection.sh` proves the effect rather than the wiring.
+It breaks each extensionless program in a scratch copy of the tree and runs the
+real entry point against it, and it records the argv ShellCheck is actually
+handed from a stub, because the defect being guarded against is exactly a file
+set that looks right in one place and is narrower in another. It also asserts
+that removing the session command's row from `config/shell-file-roles.tsv`
+fails validation: `governed()` claims any `platforms/*/assets/*` file carrying
+a shell shebang, so that program's mode is somebody's responsibility too.
 
 ### Compatibility wrappers, file modes and names
 

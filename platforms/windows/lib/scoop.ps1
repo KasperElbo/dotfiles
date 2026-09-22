@@ -25,8 +25,22 @@ function Get-ScoopRoot {
 # Returns $null when neither has it, which is a real absence rather than a
 # stale PATH.
 #
-# The extensions are tried in the order Scoop publishes them, so a shim pair
-# resolves to the same file PATH would have chosen.
+# Scoop publishes a pair for the commands installed here -- shims\scoop.ps1
+# beside shims\scoop.cmd -- so the two branches below have to name the same
+# file for the same command. Which one that is belongs to PowerShell, not to
+# this list: both callers are PowerShell, and PowerShell resolves an external
+# script before an external application, which is the whole reason tools that
+# ship a .cmd shim ship a .ps1 shim beside it. Hence .ps1 first, matching what
+# the Get-Command above returns once the shims have reached PATH -- not
+# PATHEXT's order, which is cmd.exe's rule and would have the two branches
+# disagree for exactly the command this is most used on.
+#
+# The agreement is checked rather than argued: tests/test-windows-verifier.ps1
+# resolves the same fixture with PATH set and with PATH empty and fails if the
+# two answers differ. It matters because the result is then invoked as a
+# command, and a .ps1 shim runs in the caller's PowerShell while a .cmd shim
+# runs as a child process -- different propagation for $LASTEXITCODE and
+# different behaviour for a 2>&1 redirect.
 function Resolve-ScoopShimCommand {
     param(
         [Parameter(Mandatory = $true)]
