@@ -602,6 +602,68 @@ probe_plan_hosts() {
 }
 printf 'A plan that downloads nothing probes nothing.\n'
 
+# The registry schema is checked whether or not the plan contributes scripts.
+# The reader takes two inputs, the script paths on stdin and the manifest, and
+# used `NR == FNR` to tell them apart. That means "still on the first file",
+# which stops being the same thing the moment the first file is empty: with no
+# scripts on stdin the manifest became the first file, every row was swallowed
+# into the wanted-set, and the header check never ran. A registry with no url,
+# component or consumers column reported success -- in exactly the case that
+# matters, because a plan with no networked step is the one that contributes
+# no scripts.
+broken_manifest="$test_root/broken-registry.tsv"
+printf 'id\tcomponent\towner\n' >"$broken_manifest"
+printf 'a-row\tsomething\tsomeone\n' >>"$broken_manifest"
+
+read_broken_registry() {
+  env -u NETWORK_SOURCE_MANIFEST DOTFILES_ROOT="$repo_root" bash -c '
+    source "$1/common/lib/network-sources.sh"
+    printf "%s" "${3-}" | network_sources_hosts "$2"
+  ' _ "$repo_root" "$broken_manifest" "$@"
+}
+
+for stdin_case in '' 'platforms/fedora/scripts/install-terra.sh'; do
+  if read_broken_registry "$stdin_case" >"$test_root/broken.log" 2>&1; then
+    printf 'A registry with no url column was accepted with stdin %s.\n' \
+      "${stdin_case:-empty}" >&2
+    exit 1
+  fi
+  grep -Fq 'network-source registry has no url, component or consumers column' \
+    "$test_root/broken.log" || {
+    printf 'The refusal did not name the missing columns:\n' >&2
+    cat "$test_root/broken.log" >&2
+    exit 1
+  }
+done
+printf 'A registry with a broken schema is refused even when no script asks for one.\n'
+
+# The mirror image, found by the lint and test harness thread while reading
+# this fix. An empty registry has no first record, so the header rule never
+# fires and checks nothing, and `[[ -r ]]` is satisfied by a zero-byte file.
+# A truncated or half-written registry therefore printed no hosts and returned
+# 0 -- indistinguishable from the legitimate "this plan asks nothing of the
+# network" answer asserted just above, which is the reason it has to be told
+# apart rather than merely reported.
+empty_manifest="$test_root/empty-registry.tsv"
+: >"$empty_manifest"
+
+for stdin_case in '' 'platforms/fedora/scripts/install-terra.sh'; do
+  if env -u NETWORK_SOURCE_MANIFEST DOTFILES_ROOT="$repo_root" bash -c '
+    source "$1/common/lib/network-sources.sh"
+    printf "%s" "${3-}" | network_sources_hosts "$2"
+  ' _ "$repo_root" "$empty_manifest" "$stdin_case" >"$test_root/empty.log" 2>&1; then
+    printf 'An empty registry was accepted with stdin %s.\n' \
+      "${stdin_case:-empty}" >&2
+    exit 1
+  fi
+  grep -Fq 'network-source registry has no header row' "$test_root/empty.log" || {
+    printf 'The refusal did not say the header row was missing:\n' >&2
+    cat "$test_root/empty.log" >&2
+    exit 1
+  }
+done
+printf 'An empty registry is refused rather than read as nothing to probe.\n'
+
 # The tmux step is in every platform's plan, so github.com is in every
 # platform's probe set. This is the claim the issue was filed about.
 for platform in fedora fedora-wsl macos parrot-ctf; do

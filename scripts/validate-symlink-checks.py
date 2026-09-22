@@ -53,11 +53,12 @@ TEST_DIRECTORY = "tests/"
 # function in common/verify-ai.sh with a different contract.
 MENTION = re.compile(rf"(?<![A-Za-z0-9_]){HELPER}(?![A-Za-z0-9_])")
 
-# The call sites not yet migrated, and how many each still has. Both Fedora
-# verifiers carry open findings of their own (GAP-07, GAP-09, GAP-11, GAP-12),
-# so they are migrated by the thread that fixes those rather than swept here.
+# The call sites not yet migrated, and how many each still has. The Fedora WSL
+# verifier carries open findings of its own (GAP-07, GAP-11), so it is migrated
+# by the thread that fixes those rather than swept here. The Fedora verifier's
+# entry is gone because its 18 call sites are migrated in this same change, and
+# with the entry gone that file is governed like every other one.
 MIGRATING = {
-    "platforms/fedora/scripts/verify.sh": 18,
     "platforms/fedora-wsl/scripts/verify.sh": 11,
 }
 

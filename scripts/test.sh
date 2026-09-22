@@ -149,6 +149,7 @@ default_tests=(
   tests/test-hardening.sh
   tests/test-desktop-tools.sh
   tests/test-dictation-fedora.sh
+  tests/test-fedora-verification.sh
   tests/test-containers.sh
   tests/test-containers-wsl.sh
   tests/test-tailscale.sh
