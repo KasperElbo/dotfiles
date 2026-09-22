@@ -168,6 +168,63 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "nvim.dotnet.run-nearest: source_pattern no longer matches"
 printf 'PASS: commenting a Neovim keymap out without updating the registry fails\n'
 
+# A block comment disables just as completely, and Neovim really does stop
+# loading the keys inside one: this check knew only line prefixes, so two
+# keymaps could be wrapped in `--[[ ]]` while the registry and the printed
+# sheets kept advertising them.
+test_new_root
+scratch="$TEST_ROOT/block-commented-lua"
+mkdir -p "$scratch"
+cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
+python3 - "$scratch/nvim-lazyvim/.config/nvim/lua/plugins/latex.lua" <<'PYTHON'
+import pathlib
+import sys
+
+spec = pathlib.Path(sys.argv[1])
+text = spec.read_text(encoding="utf-8")
+wrapped = (
+    '      { "<localleader>le", "<plug>(vimtex-errors)", desc = "Build errors", '
+    'ft = "tex" },'
+)
+if wrapped not in text:
+    raise SystemExit("the keymap this case comments out is gone")
+spec.write_text(text.replace(wrapped, f"      --[[\n{wrapped}\n      ]]", 1), encoding="utf-8")
+PYTHON
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "nvim.latex.errors: source_pattern no longer matches"
+printf 'PASS: a keymap disabled with a Lua block comment fails the registry\n'
+
+# The same in JSONC, where the two directions of this check used to disagree:
+# the reader that parses Waybar's configuration saw a `/* */` binding as gone
+# while the reader that matches source_pattern still saw it as present.
+test_new_root
+scratch="$TEST_ROOT/block-commented-jsonc"
+mkdir -p "$scratch"
+cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
+python3 - "$scratch/platforms/fedora/stow/waybar/.config/waybar/config.jsonc" <<'PYTHON'
+import pathlib
+import sys
+
+config = pathlib.Path(sys.argv[1])
+text = config.read_text(encoding="utf-8")
+binding = '    "on-click": "blueman-manager"'
+if binding not in text:
+    raise SystemExit("the Waybar click this case comments out is gone")
+config.write_text(
+    text.replace(binding, f'    /* {binding.strip()} */ "tooltip": true', 1),
+    encoding="utf-8",
+)
+PYTHON
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "waybar.bluetooth.click: source_pattern no longer matches"
+printf 'PASS: a Waybar click disabled with a JSONC block comment fails the registry\n'
+
 # --- An unregistered custom action is caught --------------------------------
 
 test_new_root
