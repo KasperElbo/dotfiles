@@ -245,13 +245,19 @@ mason_package_status() {
 $record
 EOF
 
-  # A receipt that claims no executables cancels the link check rather than
-  # passing it, and the function's contract is that a package's identity
-  # includes the links it claims to own outside its own directory. Deleting
-  # .links, or emptying .links.bin, therefore made the strictest part of this
-  # check disappear while the package still reported installed. Every package
-  # in both Neovim inventories declares at least one bin link upstream, so a
-  # receipt carrying none is not evidence of a finished install.
+  # A receipt with no links object is not a receipt Mason wrote: links is a
+  # fixed field of the schema, carrying bin, share and opt, and deleting it
+  # made the strictest part of this check vanish while the package still
+  # reported installed. Reading the links object is therefore a precondition
+  # for trusting the rest of the receipt, not a check of its own.
+  #
+  # An EMPTY links.bin is deliberately NOT treated the same way. It would
+  # catch one more damage shape, but every package this repository installs
+  # today happens to declare a bin link, and a package that legitimately
+  # linked nothing -- share or opt only, which Mason supports -- would then be
+  # reported unconverged forever. install-neovim-tools.sh dies on an
+  # unconverged package, so that mistake costs a failed install rather than a
+  # noisy check, and nothing here has observed what a real receipt carries.
   case "$links_state" in
   absent)
     _mason_result incomplete \
@@ -261,11 +267,6 @@ EOF
   no-bin-object)
     _mason_result incomplete \
       "the receipt in $package_dir has a links.bin that is not an object, so the executables it claims cannot be read"
-    return
-    ;;
-  0)
-    _mason_result incomplete \
-      "the receipt in $package_dir claims no executables, so nothing links this package into $mason_root/bin"
     return
     ;;
   esac

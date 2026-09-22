@@ -557,16 +557,20 @@ assert_file_contains "$root/mason.out" 'carries no links object'
 assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
 printf 'PASS: a receipt with no links object is not a finished install\n'
 
+# An empty links.bin is deliberately still credited, and this pins that choice
+# rather than leaving it as an accident. Mason supports a package that links
+# only share or opt, and reporting one unconverged would fail the install
+# outright; no receipt from a real install has been read here to say otherwise.
+# The cost is that this one damage shape is not caught, which is the point of
+# writing it down.
 mason_case_begin receipt-with-empty-bin-links
 mason_stylua_receipt="$mason_case_root/nvim/mason/packages/stylua/mason-receipt.json"
 jq '.links.bin = {}' "$mason_stylua_receipt" >"$mason_stylua_receipt.edited"
 mv "$mason_stylua_receipt.edited" "$mason_stylua_receipt"
-rm -f -- "$(mason_stylua_link)"
 mason_case_check
-assert_verifier_counts 1 1 0
-assert_file_contains "$root/mason.out" 'claims no executables'
-assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
-printf 'PASS: a receipt claiming no executables is not a finished install\n'
+assert_verifier_counts 2 0 0
+assert_file_contains "$root/mason.out" 'Mason: stylua (installed at 2.1.0)'
+printf 'PASS: a receipt that links nothing into bin is still credited\n'
 
 # jq is how a receipt is read. There is no way to make it answer "not
 # installed", so this narrows PATH to a base userland without it and requires
