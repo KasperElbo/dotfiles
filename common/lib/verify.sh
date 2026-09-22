@@ -662,6 +662,129 @@ check_mason_inventory() {
   return "$status"
 }
 
+# lazy_plugin_root
+#
+# Where lazy.nvim checks plugins out. Neovim's stdpath("data") is
+# $XDG_DATA_HOME/nvim and nothing in this repository moves it, so this is the
+# one place the path is written down.
+lazy_plugin_root() {
+  printf '%s\n' "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy"
+}
+
+# check_lazy_plugin_state <lockfile>
+#
+# Prove that this machine's Lazy plugin tree is the one the profile's lock file
+# names: every plugin checked out, and each at the exact commit. Offline by
+# construction -- it reads the lock file and Git's own HEAD and asks the
+# network nothing, so a machine that cannot reach GitHub is still judged rather
+# than excused.
+#
+# This has to run *before* Neovim is started, because a start cannot be the
+# evidence. The deployed configuration exists to make a workstation usable, so
+# left alone it installs whatever the profile names and does not find: a start
+# that reaches the end proves only that anything missing has since been
+# fetched, which is the defect in #371. Starting under DOTFILES_NVIM_VERIFY=1
+# stops the repair; this answers the question the start no longer can.
+#
+# lazy.nvim is an ordinary entry in the lock file, so a missing bootstrap is
+# reported by name here like any other plugin.
+check_lazy_plugin_state() {
+  local lockfile="$1"
+  local root entries plugin expected actual listed plugin_dir status=0
+  local -a locked=()
+
+  root="$(lazy_plugin_root)"
+
+  # jq and git are baseline packages on every platform whose verifier reaches
+  # this code. Their absence is an error, never a quietly skipped check: a run
+  # that credited a machine because its JSON parser was missing would report a
+  # clean plugin tree it never looked at.
+  if ! command_exists jq; then
+    fail "Lazy plugins cannot be verified: jq is required to read $lockfile"
+    return 1
+  fi
+  if ! command_exists git; then
+    fail "Lazy plugins cannot be verified: git is required to read plugin checkouts"
+    return 1
+  fi
+
+  if [[ ! -e "$lockfile" ]]; then
+    fail "Lazy lock file missing: $lockfile"
+    return 1
+  fi
+  if [[ ! -f "$lockfile" || ! -r "$lockfile" ]]; then
+    fail "Lazy lock file could not be read: $lockfile"
+    return 1
+  fi
+
+  # A lock file this checkout cannot parse is a failure and never an empty
+  # plugin set. jq's exit status is the only thing that separates the two, so
+  # its output is captured rather than read through a process substitution,
+  # where the status would be lost and a corrupt file would arrive here as
+  # "no plugins locked".
+  entries="$(jq -r 'to_entries[] | [.key, (.value.commit // "")] | @tsv' \
+    "$lockfile" 2>/dev/null)" || {
+    fail "Lazy lock file is not valid JSON: $lockfile"
+    return 1
+  }
+  if [[ -z "$entries" ]]; then
+    fail "Lazy lock file names no plugins: $lockfile"
+    return 1
+  fi
+
+  if [[ ! -d "$root" ]]; then
+    fail "Lazy plugin root missing: $root"
+    return 1
+  fi
+
+  # macOS's system Bash is 3.2 and has no mapfile, so this reads the captured
+  # output with a loop.
+  while IFS=$'\t' read -r plugin expected; do
+    [[ -n "$plugin" ]] || continue
+    locked+=("$plugin")
+    if [[ -z "$expected" ]]; then
+      fail "Lazy lock file records no commit for $plugin: $lockfile"
+      status=1
+      continue
+    fi
+    if [[ ! -d "$root/$plugin" ]]; then
+      fail "Lazy plugin not installed: $plugin (expected $expected)"
+      status=1
+      continue
+    fi
+    # A directory is not a checkout: an interrupted clone leaves one behind,
+    # and rev-parse is what tells the two apart.
+    actual="$(git -C "$root/$plugin" rev-parse HEAD 2>/dev/null || true)"
+    if [[ -z "$actual" ]]; then
+      fail "Lazy plugin is not a Git checkout: $plugin ($root/$plugin)"
+      status=1
+      continue
+    fi
+    if [[ "$actual" != "$expected" ]]; then
+      fail "Lazy plugin commit mismatch: $plugin (expected $expected, found $actual)"
+      status=1
+    fi
+  done <<<"$entries"
+
+  # A plugin the lock file does not name is a warning rather than a failure,
+  # the same call check_mason_inventory makes: it may be a deliberate local
+  # addition, but nothing in this repository owns it, and on a verified machine
+  # it is also how a repairing run leaves its fingerprints.
+  for plugin_dir in "$root"/*; do
+    [[ -d "$plugin_dir" ]] || continue
+    plugin="${plugin_dir##*/}"
+    for listed in ${locked[@]+"${locked[@]}"}; do
+      [[ "$plugin" != "$listed" ]] || continue 2
+    done
+    warning "Unexpected Lazy plugin (review ownership): $plugin"
+  done
+
+  if ((status == 0)); then
+    pass "Lazy plugins match ${#locked[@]} locked commits: $lockfile"
+  fi
+  return "$status"
+}
+
 # The Catppuccin tmux version common/install-tmux-theme.sh pins. It is read
 # from the installer rather than repeated here, so bumping the pin cannot
 # leave a verifier expecting the previous tag.
