@@ -227,7 +227,9 @@ bootstrap_cache="$bootstrap_home/.cache"
 stub_root="$test_root/bootstrap-stubs"
 mock_bin="$stub_root/bin"
 shell_state="$test_root/login-shell"
-debugger_path="$test_root/easydotnet/tools/netcoredbg/linux-x64/netcoredbg"
+# The verifier expects the bundled debugger for the host's own architecture.
+case "$(uname -m)" in aarch64 | arm64) debugger_rid=linux-arm64 ;; *) debugger_rid=linux-x64 ;; esac
+debugger_path="$test_root/easydotnet/tools/netcoredbg/$debugger_rid/netcoredbg"
 mkdir -p \
   "$bootstrap_config/git" \
   "$bootstrap_data/tmux/plugins" \
@@ -413,8 +415,9 @@ rm -- "$mock_bin/dotnet-easydotnet"
 cat >"$mock_bin/dotnet-easydotnet" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == healthcheck ]]; then
-  printf '[{"type":"ok","name":"debugger.engine","value":"netcoredbg"},{"type":"ok","name":"debugger.source","value":"bundled"},{"type":"ok","name":"debugger.platform","value":"linux-x64"},{"type":"ok","name":"debugger.path","value":"%s"},{"type":"ok","name":"debugger.version","value":"NET Core debugger test version"}]\n' \
-    "$MOCK_EASY_DOTNET_DEBUGGER"
+  platform="$(basename "$(dirname "$MOCK_EASY_DOTNET_DEBUGGER")")"
+  printf '[{"type":"ok","name":"debugger.engine","value":"netcoredbg"},{"type":"ok","name":"debugger.source","value":"bundled"},{"type":"ok","name":"debugger.platform","value":"%s"},{"type":"ok","name":"debugger.path","value":"%s"},{"type":"ok","name":"debugger.version","value":"NET Core debugger test version"}]\n' \
+    "$platform" "$MOCK_EASY_DOTNET_DEBUGGER"
 fi
 EOF
 chmod +x "$mock_bin/dotnet-easydotnet"
