@@ -240,6 +240,8 @@ workflow_angular() {
   local project="$root/angular-smoke"
   local response="$root/angular-response.html"
   local log="$root/angular-server.log"
+  local report="$root/angular-test-report.json"
+  local executed
   local port
 
   port="$(node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')" ||
@@ -253,10 +255,41 @@ workflow_angular() {
     npm install --no-audit --no-fund &&
       npm run format:check &&
       npm run lint &&
-      npm test -- --watch=false &&
+      npm test -- --watch=false \
+        --reporters=json --reporters=default --output-file="$report" &&
       npm run build -- --configuration development &&
       npm run build:debug
   ) || return 1
+
+  # `ng test` exits zero for a run that executed nothing: a skipped spec
+  # reports "1 skipped" and succeeds, and the pool failure that prompted this
+  # check reported "no tests" at all. The exit status alone therefore cannot
+  # tell a working toolchain from one that never ran a test, so the machine
+  # readable report decides instead -- every discovered test must have run and
+  # passed, and there must have been at least one of them.
+  executed="$(node -e '
+let report;
+try {
+  report = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+} catch (error) {
+  console.error(`no readable test report at ${process.argv[1]}: ${error.message}`);
+  process.exit(1);
+}
+const count = (key) => report[key] ?? 0;
+const total = count("numTotalTests");
+const passed = count("numPassedTests");
+const failed = count("numFailedTests");
+const skipped = count("numPendingTests") + count("numTodoTests");
+if (report.success !== true || total < 1 || passed !== total || failed || skipped) {
+  console.error(`passed ${passed} of ${total} tests, ${failed} failed, ${skipped} skipped`);
+  process.exit(1);
+}
+console.log(total);
+' "$report")" || {
+    warn "Angular unit tests reported success without executing every test"
+    return 1
+  }
+  info "Angular unit tests executed and passed: $executed"
 
   find "$project/dist" -type f -name '*.map' -print -quit | grep -q . || {
     warn "Angular development build did not emit source maps"
