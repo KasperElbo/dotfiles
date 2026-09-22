@@ -235,6 +235,29 @@ if ((${#unsatisfied_floor[@]} > 0)); then
   exit 2
 fi
 
+# A runner requirement that is not a command, and the reason the preflight
+# above grew a second half. That machinery only understands names on PATH, so
+# the lazy.nvim checkout tests/test-neovim-tool-ownership.sh hard-requires
+# bypassed it entirely: on a machine satisfying every documented tool, one
+# suite failed partway through a long run, naming lazy.nvim but not the policy
+# -- exactly what the comment above says the command list exists to prevent.
+# CI clones it and exports DOTFILES_LAZY_NVIM, so only a contributor running
+# the documented command locally ever met it.
+#
+# Aggregate only, matching the policy the command list follows: a targeted run
+# is each suite's own business, and the suite's hard failure stays the backstop.
+if ((${#selected_tests[@]} == 0)); then
+  # shellcheck source=../tests/lib/lazy-nvim.sh
+  source "$repo_root/tests/lib/lazy-nvim.sh"
+  lazy_nvim_path="$(lazy_nvim_checkout)"
+  if ! lazy_nvim_is_ready "$lazy_nvim_path"; then
+    printf 'ERROR: no lazy.nvim checkout at %s\n' "$lazy_nvim_path" >&2
+    printf 'Policy: runner dependencies are required; no suites were run or credited as skipped.\n' >&2
+    printf 'Clone folke/lazy.nvim at the revision nvim-lazyvim/.config/nvim/lazy-lock.json pins, or point DOTFILES_LAZY_NVIM at a checkout.\n' >&2
+    exit 2
+  fi
+fi
+
 passed=()
 failed=()
 skipped=()
@@ -314,6 +337,13 @@ run_suite() {
     "${limit[@]}" bash "$test_path"
   fi
 }
+
+# Read off the array rather than stated anywhere, so the number cannot be
+# quoted from memory: the count in circulation was 89 while the runner ran 82,
+# which matters whenever it is used as a coverage claim.
+suite_noun=suites
+((${#tests[@]} == 1)) && suite_noun=suite
+printf 'Running %d %s\n' "${#tests[@]}" "$suite_noun"
 
 for ((index = 0; index < ${#tests[@]}; index++)); do
   test_script="${tests[index]}"
