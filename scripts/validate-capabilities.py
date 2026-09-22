@@ -692,6 +692,13 @@ MOCKED_VERIFIERS = {
     "platforms/fedora-wsl/scripts/verify-containers.sh": "tests/test-containers-wsl.sh",
 }
 
+# A `run:` key, and the block scalar indicators its body may open with. The
+# key may start a step (`- run: |`) or follow one of its siblings; either way
+# `lead` is everything before `run`, so its length is the column the body must
+# be indented past.
+RUN_KEY = re.compile(r"^(?P<lead>\s*(?:-\s+)?)run:(?P<inline>.*)$")
+BLOCK_SCALAR = re.compile(r"[|>][-+]?\d*")
+
 VERIFIER_REFERENCE = re.compile(
     r"(?<![\w-])((?:common|scripts|platforms/[\w-]+/scripts)/verify[\w-]*\.sh)(?![\w-])"
 )
@@ -731,9 +738,14 @@ def code_text(path: pathlib.Path) -> str:
     comment's position is taken from the blanked line and the code is read out
     of the original.
     """
+    return drop_comments(path.read_text(encoding="utf-8").splitlines())
+
+
+def drop_comments(lines: list[str]) -> str:
+    """The code half of each line, keeping the strings, dropping the comments."""
     return "\n".join(
         line[: len(strip_noise(line))]
-        for line in path.read_text(encoding="utf-8").splitlines()
+        for line in lines
         if not line.lstrip().startswith("#")
     )
 
@@ -853,9 +865,57 @@ def default_test_suites() -> set[str]:
     return set(match.group(1).split()) if match else set()
 
 
+class UnreadableWorkflow(Exception):
+    """A workflow whose `run:` blocks could not be read."""
+
+
+def workflow_shell(path: pathlib.Path) -> str:
+    """The shell a workflow runs, without the YAML that surrounds it.
+
+    A workflow is not a script, and searching the whole file for a path finds
+    it wherever it is written -- in a step's `name:`, in an `if:`, in a
+    message a step echoes. None of those run anything, so none of them is
+    evidence that CI runs the thing they name. Only the body of a `run:` key
+    is, so only that is returned.
+
+    The three shapes the workflow writes are all read: the inline scalar
+    (`run: ./x.sh`), the literal block (`run: |`) and the folded block
+    (`run: >-`). A block's body is the lines indented past its key, which is
+    also what ends it -- the next key of the same step, or the next step.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    shell: list[str] = []
+    found = False
+    index = 0
+    while index < len(lines):
+        key = RUN_KEY.match(lines[index])
+        if key is None:
+            index += 1
+            continue
+        found = True
+        margin = len(key["lead"])
+        inline = key["inline"].strip()
+        index += 1
+        if not BLOCK_SCALAR.fullmatch(inline):
+            shell.append(inline)
+            continue
+        while index < len(lines):
+            line = lines[index]
+            if line.strip() and len(line) - len(line.lstrip()) <= margin:
+                break
+            shell.append(line)
+            index += 1
+    if not found:
+        raise UnreadableWorkflow(
+            f"{path.relative_to(ROOT)}: no `run:` step could be read, so the "
+            f"check that CI runs each verifier would pass for want of evidence"
+        )
+    return drop_comments(shell)
+
+
 def real_install_text() -> str:
-    """real-install.yml, plus every sequence or suite one of its steps runs."""
-    workflow = code_text(REAL_INSTALL_WORKFLOW)
+    """The shell real-install.yml runs, plus every sequence or suite it runs."""
+    workflow = workflow_shell(REAL_INSTALL_WORKFLOW)
     texts = [workflow]
     scripts = set(INTEGRATION_SCRIPT.findall(workflow)) | set(
         WINDOWS_SUITE.findall(workflow)
