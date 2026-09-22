@@ -41,11 +41,19 @@ network_sources_hosts() {
   }
 
   awk -F'\t' -v manifest="$manifest" '
-    NR == FNR {
+    # Which file a record came from is decided by name, not by NR == FNR. That
+    # idiom reads "still in the first file", but it is really "no record has
+    # been read twice yet", and with an empty first file it stays true for the
+    # whole second one. The schema check below would then never run, and a
+    # registry missing a column it needs would be accepted silently -- for any
+    # plan that happens to contribute no scripts, which is the one case where
+    # nothing else would notice either.
+    FILENAME != manifest {
       if ($0 != "") wanted[$0] = 1
       next
     }
     FNR == 1 {
+      header_seen = 1
       for (column = 1; column <= NF; column++) index_of[$column] = column
       if (!("url" in index_of) || !("consumers" in index_of) || !("component" in index_of)) {
         print "network-source registry has no url, component or consumers column: " manifest > "/dev/stderr"
@@ -77,6 +85,13 @@ network_sources_hosts() {
     }
     END {
       if (failed) exit 1
+      # Readable and empty is still a registry that cannot be read. Without
+      # this the header rule never fires and the run probes nothing, which
+      # looks exactly like a plan that asks nothing of the network.
+      if (!header_seen) {
+        print "network-source registry is empty: it has no header row: " manifest > "/dev/stderr"
+        exit 1
+      }
       for (i = 1; i <= hosts; i++) printf "%s\t%s\n", order[i], components[order[i]]
     }
   ' - "$manifest"

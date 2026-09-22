@@ -602,6 +602,67 @@ probe_plan_hosts() {
 }
 printf 'A plan that downloads nothing probes nothing.\n'
 
+# --- The registry schema check must not depend on what the plan contains ----
+#
+# network_sources_hosts reads the plan's script list, then the registry, and
+# told the two apart with `NR == FNR`. That idiom means "no record has been
+# read twice yet", not "still in the first file", so an empty script list left
+# it true for every registry line: the schema check below it never ran, and a
+# registry missing a column the reader needs was accepted in silence. The case
+# above -- a plan that asks nothing of the network -- is exactly the one where
+# nothing else would have noticed either, and preflight.sh states the opposite
+# contract: a registry that cannot be read must stop the run rather than
+# silently probe nothing and report success.
+registry_root="$test_root/network-registry"
+mkdir -p "$registry_root"
+good_registry="$repo_root/config/network-sources.tsv"
+no_url_registry="$registry_root/no-url-column.tsv"
+awk -F'\t' 'BEGIN { OFS = "\t" }
+  NR == 1 { for (i = 1; i <= NF; i++) if ($i == "url") $i = "NOTURL"; print; next }
+  { print }' "$good_registry" >"$no_url_registry"
+empty_registry="$registry_root/empty.tsv"
+: >"$empty_registry"
+
+network_registry_case() {
+  local manifest="$1" plan="$2"
+  run_capture env -u NETWORK_SOURCE_MANIFEST DOTFILES_ROOT="$repo_root" bash -c '
+    printf "%s" "$3" |
+      { source "$1/common/lib/network-sources.sh" && network_sources_hosts "$2"; }
+  ' _ "$repo_root" "$manifest" "$plan"
+}
+terra_plan='platforms/fedora/scripts/install-terra.sh
+'
+schema_refusal='has no url, component or consumers column'
+
+# The control: a real script against the real registry still answers.
+network_registry_case "$good_registry" "$terra_plan"
+assert_status 0
+assert_contains "$TEST_OUTPUT" 'repos.fyralabs.com'
+
+# The refusal that already worked, and the same refusal with an empty plan.
+# These two differ only in what the caller asked for, which is the point: a
+# registry is readable or it is not, and the plan does not get a say.
+network_registry_case "$no_url_registry" "$terra_plan"
+assert_status 1
+assert_contains "$TEST_OUTPUT" "$schema_refusal"
+network_registry_case "$no_url_registry" ''
+assert_status 1
+assert_contains "$TEST_OUTPUT" "$schema_refusal"
+
+# Readable and empty is still a registry that cannot be read. Without a check
+# the header rule never fires at all, and the run probes nothing -- which looks
+# exactly like the legitimate empty-plan case above.
+network_registry_case "$empty_registry" ''
+assert_status 1
+assert_contains "$TEST_OUTPUT" 'is empty: it has no header row'
+
+# And the legitimate one still is legitimate: a good registry with nothing to
+# match prints nothing and succeeds.
+network_registry_case "$good_registry" ''
+assert_status 0
+assert_eq '' "$TEST_OUTPUT" 'a plan with no scripts must probe nothing against a readable registry'
+printf 'A registry that cannot be read stops the run whatever the plan contains.\n'
+
 # The tmux step is in every platform's plan, so github.com is in every
 # platform's probe set. This is the claim the issue was filed about.
 for platform in fedora fedora-wsl macos parrot-ctf; do
