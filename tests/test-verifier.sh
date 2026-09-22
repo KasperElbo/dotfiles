@@ -761,4 +761,48 @@ assert_contains "$TEST_OUTPUT" 'mise is unavailable'
 assert_probe_counts 0 0 0 1
 printf 'PASS: without mise the prefix is unobserved, not silently clean\n'
 
+# --- A settings file proves the setting, not its ghost ----------------------
+#
+# check_file_contains reports that a theme override "matches". It used to
+# prove only that the text occurred somewhere in the file, comments included,
+# so one git-theme could satisfy two mutually exclusive flavour assertions at
+# once and a fully commented-out override read as applied (issue #390, VL-01).
+printf 'Active-line file content\n'
+
+contains_root="$root/file-contains"
+mkdir -p "$contains_root"
+
+stale_theme="$contains_root/git-theme"
+printf '[delta]\n    # features = catppuccin-latte\n    features = catppuccin-mocha\n' \
+  >"$stale_theme"
+
+verify_reset
+run_capture probe_counts check_file_contains 'Delta override matches' \
+  "$stale_theme" 'features = catppuccin-mocha'
+assert_contains "$TEST_OUTPUT" 'Delta override matches'
+assert_probe_counts 1 0 0 0
+printf 'PASS: the flavour that is in effect passes, indented under its section\n'
+
+verify_reset
+run_capture probe_counts check_file_contains 'Delta override matches' \
+  "$stale_theme" 'features = catppuccin-latte'
+assert_contains "$TEST_OUTPUT" 'on a line that is in effect'
+assert_probe_counts 0 1 0 0
+printf 'PASS: the flavour left behind in a comment no longer passes as well\n'
+
+commented_only="$contains_root/ghostty.conf"
+printf '# theme = catppuccin-mocha.conf\n' >"$commented_only"
+
+verify_reset
+run_capture probe_counts check_file_contains 'Ghostty override matches' \
+  "$commented_only" 'theme = catppuccin-mocha.conf'
+assert_probe_counts 0 1 0 0
+printf 'PASS: a file whose only match is commented out fails\n'
+
+verify_reset
+run_capture probe_counts check_file_contains 'Ghostty override matches' \
+  "$contains_root/not-written-yet" 'theme = catppuccin-mocha.conf'
+assert_probe_counts 0 1 0 0
+printf 'PASS: an unreadable file is still a failure, not a silent pass\n'
+
 printf 'Shared verifier tests passed.\n'
