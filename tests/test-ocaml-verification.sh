@@ -115,6 +115,7 @@ new_machine() {
   local capabilities="${1:-base,dotnet-debug,ocaml}"
   local status="${2:-installed}"
   local observed="${3:-$capabilities}"
+  local platform="${4:-macos}"
 
   test_new_root
   MACHINE="$TEST_ROOT"
@@ -128,7 +129,7 @@ new_machine() {
 schema_version=2
 profile=install
 status=$status
-platform=macos
+platform=$platform
 requested_capabilities=$capabilities
 observed_capabilities=$observed
 external_assurance=not-recorded
@@ -347,5 +348,113 @@ assert_file_line "$MACHINE/config/dotfiles/ocaml.conf" switch=dotfiles-ocaml-5.4
 run_verifier
 assert_success
 printf 'PASS: a compiler override survives a rerun that does not repeat it\n'
+
+# ---------------------------------------------------------------------------
+# GAP-31: ownership is a package-database question, not a path question
+# ---------------------------------------------------------------------------
+#
+# Living under the native prefix is not being owned by the native provider.
+# /usr/local is precisely the hierarchy the distribution package manager does
+# not own, and it is where upstream's binary installer puts opam on Linux by
+# default, so `/usr/local/bin/opam` satisfied `/usr/*` and was reported as
+# natively provided -- the one case the section exists to rule out.
+#
+# This file is portable and may not name a distribution's package tools, so the
+# query comes from the caller. These cases supply it the way a platform
+# verifier will, which is also what proves the seam is usable.
+
+# A machine whose opam sits in <opam_dir>, with a package-database query that
+# owns $MACHINE/usr/bin/opam and nothing else -- which is what a package
+# database does -- and which refuses any argv this fixture did not anticipate.
+new_owned_machine() {
+  local opam_dir="${1:?opam directory is required}"
+
+  new_machine
+  OWNER_BIN="$MACHINE/owner-bin"
+  mkdir -p "$OWNER_BIN" "$MACHINE$opam_dir"
+  OPAM_MOCK="$MACHINE$opam_dir/opam"
+  write_opam_mock "$OPAM_MOCK"
+
+  cat >"$OWNER_BIN/query-owner" <<QUERY
+#!/usr/bin/env bash
+set -u
+if [[ "\$1" == "$MACHINE/usr/bin/opam" ]]; then
+  printf '%s' "\${MOCK_PACKAGE_OWNER-opam}"
+  exit 0
+fi
+printf 'no package owns \$1\n' >&2
+exit 1
+QUERY
+  chmod +x "$OWNER_BIN/query-owner"
+
+  VERIFIER_PATH="$MACHINE$opam_dir:$OWNER_BIN:/usr/bin:/bin"
+}
+
+# run_owned_verifier [extra VAR=VALUE ...]: the caller supplies both halves of
+# the ownership question, and the native prefix as well, because the platform
+# verifiers pass it and because it is what made the /usr/local case pass.
+run_owned_verifier() {
+  run_verifier \
+    "DOTFILES_NATIVE_PREFIX=$MACHINE/usr" \
+    "DOTFILES_NATIVE_OWNER=opam" \
+    "DOTFILES_NATIVE_OWNER_QUERY=query-owner" \
+    "$@"
+}
+
+new_owned_machine /usr/bin
+record_ocaml_state
+run_owned_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" "opam is provided by the platform's opam package"
+printf 'PASS: an opam the package database owns verifies\n'
+
+# The finding's own reproduction. The path is inside the native prefix, so the
+# containment test passed it; no package owns it, which is what decides.
+new_owned_machine /usr/local/bin
+record_ocaml_state
+run_owned_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" "owned by no native package"
+assert_not_contains "$TEST_OUTPUT" "opam is provided by the platform's opam package"
+printf 'PASS: an opam under /usr/local is not the native provider\n'
+
+# An opam some other package owns is somebody else's opam too, and the message
+# has to name that owner rather than say the file is unowned.
+new_owned_machine /usr/bin
+record_ocaml_state
+MOCK_PACKAGE_OWNER=some-other-package run_owned_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" "owned by some-other-package"
+printf 'PASS: an opam owned by another package fails\n'
+
+# A query that is not runnable here is a question that could not be asked.
+# Reporting it as ownership is the false pass again; reporting it as drift
+# would send someone to reinstall a machine that is fine.
+new_owned_machine /usr/bin
+record_ocaml_state
+VERIFIER_PATH="$MACHINE/usr/bin:/usr/bin:/bin" run_owned_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" "query-owner is unavailable here"
+assert_not_contains "$TEST_OUTPUT" "opam is provided by the platform's opam package"
+printf 'PASS: an unrunnable ownership query is unobserved rather than owned\n'
+
+# Without a query the prefix comparison is all there is, and there it must
+# still refuse the shape above rather than credit it.
+new_owned_machine /usr/local/bin
+record_ocaml_state
+run_verifier "DOTFILES_NATIVE_PREFIX=$MACHINE/usr"
+assert_failure
+assert_contains "$TEST_OUTPUT" '/local, which is'
+printf 'PASS: the prefix fallback refuses a /usr/local opam too\n'
+
+# ...and still credits the same opam where the package manager does put it, so
+# the case above is a rule about /usr/local rather than a check that fails
+# everything.
+new_owned_machine /usr/bin
+record_ocaml_state
+run_verifier "DOTFILES_NATIVE_PREFIX=$MACHINE/usr"
+assert_success
+assert_contains "$TEST_OUTPUT" "owned by the platform's native provider"
+printf 'PASS: the prefix fallback still credits a natively placed opam\n'
 
 printf 'OCaml profile verification contract tests passed.\n'
