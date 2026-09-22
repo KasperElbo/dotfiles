@@ -568,17 +568,55 @@ for expected in \
   'Microphone and Accessibility consent is interactive'; do
   assert_contains "$baseline_output" "$expected"
 done
-# The fixture itself is healthy: nothing this suite proves fails in it.
-for unexpected in 'Theme state' 'Starship configuration' 'theme override' \
-  'bat does not' 'Zsh login STARSHIP_CONFIG' 'Zsh login BAT_THEME' 'Mason package' \
-  'Catppuccin tmux is' 'resolves outside mise' 'does not run' \
-  'does not satisfy'; do
-  reported="$(grep -F -- "$unexpected" <<<"$baseline_output" || true)"
-  if grep -Fq '✗' <<<"$reported"; then
-    _test_die "the healthy macOS fixture failed a check this suite owns ($unexpected):\n$baseline_output"
-  fi
-done
+# What the fixture cannot describe, named rather than counted. These are the
+# only checks allowed to fail in it, so a check this suite owns that starts
+# failing is reported here, and so is a check added to the verifier that fails
+# on every run -- which a failure *count* absorbs silently. Issue #371 is what
+# that costs: a plugin check was wired into this verifier, failed on every run
+# from the first commit, and rode along inside baseline_failures.
+macos_fixture_failures=(
+  # The isolated PATH leads with this suite's mock bin, so the OpenSSH clients
+  # resolve there rather than at Apple's /usr/bin.
+  'sftp resolves to '
+  'scp resolves to '
+  'ssh resolves to '
+  # No application bundles: the fixture is a filesystem, not a Mac.
+  'Ghostty is missing: '
+  'AeroSpace is missing: '
+  'Ghostty application is missing'
+  'AeroSpace application is missing'
+  'AeroSpace loaded unexpected config: '
+  # MOCK_ZSH is a stub, so a login shell reports neither the activation line
+  # nor a Homebrew prefix.
+  'Zsh login environment does not activate Starship and mise: '
+  'Zsh login environment exports HOMEBREW_PREFIX='
+)
+assert_verifier_failures "$baseline_output" "${macos_fixture_failures[@]}"
 printf 'PASS: a healthy macOS fixture passes the theme, Mason, tmux and mise ownership checks\n'
+
+# The four application checks above are in that list because this fixture holds
+# no bundles, and they belong to the fixture only if the verifier reads
+# MACOS_APPLICATIONS_DIR. It used to name /Applications outright, so on a Mac
+# with Ghostty and AeroSpace installed those four checks passed and the list
+# above -- or, before it, the baseline count -- described the machine running
+# the tests rather than the tree under test.
+mkdir -p "$applications/Ghostty.app/Contents/MacOS" \
+  "$applications/AeroSpace.app/Contents/MacOS"
+printf '#!/bin/sh\nprintf "macos-option-as-alt = left\\n"\n' \
+  >"$applications/Ghostty.app/Contents/MacOS/ghostty"
+printf '#!/bin/sh\nexit 0\n' >"$applications/AeroSpace.app/Contents/MacOS/AeroSpace"
+chmod +x "$applications/Ghostty.app/Contents/MacOS/ghostty" \
+  "$applications/AeroSpace.app/Contents/MacOS/AeroSpace"
+run_verifier
+assert_contains "$TEST_OUTPUT" 'Ghostty application is installed'
+assert_contains "$TEST_OUTPUT" 'Ghostty sends Left Option as Alt'
+assert_contains "$TEST_OUTPUT" 'AeroSpace application is installed'
+assert_not_contains "$TEST_OUTPUT" 'Ghostty is missing:'
+assert_not_contains "$TEST_OUTPUT" 'AeroSpace is missing:'
+rm -rf "$applications/Ghostty.app" "$applications/AeroSpace.app"
+run_verifier
+assert_eq "$baseline_failures" "$failures" 'the application fixture is removed again'
+printf 'PASS: the application bundles are read where the fixture puts them, not in /Applications\n'
 
 # expect_one_more_failure <description> <message>: the last run failed exactly
 # one more check than the healthy fixture, and named it.

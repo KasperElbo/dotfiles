@@ -306,10 +306,24 @@ verify_environment=(
   "SPICE_AGENT_CHANNEL=$channels/com.redhat.spice.0"
 )
 
+# The healthy fixture must verify with nothing failing, and this is where that
+# is decided. Capturing the run in a bare assignment let errexit end the suite
+# the instant one check failed, with the verifier's own output still inside the
+# substitution and not a line printed: a check that failed on every run showed
+# up here as a bare exit 1 and said nothing about itself. Keep the status and
+# print what the run reported.
+set +e
 verification_output="$(
   "${verify_environment[@]}" \
     "$repo_root/platforms/parrot-ctf/scripts/verify.sh" 2>&1
 )"
+verification_status=$?
+set -e
+if ((verification_status != 0)); then
+  printf 'The healthy Parrot fixture failed verification (exit %d):\n' "$verification_status" >&2
+  printf '%s\n' "$verification_output" >&2
+  exit 1
+fi
 # The healthy fixture reports manual assurances and unobserved checks, and the
 # summary now says so. It used to print four "NOT OBSERVED:" lines and two
 # manual assurances through uncounted printfs and still end on the unqualified

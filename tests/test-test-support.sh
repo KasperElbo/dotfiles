@@ -277,4 +277,58 @@ assert_status 2
 assert_contains "$TEST_OUTPUT" 'cannot read as shell'
 assert_contains "$TEST_OUTPUT" 'unterminated single quote'
 
+# --- A verifier's failures are a named set, not a count ---------------------
+
+# verifier_fixture <path> [message ...]: a file holding what a verifier writes
+# when those checks fail, marker and colour escapes and all, so these cases
+# read the real shape rather than a hand-typed approximation of it.
+verifier_fixture() {
+  local path="$1" line
+  shift
+  : >"$path"
+  for line in "$@"; do
+    printf '\033[1;31m%s\033[0m %s\n' "✗" "$line" >>"$path"
+  done
+}
+
+ghostty_failure='Ghostty is missing: /Applications/Ghostty.app'
+ssh_failure='ssh resolves to /tmp/dotfiles-test.aaaaaa/bin/ssh, not /usr/bin/ssh'
+
+printf 'A declared failure set accepts exactly the failures it names\n'
+fixture="$root/verifier-declared.log"
+verifier_fixture "$fixture" "$ghostty_failure" "$ssh_failure"
+assert_verifier_failures "$(cat "$fixture")" 'Ghostty is missing: ' 'ssh resolves to '
+assert_eq "$ghostty_failure" \
+  "$(verifier_failure_lines "$(cat "$fixture")" | head -n 1)" \
+  'the marker and the colour escapes are stripped'
+
+printf 'A check that fails on every run is reported, not absorbed\n'
+# The negative control for issue #371: one check more than the list describes,
+# which a baseline count would have taken as the new normal.
+verifier_fixture "$root/verifier-extra.log" "$ghostty_failure" 'a check that fails on every run'
+run_suite '-uo pipefail' "assert_verifier_failures \"\$(cat $root/verifier-extra.log)\" 'Ghostty is missing: '"
+assert_status 1
+assert_contains "$TEST_OUTPUT" 'reported, never declared: a check that fails on every run'
+
+printf 'A declared failure that stopped being reported is named\n'
+verifier_fixture "$root/verifier-missing.log" "$ghostty_failure"
+run_suite '-uo pipefail' "assert_verifier_failures \"\$(cat $root/verifier-missing.log)\" 'Ghostty is missing: ' 'AeroSpace is missing: '"
+assert_status 1
+assert_contains "$TEST_OUTPUT" 'declared, never reported: AeroSpace is missing: '
+
+printf 'A prefix loose enough to cover two failures is refused\n'
+# Otherwise the list reopens what it was written to close: one entry silently
+# stands in for any number of failures that happen to start alike.
+verifier_fixture "$root/verifier-loose.log" "$ghostty_failure" 'Ghostty is missing: its configuration'
+run_suite '-uo pipefail' "assert_verifier_failures \"\$(cat $root/verifier-loose.log)\" 'Ghostty is missing: '"
+assert_status 1
+assert_contains "$TEST_OUTPUT" 'declared, covers 2 failures: Ghostty is missing: '
+
+printf 'A run with no failures satisfies an empty declaration\n'
+verifier_fixture "$root/verifier-clean.log"
+assert_verifier_failures "$(cat "$root/verifier-clean.log")"
+run_suite '-uo pipefail' "assert_verifier_failures \"\$(cat $root/verifier-extra.log)\""
+assert_status 1
+assert_contains "$TEST_OUTPUT" 'reported, never declared: a check that fails on every run'
+
 printf 'Shared test-support tests passed.\n'
