@@ -674,6 +674,42 @@ silently become test fixtures.
 | Fedora WSL / Windows boundary | `windows-latest` exercises the Windows bootstrap boundary. The manual self-hosted WSL job imports a fresh distro from a clean Fedora WSL export tar for every run, performs the first install, terminates and relaunches that distro so `/etc/wsl.conf` changes take effect, then runs the independent verifier, idempotent rerun and theme transition before unregistering it. | GitHub-hosted Windows runners do not provide a dependable, reboot-capable Fedora WSL installation. Clean WSL evidence therefore depends on maintaining an immutable clean export on the labelled self-hosted runner. |
 | Parrot CTF guest | Scheduled CI confirms Parrot/APT availability and requires the real installer to reject a non-QEMU container specifically at the VM preflight boundary. A manual clean/snapshotted KVM/QEMU guest additionally runs an invalid-package failure-propagation check, install, verify, rerun and theme transition. | GitHub has no hosted Parrot KVM/QEMU guest with the repository's required guest channels/isolation. The container job is explicitly **not** counted as VM evidence. The self-hosted VM must be reverted to its clean snapshot between runs. |
 
+### Why the real installs are weekly, and what that costs
+
+Every gate a pull request waits on is mocked. `validate.yml` runs lint, the
+mocked suites, the PowerShell suites and a macOS job whose install is
+`--dry-run`; none of them installs anything. The real installs above run on a
+Sunday schedule or a manual dispatch, and the WSL and Parrot jobs only on a
+dispatch that sets their input. So a change can pass every merge gate, break a
+real install, and sit on `main` until the next scheduled run — up to a week on
+Fedora and macOS, and indefinitely on WSL and Parrot until someone dispatches
+them.
+
+**That is the accepted cadence, not an oversight.** A clean Fedora run is
+around ninety minutes of runner time and the matrix is four platform classes,
+two of them self-hosted and stateful: the WSL job imports a golden export tar
+and the Parrot job reverts a VM snapshot, and neither can run concurrently with
+itself. Making that a required pull-request check would put ninety minutes and a
+serialised self-hosted runner in front of every merge, including the
+documentation-only ones, for evidence that has so far agreed with the mocked
+tier on every run. The repository buys timeliness elsewhere instead: the
+registry enforcement in `scripts/validate-capabilities.py` requires every
+implemented capability to be selected by a real-install invocation and to have
+its verifier run there, so the weekly job cannot silently stop covering
+something, and that requirement *is* checked on every pull request.
+
+What this means in practice is the rule already stated under
+[Maintenance/release role](#maintenancerelease-role): a green pull request means
+the mocked tier agreed, not that any machine was installed, so changes to
+bootstrap, login-shell, package-provider, lifecycle, Neovim bootstrap, VM
+boundary or platform installer code are reviewed against the latest real-install
+run before a release rather than against their own checks.
+
+Revisit this only if a real-install run actually catches something the mocked
+tier missed, or if the gap between a merge and its evidence starts costing more
+than the runner time would. Until then, the weekly cadence is the decision, and
+a change proposing to tighten it should say which of the two happened.
+
 ### Self-hosted runner contracts
 
 The optional clean WSL job expects a runner labelled:
