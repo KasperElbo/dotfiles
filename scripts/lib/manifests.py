@@ -24,6 +24,10 @@ say -- so that validator shares it like every other caller. It also shares the
 readers of the *other* side of its comparison -- the Stow scripts and the mise
 configuration -- so a generated page and the check against the manifest can
 never parse those files two different ways.
+
+`check_or_write` is the other end of the same pipeline: every `render-*.py`
+ends with it, so what "this generated document is current" means is decided
+here once rather than eight times.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ import fnmatch
 import os
 import pathlib
 import re
+import sys
 import tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -174,6 +179,34 @@ def capability_names(manifest: pathlib.Path | None = None) -> tuple[str, ...]:
         if row["capability"] not in names:
             names.append(row["capability"])
     return tuple(names)
+
+
+def check_or_write(target: pathlib.Path, content: str, argv: list[str]) -> int:
+    """Write a generated document, or with `--check` report whether it is current.
+
+    The comparison is on bytes, never on decoded text. `Path.read_text` opens
+    in text mode with `newline=None`, which is Python's universal-newline
+    translation: a CRLF pair and a lone carriage return both arrive as a plain
+    newline, so a gate built on it compares a line-ending-normalised view of
+    the file rather than the file. A document converted to CRLF, or one
+    carrying a stray carriage return mid-file, then reads as current -- and
+    `git diff --check` misses the stray one as well -- while the very next
+    render writes different bytes. Comparing the committed bytes is what makes
+    "current" mean byte-for-byte what a render produces, which is what the
+    eight callers of this gate are trusted to prove. A render writes bytes for
+    the same reason: text mode would translate a newline to `os.linesep`.
+
+    `argv` is the caller's own `sys.argv`: `--check` is looked for there, and
+    its first entry names the renderer the stale report tells you to run.
+    """
+    if "--check" in argv:
+        if not target.exists() or target.read_bytes() != content.encode("utf-8"):
+            print(f"Generated document is stale: {target}", file=sys.stderr)
+            print(f"Run ./scripts/{pathlib.Path(argv[0]).name}", file=sys.stderr)
+            return 1
+        return 0
+    target.write_bytes(content.encode("utf-8"))
+    return 0
 
 
 # The `packages=(…)` array a Stow script iterates, and every `packages+=(…)`

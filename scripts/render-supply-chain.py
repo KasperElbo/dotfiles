@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import read_tsv  # noqa: E402
+from manifests import check_or_write, read_tsv  # noqa: E402
 
 root = pathlib.Path(__file__).resolve().parents[1]
 manifest = root / "config" / "network-sources.tsv"
@@ -59,9 +59,4 @@ for row in sorted(rows, key=lambda row: row["id"]):
 
 content = "\n".join(lines) + "\n"
 
-if "--check" in sys.argv:
-    if not target.exists() or target.read_text(encoding="utf-8") != content:
-        print(f"Generated network-source inventory is stale: {target}", file=sys.stderr)
-        raise SystemExit(1)
-else:
-    target.write_text(content, encoding="utf-8")
+raise SystemExit(check_or_write(target, content, sys.argv))

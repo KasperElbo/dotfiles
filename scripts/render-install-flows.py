@@ -26,7 +26,7 @@ import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import supported_platforms  # noqa: E402
+from manifests import check_or_write, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TARGET = ROOT / "docs" / "architecture" / "installation.md"
@@ -137,16 +137,11 @@ def splice(existing: str, generated: str) -> str:
 
 
 def main() -> int:
-    existing = TARGET.read_text(encoding="utf-8")
-    updated = splice(existing, render())
-    if "--check" in sys.argv:
-        if existing != updated:
-            print(f"Generated install flows are stale: {TARGET}", file=sys.stderr)
-            print("Run ./scripts/render-install-flows.py", file=sys.stderr)
-            return 1
-        return 0
-    TARGET.write_text(updated, encoding="utf-8")
-    return 0
+    # Bytes, decoded here rather than read as text: universal newlines would
+    # fold a CRLF pair or a stray carriage return into a plain newline, and the
+    # spliced result would then no longer be the file check_or_write compares.
+    existing = TARGET.read_bytes().decode("utf-8")
+    return check_or_write(TARGET, splice(existing, render()), sys.argv)
 
 
 if __name__ == "__main__":

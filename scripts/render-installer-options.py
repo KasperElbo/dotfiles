@@ -21,7 +21,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import read_tsv, supported_platforms  # noqa: E402
+from manifests import check_or_write, read_tsv, supported_platforms  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPTIONS = ROOT / "config" / "install-options.tsv"
@@ -189,15 +189,7 @@ def render() -> str:
 
 
 def main() -> int:
-    content = render()
-    if "--check" in sys.argv:
-        if not TARGET.exists() or TARGET.read_text(encoding="utf-8") != content:
-            print(f"Generated installer-option reference is stale: {TARGET}", file=sys.stderr)
-            print("Run ./scripts/render-installer-options.py", file=sys.stderr)
-            return 1
-        return 0
-    TARGET.write_text(content, encoding="utf-8")
-    return 0
+    return check_or_write(TARGET, render(), sys.argv)
 
 
 if __name__ == "__main__":

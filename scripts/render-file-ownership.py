@@ -24,7 +24,12 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import read_tsv, stow_packages, supported_platforms  # noqa: E402
+from manifests import (  # noqa: E402
+    check_or_write,
+    read_tsv,
+    stow_packages,
+    supported_platforms,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CAPABILITIES = ROOT / "config" / "capabilities.tsv"
@@ -230,17 +235,13 @@ def splice(existing: str, begin: str, end: str, generated: str) -> str:
 
 
 def main() -> int:
-    existing = TARGET.read_text(encoding="utf-8")
+    # Bytes, decoded here rather than read as text: universal newlines would
+    # fold a CRLF pair or a stray carriage return into a plain newline, and the
+    # spliced result would then no longer be the file check_or_write compares.
+    existing = TARGET.read_bytes().decode("utf-8")
     updated = splice(existing, BEGIN_STOW, END_STOW, render_stow())
     updated = splice(updated, BEGIN_STATE, END_STATE, render_state())
-    if "--check" in sys.argv:
-        if existing != updated:
-            print(f"Generated file ownership is stale: {TARGET}", file=sys.stderr)
-            print("Run ./scripts/render-file-ownership.py", file=sys.stderr)
-            return 1
-        return 0
-    TARGET.write_text(updated, encoding="utf-8")
-    return 0
+    return check_or_write(TARGET, updated, sys.argv)
 
 
 if __name__ == "__main__":

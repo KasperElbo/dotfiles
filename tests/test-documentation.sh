@@ -401,6 +401,78 @@ assert_contains "$TEST_OUTPUT" "stale"
 restore_installer
 printf 'PASS: an install step added without regenerating fails\n'
 
+# --- A generated document is compared as bytes, not as normalised text ------
+
+# `Path.read_text` is Python's universal-newline mode: a CRLF pair and a lone
+# carriage return both arrive as a plain newline, so a gate built on it
+# compares a line-ending-normalised view and calls a damaged document current
+# while the next render writes different bytes. The compensating control does
+# not cover this: `git diff --check` sees CRLF only inside a diff, and a lone
+# carriage return not at all. Every gate is checked, because the rule lives in
+# one helper and a caller that stopped using it would be the silent case.
+line_ending_scratch="$TEST_ROOT/line-endings"
+mkdir -p "$line_ending_scratch"
+
+generated_documents=(
+  "render-capability-matrix.py docs/reference/capability-matrix.md"
+  "render-installer-options.py docs/reference/installer-options.md"
+  "render-verifier-reference.py docs/reference/verifiers.md"
+  "render-supply-chain.py docs/supply-chain-sources.md"
+  "render-action-reference.py docs/reference/keybindings.md"
+  "render-file-ownership.py docs/architecture/file-ownership.md"
+  "render-install-flows.py docs/architecture/installation.md"
+  "render-package-ownership.py docs/architecture/package-ownership.md"
+)
+
+for entry in "${generated_documents[@]}"; do
+  target="${entry#* }"
+  cp "$repo_root/$target" "$line_ending_scratch/${target##*/}"
+done
+
+restore_line_endings() {
+  local entry target
+  for entry in "${generated_documents[@]}"; do
+    target="${entry#* }"
+    cp "$line_ending_scratch/${target##*/}" "$repo_root/$target"
+  done
+  restore_installer
+}
+test_install_cleanup_trap restore_line_endings
+
+for entry in "${generated_documents[@]}"; do
+  read -r renderer target <<<"$entry"
+  python3 - "$repo_root/$target" <<'PYTHON'
+import pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+PYTHON
+
+  run_capture python3 "$repo_root/scripts/$renderer" --check
+  cp "$line_ending_scratch/${target##*/}" "$repo_root/$target"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "stale"
+done
+printf 'PASS: a generated document converted to CRLF is rejected\n'
+
+# One newline replaced by a bare carriage return, mid-file. The byte count does
+# not change, no line gains trailing whitespace, and `git diff --check` passes
+# it; only a comparison of the bytes themselves sees it.
+python3 - "$matrix" <<'PYTHON'
+import pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+raw = path.read_bytes()
+offset = raw.index(b"\n", len(raw) // 2)
+path.write_bytes(raw[:offset] + b"\r" + raw[offset + 1 :])
+PYTHON
+
+run_capture python3 "$repo_root/scripts/render-capability-matrix.py" --check
+cp "$line_ending_scratch/capability-matrix.md" "$matrix"
+assert_failure
+assert_contains "$TEST_OUTPUT" "stale"
+printf 'PASS: a lone carriage return inside a generated document is rejected\n'
+
 # --- The generated-artifact list is complete --------------------------------
 
 # One list, not three. Every renderer lint runs must appear in it, so adding a
