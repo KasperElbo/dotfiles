@@ -136,7 +136,21 @@ ARRAY_OWNERS = {
     ("platforms/fedora/scripts/install-dictation.sh", "packages"): "dictation",
 }
 
-PACKAGE_ARRAY = re.compile(r"^\s*(\w*packages)=\(([^)]*)\)", re.M)
+# A literal package array, however it is declared. The anchor used to be a
+# line start and nothing else, so `local -a packages=()` -- a shape this tree
+# already writes -- was invisible, and an installer could install packages no
+# capability row owns, a verifier keep its own hardcoded list, and a Stow
+# package be deployed unowned. A declaration may also share a line with
+# another, as in `local selected=() packages=()`.
+DECLARATION = r"(?:local|declare|typeset|readonly|export)\s+(?:-\w+\s+)*"
+PACKAGE_ARRAY = re.compile(
+    r"(?:^|[;\s])(?:" + DECLARATION + r")?(\w*packages)=\(([^)]*)\)", re.M
+)
+# Every way a package array can be opened, read without any of the structure
+# above it. `package_arrays` compares the two counts so an array shape the
+# parser cannot read is an error rather than an invisible install: a silently
+# unread array is exactly how the anchored pattern failed.
+ANY_PACKAGE_ARRAY = re.compile(r"\w*packages\+?=\(")
 
 COMMON_STOW = pathlib.Path("common") / "stow.sh"
 # How a platform Stow script runs the portable one, and which of the portable
@@ -337,16 +351,33 @@ def check_option_manifest(rows: list[dict[str, str]]) -> int:
     return errors
 
 
+class UnreadablePackageArray(Exception):
+    """A package array this check cannot read, which installs packages anyway."""
+
+
 def package_arrays(path: pathlib.Path) -> dict[str, list[str]]:
     """Every `<name>packages=(...)` literal array in a shell file.
 
     Read through `code_text()`, because a commented-out entry is not installed:
     matching the raw file would let `# ripgrep` keep satisfying a row that
     claims the package while dnf no longer installs it.
+
+    An array the pattern cannot read raises rather than being left out. Every
+    caller of this function reads it as the complete set -- what an installer
+    installs, what a verifier hardcodes, what a Stow script deploys -- so an
+    array missing from the answer is an install nothing here checks.
     """
     found: dict[str, list[str]] = {}
     text = code_text(path)
-    for match in PACKAGE_ARRAY.finditer(text):
+    matches = list(PACKAGE_ARRAY.finditer(text))
+    opened = len(ANY_PACKAGE_ARRAY.findall(text))
+    if opened > len(matches):
+        raise UnreadablePackageArray(
+            f"{path}: {opened} package arrays are opened and {len(matches)} could "
+            f"be read; an array this check cannot read is an install nothing "
+            f"compares against the registry"
+        )
+    for match in matches:
         entries = [
             word for word in match.group(2).split()
             if not word.startswith("#") and not word.startswith("$")
@@ -432,7 +463,13 @@ def check_installer_packages(rows: list[dict[str, str]]) -> int:
     for path in sorted(ROOT.glob("platforms/*/scripts/install-*.sh")):
         relative = path.relative_to(ROOT).as_posix()
         platform = path.relative_to(ROOT).parts[1]
-        for name, entries in package_arrays(path).items():
+        try:
+            arrays = package_arrays(path)
+        except UnreadablePackageArray as unreadable:
+            fail(str(unreadable))
+            errors += 1
+            continue
+        for name, entries in arrays.items():
             if (relative, name) not in ARRAY_OWNERS:
                 fail(f"{relative}: package array {name!r} is not declared in "
                      f"ARRAY_OWNERS, so nothing checks what it installs")
@@ -660,7 +697,13 @@ def check_verifier_package_arrays(verifiers: dict[str, set[str]]) -> int:
         path = ROOT / verifier
         if not path.is_file():
             continue
-        for name, entries in package_arrays(path).items():
+        try:
+            arrays = package_arrays(path)
+        except UnreadablePackageArray as unreadable:
+            fail(str(unreadable))
+            errors += 1
+            continue
+        for name, entries in arrays.items():
             if entries:
                 fail(
                     f"{verifier}: verifier keeps its own {name}=(...) list "
