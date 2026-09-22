@@ -40,13 +40,42 @@ section() {
   printf '\n\033[1m%s\033[0m\n' "$1"
 }
 
+# Record which call site in a verifier produced which verdict, when the caller
+# asks for a trace by setting DOTFILES_VERIFY_TRACE to a file to append to.
+#
+# Whether a check can fail is a statement about what ran, so it cannot be read
+# out of the file: a predicate that is always true and one that is merely true
+# on this machine look identical on the page. The call site is the first frame
+# outside this library, which for a check_* helper is the line in the verifier
+# that called it, and for a bare pass or fail is that line itself.
+#
+# A trace that cannot be written is dropped rather than failing the run: a
+# verifier's job on a real machine does not depend on it.
+_verify_trace() {
+  [ -n "${DOTFILES_VERIFY_TRACE:-}" ] || return 0
+  local index=1 frame
+  while ((index < ${#BASH_SOURCE[@]})); do
+    frame="${BASH_SOURCE[index]}"
+    case "$frame" in
+      */common/lib/verify.sh) index=$((index + 1)) ;;
+      *)
+        printf '%s\t%s\t%s\n' "$frame" "${BASH_LINENO[index - 1]}" "$1" \
+          >>"$DOTFILES_VERIFY_TRACE" 2>/dev/null || true
+        return 0
+        ;;
+    esac
+  done
+}
+
 pass() {
+  _verify_trace pass
   printf '\033[1;32m✓\033[0m %s\n' "$*"
   VERIFY_PASSES=$((VERIFY_PASSES + 1))
   return 0
 }
 
 fail() {
+  _verify_trace fail
   printf '\033[1;31m✗\033[0m %s\n' "$*" >&2
   VERIFY_FAILURES=$((VERIFY_FAILURES + 1))
   return 1
@@ -61,6 +90,7 @@ warning() {
 # Record a host precondition that this verifier cannot observe or change in the
 # current context. This is deliberately distinct from warning and fail.
 not_observed() {
+  _verify_trace not_observed
   printf '\033[1;36m?\033[0m NOT OBSERVED: %s\n' "$*" >&2
   VERIFY_NOT_OBSERVED=$((VERIFY_NOT_OBSERVED + 1))
   return 0
