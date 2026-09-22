@@ -10,7 +10,11 @@ test_new_root
 test_root="$TEST_ROOT"
 
 mock_bin="$test_root/bin"
-mkdir -p "$test_root/xdg"
+# The configuration root goes under $HOME, because that is the only one this
+# repository deploys to and every installer refuses any other in preflight
+# (issue #343). A fixture that separates them was only reaching the checks
+# below because that refusal used to run after them.
+mkdir -p "$test_root/home/.config"
 
 test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
@@ -47,7 +51,7 @@ run_preflight() {
 
   env \
     HOME="$test_root/home" \
-    XDG_CONFIG_HOME="$test_root/xdg" \
+    XDG_CONFIG_HOME="$test_root/home/.config" \
     PATH="$mock_bin:$PATH" \
     OS_RELEASE_FILE="$test_root/os-release" \
     DMI_ROOT="$dmi_root" \
@@ -93,7 +97,7 @@ assert_failure "DMI mismatch fail-fast" "Selected ga402rk, but DMI reports" \
   ga402rk enabled GA402XZ
 
 assert_file_empty "$test_root/logs/dnf.log"
-[[ ! -e "$test_root/xdg/dotfiles/hardware.conf" ]]
+[[ ! -e "$test_root/home/.config/dotfiles/hardware.conf" ]]
 
 # Exercise the same failures through the top-level installer. If preflight
 # ordering regresses, the base install will reach sudo and populate the log.
@@ -110,7 +114,7 @@ run_installer_failure() {
   if output="$(
     env \
       HOME="$test_root/home" \
-      XDG_CONFIG_HOME="$test_root/xdg" \
+      XDG_CONFIG_HOME="$test_root/home/.config" \
       PATH="$mock_bin:$PATH" \
       OS_RELEASE_FILE="$test_root/os-release" \
       DMI_ROOT="$test_root/top-level-dmi" \
