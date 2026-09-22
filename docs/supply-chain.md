@@ -362,15 +362,17 @@ an unregistered `curl`, `wget`, PowerShell download, remote `git clone`/`fetch`,
 `--repofrompath`, remote release RPM, or container image, and on the three
 constructs that give the machine a new package trust root: a DNF repository
 added with `dnf config-manager addrepo`, a signing key imported with
-`rpm --import`, however their argument is spelled, and a Homebrew tap. It also fails on a registry
+`rpm --import`, however their argument is spelled, a Homebrew tap, and a
+package-registry reference. It also fails on a registry
 row whose tier and integrity mechanism contradict each other, and on one whose
 `integrity` is `image-digest-pinned` while a consumer names some other
 reference — a digest the job does not pull is a claim about a run that never
 happens.
 
-A construct counts however it is written. A clone spelled as an argument
-vector — `vim.fn.system({ "git", "clone", … })`, which is how the Neovim
-bootstrap spawns it — is the same clone as a command line. A container image
+A construct counts however it is written. A clone or a download spelled as an
+argument vector — `vim.fn.system({ "git", "clone", … })` or
+`vim.fn.system({ "curl", … })`, which is how the Neovim bootstrap spawns
+them — is the same clone or download as a command line. A container image
 written as Docker Hub shorthand, `parrotsec/core:latest`, pulls the same code
 as `docker.io/parrotsec/core:latest`; shorthand counts when the line puts it in
 a container context (a `docker`/`podman` command, a workflow `container:` or
@@ -397,6 +399,13 @@ Ruby Homebrew runs at install time; a `brew` or `cask` argument carrying two
 slashes pulls a package from the same clone. Both forms need a row and an
 annotation, and the row's URL is the tap's repository.
 
+A package registry is another. `"github:owner/repo"` is how Mason names the
+lists every LSP server and debug adapter it installs is resolved through, and
+how mise names a tool it takes straight from a project's releases rather than
+from mise's own registry; one of this repository's two Mason registries is a
+personal fork. Each reference needs a row and an annotation, and the row's URL
+is that repository.
+
 An annotation covers what it names, not whatever construct happens to follow
 it. Two rules enforce that. First, an annotation belongs to the construct it
 introduces: the walk up from a construct stops at the first line of code, so a
@@ -405,8 +414,17 @@ construct writes a host out in full — on its own line or on a continuation of
 it — at least one of the annotations covering it must name a source served by
 that host. A tap names no host, so the same question is asked of the tap
 itself: an annotation covers a tap only when its registered source *is* that
-tap. A URL built from a variable names no host the validator can check, and is
-covered by its annotation alone.
+tap, and a `github:owner/repo` registry the same way. A URL built from a
+variable names no host the validator can check, and is covered by its
+annotation alone.
+
+The walk up from a construct passes through a line the next one continues: a
+trailing backslash, or an `&&`/`||` left hanging at the end of a condition,
+since a comment cannot be written between the halves of either. A trailing
+comma is deliberately not a continuation. List elements are written one per
+line, so treating each as a continuation of the one above would hand every
+element the first one's annotation — exactly the inheritance the first rule
+refuses.
 
 A construct that genuinely reaches no external network (a loopback probe, a
 request to the container under test) is annotated

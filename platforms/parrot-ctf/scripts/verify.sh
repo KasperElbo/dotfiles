@@ -191,6 +191,10 @@ mapfile -t mise_tools < <(
     }
   ' "$mise_config" 2>/dev/null | sort
 )
+# The backend named here is the one the manifest must declare: Parrot's own
+# Neovim is below the floor, so this profile takes it from GitHub releases
+# rather than from mise's registry, which is a trust root of its own.
+# network-source: neovim-github-releases
 if [[ "${mise_tools[*]}" == "nvim uv" ]] &&
   grep -Fqx 'nvim = "github:neovim/neovim"' "$mise_config"; then
   pass "Parrot mise manifest is limited to uv and the Neovim exception"
