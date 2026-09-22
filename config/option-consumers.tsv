@@ -1,3 +1,22 @@
 platform	option	consumer	kind	detail	summary
 -	theme	bin/.local/bin/theme	shell-case	flavour	The theme command applies a flavour and refuses one it does not know
+-	theme	platforms/fedora/scripts/apply-kde-theme.sh	shell-case	flavour	The KDE theme applier maps a flavour to a Plasma global theme and colour scheme
+-	theme	platforms/fedora/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh	shell-case	kde_global_theme:1	The Fedora theme hook names the Plasma global theme each flavour installs
+-	theme	platforms/fedora-wsl/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora-wsl.sh	shell-case	flavour	The Fedora WSL theme hook accepts the flavour it is asked to apply
+-	theme	platforms/macos/stow/theme-hooks/.config/dotfiles/theme-hooks.d/macos.sh	shell-case	flavour	The macOS theme hook accepts the flavour it is asked to apply
+-	theme	platforms/fedora/lib/theme-desktop.sh	shell-case	catppuccin_palette:flavour	The Fedora desktop palette holds the colours of each flavour
+-	theme	platforms/fedora/scripts/verify.sh	shell-case	current_theme	The Fedora verifier reads the recorded flavour and the KDE theme it implies
+-	theme	platforms/fedora/scripts/verify.sh	shell-word-list	flavour	The Fedora verifier checks one wallpaper symlink per flavour
+-	theme	platforms/macos/scripts/verify.sh	shell-case	current_theme	The macOS verifier accepts the recorded flavour
+-	theme	platforms/macos/scripts/verify.sh	shell-word-list	flavour	The macOS verifier checks one wallpaper symlink per flavour
+-	theme	zsh/.config/zsh/.zshrc	shell-case	_dotfiles_theme	The shell accepts the recorded flavour before exporting it
+-	theme	zsh/.config/zsh/.zshrc	shell-case	DOTFILES_THEME	The shell picks a bat theme for the flavour it exported
+-	theme	scripts/update-starship-themes.sh	shell-array	flavours	The Starship generator writes one tracked configuration per flavour
+-	theme	nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua	lua-table	valid	Neovim honours the recorded flavour and falls back for anything else
+-	theme	platforms/windows/set-noctty-theme.ps1	powershell-validateset	Flavor	The Noctty theme script refuses a flavour outside its parameter set
+-	theme	git/.config/git/themes/catppuccin.gitconfig	line-pattern	[delta "catppuccin-{value}"]	The git theme file carries one delta section per flavour
+-	theme	starship/.config/starship/catppuccin-{value}.toml	file-per-value	-	One tracked Starship configuration per flavour
+-	theme	config/starship/palettes/catppuccin-{value}.toml	file-per-value	-	One Starship palette per flavour, the generator's input
+-	theme	theme-assets/.local/share/wallpapers/catppuccin-{value}.webp	file-per-value	-	One desktop wallpaper per flavour
+-	theme	theme-assets/.local/share/wallpapers/catppuccin-{value}-lock.webp	file-per-value	-	One lock-screen wallpaper per flavour
 fedora	hardware	platforms/fedora/scripts/install-asus-hardware.sh	shell-case	model	The ASUS hardware installer branches on the model it was given

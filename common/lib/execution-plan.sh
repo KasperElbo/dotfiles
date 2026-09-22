@@ -118,11 +118,32 @@ plan_render() {
   done
 }
 
+# The contract for a preflight action, and the opposite of the one above: it
+# runs where errexit reaches inside it, so the first refused prerequisite
+# stops the run. A prerequisite is not an independent effect -- there is
+# nothing for a preflight to report partially, and a check that has already
+# said the run cannot proceed must not be followed by more checks against a
+# machine it has ruled out.
+#
+# The positions that break that are the ones bash exempts from errexit, which
+# it does for everything the exempted command runs, however deep: the
+# condition of `if`, `while` or `until`, the operand of `!`, and every command
+# in a `&&` or `||` list *except the last*. Written as `[[ ... ]] || "$action"`
+# the action was the last command, which is why it propagated; written as
+# `... || "$action" || warn ...` it would not. The body of an `if` is not a
+# condition, so this shape keeps the action a plain statement and takes the
+# question out of it.
+#
+# plan_preflight itself is subject to the same rule, and all four installers
+# call it as a plain statement. Calling it any other way -- `plan_preflight ||
+# status=$?` -- suppresses errexit through every check it runs.
 plan_preflight() {
   local i action
   for ((i=0; i<PLAN_COUNT; i++)); do
     action="${PLAN_PREFLIGHTS[i]}"
-    [[ -z "$action" || "$action" == : ]] || "$action"
+    if [[ -n "$action" && "$action" != : ]]; then
+      "$action"
+    fi
   done
 }
 
