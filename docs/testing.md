@@ -393,8 +393,9 @@ that one finished. Mason promotes the staged files, links the package's
 executables into `<mason>/bin` and writes `<package>/mason-receipt.json` last,
 so an interrupted install, a half-deleted package and a converged one are all
 directories. `common/lib/mason.sh` is the one place that decides what
-"installed" means -- a receipt that parses, names its own package, claims links
-that exist and are executable, and records the version an explicit pin in
+"installed" means -- a receipt that parses, names its own package, claims at
+least one linked executable, resolves each of those claims to the very file
+inside the package directory the receipt names, and records the version an explicit pin in
 `common/mason-package-versions.txt` demands -- and both `check_mason_inventory`
 in `common/lib/verify.sh` and the provisioning in
 `common/install-neovim-tools.sh` ask it, so the verifier cannot credit a
@@ -414,7 +415,9 @@ behind what a finished install leaves behind, optionally at the versions
 it. `tests/test-verifier.sh`, `tests/test-neovim-bootstrap.sh` and
 `tests/test-parrot-verification.sh` then damage a
 complete installation one way at a time -- an empty directory, a missing
-receipt, a missing linked executable, a truncated receipt, a version the pin
+receipt, a missing linked executable, a linked executable repointed at another
+file or replaced by an unrelated script, a receipt claiming no links at all, a
+truncated receipt, a version the pin
 file no longer names -- and require the verifier to report it and a rerun to
 repair it, while the complete package beside it stays untouched. That undamaged
 sibling is what keeps the cases honest: a check that had started failing

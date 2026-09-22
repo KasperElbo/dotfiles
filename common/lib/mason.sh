@@ -147,6 +147,7 @@ mason_package_status() {
   local receipt="$package_dir/$MASON_RECEIPT_NAME"
   local record name="" purl="" entry payload="false"
   local field kind link_name link_target
+  local link_path link_resolved target_resolved bin_links=0
 
   # shellcheck disable=SC2034
   MASON_PACKAGE_STATE=""
@@ -185,14 +186,28 @@ mason_package_status() {
     purl) purl="$field" ;;
     bin)
       link_name="$field"
-      if [[ ! -x "$mason_root/bin/$link_name" ]]; then
+      link_path="$mason_root/bin/$link_name"
+      bin_links=$((bin_links + 1))
+      if [[ ! -x "$link_path" ]]; then
         _mason_result incomplete \
-          "the receipt claims the executable $mason_root/bin/$link_name, which is missing or not executable"
+          "the receipt claims the executable $link_path, which is missing or not executable"
         return
       fi
       if [[ ! -e "$package_dir/$link_target" ]]; then
         _mason_result incomplete \
           "the receipt claims $package_dir/$link_target, which is missing"
+        return
+      fi
+      # A name is not an identity: Mason's bin directory is one flat namespace,
+      # so anything executable under that name satisfied the checks above -
+      # /bin/true, another package's executable, a hand-written shim. Resolving
+      # both ends and requiring the same file is what makes this entry evidence
+      # about *this* package rather than about the name it happens to use.
+      link_resolved="$(resolve_existing_path "$link_path" 2>/dev/null || true)"
+      target_resolved="$(resolve_existing_path "$package_dir/$link_target" 2>/dev/null || true)"
+      if [[ -z "$link_resolved" || "$link_resolved" != "$target_resolved" ]]; then
+        _mason_result incomplete \
+          "$link_path resolves to ${link_resolved:-nothing}, not the ${target_resolved:-$package_dir/$link_target} the receipt claims"
         return
       fi
       ;;
@@ -204,6 +219,18 @@ EOF
   if [[ "$name" != "$package" ]]; then
     _mason_result incomplete \
       "the receipt in $package_dir names ${name:-no package}, not $package"
+    return
+  fi
+
+  # A package's identity includes the links it claims to own outside its own
+  # directory, so a receipt carrying none leaves nothing outside $package_dir to
+  # check and the loop above ran zero times. Every package this repository
+  # tracks links at least one executable, so a receipt with no bin links is a
+  # damaged or hand-edited one and not a package that legitimately links
+  # nothing.
+  if ((bin_links == 0)); then
+    _mason_result incomplete \
+      "the receipt in $package_dir claims no linked executables, so nothing outside $package_dir identifies this installation as $package"
     return
   fi
 

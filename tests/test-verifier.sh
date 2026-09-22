@@ -393,6 +393,62 @@ assert_verifier_counts 1 1 0
 assert_file_contains "$root/mason.out" 'Mason receipt is not valid JSON'
 assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
 
+# Mason's bin directory is one flat namespace, so the name of an entry there is
+# not its identity. Each case below leaves something executable called stylua
+# exactly where the receipt says one belongs, and in none of them is it the
+# file the receipt claims.
+mason_case_begin relinked-elsewhere
+ln -sfn /bin/true "$mason_case_root/nvim/mason/bin/stylua"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" \
+  'Mason package stylua is not completely installed'
+assert_file_contains "$root/mason.out" \
+  "$mason_case_root/nvim/mason/bin/stylua resolves to"
+assert_file_contains "$root/mason.out" 'the receipt claims'
+assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
+
+# The same entry pointed at the sibling package. Both packages are completely
+# installed and the executable runs, so only comparing the two paths catches it.
+mason_case_begin relinked-to-another-package
+ln -sfn ../packages/lua-language-server/lua-language-server \
+  "$mason_case_root/nvim/mason/bin/stylua"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" \
+  'Mason package stylua is not completely installed'
+assert_file_contains "$root/mason.out" \
+  "$mason_case_root/nvim/mason/packages/lua-language-server/lua-language-server"
+
+# Not a link at all: an unrelated script of the right name, which is what a
+# hand-rolled shim or a competing installer leaves behind.
+mason_case_begin replaced-by-a-script
+rm -f -- "$mason_case_root/nvim/mason/bin/stylua"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$mason_case_root/nvim/mason/bin/stylua"
+chmod +x "$mason_case_root/nvim/mason/bin/stylua"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" \
+  'Mason package stylua is not completely installed'
+assert_file_contains "$root/mason.out" \
+  "$mason_case_root/nvim/mason/bin/stylua resolves to"
+
+# A receipt that claims no links at all. It is valid JSON, it names the right
+# package and the directory holds the package's files, so every other check
+# passes it; the link rows it produced were simply none, and the link check
+# never ran while the package still reported installed.
+mason_case_begin receipt-without-links
+mason_case_receipt="$mason_case_root/nvim/mason/packages/stylua/mason-receipt.json"
+jq 'del(.links)' "$mason_case_receipt" >"$mason_case_receipt.edited"
+mv -- "$mason_case_receipt.edited" "$mason_case_receipt"
+rm -f -- "$mason_case_root/nvim/mason/bin/stylua"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" \
+  'Mason package stylua is not completely installed'
+assert_file_contains "$root/mason.out" 'claims no linked executables'
+assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
+
 # An explicit pin is compared against the version the receipt records, so a
 # package that exists at the wrong version is reported rather than credited.
 mason_case_begin wrong-version
