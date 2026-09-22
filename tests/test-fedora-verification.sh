@@ -304,4 +304,72 @@ assert_contains "$verifier_output" 'is not the file Stow should have linked'
 assert_contains "$verifier_output" "$repo_root/ghostty/.config/ghostty/config"
 printf 'PASS: a link into the right package but at the wrong file fails verification\n'
 
+# ---------------------------------------------------------------------------
+# GAP-10: an unrecognised theme flavour neither aborts the run nor passes
+# ---------------------------------------------------------------------------
+#
+# The KDE global-theme name came from a case with no default arm, so any
+# non-empty value that is not one of the four flavours left the variable unset
+# and the expansion below it killed the verifier under set -u: no summary, and
+# most of the machine never described (issue #397, GAP-10).
+#
+# The one-line default arm the issue rejects is the second case here. An empty
+# theme name builds "$XDG_DATA_HOME/plasma/look-and-feel/", a directory every
+# KDE machine has, so the existence test underneath would have reported a theme
+# named nothing as installed: a silent pass in place of the crash.
+
+set_theme() {
+  mkdir -p "$root/config/dotfiles"
+  printf '%s\n' "$1" >"$root/config/dotfiles/theme"
+}
+
+kde_theme_installed='Catppuccin KDE global theme installed'
+last_section='Repository hygiene'
+
+new_machine base,dotnet-debug,kde
+set_theme MOCHA
+run_verifier
+# run_verifier already refuses a run that printed no summary; these name the
+# two halves of the acceptance criterion directly.
+assert_contains "$verifier_output" 'Fedora verification failed:'
+assert_not_contains "$verifier_output" 'unbound variable'
+assert_contains "$verifier_output" "$last_section"
+assert_contains "$verifier_output" "flavour 'MOCHA' names no"
+assert_not_contains "$verifier_output" "$kde_theme_installed"
+printf 'PASS: an unrecognised flavour is reported and the run still reaches its summary\n'
+
+# The rejected minimal fix, made reachable: the bare look-and-feel directory is
+# present, which is what an empty theme name would be tested against.
+new_machine base,dotnet-debug,kde
+set_theme MOCHA
+mkdir -p "$root/data/plasma/look-and-feel"
+run_verifier
+assert_not_contains "$verifier_output" "$kde_theme_installed"
+assert_contains "$verifier_output" "flavour 'MOCHA' names no"
+printf 'PASS: an unrecognised flavour does not pass against the bare look-and-feel directory\n'
+
+# An unselected machine has nothing to fail about, but it has not looked either,
+# so it says so rather than staying silent.
+new_machine base,dotnet-debug
+set_theme MOCHA
+mkdir -p "$root/data/plasma/look-and-feel"
+run_verifier
+assert_contains "$verifier_output" 'NOT OBSERVED'
+assert_not_contains "$verifier_output" "$kde_theme_installed"
+printf 'PASS: an unselected machine with an unrecognised flavour records an unobserved check\n'
+
+# The control: a flavour the verifier does know still reaches the real check,
+# in both directions.
+new_machine base,dotnet-debug,kde
+set_theme mocha
+mkdir -p "$root/data/plasma/look-and-feel/Catppuccin-Mocha-Mauve"
+run_verifier
+assert_contains "$verifier_output" "$kde_theme_installed: Catppuccin-Mocha-Mauve"
+
+new_machine base,dotnet-debug,kde
+set_theme mocha
+run_verifier
+assert_contains "$verifier_output" 'KDE integration is selected but its global theme is missing'
+printf 'PASS: a recognised flavour is still checked against the installed global theme\n'
+
 printf '\nFedora verification tests passed.\n'
