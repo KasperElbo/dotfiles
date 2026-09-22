@@ -210,6 +210,7 @@ action, so the summary can name it:
 |---|---|
 | `theme_action <name> <command> [args...]` | one independent effect; a failure is reported and the hook continues |
 | `theme_action_required <name> <command> [args...]` | nothing in a hook. It is the shared-state write's boundary, and a hook that must stop should `return 1` |
+| `theme_action_or_skip <name> <status> <reason> <command> [args...]` | an effect that can also find its other half missing: the command exits `<status>` to say so and the action is recorded as skipped instead of applied |
 | `theme_action_skipped <name> <reason>` | an effect deliberately not run, so "not installed here" stays distinct from "failed" |
 | `theme_capability_permits <capability>` | true unless the install state positively records the capability as absent — the question to ask before applying an identifier |
 | `theme_capability_known_absent <capability>` | true only when the state records it as absent, for wording the skip reason |
@@ -227,7 +228,12 @@ Zsh wrapper alike.
 `platforms/fedora/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh`
 is the full example, with the capability questions and several named actions;
 `platforms/fedora-wsl/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora-wsl.sh`
-is the minimal one.
+is the minimal one, and the example of the third outcome: Windows PowerShell
+being present says nothing about the Windows bootstrap having run, so its
+bridge exits a reserved status when `set-theme.ps1` is not installed and
+`theme_action_or_skip` records that as skipped. A command that reaches another
+system needs that status, because doing nothing and succeeding look identical
+from an exit code of 0.
 `platforms/macos/stow/theme-hooks/.config/dotfiles/theme-hooks.d/macos.sh` sits
 between them: one wallpaper action, and `--preserve-wallpaper` handled as a
 `theme_action_skipped` rather than as an absence.
