@@ -175,6 +175,15 @@ section "Terra trust root"
 verify_terra_trust_root
 
 # ---------------------------------------------------------------------------
+# RPM Fusion trust root (checked when the repositories are present: the
+# desktop-tools installer adds them once and never looks at them again)
+# ---------------------------------------------------------------------------
+
+section "RPM Fusion trust root"
+
+verify_rpm_fusion_trust_root
+
+# ---------------------------------------------------------------------------
 # Login shell
 # ---------------------------------------------------------------------------
 
