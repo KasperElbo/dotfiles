@@ -469,24 +469,48 @@ else
 fi
 manual "guest observations cannot prove libvirt NAT, absence of inactive passthrough devices, or host-side forwarding; run the host verifier with --domain"
 
+# Every link is checked against the exact repository file Stow should have
+# linked, not only against the package that owns it. A link redirected at
+# another file inside the expected package resolved under the expected root and
+# was reported green (issue #369). That matters most here: this guest gets a
+# narrowed mise manifest and its own command shims, and the weak check could
+# not tell the CTF copy of a file from the workstation copy once both were
+# inside the named package.
+#
+# The third argument is written out per link, read off the package layout,
+# rather than derived from the deployed path: deriving it would recompute the
+# same $HOME-relative mapping Stow itself applied, so a wrong link and a wrong
+# expectation would agree.
 section "Stow ownership"
-check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh"
-check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh"
+parrot_stow="$DOTFILES_ROOT/platforms/parrot-ctf/stow"
+check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh" \
+  "$DOTFILES_ROOT/zsh/.zshenv"
+check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh" \
+  "$DOTFILES_ROOT/zsh/.config/zsh/.zshrc"
 check_symlink "$XDG_CONFIG_HOME/zsh/platform-env.zsh" \
-  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/zsh-platform"
+  "$parrot_stow/zsh-platform" \
+  "$parrot_stow/zsh-platform/.config/zsh/platform-env.zsh"
 check_symlink "$XDG_CONFIG_HOME/zsh/platform.zsh" \
-  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/zsh-platform"
-check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git"
+  "$parrot_stow/zsh-platform" \
+  "$parrot_stow/zsh-platform/.config/zsh/platform.zsh"
+check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git" \
+  "$DOTFILES_ROOT/git/.config/git/config"
 check_symlink "$XDG_CONFIG_HOME/mise/config.toml" \
-  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/mise-ctf"
-check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim"
+  "$parrot_stow/mise-ctf" \
+  "$parrot_stow/mise-ctf/.config/mise/config.toml"
+check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim" \
+  "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/init.lua"
 check_symlink "$XDG_CONFIG_HOME/dotfiles/neovim-profile" \
-  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/neovim-profile"
-check_symlink "$HOME/.tmux.conf" "$DOTFILES_ROOT/tmux"
+  "$parrot_stow/neovim-profile" \
+  "$parrot_stow/neovim-profile/.config/dotfiles/neovim-profile"
+check_symlink "$HOME/.tmux.conf" "$DOTFILES_ROOT/tmux" \
+  "$DOTFILES_ROOT/tmux/.tmux.conf"
 check_symlink "$HOME/.local/bin/bat" \
-  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/command-shims"
+  "$parrot_stow/command-shims" \
+  "$parrot_stow/command-shims/.local/bin/bat"
 check_symlink "$HOME/.local/bin/fd" \
-  "$DOTFILES_ROOT/platforms/parrot-ctf/stow/command-shims"
+  "$parrot_stow/command-shims" \
+  "$parrot_stow/command-shims/.local/bin/fd"
 
 state_file="$XDG_CONFIG_HOME/dotfiles/parrot-ctf.conf"
 if profile_state_validate_file "$state_file" parrot-ctf &&
