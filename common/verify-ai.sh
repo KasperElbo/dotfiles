@@ -282,6 +282,13 @@ check_mise_owned herdr
 # mise installs and updates Claude Code; Claude Code must not replace its own
 # package. Without this the tool reinstalls itself under the mise-managed Node
 # prefix and shadows the dedicated npm-backend installation.
+#
+# Two places, because they prove different things. Claude Code's settings file
+# is the block itself: the tool reads it however it was launched, including
+# from something that never saw a Zsh. The login environment is the second
+# line, and only ever covers what a login shell starts.
+check_claude_update_settings "$HOME/.claude/settings.json" \
+  DISABLE_UPDATES DISABLE_AUTOUPDATER
 check_login_environment DISABLE_UPDATES 1
 
 check_no_global_npm_duplicate @anthropic-ai/claude-code @openai/codex gnhf \
