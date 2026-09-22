@@ -50,6 +50,7 @@ public-entrypoint	755	scripts/render-package-ownership.py	Regenerates the packag
 public-entrypoint	755	scripts/render-verifier-reference.py	Regenerates the per-platform verifier reference from config/capabilities.tsv
 public-entrypoint	755	scripts/render-supply-chain.py	Regenerates the supply-chain source documentation
 public-entrypoint	755	scripts/validate-actions.py	Validates config/actions.tsv against its consumers
+public-entrypoint	755	scripts/validate-check-outcomes.py	Validates that each verifier check call site was driven to both a pass and a fail
 public-entrypoint	755	scripts/validate-capabilities.py	Validates network-source provenance against config/capabilities.tsv
 public-entrypoint	755	scripts/validate-docs.py	Validates documentation architecture and cross-references
 public-entrypoint	755	scripts/validate-install-options.py	Validates each installer argv parser against config/install-options.tsv
