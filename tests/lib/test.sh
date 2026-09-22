@@ -257,6 +257,81 @@ assert_path_missing() {
 }
 
 # ---------------------------------------------------------------------------
+# Verifier outcomes
+# ---------------------------------------------------------------------------
+
+# verifier_failure_lines <output>: the failure lines a verifier printed, with
+# the colour escapes and the leading ✗ removed, one per line. The marker is
+# written literally rather than as a \x escape, which only GNU sed reads.
+verifier_failure_lines() {
+  sed $'s/\033\\[[0-9;]*m//g' <<<"$1" | sed -n 's/^✗ //p'
+}
+
+# assert_verifier_failures <output> [prefix ...]: the run failed exactly the
+# checks named here, and nothing else. No prefix means no check may fail.
+#
+# A fixture that cannot reach a clean run -- the macOS one describes no Mac, so
+# some sections fail in it whatever the tree does -- used to be held to the
+# *number* of failures it produced. A count is an open assertion: a check added
+# to the verifier that fails on every run raises the baseline by one, every
+# case measured against that baseline still passes, and nothing anywhere says
+# the new check has never once succeeded. Naming the set closes it. The count
+# follows from the list, so a case may still compare against it.
+#
+# Each prefix must begin exactly one failure line, and every failure line must
+# be begun by exactly one prefix. A prefix short enough to cover two failures
+# is the same open assertion in miniature, so it is reported rather than
+# quietly accepted. Prefixes rather than whole lines because a verifier names
+# the paths it looked at, and those carry the fixture's temporary root.
+assert_verifier_failures() {
+  local output="$1"
+  shift
+  # Namespaced locals: ShellCheck reads this library into every suite that
+  # sources it, so a plain name here is a name collision there.
+  local -a verify_declared=() verify_reported=()
+  local verify_line verify_d verify_r verify_hits verify_report=''
+
+  for verify_line in "$@"; do
+    verify_declared+=("$verify_line")
+  done
+  while IFS= read -r verify_line; do
+    [[ -n "$verify_line" ]] || continue
+    verify_reported+=("$verify_line")
+  done < <(verifier_failure_lines "$output")
+
+  for ((verify_d = 0; verify_d < ${#verify_declared[@]}; verify_d++)); do
+    verify_hits=0
+    for ((verify_r = 0; verify_r < ${#verify_reported[@]}; verify_r++)); do
+      [[ "${verify_reported[verify_r]}" == "${verify_declared[verify_d]}"* ]] &&
+        verify_hits=$((verify_hits + 1))
+    done
+    ((verify_hits == 1)) && continue
+    if ((verify_hits == 0)); then
+      verify_report="$verify_report"$'\n'"  declared, never reported: ${verify_declared[verify_d]}"
+    else
+      verify_report="$verify_report"$'\n'"  declared, covers $verify_hits failures: ${verify_declared[verify_d]}"
+    fi
+  done
+
+  for ((verify_r = 0; verify_r < ${#verify_reported[@]}; verify_r++)); do
+    verify_hits=0
+    for ((verify_d = 0; verify_d < ${#verify_declared[@]}; verify_d++)); do
+      [[ "${verify_reported[verify_r]}" == "${verify_declared[verify_d]}"* ]] &&
+        verify_hits=$((verify_hits + 1))
+    done
+    ((verify_hits == 1)) && continue
+    if ((verify_hits == 0)); then
+      verify_report="$verify_report"$'\n'"  reported, never declared: ${verify_reported[verify_r]}"
+    else
+      verify_report="$verify_report"$'\n'"  reported, covered $verify_hits times: ${verify_reported[verify_r]}"
+    fi
+  done
+
+  [[ -z "$verify_report" ]] ||
+    _test_die "the verifier failed a different set of checks than the one declared:$verify_report"
+}
+
+# ---------------------------------------------------------------------------
 # Strict command contracts
 # ---------------------------------------------------------------------------
 #
