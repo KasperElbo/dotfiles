@@ -125,4 +125,63 @@ assert_contains "$TEST_OUTPUT" \
   "macos: platforms/macos/install.sh rejects --sway; list it in REJECTED_FLAGS with the reason"
 printf 'PASS: an undocumented rejection fails, by name\n'
 
+# --- Arm shapes the reader used to walk straight past ------------------------
+
+# A glob arm is how a parser accepts `--jobs=4` in one word. `=` is not a word
+# character, so the pattern half of the old arm regex never lined up with this
+# arm's `)`: the flag was accepted by the installer and invisible here, which
+# is a flag `./install.sh --rerun` can never remember.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_kde_arm" \
+  "$fedora_kde_arm
+  --jobs=*) install_jobs=\"\${1#--jobs=}\"; shift ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "fedora: platforms/fedora/install.sh accepts --jobs=*, which the manifest does not declare"
+printf 'PASS: a glob arm is read, so the flag it accepts is compared\n'
+
+# `;&` falls through to the next arm instead of leaving the case. Reading only
+# `;;` as a terminator let the first body run past it and swallow the pattern
+# of the arm below, so that arm's flags were never seen at all.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_kde_arm" \
+  "  --kde) install_kde=enabled ;& --turbo) install_turbo=true; shift ;; --no-kde) install_kde=disabled; shift ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "fedora: platforms/fedora/install.sh accepts --turbo, which the manifest does not declare"
+printf 'PASS: an arm after a `;&` fallthrough is read like any other\n'
+
+# An arm can match its flag and record nothing: the install runs with KDE
+# selected and the machine remembers no such selection.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_kde_arm" \
+  "  --kde) shift ;; --no-kde) install_kde=disabled; shift ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "fedora: platforms/fedora/install.sh accepts --kde and only shifts past it"
+printf 'PASS: an arm that accepts a persistent flag and only shifts fails\n'
+
+# A rejection is `die`, not a word that starts with it. `die_if_wsl` is a check
+# an arm runs before accepting the flag, and reading it as a refusal reported a
+# supported flag as rejected on the platform that takes it.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_kde_arm" \
+  "  --kde) die_if_wsl; install_kde=enabled; shift ;; --no-kde) install_kde=disabled; shift ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_success
+printf 'PASS: an arm that runs a `die_`-prefixed check still accepts its flag\n'
+
+# An arm shape the reader cannot parse is unknown, not absent: skipping it
+# takes the flag out of the comparison in both directions at once.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_kde_arm" \
+  "  --kde|--kde-\$(hostname)) install_kde=enabled; shift ;; --no-kde) install_kde=disabled; shift ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "an argv arm could not be parsed"
+printf 'PASS: an argv arm the reader cannot parse is a build error\n'
+
 printf 'Installer option parser validation passed.\n'

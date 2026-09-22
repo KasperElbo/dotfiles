@@ -232,6 +232,12 @@ fedora_dev_workflows_command() { printf '%s\n' scripts/test-dev-workflows.sh --a
 fedora_verify_command() { printf '%s\n' platforms/fedora/scripts/verify.sh; }
 
 preflight_fedora() {
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads. It is a pure
+  # lexical comparison with no prerequisites, so it really can go first --
+  # ahead of preflight_sudo, which prompts for a password on a run that is
+  # about to be refused.
+  preflight_xdg_layout
   require_regular_user; require_fedora
   preflight_platform_command_providers fedora; preflight_sudo "$interactive"
   # The hardening profile is the one selected step that asks the user to agree
@@ -242,9 +248,6 @@ preflight_fedora() {
   [[ "$install_hardening" != true || "$interactive" != true ]] || plan_command_run fedora_hardening_command --confirm
   [[ "$install_vm_guest" != true ]] || plan_command_run fedora_vm_guest_command --preflight
   [[ -z "$hardware_model" ]] || plan_command_run fedora_hardware_command --preflight
-  # First, and before every other check: an unsupported XDG root would have
-  # Stow deploy to a place the rest of the install never reads.
-  preflight_xdg_layout
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
@@ -287,7 +290,7 @@ apply_ocaml() { plan_command_run fedora_ocaml_command; }
 apply_ai() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interactive); plan_command_run fedora_ai_command "${args[@]}"; }
 apply_kde() { plan_command_run fedora_kde_command; }
 apply_latex() { plan_command_run fedora_latex_command; }
-apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
+apply_theme() { theme_apply_stowed "$theme"; }
 verify_fedora() { plan_command_run fedora_verify_command; }
 apply_dev_workflows() { plan_command_run fedora_dev_workflows_command; }
 

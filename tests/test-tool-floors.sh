@@ -423,6 +423,42 @@ write_consumer 'called() {
 called'
 assert_success
 
+# Where the brace sits is a spelling, not a statement about whether the body
+# runs. The reader this check used to carry recognised a definition only with
+# the brace on the same line, so the identical uncalled function passed when
+# the brace moved down a line and its floor check counted as load-time code.
+write_consumer 'never_called()
+{
+  tool_floor_check nvim
+}
+: done'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+write_consumer 'called()
+{
+  tool_floor_check nvim
+}
+called'
+assert_success
+
+write_consumer 'function called {
+  tool_floor_check nvim
+}
+called'
+assert_success
+
+# The same defect in the other direction, which is worse than a false pass
+# because it refuses correct code: this refactor enforces the floor on every
+# path, and the check called it a mention in a comment or a string.
+write_consumer 'if ! tool_floor_check nvim; then
+  exit 1
+fi'
+assert_success
+
+write_consumer 'tool_floor_check nvim || exit 1'
+assert_success
+
 # Command substitution inside double quotes runs, which is how all four
 # platform verifiers read the floor. Blanking quoted text wholesale would
 # report every one of them as enforcing nothing.
@@ -491,7 +527,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 try:
     module.readers(pathlib.Path(library))
-except module.UnreadableLibrary as unreadable:
+except module.UnreadableShell as unreadable:
     print(f"refused: {unreadable}")
 else:
     print("accepted a library with no reader")

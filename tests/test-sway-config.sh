@@ -330,12 +330,12 @@ for flavour in latte frappe macchiato mocha; do
   [[ -s "$lock_wallpaper" ]]
 done
 
-bash -n "$grid"
-bash -n "$cycle"
-bash -n "$fedora_stow/sway/.local/bin/sway-screenshot"
-bash -n "$fedora_stow/sway/.local/bin/power-profile-status"
-bash -n "$session_start"
-bash -n "$repo_root/platforms/fedora/assets/dotfiles-sway"
+# The six `bash -n` calls that stood here were a hand-patch around the lint
+# gate's extension rule: none of these files ends in .sh, so none of them was
+# syntax-checked anywhere else. ./scripts/lint.sh now reads its file set from
+# scripts/list-shell-files.py, which selects on the shebang, and
+# tests/test-lint-file-selection.sh proves a syntax error in each of them fails
+# that gate.
 
 grep -Fq 'session_script=/usr/libexec/sway-systemd/session.sh' "$session_start"
 grep -Fq 'systemctl --user is-active --quiet graphical-session.target' "$session_start"

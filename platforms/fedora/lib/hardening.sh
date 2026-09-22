@@ -15,6 +15,134 @@
 # belong to the fixture. Always pass the real /etc path; each function applies
 # the prefix itself, once.
 
+# The drop-ins this profile owns, as one record per subsystem: where it goes,
+# the mode it carries, and the exact bytes it holds. Both halves of the
+# profile read this table -- the installer to write a drop-in, the verifier to
+# decide whether the one on disk is still the one that was written -- so
+# "unmodified" can mean the whole file rather than a sample of a few lines
+# taken from it. A verifier that samples cannot see an inserted line, and an
+# inserted line is how a policy gets reversed: sshd_config(5) takes the first
+# value it reads for a keyword, so `PermitRootLogin yes` written above the
+# `PermitRootLogin no` this profile wrote turns root SSH login back on while
+# every line the profile wrote is still present.
+#
+# hardening_dropin_path <name>
+hardening_dropin_path() {
+  case "$1" in
+  faillock) printf '/etc/security/faillock.conf.d/90-dotfiles-hardening.conf\n' ;;
+  sudo-logfile) printf '/etc/sudoers.d/90-dotfiles-hardening\n' ;;
+  auditd-rules) printf '/etc/audit/rules.d/90-dotfiles-hardening.rules\n' ;;
+  sysctl) printf '/etc/sysctl.d/90-dotfiles-hardening.conf\n' ;;
+  ssh) printf '/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf\n' ;;
+  *) die "Unknown hardening drop-in: $1" ;;
+  esac
+}
+
+# hardening_dropin_mode <name>: the mode in the spelling install(1) is given.
+# stat(1) reports it without the leading zero, so a comparison against a
+# stat'd mode strips it.
+hardening_dropin_mode() {
+  case "$1" in
+  faillock | sysctl | ssh) printf '0644\n' ;;
+  sudo-logfile) printf '0440\n' ;;
+  auditd-rules) printf '0640\n' ;;
+  *) die "Unknown hardening drop-in: $1" ;;
+  esac
+}
+
+# hardening_dropin_description <name>: what the drop-in is called in the
+# installer's progress output.
+hardening_dropin_description() {
+  case "$1" in
+  faillock) printf 'pam_faillock lockout policy\n' ;;
+  sudo-logfile) printf 'sudo audit logfile policy\n' ;;
+  auditd-rules) printf 'auditd watch rules\n' ;;
+  sysctl) printf 'hardening sysctl settings\n' ;;
+  ssh) printf 'SSH hardening drop-in\n' ;;
+  *) die "Unknown hardening drop-in: $1" ;;
+  esac
+}
+
+# hardening_dropin_content <name>: the file's exact content.
+#
+# auditd-rules carries no comment header on purpose: verification compares
+# these lines against `auditctl -l`, which prints loaded rules and no
+# comments, so every line here has to be a rule.
+hardening_dropin_content() {
+  case "$1" in
+  faillock)
+    printf '%s\n' \
+      '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+      'deny = 5' \
+      'unlock_time = 900'
+    ;;
+  sudo-logfile)
+    printf 'Defaults logfile="/var/log/sudo.log"\n'
+    ;;
+  auditd-rules)
+    printf '%s\n' \
+      '-w /etc/passwd -p wa -k dotfiles-identity' \
+      '-w /etc/shadow -p wa -k dotfiles-identity' \
+      '-w /etc/group -p wa -k dotfiles-identity' \
+      '-w /etc/sudoers -p wa -k dotfiles-sudoers' \
+      '-w /etc/sudoers.d/ -p wa -k dotfiles-sudoers'
+    ;;
+  sysctl)
+    printf '%s\n' \
+      '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+      'kernel.yama.ptrace_scope = 1' \
+      'kernel.kptr_restrict = 2' \
+      'kernel.dmesg_restrict = 1'
+    ;;
+  ssh)
+    printf '%s\n' \
+      '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+      'PermitRootLogin no' \
+      'MaxAuthTries 3' \
+      'LoginGraceTime 20'
+    ;;
+  *) die "Unknown hardening drop-in: $1" ;;
+  esac
+}
+
+# hardening_dropin_difference <expected> <actual>: names the first line where
+# two drop-in bodies part company, so a content failure says what changed
+# instead of only that something did.
+hardening_dropin_difference() {
+  local -a expected actual
+  mapfile -t expected <<<"$1"
+  mapfile -t actual <<<"$2"
+
+  local index count="${#expected[@]}"
+  ((count >= ${#actual[@]})) || count="${#actual[@]}"
+
+  for ((index = 0; index < count; index++)); do
+    [[ "${expected[index]-}" != "${actual[index]-}" ]] || continue
+    if ((index >= ${#actual[@]})); then
+      printf "line %d is missing, expected '%s'" \
+        "$((index + 1))" "${expected[index]}"
+    elif ((index >= ${#expected[@]})); then
+      printf "line %d was added: '%s'" "$((index + 1))" "${actual[index]}"
+    else
+      printf "line %d is '%s', expected '%s'" \
+        "$((index + 1))" "${actual[index]}" "${expected[index]}"
+    fi
+    return 0
+  done
+
+  printf 'the contents are identical'
+}
+
+# write_managed_dropin <name>: writes one drop-in from the table above.
+write_managed_dropin() {
+  local name="$1"
+
+  hardening_dropin_content "$name" |
+    write_managed_root_file "$(hardening_dropin_path "$name")" \
+      "$(hardening_dropin_mode "$name")" \
+      "$(hardening_dropin_description "$name")"
+}
+
 # write_managed_root_file <path> <mode> <description>
 # Reads new file content from stdin, then installs it at <path> with <mode>
 # via sudo. Skips the write (and reports so) when the file already has the
@@ -43,26 +171,72 @@ write_managed_root_file() {
 # The drop-ins this profile owns are root:root and some are mode 0440/0640, so
 # an unprivileged read cannot see them at all. sudo is used here only to read
 # and stat; nothing below writes, reloads, or enables anything.
+#
+# Every privileged read is `sudo -n`. Verification is what you run to find out
+# what state a machine is in, including from a script, a timer, or a session
+# with no terminal to answer on, so it must never stop on a password prompt.
+# When sudo will not answer without one these helpers say they could not tell,
+# with a status of their own, rather than reporting the control absent: a
+# missing control and an unreadable one are different answers, and only one of
+# them is drift.
+#
+# HARDENING_SUDO_AUTHORIZED caches the answer for the process. It is asked
+# once because the answer can only go stale in the direction of a prompt,
+# which is the thing being avoided.
+HARDENING_SUDO_AUTHORIZED=""
+
+# hardening_privileged_read_available: whether sudo answers without asking for
+# a password.
+hardening_privileged_read_available() {
+  if [[ -z "$HARDENING_SUDO_AUTHORIZED" ]]; then
+    if sudo -n true 2>/dev/null; then
+      HARDENING_SUDO_AUTHORIZED="true"
+    else
+      HARDENING_SUDO_AUTHORIZED="false"
+    fi
+  fi
+
+  [[ "$HARDENING_SUDO_AUTHORIZED" == "true" ]]
+}
+
+# managed_root_file_exists <path>: 0 present, 1 absent, 2 could not tell.
+#
+# An unprivileged stat cannot tell an absent file from one inside a directory
+# this user may not search, so a negative answer is only conclusive when sudo
+# could be asked.
 managed_root_file_exists() {
   local path="${HARDENING_ROOT:-}$1"
-  [[ -f "$path" ]] || sudo test -f "$path" 2>/dev/null
+
+  [[ ! -f "$path" ]] || return 0
+  hardening_privileged_read_available || return 2
+  sudo -n test -f "$path" 2>/dev/null || return 1
 }
 
+# managed_root_file_read <path>: prints the content; 2 when it could not be
+# read without a password.
 managed_root_file_read() {
   local path="${HARDENING_ROOT:-}$1"
+
   if [[ -r "$path" ]]; then
     cat -- "$path" 2>/dev/null
-  else
-    sudo cat -- "$path" 2>/dev/null
+    return
   fi
+
+  hardening_privileged_read_available || return 2
+  sudo -n cat -- "$path" 2>/dev/null
 }
 
+# managed_root_file_mode <path>: prints the mode; 1 when there is none to
+# read, 2 when it could not be read without a password.
 managed_root_file_mode() {
   local path="${HARDENING_ROOT:-}$1"
   local mode
 
   mode="$(stat -c '%a' "$path" 2>/dev/null || true)"
-  [[ -n "$mode" ]] || mode="$(sudo stat -c '%a' "$path" 2>/dev/null || true)"
+  if [[ -z "$mode" ]]; then
+    hardening_privileged_read_available || return 2
+    mode="$(sudo -n stat -c '%a' "$path" 2>/dev/null || true)"
+  fi
   [[ -n "$mode" ]] || return 1
   printf '%s\n' "$mode"
 }
@@ -228,27 +402,23 @@ apply_pam_faillock() {
     return 1
   fi
 
-  write_managed_root_file /etc/security/faillock.conf.d/90-dotfiles-hardening.conf \
-    0644 "pam_faillock lockout policy" <<'EOF'
-# Managed by dotfiles Fedora hardening profile. Safe to delete.
-deny = 5
-unlock_time = 900
-EOF
+  write_managed_dropin faillock
 }
 
 apply_sudo_audit_log() {
   local tmp
 
   tmp="$(mktemp)"
-  printf 'Defaults logfile="/var/log/sudo.log"\n' >"$tmp"
+  hardening_dropin_content sudo-logfile >"$tmp"
 
   if ! visudo -cf "$tmp" >/dev/null 2>&1; then
     rm -f "$tmp"
     die "Generated sudoers drop-in failed visudo syntax check; not installing it"
   fi
 
-  write_managed_root_file /etc/sudoers.d/90-dotfiles-hardening 0440 \
-    "sudo audit logfile policy" <"$tmp"
+  write_managed_root_file "$(hardening_dropin_path sudo-logfile)" \
+    "$(hardening_dropin_mode sudo-logfile)" \
+    "$(hardening_dropin_description sudo-logfile)" <"$tmp"
   rm -f "$tmp"
 }
 
@@ -258,20 +428,15 @@ apply_auditd_rules() {
     sudo dnf install -y audit
   }
 
-  local rules_path="/etc/audit/rules.d/90-dotfiles-hardening.rules"
+  local rules_path
+  rules_path="$(hardening_dropin_path auditd-rules)"
   local rooted_rules_path="${HARDENING_ROOT:-}$rules_path"
   local before after
 
   before=""
   sudo test -f "$rooted_rules_path" && before="$(sudo cat "$rooted_rules_path")"
 
-  printf '%s\n' \
-    '-w /etc/passwd -p wa -k dotfiles-identity' \
-    '-w /etc/shadow -p wa -k dotfiles-identity' \
-    '-w /etc/group -p wa -k dotfiles-identity' \
-    '-w /etc/sudoers -p wa -k dotfiles-sudoers' \
-    '-w /etc/sudoers.d/ -p wa -k dotfiles-sudoers' |
-    write_managed_root_file "$rules_path" 0640 "auditd watch rules"
+  write_managed_dropin auditd-rules
 
   after="$(sudo cat "$rooted_rules_path")"
 
@@ -290,14 +455,10 @@ apply_auditd_rules() {
 # immediately. Named 90- so it is read (and can be overridden) after Fedora's
 # own /usr/lib/sysctl.d defaults and before an end-user /etc/sysctl.d/99-*.
 apply_hardening_sysctl() {
-  local path="/etc/sysctl.d/90-dotfiles-hardening.conf"
+  local path
+  path="$(hardening_dropin_path sysctl)"
 
-  printf '%s\n' \
-    '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
-    'kernel.yama.ptrace_scope = 1' \
-    'kernel.kptr_restrict = 2' \
-    'kernel.dmesg_restrict = 1' |
-    write_managed_root_file "$path" 0644 "hardening sysctl settings"
+  write_managed_dropin sysctl
 
   info "Applying sysctl settings"
   sudo sysctl -p "${HARDENING_ROOT:-}$path" >/dev/null
@@ -314,15 +475,11 @@ apply_ssh_hardening() {
     return 1
   fi
 
-  local path="${HARDENING_ROOT:-}/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
-  local tmp
+  local path tmp
+  path="${HARDENING_ROOT:-}$(hardening_dropin_path ssh)"
 
   tmp="$(mktemp)"
-  printf '%s\n' \
-    '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
-    'PermitRootLogin no' \
-    'MaxAuthTries 3' \
-    'LoginGraceTime 20' >"$tmp"
+  hardening_dropin_content ssh >"$tmp"
 
   if sudo test -f "$path" && sudo cmp -s "$tmp" "$path"; then
     info "SSH hardening drop-in already applied: $path"
@@ -330,7 +487,7 @@ apply_ssh_hardening() {
     return 0
   fi
 
-  sudo install -D -m 0644 -o root -g root "$tmp" "$path"
+  sudo install -D -m "$(hardening_dropin_mode ssh)" -o root -g root "$tmp" "$path"
   rm -f "$tmp"
 
   if ! sudo sshd -t; then

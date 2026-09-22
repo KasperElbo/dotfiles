@@ -30,13 +30,22 @@ opencode_agents_target="$XDG_CONFIG_HOME/opencode/AGENTS.md"
 
 profile_state_validate_file "$state_file" ai || exit 1
 
-codex_state="$(profile_state_read "$state_file" codex ai)"
-firstmate_state="$(profile_state_read "$state_file" firstmate ai)"
-treehouse_state="$(profile_state_read "$state_file" treehouse ai)"
-no_mistakes_state="$(profile_state_read "$state_file" no_mistakes ai)"
-lavish_axi_state="$(profile_state_read "$state_file" lavish_axi ai)"
-gnhf_state="$(profile_state_read "$state_file" gnhf ai)"
-backpass_state="$(profile_state_read "$state_file" backpass ai)"
+# profile_state_read fails for a key the file does not contain, and
+# profile_state_required_keys requires only claude_code, herdr, codex and
+# firstmate of an ai record -- deliberately, so state an earlier release wrote
+# stays readable and diagnosable. Reading an optional key into a bare variable
+# turned its absence into the empty string, which loses every "== installed",
+# "== cloned" and "== mise-npm" comparison below, so a component whose
+# selection was never recorded read as "not selected". The provenance keys at
+# the bottom of this block already had the treatment; the component keys did
+# not (issue #396, GAP-32).
+codex_state="$(profile_state_read "$state_file" codex ai 2>/dev/null || printf 'not-recorded')"
+firstmate_state="$(profile_state_read "$state_file" firstmate ai 2>/dev/null || printf 'not-recorded')"
+treehouse_state="$(profile_state_read "$state_file" treehouse ai 2>/dev/null || printf 'not-recorded')"
+no_mistakes_state="$(profile_state_read "$state_file" no_mistakes ai 2>/dev/null || printf 'not-recorded')"
+lavish_axi_state="$(profile_state_read "$state_file" lavish_axi ai 2>/dev/null || printf 'not-recorded')"
+gnhf_state="$(profile_state_read "$state_file" gnhf ai 2>/dev/null || printf 'not-recorded')"
+backpass_state="$(profile_state_read "$state_file" backpass ai 2>/dev/null || printf 'not-recorded')"
 requested_state="$(profile_state_read "$state_file" requested ai 2>/dev/null || printf 'not-recorded')"
 firstmate_source_state="$(profile_state_read "$state_file" firstmate_source ai 2>/dev/null || printf 'not-recorded')"
 firstmate_commit_state="$(profile_state_read "$state_file" firstmate_commit ai 2>/dev/null || printf 'not-recorded')"
@@ -48,10 +57,17 @@ no_mistakes_target_path_state="$(profile_state_read "$state_file" no_mistakes_ta
 # Capture the environment configured for a fresh interactive login before the
 # verifier adds mise's shims to its own process. An explicit value remains
 # supported for hermetic callers and tests.
+#
+# Both logins, because they configure different PATHs and only one of them is
+# the shell mise activation reaches: check_mise_owned needs the other to tell
+# a shim from a copy in ~/.local/bin that the next non-interactive login would
+# run instead. A caller that supplies the interactive value by hand supplies
+# the other one too, or the second probe stays out of the way.
 if [[ -z "${VERIFY_CONFIGURED_LOGIN_PATH+x}" ]]; then
-  VERIFY_CONFIGURED_LOGIN_PATH="$(
-    zsh -lic 'printf "%s\\n" "$PATH"' 2>/dev/null || true
-  )"
+  VERIFY_CONFIGURED_LOGIN_PATH="$(verify_login_path interactive || true)"
+  if [[ -z "${VERIFY_NONINTERACTIVE_LOGIN_PATH+x}" ]]; then
+    VERIFY_NONINTERACTIVE_LOGIN_PATH="$(verify_login_path non-interactive || true)"
+  fi
 fi
 VERIFY_CALLER_PATH="$PATH"
 mise_command="$(resolve_mise_command || true)"
@@ -138,6 +154,30 @@ report_disabled_but_present() {
       "run './common/install-ai.sh $flag' to remove it"
   else
     pass "$label is not installed (optional subcomponent not selected)"
+  fi
+}
+
+# report_unrecorded <label> <key> [path]: this machine's AI record does not say
+# whether the component was selected, which is a different answer from "not
+# selected" and must not be reported as one. It is what an ai.conf written
+# before the key existed looks like, so the recovery is to rerun the installer
+# rather than to remove anything -- recommending --no-<component> for a
+# selection that was never recorded is advice to delete a component the record
+# cannot speak for (issue #396, GAP-32).
+report_unrecorded() {
+  local label="$1"
+  local key="$2"
+  local path="${3:-}"
+
+  if [[ -n "$path" ]] && [[ -e "$path" || -L "$path" ]]; then
+    warning "$label is present ($path) but $state_file does not record" \
+      "whether it was selected ($key is absent), so its provenance cannot be" \
+      "compared; rerun './common/install-ai.sh' to record this machine's" \
+      "selection"
+  else
+    warning "$state_file does not record whether $label was selected" \
+      "($key is absent); rerun './common/install-ai.sh' to record this" \
+      "machine's selection"
   fi
 }
 
@@ -282,6 +322,13 @@ check_mise_owned herdr
 # mise installs and updates Claude Code; Claude Code must not replace its own
 # package. Without this the tool reinstalls itself under the mise-managed Node
 # prefix and shadows the dedicated npm-backend installation.
+#
+# Two places, because they prove different things. Claude Code's settings file
+# is the block itself: the tool reads it however it was launched, including
+# from something that never saw a Zsh. The login environment is the second
+# line, and only ever covers what a login shell starts.
+check_claude_update_settings "$HOME/.claude/settings.json" \
+  DISABLE_UPDATES DISABLE_AUTOUPDATER
 check_login_environment DISABLE_UPDATES 1
 
 check_no_global_npm_duplicate @anthropic-ai/claude-code @openai/codex gnhf \
@@ -289,6 +336,8 @@ check_no_global_npm_duplicate @anthropic-ai/claude-code @openai/codex gnhf \
 
 if [[ "$codex_state" == mise-npm ]]; then
   check_mise_owned codex
+elif [[ "$codex_state" == not-recorded ]]; then
+  report_unrecorded codex codex "$(command -v codex 2>/dev/null || true)"
 elif command -v codex >/dev/null 2>&1; then
   warning "codex is not selected (codex=$codex_state) but is still on PATH;" \
     "run './common/install-ai.sh --no-codex' to remove it"
@@ -306,6 +355,8 @@ section "GNHF (optional, unattended-run agent orchestrator)"
 
 if [[ "$gnhf_state" == mise-npm ]]; then
   check_mise_owned gnhf
+elif [[ "$gnhf_state" == not-recorded ]]; then
+  report_unrecorded GNHF gnhf "$(command -v gnhf 2>/dev/null || true)"
 elif command -v gnhf >/dev/null 2>&1; then
   warning "gnhf is not selected (gnhf=$gnhf_state) but is still on PATH;" \
     "run './common/install-ai.sh --no-gnhf' to remove it"
@@ -366,6 +417,20 @@ section "lavish-axi (rich-review UI; shared by FirstMate and backpass)"
 
 if [[ "$lavish_axi_state" == mise-npm ]]; then
   check_mise_owned lavish-axi
+elif [[ "$lavish_axi_state" == not-recorded ]]; then
+  # install-ai.sh forces lavish-axi on whenever FirstMate or backpass is
+  # selected, so "FirstMate cloned" together with "lavish-axi not selected" is
+  # a combination no install can produce. Reporting both in one run, as this
+  # verifier did, is the record contradicting itself rather than a machine
+  # that is merely missing a component.
+  if [[ "$firstmate_state" == cloned || "$backpass_state" == mise-npm ]]; then
+    fail "$state_file records FirstMate or backpass as selected but does not" \
+      "record lavish-axi, which the installer turns on with either of them;" \
+      "this record cannot describe any installation. Rerun" \
+      "'./common/install-ai.sh' to write one that can"
+  else
+    report_unrecorded lavish-axi lavish_axi "$(command -v lavish-axi 2>/dev/null || true)"
+  fi
 else
   pass "lavish-axi is not installed (neither FirstMate nor backpass selected)"
 fi
@@ -375,6 +440,8 @@ section "Treehouse (worktree isolation for FirstMate crewmates)"
 if [[ "$treehouse_state" == installed ]]; then
   check_own_script_owned treehouse "$treehouse_target" "$treehouse_target_path_state"
   check_recorded_digest Treehouse "$treehouse_target" "$treehouse_target_digest_state"
+elif [[ "$treehouse_state" == not-recorded ]]; then
+  report_unrecorded Treehouse treehouse "$treehouse_target"
 else
   report_disabled_but_present Treehouse "$treehouse_target" --no-firstmate
 fi
@@ -384,6 +451,8 @@ section "No Mistakes (local push validation gate)"
 if [[ "$no_mistakes_state" == installed ]]; then
   check_own_script_owned no-mistakes "$no_mistakes_target" "$no_mistakes_target_path_state"
   check_recorded_digest "No Mistakes" "$no_mistakes_target" "$no_mistakes_target_digest_state"
+elif [[ "$no_mistakes_state" == not-recorded ]]; then
+  report_unrecorded "No Mistakes" no_mistakes "$no_mistakes_target"
 else
   report_disabled_but_present "No Mistakes" "$no_mistakes_target" --no-firstmate
 fi
@@ -393,6 +462,8 @@ section "backpass (optional, instructions-file tuning)"
 if [[ "$backpass_state" == mise-npm ]]; then
   check_mise_owned backpass
   check_mise_owned acpx
+elif [[ "$backpass_state" == not-recorded ]]; then
+  report_unrecorded backpass backpass "$(command -v backpass 2>/dev/null || true)"
 elif command -v backpass >/dev/null 2>&1; then
   warning "backpass is not selected (backpass=$backpass_state) but is still on PATH;" \
     "run './common/install-ai.sh --no-backpass' to remove it"

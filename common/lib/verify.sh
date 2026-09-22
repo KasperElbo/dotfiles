@@ -355,15 +355,35 @@ check_version_at_least() {
   fi
 }
 
+# check_file_contains <label> <path> <expected>
+#
+# The expected text occurs on a line of the file that is in effect. Blank
+# lines and whole-line comments are dropped before the match, because the
+# callers are settings files and the thing being reported is that a setting
+# applies: a directive someone commented out satisfied this check, and one
+# file could prove two mutually exclusive theme flavours present at once
+# (issue #390, VL-01).
+#
+# It still proves a substring rather than a whole line. Three of the four
+# call sites pass a fragment of a longer line, so anchoring the claim to the
+# line belongs with them rather than here.
 check_file_contains() {
   local label="$1"
   local path="$2"
   local expected="$3"
+  local active=""
 
-  if [[ -r "$path" ]] && grep -Fq -- "$expected" "$path"; then
+  # Read once and match a here-string rather than piping the file into a
+  # quiet grep, which takes SIGPIPE exactly when the match is found
+  # (docs/testing.md, "Assertions that cannot fail").
+  if [[ -r "$path" ]]; then
+    active="$(grep -Ev '^[[:space:]]*(#|$)' -- "$path" || true)"
+  fi
+
+  if [[ -n "$active" ]] && grep -Fq -- "$expected" <<<"$active"; then
     pass "$label"
   else
-    fail "$label: expected '$expected' in $path"
+    fail "$label: expected '$expected' in $path, on a line that is in effect"
   fi
 }
 
@@ -377,20 +397,6 @@ verify_file_mode() {
   fi
   [[ -n "$mode" ]] || return 1
   printf '%s\n' "$mode"
-}
-
-check_file_mode() {
-  local label="$1"
-  local path="$2"
-  local expected_mode="$3"
-  local actual_mode
-
-  actual_mode="$(verify_file_mode "$path" 2>/dev/null || true)"
-  if [[ "$actual_mode" == "$expected_mode" ]]; then
-    pass "$label mode is $expected_mode"
-  else
-    fail "$label mode is ${actual_mode:-unknown}; expected $expected_mode"
-  fi
 }
 
 # Resolve an existing path without GNU-only readlink flags. Installers and
@@ -408,17 +414,31 @@ verify_path_is_within_root() {
   [[ "$path" == "$root" || "$path" == "$root/"* ]]
 }
 
-# check_symlink <link> <expected-root>
+# check_symlink <link> <expected-root> [expected-source]
 #
 # An owned Stow link has five independent properties: the link object exists,
 # it is a symlink, its referent exists, canonical resolution succeeds, and the
-# resolved referent is inside the exact expected package root. The final test
+# resolved referent is inside the exact expected package root. The root test
 # is component-aware so /repo/dotfiles-other never satisfies /repo/dotfiles.
+#
+# Those five prove the link points somewhere below the right package. They do
+# not prove it points at the right file: a link redirected at another file in
+# the same package passed, so a manual mislink, a faulty migration or a
+# Stow-layout regression could send a configuration path at the wrong
+# repository file and still be reported green (issue #369).
+#
+# <expected-source> is that sixth property. Given it, the resolved referent
+# must be that exact file and no other. Both sides are canonicalized first, so
+# a relative and an absolute spelling of the same source agree, and so does a
+# checkout reached through a symlink. Call sites that do not pass it keep the
+# weaker containment guarantee and say so by their argument count.
 check_symlink() {
   local link="$1"
   local expected_root="${2%/}"
+  local expected_source="${3:-}"
   local resolved=""
   local canonical_root=""
+  local canonical_source=""
 
   if [[ ! -e "$link" && ! -L "$link" ]]; then
     fail "$link is missing; expected Stow ownership under $expected_root"
@@ -440,13 +460,27 @@ check_symlink() {
     return 1
   fi
 
-  if verify_path_is_within_root "$resolved" "$canonical_root"; then
-    pass "$link -> $resolved"
-    return 0
+  if ! verify_path_is_within_root "$resolved" "$canonical_root"; then
+    fail "$link is not owned by the expected package; resolved=$resolved expected=$canonical_root"
+    return 1
   fi
 
-  fail "$link is not owned by the expected package; resolved=$resolved expected=$canonical_root"
-  return 1
+  if [[ -n "$expected_source" ]]; then
+    canonical_source="$(verify_canonical_existing_path "$expected_source" 2>/dev/null || true)"
+    if [[ -z "$canonical_source" ]]; then
+      fail "$link cannot be checked against its Stow source: $expected_source" \
+        "does not exist in this checkout"
+      return 1
+    fi
+    if [[ "$resolved" != "$canonical_source" ]]; then
+      fail "$link is owned by $canonical_root but is not the file Stow should" \
+        "have linked; resolved=$resolved expected=$canonical_source"
+      return 1
+    fi
+  fi
+
+  pass "$link -> $resolved"
+  return 0
 }
 
 check_system_service_active() {
@@ -455,15 +489,6 @@ check_system_service_active() {
     pass "$unit is active"
   else
     fail "$unit is not active"
-  fi
-}
-
-check_user_service_active() {
-  local unit="$1"
-  if systemctl --user is-active --quiet "$unit"; then
-    pass "$unit is active for the user"
-  else
-    fail "$unit is not active for the user"
   fi
 }
 
@@ -686,6 +711,12 @@ check_catppuccin_tmux() {
 # login that is not interactive, which is what rules out an interactive-only
 # definition satisfying the check by accident.
 #
+# What this cannot prove: that the variable reaches a process this shell did
+# not start. Anything launched outside a top-level Zsh -- an editor, a
+# launcher, a shell that predates the install -- reads none of .zshenv, so for
+# Claude Code specifically this is the second line and not the block itself.
+# See check_claude_update_settings below.
+#
 # The probe prints its own marker and an explicit sentinel for an unset
 # variable, so the three outcomes stay distinguishable. The marker is matched
 # anywhere on the line because a login shell is free to write control sequences
@@ -726,6 +757,59 @@ check_login_environment() {
   esac
 }
 
+# check_claude_update_settings <settings-file> <key>...: the update block that
+# survives a launch this repository did not start.
+#
+# check_login_environment above can only prove what a Zsh it starts itself
+# exports. Claude Code is routinely launched by something that is not a
+# descendant of a top-level Zsh -- an editor, a launcher, a shell that was
+# already running when the profile was installed -- and such a process gets
+# none of .zshenv. Claude Code reads its own settings file whatever started it,
+# so that file is where the block has to be, and here is where it is proven.
+#
+# A key set to anything other than "1" is a failure rather than a warning: the
+# tool's gate is what it is, and a value it does not accept leaves the updater
+# free to write a second copy into the active Node prefix, which is exactly the
+# state check_no_global_npm_duplicate then reports.
+check_claude_update_settings() {
+  local file="$1"
+  shift
+  local key value missing="false"
+
+  if ! command_exists jq; then
+    not_observed "jq is unavailable; cannot read $file to prove that Claude" \
+      "Code's updater is disabled"
+    return
+  fi
+
+  if [[ ! -e "$file" ]]; then
+    fail "$file does not exist, so Claude Code's updater is unrestricted" \
+      "however it is launched. Rerun './common/install-ai.sh' to declare $*"
+    return 1
+  fi
+
+  if ! jq -e . "$file" >/dev/null 2>&1; then
+    fail "$file is not valid JSON, so Claude Code reads no settings from it" \
+      "and its updater is unrestricted. Repair the file, then rerun" \
+      "'./common/install-ai.sh'"
+    return 1
+  fi
+
+  for key in "$@"; do
+    value="$(jq -r --arg key "$key" '.env[$key] // "<unset>"' "$file" 2>/dev/null)"
+    if [[ "$value" == "1" ]]; then
+      pass "$key=1 in $file"
+    else
+      fail "$key is $value in $file, not 1; Claude Code would install a" \
+        "second copy of itself into the active Node prefix. Rerun" \
+        "'./common/install-ai.sh'"
+      missing="true"
+    fi
+  done
+
+  [[ "$missing" == false ]]
+}
+
 # check_no_global_npm_duplicate <package>...: an AI package installed into the
 # active Node prefix as well as its dedicated mise npm backend. The duplicate
 # shadows the backend installation, so mise no longer owns what actually runs.
@@ -754,9 +838,15 @@ check_no_global_npm_duplicate() {
     global_npm="$("$mise_command" exec -- npm ls --global --depth=0 --parseable 2>/dev/null)"
   fi
   status=$?
-  if ((status != 0)); then
-    not_observed "npm is not runnable under mise; cannot rule out a duplicate" \
-      "AI package in the active Node prefix"
+  # npm reports a dependency problem in the tree with a non-zero exit while
+  # still printing the tree, so keying the not_observed branch on the status
+  # alone reported a run that enumerated the prefix and named the duplicate as
+  # a run that could not happen (issue #396, GAP-35). What separates "could
+  # not run" from "ran and exited non-zero" is whether there is any output:
+  # with none there is nothing to read, and only then is this unobserved.
+  if ((status != 0)) && [[ -z "$global_npm" ]]; then
+    not_observed "npm produced no output under mise; cannot rule out a" \
+      "duplicate AI package in the active Node prefix"
     return
   fi
 
@@ -776,8 +866,20 @@ check_no_global_npm_duplicate() {
     fi
   done
 
-  [[ "$duplicate" == true ]] ||
-    pass "No AI package is duplicated in the active Node prefix"
+  if [[ "$duplicate" == true ]]; then
+    return
+  fi
+
+  # Output was read and named no duplicate. If npm still exited non-zero, the
+  # tree it printed may be incomplete, so absence of a duplicate in it is not
+  # proof of absence.
+  if ((status != 0)); then
+    not_observed "npm exited $status while listing the active Node prefix and" \
+      "named no duplicate AI package; the listing may be incomplete"
+    return
+  fi
+
+  pass "No AI package is duplicated in the active Node prefix"
 }
 
 # The deterministic mise context is this verifier's own precondition: every
@@ -803,10 +905,34 @@ check_mise_context() {
   fail "mise resolution is not deterministic: $diagnosis"
 }
 
+# verify_login_path <interactive|non-interactive>: the PATH a fresh Zsh login
+# configures, read with check_login_environment's marker-and-sed discipline so
+# a .zshrc that writes to stdout cannot become the first PATH component.
+# Fails, printing nothing, when zsh is unavailable or answers nothing.
+verify_login_path() {
+  local mode="$1" answer
+
+  command_exists zsh || return 1
+  case "$mode" in
+  interactive)
+    answer="$(zsh -lic 'printf "login-path:%s\n" "$PATH"' 2>/dev/null |
+      sed -n 's/.*login-path://p' | tail -n 1)"
+    ;;
+  non-interactive)
+    answer="$(zsh -lc 'printf "login-path:%s\n" "$PATH"' 2>/dev/null |
+      sed -n 's/.*login-path://p' | tail -n 1)"
+    ;;
+  *) return 1 ;;
+  esac
+
+  [[ -n "$answer" ]] || return 1
+  printf '%s\n' "$answer"
+}
+
 check_mise_owned() {
   local name="$1"
   local resolved mise_resolved mise_shim configured_path configured_resolved mise_command
-  local mise_data_dir mise_shims_dir
+  local mise_data_dir mise_shims_dir login_resolved
 
   resolved="$(command -v "$name" 2>/dev/null || true)"
   if [[ -z "$resolved" ]]; then
@@ -865,6 +991,32 @@ check_mise_owned() {
     ! shell_paths_match "$configured_resolved" "$mise_shim"; then
     fail "$name resolves outside mise in the configured login PATH: $configured_resolved (mise manages $mise_resolved)"
     return 1
+  fi
+
+  # The configured login PATH above is captured from an INTERACTIVE login,
+  # which is the one shell where mise activation necessarily wins: the tracked
+  # Zsh package activates mise in .zshrc, while .zshenv -- read by every
+  # top-level Zsh, interactive or not -- puts $HOME/.local/bin first and adds
+  # no mise paths. So that probe says nothing about the login where
+  # ~/.local/bin wins and there are no shims at all, and a non-mise copy of a
+  # tool there was reported as mise-owned (issue #396, GAP-33).
+  #
+  # A name that does not resolve at all in that login is the ordinary
+  # shim-only case, not a defect: nothing is said about it. A caller that
+  # supplies VERIFY_CONFIGURED_LOGIN_PATH by hand supplies this one too or
+  # the second probe does not run.
+  if [[ -n "${VERIFY_NONINTERACTIVE_LOGIN_PATH:-}" ]]; then
+    login_resolved="$(PATH="$VERIFY_NONINTERACTIVE_LOGIN_PATH" \
+      command -v "$name" 2>/dev/null || true)"
+    if [[ -n "$login_resolved" ]] &&
+      ! shell_paths_match "$login_resolved" "$mise_resolved" &&
+      ! shell_paths_match "$login_resolved" "$mise_shim"; then
+      fail "$name resolves outside mise in a login that is not interactive:" \
+        "$login_resolved (mise manages $mise_resolved). Such a login reads" \
+        ".zshenv but not .zshrc, so mise is never activated there and this" \
+        "copy is what runs"
+      return 1
+    fi
   fi
 
   if shell_paths_match "$resolved" "$mise_resolved"; then

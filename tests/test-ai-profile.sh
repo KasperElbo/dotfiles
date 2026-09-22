@@ -157,9 +157,22 @@ chmod +x "$mock_bin/npm"
 # the stale shell PATH that launches the installer/verifier.
 cat >"$mock_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
-if [[ $# -eq 2 && "$1" == -lic && "$2" == 'printf "%s\\n" "$PATH"' ]]; then
-  printf '%s\n' "$HOME/.local/bin:$MISE_SHIMS_DIR:$PATH"
-  exit 0
+# Both logins the tracked Zsh package produces, answered through the
+# verifier's own marker. .zshenv is read by every top-level Zsh and puts
+# ~/.local/bin first; mise is activated in .zshrc, so only the INTERACTIVE
+# login carries the shims. A fixture that answered both the same way would
+# model away the defect the second probe exists to catch.
+if [[ $# -eq 2 && "$2" == 'printf "login-path:%s\n" "$PATH"' ]]; then
+  case "$1" in
+  -lic)
+    printf 'login-path:%s\n' "$MISE_SHIMS_DIR:$HOME/.local/bin:$PATH"
+    exit 0
+    ;;
+  -lc)
+    printf 'login-path:%s\n' "$HOME/.local/bin:/usr/bin:/bin"
+    exit 0
+    ;;
+  esac
 fi
 printf 'strict zsh fixture rejected unsupported argv: %s\n' "$*" >&2
 exit 96
@@ -169,7 +182,11 @@ chmod +x "$mock_bin/zsh"
 # These tools are prerequisites only; this scenario intentionally never invokes
 # them. If production starts doing so, the fixture must explicitly model the
 # new contract instead of silently succeeding.
-for command_name in gh tmux jq; do
+#
+# jq is deliberately not among them any more: the installer reads and rewrites
+# Claude Code's settings file with it, so the suite uses the host's real jq
+# (linked onto the isolated PATH above) and asserts the resulting JSON.
+for command_name in gh tmux; do
   cat >"$mock_bin/$command_name" <<'EOF'
 #!/usr/bin/env bash
 printf 'strict prerequisite fixture rejected unexpected invocation: %s %s\n' \
@@ -372,10 +389,13 @@ assert_status 96
 run_capture env PATH="$mock_bin:$PATH" gh auth status
 assert_status 96
 
-# FirstMate prerequisites are checked before the installer writes any profile
-# state or asks mise to install tools. Platform installers normally provide
-# these commands, but the portable entry point must also fail atomically when
-# called on its own in an incomplete environment.
+# Prerequisites are checked before the installer writes any profile state or
+# asks mise to install tools. Platform installers normally provide these
+# commands, but the portable entry point must also fail atomically when called
+# on its own in an incomplete environment. jq is a core prerequisite now, not a
+# FirstMate-only one: without it the profile cannot declare the update block in
+# Claude Code's settings file, and an install that silently skipped that would
+# leave the tool free to reinstall itself outside mise.
 missing_jq_bin="$test_root/missing-jq-bin"
 missing_jq_home="$test_root/missing-jq-home"
 mkdir -p "$missing_jq_bin" "$missing_jq_home"
@@ -400,6 +420,23 @@ assert_contains "$missing_jq_output" 'Required command not found: jq'
 assert_path_missing "$missing_jq_home/.config/mise/conf.d/ai.toml"
 assert_path_missing "$missing_jq_home/.config/dotfiles/ai.conf"
 assert_path_missing "$missing_jq_home/.claude/CLAUDE.md"
+assert_path_missing "$missing_jq_home/.claude/settings.json"
+
+# The same refusal without --firstmate: jq is needed by the core profile.
+rm -rf "${missing_jq_home:?}"/.config "${missing_jq_home:?}"/.claude
+if missing_jq_output="$(env \
+  HOME="$missing_jq_home" CODEX_HOME="$missing_jq_home/.codex" \
+  XDG_CONFIG_HOME="$missing_jq_home/.config" \
+  XDG_DATA_HOME="$missing_jq_home/.local/share" \
+  PATH="$missing_jq_bin" MISE_DATA_DIR="$mise_data" \
+  MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
+  "$repo_root/common/install-ai.sh" 2>&1)"; then
+  _test_die 'install-ai.sh accepted a core install without jq'
+  exit 1
+fi
+assert_contains "$missing_jq_output" 'Required command not found: jq'
+assert_path_missing "$missing_jq_home/.config/mise/conf.d/ai.toml"
+printf 'PASS: install-ai.sh refuses to run without jq\n'
 
 treehouse_source_url="https://kunchenguid.github.io/treehouse/install.sh"
 no_mistakes_source_url="https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh"
@@ -408,8 +445,21 @@ state_file="$config/dotfiles/ai.conf"
 treehouse_target="$home/.local/bin/treehouse"
 agents_source="$repo_root/common/assets/AGENTS.md"
 claude_md_target="$home/.claude/CLAUDE.md"
+claude_settings_target="$home/.claude/settings.json"
 codex_agents_target="$home/.codex/AGENTS.md"
 opencode_agents_target="$config/opencode/AGENTS.md"
+
+# assert_claude_update_keys <settings-file>: both keys the profile declares are
+# present with the value Claude Code's own gate accepts. Read with jq rather
+# than grepped, so a key that landed as a nested string or a number fails here.
+assert_claude_update_keys() {
+  local file="$1" key
+  assert_path_exists "$file"
+  for key in DISABLE_UPDATES DISABLE_AUTOUPDATER; do
+    assert_eq '1' "$(jq -r --arg key "$key" '.env[$key] // "<unset>"' "$file")" \
+      "$key in $file"
+  done
+}
 
 # --- Core profile: Claude Code + Herdr only -------------------------------
 
@@ -444,6 +494,13 @@ assert_file_line "$state_file" 'acpx=disabled'
 
 assert_path_missing "$treehouse_target"
 
+# The block that keeps Claude Code's updater out of the mise-managed Node
+# prefix. It has to be in the tool's own settings file, because that is the one
+# place read by a launch this repository did not start.
+assert_claude_update_keys "$claude_settings_target"
+printf 'PASS: the core install declares the update block in %s\n' \
+  "$claude_settings_target"
+
 for target in "$claude_md_target" "$codex_agents_target" "$opencode_agents_target"; do
   [[ -L "$target" ]] || {
     printf 'Expected a symlink at %s\n' "$target" >&2
@@ -474,6 +531,70 @@ assert_contains "$verify_core_output" \
   "Codex (AGENTS.md): $codex_agents_target -> $agents_source"
 assert_contains "$verify_core_output" \
   "OpenCode (AGENTS.md): $opencode_agents_target -> $agents_source"
+assert_contains "$verify_core_output" \
+  "DISABLE_UPDATES=1 in $claude_settings_target"
+assert_contains "$verify_core_output" \
+  "DISABLE_AUTOUPDATER=1 in $claude_settings_target"
+
+# --- Claude Code's settings file is merged, never overwritten --------------
+#
+# Claude Code writes this file itself and so does the user, so every other key
+# has to survive, the merge has to be idempotent, and a file this repository
+# cannot parse has to be reported rather than guessed at.
+
+settings_before="$(cat "$claude_settings_target")"
+jq '.model = "opus" | .env.MY_OWN = "kept" | .permissions = {"allow": ["Bash"]}' \
+  <<<"$settings_before" >"$claude_settings_target"
+"${test_environment[@]}" "$repo_root/common/install-ai.sh" >/dev/null
+assert_claude_update_keys "$claude_settings_target"
+assert_eq 'opus' "$(jq -r '.model' "$claude_settings_target")" \
+  'an unrelated top-level key must survive the merge'
+assert_eq 'kept' "$(jq -r '.env.MY_OWN' "$claude_settings_target")" \
+  'an unrelated env key must survive the merge'
+assert_eq 'Bash' "$(jq -r '.permissions.allow[0]' "$claude_settings_target")" \
+  'a nested structure must survive the merge'
+printf 'PASS: the merge preserves keys this repository did not write\n'
+
+settings_merged="$(cat "$claude_settings_target")"
+"${test_environment[@]}" "$repo_root/common/install-ai.sh" >/dev/null
+assert_eq "$settings_merged" "$(cat "$claude_settings_target")" \
+  'rerunning install-ai.sh rewrote a settings file that was already correct'
+printf 'PASS: an already-declared settings file is left byte-identical\n'
+
+# A settings file this repository cannot parse is left alone and reported, and
+# the install does not claim success: the block it exists to establish is not
+# there, and a green install would hide exactly the state that lets Claude Code
+# reinstall itself outside mise.
+printf 'not json {\n' >"$claude_settings_target"
+unparseable_log="$test_root/install-unparseable-settings.log"
+if "${test_environment[@]}" "$repo_root/common/install-ai.sh" \
+  >"$unparseable_log" 2>&1; then
+  cat "$unparseable_log" >&2
+  printf 'install-ai.sh reported success with an unparseable settings file\n' >&2
+  exit 1
+fi
+assert_eq 'not json {' "$(cat "$claude_settings_target")" \
+  'an unparseable settings file must be left exactly as it was'
+assert_file_contains "$unparseable_log" 'it is not valid JSON'
+assert_file_contains "$unparseable_log" 'is not valid JSON, so Claude Code reads no settings from it'
+printf 'PASS: an unparseable settings file is reported, never rewritten\n'
+
+printf '{"env": "not-an-object"}\n' >"$claude_settings_target"
+env_not_object_log="$test_root/install-env-not-object.log"
+if "${test_environment[@]}" "$repo_root/common/install-ai.sh" \
+  >"$env_not_object_log" 2>&1; then
+  cat "$env_not_object_log" >&2
+  printf 'install-ai.sh reported success with an unusable env key\n' >&2
+  exit 1
+fi
+assert_eq '{"env": "not-an-object"}' "$(cat "$claude_settings_target")" \
+  'a settings file whose env is not an object must be left as it was'
+assert_file_contains "$env_not_object_log" 'is not an object'
+printf 'PASS: an env key of the wrong shape is reported, never rewritten\n'
+
+printf '%s\n' "$settings_merged" >"$claude_settings_target"
+"${test_environment[@]}" "$repo_root/common/install-ai.sh" >/dev/null
+assert_claude_update_keys "$claude_settings_target"
 
 # --- Idempotency: rerunning changes nothing --------------------------------
 
@@ -541,6 +662,88 @@ assert_contains "$verify_full_output" 'tasks-axi is mise-managed'
 assert_contains "$verify_full_output" 'quota-axi is mise-managed'
 assert_contains "$verify_full_output" 'backpass is mise-managed'
 assert_contains "$verify_full_output" 'acpx is mise-managed'
+
+# --- A copy that wins the login mise never activates (issue #396, GAP-33) ---
+#
+# The configured login PATH is captured from an INTERACTIVE login, which is
+# the one shell where mise activation necessarily wins: the tracked Zsh
+# package activates mise in .zshrc, while .zshenv -- read by every top-level
+# Zsh -- puts ~/.local/bin first and adds no mise paths. So a non-mise copy in
+# ~/.local/bin was reported as mise-owned, although it is what the next
+# non-interactive login runs.
+printf '#!/usr/bin/env bash\nexit 0\n' >"$home/.local/bin/claude"
+chmod +x "$home/.local/bin/claude"
+if login_shadow_output="$(env \
+  HOME="$home" XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" \
+  CODEX_HOME="$home/.codex" \
+  MISE_DATA_DIR="$mise_data" MISE_SHIMS_DIR="$mise_shims" \
+  MISE_INSTALLS_DIR="$mise_installs" \
+  PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
+  VERIFY_CONFIGURED_LOGIN_PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
+  VERIFY_NONINTERACTIVE_LOGIN_PATH="$home/.local/bin:$mock_bin" \
+  "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf '%s\n' "$login_shadow_output" >&2
+  printf 'verify-ai.sh accepted a non-mise claude that the non-interactive login runs\n' >&2
+  exit 1
+fi
+assert_contains "$login_shadow_output" \
+  'claude resolves outside mise in a login that is not interactive'
+rm -f -- "$home/.local/bin/claude"
+
+# The same two logins with nothing shadowing must pass, so the assertion above
+# is about the copy in ~/.local/bin and not about the second probe existing.
+if ! login_clean_output="$(env \
+  HOME="$home" XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" \
+  CODEX_HOME="$home/.codex" \
+  MISE_DATA_DIR="$mise_data" MISE_SHIMS_DIR="$mise_shims" \
+  MISE_INSTALLS_DIR="$mise_installs" \
+  PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
+  VERIFY_CONFIGURED_LOGIN_PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
+  VERIFY_NONINTERACTIVE_LOGIN_PATH="$home/.local/bin:$mock_bin" \
+  "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf '%s\n' "$login_clean_output" >&2
+  printf 'verify-ai.sh failed a machine whose non-interactive login shadows nothing\n' >&2
+  exit 1
+fi
+assert_contains "$login_clean_output" 'claude is mise-managed'
+
+# --- A record that does not state a selection (issue #396, GAP-32) ----------
+#
+# profile_state_required_keys requires only claude_code, herdr, codex and
+# firstmate of an ai record, so an ai.conf written before the other keys
+# existed is still valid and readable. Reading an absent key into a bare
+# variable turned it into the empty string, which lost every "== installed",
+# "== cloned" and "== mise-npm" comparison: the verifier printed "FirstMate
+# cloned" and "lavish-axi is not installed (neither FirstMate nor backpass
+# selected)" in the SAME run -- a combination no installation can produce,
+# since install-ai.sh forces lavish-axi on with either -- exited 0, and
+# skipped the provenance comparison removal depends on.
+state_file="$config/dotfiles/ai.conf"
+cp "$state_file" "$test_root/ai.conf.complete"
+legacy_keys="$(grep -E '^(profile|claude_code|herdr|codex|firstmate|treehouse|gnhf)=' \
+  "$test_root/ai.conf.complete")"
+[[ -n "$legacy_keys" ]] ||
+  _test_die 'the installed ai.conf carried none of the pre-19e8db8 keys, so this case proves nothing'
+printf '%s\n' "$legacy_keys" >"$state_file"
+
+if legacy_output="$("${test_environment[@]}" "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf '%s\n' "$legacy_output" >&2
+  printf 'verify-ai.sh passed a record that does not state a selection\n' >&2
+  exit 1
+fi
+assert_contains "$legacy_output" 'FirstMate cloned'
+assert_contains "$legacy_output" \
+  'records FirstMate or backpass as selected but does not record lavish-axi'
+assert_not_contains "$legacy_output" \
+  'lavish-axi is not installed (neither FirstMate nor backpass selected)'
+# A selection that was never recorded is not a selection that was declined, so
+# the recovery is to record it rather than to delete the component.
+assert_contains "$legacy_output" 'No Mistakes is present'
+assert_contains "$legacy_output" 'does not record whether it was selected (no_mistakes is absent)'
+assert_not_contains "$legacy_output" \
+  "No Mistakes is not selected but $no_mistakes_target is still present"
+cp "$test_root/ai.conf.complete" "$state_file"
+printf 'PASS: an AI record that does not state a selection is reported as such, not as "not selected"\n'
 
 # A genuinely competing executable ahead of mise's shim must still fail.
 shadow_bin="$test_root/shadow-bin"

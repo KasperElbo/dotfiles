@@ -136,7 +136,13 @@ chmod +x "$user_bin/mise"
 
 cat >"$mock_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' "$HOME/.local/bin:$MISE_SHIMS_DIR:$PATH"
+# The verifier asks both logins for their PATH through a marker. Only the
+# interactive login carries mise's shims, because mise is activated in .zshrc
+# while .zshenv is read by both.
+case "${1:-}" in
+-lc) printf 'login-path:%s\n' "$HOME/.local/bin:/usr/bin:/bin" ;;
+*) printf 'login-path:%s\n' "$HOME/.local/bin:$MISE_SHIMS_DIR:$PATH" ;;
+esac
 EOF
 chmod +x "$mock_bin/zsh"
 
@@ -167,10 +173,15 @@ esac
 EOF
 chmod +x "$mock_bin/curl"
 
-for command_name in gh tmux jq; do
+for command_name in gh tmux; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"$mock_bin/$command_name"
   chmod +x "$mock_bin/$command_name"
 done
+
+# jq is the real one: the installer reads and rewrites Claude Code's settings
+# file with it, and a stub that exits 0 without output would let every JSON
+# assertion pass while writing nothing.
+ln -sf "$(command -v jq)" "$mock_bin/jq"
 
 # The caller's project: a real directory tree carrying a conflicting
 # .mise.toml, copied from the tracked fixture so the sentinel lives in one

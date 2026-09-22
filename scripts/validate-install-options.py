@@ -76,33 +76,86 @@ PARSER = re.compile(
     r'while \(\(\$#\)\); do\s*case "\$1" in\n(?P<arms>.*?)\n\s*esac\s*\n\s*done',
     re.DOTALL,
 )
+# What ends a case arm. `;&` and `;;&` fall through to the next arm rather than
+# leaving the case, and an arm is just as real for ending in one: reading only
+# `;;` let the previous arm's body run past a `;&` and swallow the pattern of
+# the arm after it, which then accepted a flag nothing in this check had seen.
+TERMINATOR = r";;&|;;|;&"
+# One alternative of an arm's pattern: `--kde`, or a glob such as `--jobs=*`,
+# which is how a parser accepts `--jobs=4` in one word. `=` is not a word
+# character, so an arm written that way used to line up with no `)` at all and
+# the flag it accepts went unchecked in both directions.
+ALTERNATIVE = r"-[\w-]*(?:=\*)?"
 # One case arm: a pattern of `-flag | --other` alternatives, then its body up
-# to the `;;` that ends it. Arms share lines (`--kde) …; shift ;; --no-kde) …`),
-# so an arm starts at a line start or right after the previous arm's `;;`.
+# to the terminator that ends it. Arms share lines (`--kde) …; shift ;; --no-kde)
+# …`), so an arm starts at a line start or right after the previous arm's
+# terminator.
 ARM = re.compile(
-    r"(?:^|;;)[ \t]*(?P<pattern>-[\w-]*(?:[ \t]*\|[ \t]*-[\w-]*)*)\)(?P<body>.*?)(?=;;)",
+    r"(?:^|" + TERMINATOR + r")[ \t]*"
+    r"(?P<pattern>" + ALTERNATIVE + r"(?:[ \t]*\|[ \t]*" + ALTERNATIVE + r")*)"
+    r"\)(?P<body>.*?)(?=" + TERMINATOR + r")",
     re.DOTALL | re.MULTILINE,
 )
+# Every arm, read only far enough to see the pattern it matches on. This is
+# what makes an arm shape ARM cannot read an error rather than a silent
+# omission: a flag arm the strict pattern skipped is a flag this check never
+# compared against the manifest, in either direction.
+ANY_ARM = re.compile(r"(?:^|" + TERMINATOR + r")[ \t]*(?P<pattern>[^\n)]*)\)", re.MULTILINE)
+# Whether an arm's pattern names a flag at all. `*)` and a bare word arm are
+# not this check's business; anything with a `-word` alternative is.
+FLAG_ALTERNATIVE = re.compile(r"(?:^|\|)\s*-")
+# An arm that refuses its flags rather than accepting them. The word boundary
+# matters: `die_if_wsl` is a check the arm runs before accepting the flag, and
+# reading it as a refusal reported the flag as rejected on a platform that
+# takes it.
+REJECTION = re.compile(r"die\b")
+# What a persistent option's arm does beyond moving past its own argument. An
+# arm that only shifts accepts the flag and records nothing, so the machine
+# forgets the selection and `./install.sh --rerun` silently drops it.
+ONLY_SHIFTS = re.compile(r"^(?:shift(?:\s+\d+)?\s*;?\s*)+$")
 
 
 def fail(message: str) -> None:
     print(f"installer option parser: {message}", file=sys.stderr)
 
 
-def parser_flags(installer: pathlib.Path) -> tuple[set[str], set[str]] | None:
-    """The flags a parser accepts and the flags it rejects, or None."""
+class UnreadableParser(Exception):
+    """An argv arm this check cannot read, which is never the same as none."""
+
+
+def parser_flags(
+    installer: pathlib.Path,
+) -> tuple[set[str], set[str], dict[str, str]] | None:
+    """The flags a parser accepts, the flags it rejects, and each arm's body.
+
+    An arm whose pattern this check cannot read raises rather than being
+    skipped. Skipping takes the flag out of the comparison in both directions
+    at once -- the parser accepts it and the manifest is never asked about it
+    -- which is the failure this check exists to prevent.
+    """
     match = PARSER.search(installer.read_text(encoding="utf-8"))
     if match is None:
         return None
+    arms = match.group("arms")
     accepted: set[str] = set()
     rejected: set[str] = set()
-    for arm in ARM.finditer(match.group("arms")):
+    bodies: dict[str, str] = {}
+    read = {arm.start("pattern") for arm in ARM.finditer(arms)}
+    for arm in ANY_ARM.finditer(arms):
+        pattern = arm.group("pattern").strip()
+        if not FLAG_ALTERNATIVE.search(pattern) or arm.start("pattern") in read:
+            continue
+        raise UnreadableParser(pattern)
+    for arm in ARM.finditer(arms):
         flags = {flag.strip() for flag in arm.group("pattern").split("|")}
-        if arm.group("body").lstrip().startswith("die"):
+        body = arm.group("body").strip()
+        if REJECTION.match(body):
             rejected |= flags
         else:
             accepted |= flags
-    return accepted, rejected
+            for flag in flags:
+                bodies[flag] = body
+    return accepted, rejected, bodies
 
 
 def main() -> int:
@@ -131,12 +184,19 @@ def main() -> int:
 
     for platform, installer in installers.items():
         relative = installer.relative_to(ROOT).as_posix()
-        flags = parser_flags(installer)
+        try:
+            flags = parser_flags(installer)
+        except UnreadableParser as unreadable:
+            fail(f"{relative}: an argv arm could not be parsed: {unreadable}. Until it "
+                 f"is read, which flags that arm accepts is unknown, which is not the "
+                 f"same as none")
+            errors += 1
+            continue
         if flags is None:
             fail(f"{relative}: no `while (($#)); do case \"$1\" in` argv parser found")
             errors += 1
             continue
-        accepted, rejected = flags
+        accepted, rejected, bodies = flags
         manifest = declared.get(platform, set())
         deliberate = REJECTED_FLAGS.get(platform, set())
 
@@ -158,6 +218,12 @@ def main() -> int:
             fail(f"{platform}: {relative} accepts {flag}, which the manifest does "
                  f"not declare, so ./install.sh --rerun can never remember it")
             errors += 1
+        for flag in sorted(manifest & accepted):
+            if ONLY_SHIFTS.match(bodies[flag]):
+                fail(f"{platform}: {relative} accepts {flag} and only shifts past it, "
+                     f"so nothing records the selection and ./install.sh --rerun "
+                     f"forgets it")
+                errors += 1
         for flag in sorted(accepted & deliberate):
             fail(f"{platform}: {flag} is listed in REJECTED_FLAGS, but {relative} "
                  f"accepts it")

@@ -110,9 +110,12 @@ case "$*" in
   *file*) printf '%s\n' "$MOCK_FONT" ;;
 esac
 EOF
+# fontconfig's %{charset}, which the verifier now reads as numbers. How it
+# splits its ranges is a property of the font and of fontconfig, not of
+# coverage, so the cases below vary exactly that (issue #390, GAP-23).
 cat >"$mock_bin/fc-query" <<'EOF'
 #!/usr/bin/env bash
-printf '20-7e e0b0-e0c8 f000-f381 f0001-f1af0\n'
+printf '%s\n' "${MOCK_FONT_CHARSET-20-7e e0b0-e0c8 f000-f381 f0001-f1af0}"
 EOF
 cat >"$mock_bin/bat" <<'EOF'
 #!/usr/bin/env bash
@@ -150,12 +153,29 @@ chmod +x \
 
 generic_commands=(
   apt-get eza fd fdfind fzf gh lazygit pipx python python3 rg sqlite3
-  stow tmux xclip xxd zoxide zsh nmap hashcat john sqlmap gobuster ffuf hydra
+  stow tmux xclip xxd zoxide nmap hashcat john sqlmap gobuster ffuf hydra
 )
 for command_name in "${generic_commands[@]}"; do
   ln -s /usr/bin/true "$mock_bin/$command_name"
 done
 ln -s /usr/bin/jq "$mock_bin/jq"
+
+# A fresh Zsh login, reduced to the one thing the verifier asks it: the PATH
+# the deployed platform-env.zsh leaves it with. It used to be /usr/bin/true,
+# which was enough while the verifier checked the PATH it had just appended to
+# itself (issue #398, GAP-20). MOCK_LOGIN_PATH is what that login answers, and
+# MOCK_LOGIN_PATH_SILENT models a login that answers nothing at all.
+cat >"$mock_bin/zsh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+*__DOTFILES_VERIFY_PATH__*)
+  [[ "${MOCK_LOGIN_PATH_SILENT:-false}" != true ]] || exit 0
+  printf '\n__DOTFILES_VERIFY_PATH__%s\n' "${MOCK_LOGIN_PATH:-}"
+  ;;
+esac
+exit 0
+EOF
+chmod +x "$mock_bin/zsh"
 
 cat >"$mock_bin/git" <<'EOF'
 #!/usr/bin/env bash
@@ -252,8 +272,16 @@ printf '# theme\n' >"$tmux_plugin/catppuccin.tmux"
 parrot_mise_context="$home/.local/state/dotfiles/mise-context"
 mkdir -p "$parrot_mise_context"
 
+# The PATH the deployed platform-env.zsh leaves a login with: Parrot's standard
+# directories appended to what the session inherited, and /snap/bin only on a
+# machine that has Snap, which is the decision that file makes. The fixture
+# models the hook because the verifier is no longer allowed to be the hook.
+parrot_login_path="$mock_bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+[[ ! -d /snap/bin ]] || parrot_login_path="$parrot_login_path:/snap/bin"
+
 verify_environment=(
   env
+  "MOCK_LOGIN_PATH=$parrot_login_path"
   "HOME=$home"
   "XDG_CONFIG_HOME=$config"
   "XDG_DATA_HOME=$data"
@@ -275,7 +303,23 @@ verification_output="$(
   "${verify_environment[@]}" \
     "$repo_root/platforms/parrot-ctf/scripts/verify.sh" 2>&1
 )"
-grep -Fq 'Parrot CTF verification passed.' <<<"$verification_output"
+# The healthy fixture reports manual assurances and unobserved checks, and the
+# summary now says so. It used to print four "NOT OBSERVED:" lines and two
+# manual assurances through uncounted printfs and still end on the unqualified
+# "Parrot CTF verification passed.", which finish_verification reserves for a
+# run with none of them (issue #396, GAP-21).
+verification_plain="$(sed $'s/\033\\[[0-9;]*m//g' <<<"$verification_output")"
+grep -Eq 'Parrot CTF verification completed with warnings and unobserved checks: [0-9]+ warning\(s\), [0-9]+ unobserved check\(s\)' \
+  <<<"$verification_plain" || {
+  printf 'A run reporting manual assurances and unobserved checks did not say so in its summary:\n' >&2
+  printf '%s\n' "$verification_output" >&2
+  exit 1
+}
+if grep -Fq 'Parrot CTF verification passed.' <<<"$verification_output"; then
+  printf 'A run reporting manual assurances and unobserved checks claimed an unqualified pass.\n' >&2
+  exit 1
+fi
+printf 'PASS: a run with degraded outcomes does not report an unqualified pass\n'
 grep -Fq "Catppuccin tmux is at the pinned $tmux_pin" <<<"$verification_output"
 
 # The APT packages the verifier checks are exactly the Parrot base and
@@ -478,5 +522,94 @@ if [[ "$stray_digest" != "$(sha256sum <"$parrot_mise_context/.mise.toml" | cut -
 fi
 rm -f "$parrot_mise_context/.mise.toml"
 printf 'PASS: the Parrot verifier reports a contaminated mise context and leaves it in place\n'
+
+# An earlier case left john unresolvable and nmap shadowed. Restore both, so
+# each run below fails on the one fact it changes rather than on a standing
+# failure that would satisfy any exit-status check.
+ln -s /usr/bin/true "$mock_bin/john"
+
+# --- The login PATH is read from the login, not from this verifier's own -----
+#
+# establish_parrot_command_environment appends /usr/local/sbin, /usr/sbin,
+# /sbin and, when it exists, /snap/bin before these checks run, using a helper
+# that also strips prior duplicates of the entry it adds. Asserting $PATH
+# afterwards asserted what this script had just done: a login that really lost
+# /usr/sbin passed, and a duplicate of it was silently repaired before the
+# duplicate scan could see it (issue #398, GAP-20).
+
+login_path_case() {
+  local description="$1"
+  local expected="$2"
+  local log="$test_root/login-path.log"
+  shift 2
+
+  if "${verify_environment[@]}" "$@" \
+    "$repo_root/platforms/parrot-ctf/scripts/verify.sh" >"$log" 2>&1; then
+    printf 'Parrot verification accepted %s.\n' "$description" >&2
+    exit 1
+  fi
+  grep -Fq "$expected" "$log" || {
+    printf 'The "%s" case was not reported clearly:\n' "$description" >&2
+    cat "$log" >&2
+    exit 1
+  }
+  printf 'PASS: Parrot verification rejects %s\n' "$description"
+}
+
+login_path_case 'a login PATH that lost /usr/sbin' \
+  'The Zsh login PATH is missing standard Parrot directory: /usr/sbin' \
+  "MOCK_LOGIN_PATH=${parrot_login_path/:\/usr\/sbin/}"
+
+login_path_case 'a login PATH carrying a duplicate this verifier would have repaired' \
+  'The Zsh login PATH contains duplicate entries: /usr/sbin' \
+  "MOCK_LOGIN_PATH=$parrot_login_path:/usr/sbin"
+
+login_path_case 'a Zsh login that reports no PATH at all' \
+  'A fresh Zsh login did not report a PATH' \
+  MOCK_LOGIN_PATH_SILENT=true
+
+# --- Font coverage is a numeric question, not a substring one ----------------
+#
+# The old predicates reduced to "does the charset text contain e0b0" and
+# "...contain f000", so the answer turned on how fontconfig split its ranges.
+# Each case below is one of the splits that gave a wrong answer (issue #390,
+# GAP-23).
+
+font_charset_case() {
+  local description="$1"
+  local charset="$2"
+  local expected="$3"
+  local log="$test_root/font-charset.log"
+
+  "${verify_environment[@]}" "MOCK_FONT_CHARSET=$charset" \
+    "$repo_root/platforms/parrot-ctf/scripts/verify.sh" >"$log" 2>&1 || true
+  grep -Fq "$expected" "$log" || {
+    printf 'The "%s" case was not reported clearly:\n' "$description" >&2
+    cat "$log" >&2
+    exit 1
+  }
+  printf 'PASS: %s\n' "$description"
+}
+
+# A range that contains U+E0B0 without spelling it. The old check failed this
+# font, which covers the glyph.
+font_charset_case 'a range containing U+E0B0 without spelling it is coverage' \
+  '20-7e e0a0-e0d4 f000-f381' \
+  'Terminal font covers representative Starship Powerline and Nerd Font glyphs'
+
+# f0001-f1af0 is a range Nerd Font charsets genuinely carry, and it does not
+# contain U+F000. The old check read the digits and passed it.
+font_charset_case 'a Nerd Font range that starts past U+F000 is not coverage' \
+  '20-7e e0b0-e0c8 f0001-f1af0' \
+  'Terminal font does not cover U+F000'
+
+# 1e0b0-1e0b5 covers none of the Powerline block.
+font_charset_case 'a range whose digits merely contain e0b0 is not coverage' \
+  '20-7e 1e0b0-1e0b5 f000-f381' \
+  'Terminal font does not cover U+E0B0'
+
+font_charset_case 'a font fontconfig reports no character set for is a failure' \
+  '' \
+  'fontconfig reported no character set'
 
 printf 'Parrot clean-install and PATH ownership verification tests passed.\n'

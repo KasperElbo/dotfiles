@@ -257,4 +257,45 @@ if grep -Fq -- '--platform fedora --ocaml --non-interactive' "$test_root/failed.
   printf 'Doctor printed the display-only recorded command as an instruction.\n' >&2; exit 1
 fi
 
+
+# A legacy schema-1 install record, which profile_state_validate_file accepts so
+# old installations stay diagnosable (GAP-30 of #397). `status` arrived with
+# schema 2 and is not required for schema 1, so reading it as a required key
+# made awk exit 1, the assignment fail, and errexit kill doctor right after the
+# banner: no diagnosis, no reason, and no "Result:" line -- the exact failure
+# mode doctor's header says it keeps its own non-fatal helpers to avoid. The
+# record is written by hand because profile_state_write only ever emits
+# schema 2, which is why this repository has never produced one itself.
+rm -f "$XDG_CONFIG_HOME"/dotfiles/*.conf
+cat >"$state" <<EOF_LEGACY
+profile=install
+platform=fedora
+requested_capabilities=base
+observed_capabilities=base
+external_assurance=not-recorded
+repository=local-checkout
+revision=$revision
+provenance=capability-manifest@$revision
+EOF_LEGACY
+# The validator must accept it, or this case proves nothing about doctor.
+if ! (
+  source "$repo_root/common/lib/profile-state.sh"
+  profile_state_validate_file "$state" install
+) >/dev/null 2>&1; then
+  printf 'The schema-1 fixture is not a record the validator accepts.\n' >&2; exit 1
+fi
+# A warning is not a failure, so the report still ends successfully.
+if ! "$repo_root/doctor" >"$test_root/legacy.log" 2>&1; then
+  printf 'Doctor failed on a legacy schema-1 record:\n' >&2
+  cat "$test_root/legacy.log" >&2; exit 1
+fi
+if ! grep -Fq 'Result:' "$test_root/legacy.log"; then
+  printf 'Doctor printed no Result line for a legacy schema-1 record:\n' >&2
+  cat "$test_root/legacy.log" >&2; exit 1
+fi
+grep -Fq 'cannot say how the last installation ended' "$test_root/legacy.log"
+# The rest of the report still ran: the revision comparison is downstream of
+# the read that used to kill it.
+grep -Fq "installed revision $revision" "$test_root/legacy.log"
+
 printf 'Doctor lifecycle, state-schema ownership and hardware checks passed.\n'

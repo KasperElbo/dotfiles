@@ -107,6 +107,80 @@ check_symlink "$root/home/plain" "$root/repo/pkg" || true
 assert_verifier_counts 0 1 0
 assert_eq "plain" "$(cat "$root/home/plain")" "regular-file negative check must not modify the path"
 
+# --- The exact Stow source --------------------------------------------------
+#
+# Containment proves the link points somewhere below the right package, which
+# a link redirected at another file in the SAME package also satisfies: a
+# manual mislink, a faulty migration or a Stow-layout regression could send a
+# configuration path at the wrong repository file and be reported green
+# (issue #369). A third argument makes the final test exact identity.
+printf 'Exact Stow source\n'
+
+printf 'readme\n' >"$root/repo/pkg/README"
+source_file="$root/repo/pkg/config/file"
+# The message names canonical paths on both sides, and on macOS the test root
+# lives under $TMPDIR, which is /var/folders/... -- a symlink to
+# /private/var/folders/... So the expectation is canonicalized the same way the
+# helper canonicalizes it, or this suite passes on Linux and fails on macOS for
+# a reason that has nothing to do with what it is testing.
+canonical_source="$(resolve_existing_path "$source_file")"
+
+ln -s "$source_file" "$root/home/exact-absolute"
+verify_reset
+check_symlink "$root/home/exact-absolute" "$root/repo/pkg" "$source_file"
+assert_verifier_counts 1 0 0
+
+# The same source spelled relatively, and reached through a symlinked parent:
+# both sides are canonicalized, so neither spelling changes the answer.
+ln -s ../repo/pkg/config/file "$root/home/exact-relative"
+ln -sfn "$root/repo" "$root/repo-link"
+verify_reset
+check_symlink "$root/home/exact-relative" "$root/repo/pkg" \
+  "$root/repo-link/pkg/config/file"
+assert_verifier_counts 1 0 0
+
+# The reproduction from the issue: the intended source and an unrelated file
+# in the same package, with the link pointing at the wrong one. Containment
+# alone reported this as owned.
+ln -s "$root/repo/pkg/README" "$root/home/wrong-file-same-package"
+verify_reset
+run_capture probe_counts check_symlink "$root/home/wrong-file-same-package" \
+  "$root/repo/pkg" "$source_file"
+assert_contains "$TEST_OUTPUT" 'is not the file Stow should have linked'
+assert_contains "$TEST_OUTPUT" "expected=$canonical_source"
+assert_probe_counts 0 1 0 0
+
+# A source that is not in this checkout at all is a failure naming it, rather
+# than an equality against the empty string that no link could satisfy or,
+# worse, one that any link could.
+verify_reset
+run_capture probe_counts check_symlink "$root/home/exact-absolute" \
+  "$root/repo/pkg" "$root/repo/pkg/config/never-written"
+assert_contains "$TEST_OUTPUT" 'does not exist in this checkout'
+assert_probe_counts 0 1 0 0
+
+# The five properties the helper already had keep their verdicts and their
+# wording when the exact source is supplied.
+verify_reset
+run_capture probe_counts check_symlink "$root/home/other-checkout" \
+  "$root/repo/pkg" "$source_file"
+assert_contains "$TEST_OUTPUT" 'is not owned by the expected package'
+assert_probe_counts 0 1 0 0
+
+verify_reset
+run_capture probe_counts check_symlink "$root/home/dangling" \
+  "$root/repo/pkg" "$source_file"
+assert_contains "$TEST_OUTPUT" 'is a dangling symlink'
+assert_probe_counts 0 1 0 0
+
+verify_reset
+run_capture probe_counts check_symlink "$root/home/plain" \
+  "$root/repo/pkg" "$source_file"
+assert_contains "$TEST_OUTPUT" 'is not a symlink'
+assert_probe_counts 0 1 0 0
+
+printf 'PASS: a link to the wrong file in the right package fails only when the exact source is given\n'
+
 printf 'mise ownership\n'
 mkdir -p "$root/mise-managed/bin" "$root/mise-data/shims" "$root/external"
 cat >"$root/mise-bin" <<EOF
@@ -709,6 +783,71 @@ assert_contains "$TEST_OUTPUT" 'the login shell did not answer'
 assert_probe_counts 0 0 0 1
 printf 'PASS: a shell that does not answer the probe is unobserved, not a failure\n'
 
+# --- The block Claude Code reads itself --------------------------------------
+#
+# The login probe above can only speak for a shell it started. Claude Code is
+# routinely launched by something that never read .zshenv, and it reads its own
+# settings file whatever started it, so that file is where the block has to be.
+
+settings_file="$update_root/settings.json"
+
+claude_settings_case() {
+  verify_reset
+  run_capture probe_counts check_claude_update_settings "$settings_file" \
+    DISABLE_UPDATES DISABLE_AUTOUPDATER
+}
+
+printf '{"env":{"DISABLE_UPDATES":"1","DISABLE_AUTOUPDATER":"1"},"model":"opus"}\n' \
+  >"$settings_file"
+claude_settings_case
+assert_contains "$TEST_OUTPUT" "DISABLE_UPDATES=1 in $settings_file"
+assert_contains "$TEST_OUTPUT" "DISABLE_AUTOUPDATER=1 in $settings_file"
+assert_probe_counts 2 0 0 0
+printf 'PASS: both keys declared in the settings file pass\n'
+
+printf '{"env":{"DISABLE_UPDATES":"1"}}\n' >"$settings_file"
+claude_settings_case
+assert_contains "$TEST_OUTPUT" 'DISABLE_AUTOUPDATER is <unset>'
+assert_probe_counts 1 1 0 0
+printf 'PASS: one key missing is a failure naming that key\n'
+
+# "Set to something" is not the test: the tool's gate accepts a value, and
+# anything else leaves the updater free to write into the active Node prefix.
+printf '{"env":{"DISABLE_UPDATES":"true","DISABLE_AUTOUPDATER":"1"}}\n' \
+  >"$settings_file"
+claude_settings_case
+assert_contains "$TEST_OUTPUT" 'DISABLE_UPDATES is true'
+assert_contains "$TEST_OUTPUT" 'not 1'
+assert_probe_counts 1 1 0 0
+printf 'PASS: a key set to another value is a failure, not a pass\n'
+
+printf 'not json {\n' >"$settings_file"
+claude_settings_case
+assert_contains "$TEST_OUTPUT" 'is not valid JSON, so Claude Code reads no settings from it'
+assert_probe_counts 0 1 0 0
+printf 'PASS: an unparseable settings file is a failure\n'
+
+rm -f "$settings_file"
+claude_settings_case
+assert_contains "$TEST_OUTPUT" 'does not exist, so Claude Code'"'"'s updater is unrestricted'
+assert_probe_counts 0 1 0 0
+printf 'PASS: a missing settings file is a failure with the recovery step\n'
+
+# Without jq the file cannot be read, which is a check this context could not
+# make. Calling it a missing block would be a false accusation.
+printf '{"env":{"DISABLE_UPDATES":"1","DISABLE_AUTOUPDATER":"1"}}\n' >"$settings_file"
+mkdir -p "$update_root/nojq"
+for command_name in bash cat printf; do
+  command_path="$(command -v "$command_name" 2>/dev/null || true)"
+  [[ -z "$command_path" ]] || ln -sf "$command_path" "$update_root/nojq/$command_name"
+done
+verify_reset
+PATH="$update_root/nojq" run_capture probe_counts \
+  check_claude_update_settings "$settings_file" DISABLE_UPDATES
+assert_contains "$TEST_OUTPUT" 'jq is unavailable'
+assert_probe_counts 0 0 0 1
+printf 'PASS: no jq is unobserved, not a failure\n'
+
 # --- A duplicate in the active Node prefix -----------------------------------
 
 # mise `exec -- …` runs the command with the fixture bin ahead of PATH, so the
@@ -730,6 +869,7 @@ duplicate_case() {
   verify_reset
   TEST_NPM_GLOBAL_PREFIX="$update_root/npm-prefix" \
     TEST_NPM_GLOBAL_PACKAGES="$1" \
+    TEST_NPM_GLOBAL_STATUS="${2:-0}" \
     VERIFY_MISE_COMMAND="$update_root/bin/mise" \
     PATH="$update_root/bin:$PATH" \
     run_capture probe_counts check_no_global_npm_duplicate @anthropic-ai/claude-code @openai/codex
@@ -760,5 +900,187 @@ VERIFY_MISE_COMMAND="" PATH="$root/no-such-bin" \
 assert_contains "$TEST_OUTPUT" 'mise is unavailable'
 assert_probe_counts 0 0 0 1
 printf 'PASS: without mise the prefix is unobserved, not silently clean\n'
+
+# --- Optional-capability dispatch: the sub-verifier's verdict ---------------
+#
+# verify_optional_capability is the function every optional section of the
+# Fedora and Fedora WSL verifiers goes through, and the mechanism that turns
+# "a selected capability's own verifier failed" into "this platform's
+# verification failed" lives in its else-branch alone. Flipping that one token
+# from fail to pass left the whole default suite byte-identical, and nothing in
+# CI reaches the branch either: the Fedora real-install job selects only --kde
+# and --sway, whose verification is inline, and the Fedora WSL job selects no
+# optional capability at all (issue #383, tv-1).
+#
+# The two suites named after this area deliberately stay out of it.
+# tests/test-optional-capability-dispatch.sh covers which disposition each pair
+# of records produces and asserts that every section reaches its component
+# verifier, saying in as many words that what the verifier then decides "is its
+# own business and not this suite's". This is that business: the sub-verifier
+# is a stub whose exit status is the fixture.
+printf 'Optional-capability sub-verifier verdicts\n'
+
+dispatch_root="$root/dispatch"
+mkdir -p "$dispatch_root/state/dotfiles" "$dispatch_root/config/dotfiles"
+
+# A machine whose last installation recorded hardening, and the component
+# state a completed install of it leaves behind.
+record_dispatch_selection() {
+  cat >"$dispatch_root/state/dotfiles/install.conf" <<EOF
+schema_version=2
+profile=install
+status=installed
+platform=fedora
+requested_capabilities=$1
+observed_capabilities=$1
+external_assurance=not-recorded
+repository=local-checkout
+revision=0123456789abcdef
+provenance=capability-manifest@0123456789abcdef
+EOF
+}
+
+cat >"$dispatch_root/config/dotfiles/hardening.conf" <<'EOF'
+schema_version=2
+profile=hardening
+selinux_mode=enforcing
+faillock=enabled
+auditd=enabled
+status=installed
+EOF
+
+# The sub-verifier's exit status is the only thing that varies between cases.
+dispatch_case() {
+  verify_reset
+  XDG_CONFIG_HOME="$dispatch_root/config" \
+    XDG_STATE_HOME="$dispatch_root/state" \
+    DOTFILES_ROOT="$repo_root" \
+    run_capture probe_counts \
+    verify_optional_capability 'Hardening profile' fedora hardening "$@"
+}
+
+record_dispatch_selection base,hardening
+
+dispatch_case true
+assert_contains "$TEST_OUTPUT" 'Hardening profile verification completed'
+assert_probe_counts 1 0 0 0
+printf 'PASS: a sub-verifier that succeeds is reported as completed\n'
+
+dispatch_case false
+assert_contains "$TEST_OUTPUT" 'Hardening profile verification failed'
+assert_not_contains "$TEST_OUTPUT" 'Hardening profile verification completed'
+assert_probe_counts 0 1 0 0
+printf 'PASS: a sub-verifier that fails is counted as a failure, not a pass\n'
+
+# The same must hold for the other disposition that dispatches. State left
+# behind by a capability this machine did not select is verified anyway, with
+# a warning saying so -- and a failure there is still a failure.
+record_dispatch_selection base
+
+dispatch_case false
+assert_contains "$TEST_OUTPUT" 'is not selected by this machine'"'"'s recorded installation'
+assert_contains "$TEST_OUTPUT" 'Hardening profile verification failed'
+assert_probe_counts 0 1 1 0
+printf 'PASS: a failing sub-verifier over leftover state is a failure too\n'
+# --- Every check_* helper has a caller --------------------------------------
+#
+# check_file_mode had none, anywhere in the tree including the suites, and the
+# one thing an uncalled check_* helper is guaranteed to do is sit there looking
+# like coverage. It also asserted a mode without asserting a file type, so a
+# directory at the checked path passed -- a trap waiting for whichever call
+# site adopted it first, which would have been the sudoers drop-in's 440
+# assertion (issue #396, VL-02). Deleting it is only durable if a replacement
+# cannot grow back unnoticed, so the library's helpers are held to having a
+# caller outside their own definition.
+printf 'Shared verifier helper reachability\n'
+
+mapfile -t verify_helpers < <(
+  grep -oE '^check_[a-z0-9_]+\(\)' "$repo_root/common/lib/verify.sh" | sed 's/()$//'
+)
+((${#verify_helpers[@]} > 0)) ||
+  _test_die 'no check_* helper was found in common/lib/verify.sh, so this audit proves nothing'
+
+for helper in "${verify_helpers[@]}"; do
+  helper_callers="$(
+    git -C "$repo_root" grep -l -w -e "$helper" -- ':!common/lib/verify.sh' || true
+  )"
+  [[ -n "$helper_callers" ]] ||
+    _test_die "$helper is defined in common/lib/verify.sh and called nowhere;" \
+      "delete it rather than leaving a check that no verifier runs"
+done
+
+printf 'PASS: all %d shared check_* helpers are called by something\n' \
+  "${#verify_helpers[@]}"
+# --- A settings file proves the setting, not its ghost ----------------------
+#
+# check_file_contains reports that a theme override "matches". It used to
+# prove only that the text occurred somewhere in the file, comments included,
+# so one git-theme could satisfy two mutually exclusive flavour assertions at
+# once and a fully commented-out override read as applied (issue #390, VL-01).
+printf 'Active-line file content\n'
+
+contains_root="$root/file-contains"
+mkdir -p "$contains_root"
+
+stale_theme="$contains_root/git-theme"
+printf '[delta]\n    # features = catppuccin-latte\n    features = catppuccin-mocha\n' \
+  >"$stale_theme"
+
+verify_reset
+run_capture probe_counts check_file_contains 'Delta override matches' \
+  "$stale_theme" 'features = catppuccin-mocha'
+assert_contains "$TEST_OUTPUT" 'Delta override matches'
+assert_probe_counts 1 0 0 0
+printf 'PASS: the flavour that is in effect passes, indented under its section\n'
+
+verify_reset
+run_capture probe_counts check_file_contains 'Delta override matches' \
+  "$stale_theme" 'features = catppuccin-latte'
+assert_contains "$TEST_OUTPUT" 'on a line that is in effect'
+assert_probe_counts 0 1 0 0
+printf 'PASS: the flavour left behind in a comment no longer passes as well\n'
+
+commented_only="$contains_root/ghostty.conf"
+printf '# theme = catppuccin-mocha.conf\n' >"$commented_only"
+
+verify_reset
+run_capture probe_counts check_file_contains 'Ghostty override matches' \
+  "$commented_only" 'theme = catppuccin-mocha.conf'
+assert_probe_counts 0 1 0 0
+printf 'PASS: a file whose only match is commented out fails\n'
+
+verify_reset
+run_capture probe_counts check_file_contains 'Ghostty override matches' \
+  "$contains_root/not-written-yet" 'theme = catppuccin-mocha.conf'
+assert_probe_counts 0 1 0 0
+printf 'PASS: an unreadable file is still a failure, not a silent pass\n'
+# npm reports a dependency problem in the global tree through a non-zero exit
+# while still printing the tree. Keying the not_observed branch on the status
+# alone reported a run that enumerated the prefix and NAMED the duplicate as a
+# run that could not happen, and the verifier exited 0 (issue #396, GAP-35).
+# The same tree, twice, differing only in the exit status.
+duplicate_case "@anthropic-ai/claude-code" 1
+assert_contains "$TEST_OUTPUT" '@anthropic-ai/claude-code is also installed globally with npm'
+assert_probe_counts 0 1 0 0
+printf 'PASS: a duplicate named in the output is a failure whatever npm exited\n'
+
+# Read, and no duplicate in it. The listing may be incomplete, so absence of a
+# duplicate in it is not proof of absence either.
+duplicate_case "" 1
+assert_contains "$TEST_OUTPUT" 'npm exited 1 while listing the active Node prefix'
+assert_probe_counts 0 0 0 1
+printf 'PASS: a non-zero npm that named no duplicate is unobserved, not a pass\n'
+
+# The branch that survives the two above: npm could not run at all, so there
+# is nothing to read. mise is present; npm is not on the PATH it execs into.
+mkdir -p "$update_root/mise-only"
+cp "$update_root/bin/mise" "$update_root/mise-only/mise"
+verify_reset
+VERIFY_MISE_COMMAND="$update_root/mise-only/mise" \
+  PATH="$update_root/mise-only" \
+  run_capture probe_counts check_no_global_npm_duplicate @anthropic-ai/claude-code
+assert_contains "$TEST_OUTPUT" 'npm produced no output under mise'
+assert_probe_counts 0 0 0 1
+printf 'PASS: npm that could not run at all is still unobserved\n'
 
 printf 'Shared verifier tests passed.\n'

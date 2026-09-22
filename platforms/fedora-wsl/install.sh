@@ -155,12 +155,15 @@ wsl_ai_command() {
 wsl_verify_command() { printf '%s\n' platforms/fedora-wsl/scripts/verify.sh; [[ "$run_dev_workflows" != true ]] || printf '%s\n' --dev-workflows; [[ "$install_latex" != true ]] || printf '%s\n' --latex; }
 
 preflight_wsl() {
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads. It is a pure
+  # lexical comparison with no prerequisites, so it really can go first --
+  # ahead of preflight_sudo, which prompts for a password on a run that is
+  # about to be refused.
+  preflight_xdg_layout
   require_regular_user; require_fedora_wsl
   preflight_platform_command_providers fedora-wsl; preflight_sudo "$interactive"
   [[ "$install_containers" != true ]] || require_wsl_containers_prereqs
-  # First, and before every other check: an unsupported XDG root would have
-  # Stow deploy to a place the rest of the install never reads.
-  preflight_xdg_layout
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
@@ -188,7 +191,7 @@ apply_ocaml() { plan_command_run wsl_ocaml_command; }
 apply_containers() { plan_command_run wsl_containers_command; }
 apply_tmux() { plan_command_run wsl_tmux_command; }
 apply_ai() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interactive); plan_command_run wsl_ai_command "${args[@]}"; }
-apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
+apply_theme() { theme_apply_stowed "$theme"; }
 verify_wsl() { plan_command_run wsl_verify_command; }
 
 plan_add system 'Install Fedora command-line prerequisites and Linux-native mise' apply preflight_wsl apply_system : "Set Zsh as the user's default login shell. $(plan_command_note wsl_system_command)" 'platforms/fedora-wsl/scripts/install-system.sh'
