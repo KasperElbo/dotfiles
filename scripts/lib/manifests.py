@@ -178,9 +178,18 @@ def capability_names(manifest: pathlib.Path | None = None) -> tuple[str, ...]:
 
 
 # The `packages=(…)` array a Stow script iterates, and every `packages+=(…)`
-# append to it, conditional or not.
-STOW_PACKAGES_ARRAY = re.compile(r"^\s*packages=\((?P<names>[^)]*)\)", re.MULTILINE)
-STOW_PACKAGES_APPEND = re.compile(r"^\s*packages\+=\((?P<names>[^)]*)\)", re.MULTILINE)
+# append to it, conditional or not. A declaration keyword may stand in front of
+# either, and used to hide it: `local packages=(…)` matched neither pattern, so
+# a Stow package could be deployed with no capability row owning it.
+STOW_DECLARATION = r"(?:local|declare|typeset|readonly|export)\s+(?:-\w+\s+)*"
+STOW_PACKAGES_ARRAY = re.compile(
+    r"(?:^|[;\s])(?:" + STOW_DECLARATION + r")?packages=\((?P<names>[^)]*)\)",
+    re.MULTILINE,
+)
+STOW_PACKAGES_APPEND = re.compile(
+    r"(?:^|[;\s])(?:" + STOW_DECLARATION + r")?packages\+=\((?P<names>[^)]*)\)",
+    re.MULTILINE,
+)
 
 
 def stow_packages(script: pathlib.Path) -> list[str]:
