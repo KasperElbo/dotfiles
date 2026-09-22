@@ -206,8 +206,14 @@ for name in brew nvim node python dotnet; do
   fi
 done
 
-check_arm64_file "Ghostty" /Applications/Ghostty.app/Contents/MacOS/ghostty
-check_arm64_file "AeroSpace" /Applications/AeroSpace.app/Contents/MacOS/AeroSpace
+# Every application bundle below is resolved through macos_applications_dir.
+# A verifier that reads /Applications directly answers from the machine the
+# tests happen to run on: the suite's fixture is ignored, the checks pass on a
+# maintainer's own Mac and fail on a Linux runner, and which of the two a run
+# reports has nothing to do with the tree under test.
+applications_dir="$(macos_applications_dir)"
+check_arm64_file "Ghostty" "$applications_dir/Ghostty.app/Contents/MacOS/ghostty"
+check_arm64_file "AeroSpace" "$applications_dir/AeroSpace.app/Contents/MacOS/AeroSpace"
 check_easy_dotnet_debugger osx-arm64
 check_arm64_file "EasyDotnet bundled netcoredbg" "$EASY_DOTNET_DEBUGGER_PATH"
 
@@ -320,7 +326,7 @@ check_symlink "$XDG_CONFIG_HOME/ghostty/macos.conf" "$macos_stow/ghostty-macos" 
 
 # verifies: terminal -- Ghostty is the macOS terminal, installed from the
 # Brewfile with the baseline.
-ghostty_binary=/Applications/Ghostty.app/Contents/MacOS/ghostty
+ghostty_binary="$(macos_applications_dir)/Ghostty.app/Contents/MacOS/ghostty"
 if [[ -x "$ghostty_binary" ]]; then
   pass "Ghostty application is installed"
   # An include chain decides this, not any one tracked file, so ask Ghostty
@@ -335,7 +341,7 @@ if [[ -x "$ghostty_binary" ]]; then
 else
   fail "Ghostty application is missing"
 fi
-if [[ -d /Applications/AeroSpace.app ]]; then pass "AeroSpace application is installed"; else fail "AeroSpace application is missing"; fi
+if [[ -d "$(macos_applications_dir)/AeroSpace.app" ]]; then pass "AeroSpace application is installed"; else fail "AeroSpace application is missing"; fi
 
 if aerospace list-workspaces --focused >/dev/null 2>&1; then
   pass "AeroSpace is running and Accessibility control works"
@@ -717,7 +723,8 @@ verify_optional_capability_report "Tailscale profile" "$tailscale_state" \
   "$tailscale_disposition" || true
 
 if [[ "$tailscale_disposition" == verify || "$tailscale_disposition" == leftover ]]; then
-  if [[ -d /Applications/Tailscale.app ]]; then
+  tailscale_app="$(macos_applications_dir)/Tailscale.app"
+  if [[ -d "$tailscale_app" ]]; then
     pass "Tailscale application is installed"
   else
     fail "Tailscale application is missing"
@@ -726,8 +733,8 @@ if [[ "$tailscale_disposition" == verify || "$tailscale_disposition" == leftover
   tailscale_cli=""
   if [[ -x /usr/local/bin/tailscale ]]; then
     tailscale_cli=/usr/local/bin/tailscale
-  elif [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then
-    tailscale_cli=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+  elif [[ -x "$tailscale_app/Contents/MacOS/Tailscale" ]]; then
+    tailscale_cli="$tailscale_app/Contents/MacOS/Tailscale"
   fi
 
   if [[ -n "$tailscale_cli" ]]; then
