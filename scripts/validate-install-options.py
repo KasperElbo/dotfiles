@@ -28,6 +28,7 @@ import re
 import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from manifests import ManifestSchemaError, read_tsv  # noqa: E402
+from shell import outside_functions, strip_noise  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPTION_MANIFEST = pathlib.Path(
@@ -71,6 +72,43 @@ OPTION_FIELDS = [
     "platform", "option", "kind", "on_flag", "off_flag", "default",
     "values", "capability", "summary",
 ]
+
+# The registry of what reads an option's value, and how. An enumerated `values`
+# column is only authoritative if something is held to it: `--theme nonsense`
+# was accepted by the installer, recorded, published in the generated
+# reference, and refused by `bin/.local/bin/theme` at the end of the install.
+CONSUMER_MANIFEST = pathlib.Path(
+    os.environ.get("OPTION_CONSUMER_MANIFEST", ROOT / "config" / "option-consumers.tsv")
+)
+CONSUMER_FIELDS = ["platform", "option", "consumer", "kind", "detail", "summary"]
+
+# One variable set to one literal, as the installers write their defaults:
+# several to a line, separated by semicolons.
+ASSIGNMENT = re.compile(
+    r"(?:^|;)[ \t]*(?P<name>[A-Za-z_]\w*)="
+    r"(?P<value>'[^']*'|\"[^\"]*\"|[^\s;#]*)"
+)
+# A default written as one variable, which is how a shared library states a
+# default the installers agree on: `theme="$THEME_DEFAULT_FLAVOUR"`.
+REFERENCE = re.compile(r"^\$\{?(?P<name>[A-Za-z_]\w*)\}?$")
+# What a manifest default means as a literal the installer assigns. `inherit`
+# and `-` are both "the flag was not given", which the installers write as the
+# empty string so an omitted sub-flag stays distinguishable from an explicit
+# `--no-<component>`.
+UNSET_DEFAULTS = {"-", "inherit"}
+# The first assignment in an arm's body is the variable that arm records the
+# selection in.
+ARM_ASSIGNMENT = re.compile(r"(?P<name>[A-Za-z_]\w*)=")
+# A `values` column that enumerates literals, as opposed to one that states a
+# pattern: `--charge-limit`'s `[4-9][0-9]|100` is a shape, and there is no set
+# of words for a consumer to agree with.
+LITERAL_VALUES = re.compile(r"^[\w.-]+(?:\|[\w.-]+)*$")
+# One case arm's pattern, at the start of its own line, which is how every
+# consumer in the registry writes one.
+CASE_ARM = re.compile(r"^[ \t]*(?P<pattern>[^()\n]+?)\)")
+# A bare word alternative: an accepted value. `*` and `""` are the arms for
+# everything else and for nothing, neither of which names a value.
+CASE_VALUE = re.compile(r"^[\w.-]+$")
 
 PARSER = re.compile(
     r'while \(\(\$#\)\); do\s*case "\$1" in\n(?P<arms>.*?)\n\s*esac\s*\n\s*done',
@@ -158,6 +196,200 @@ def parser_flags(
     return accepted, rejected, bodies
 
 
+def code_line(line: str) -> str:
+    """One line with its comment dropped and everything else left as written.
+
+    `strip_noise` is what finds the comment, because a `#` inside quotes opens
+    none, and it keeps every character's position while blanking quoted text.
+    That blanking is wrong here -- a value and a case subject are both written
+    inside quotes -- so the comment's start is taken from the blanked line and
+    the code is read out of the original.
+    """
+    return line[: len(strip_noise(line))]
+
+
+def case_values(path: pathlib.Path, variable: str) -> set[str] | None:
+    """The values a `case "$variable" in` accepts, or None when there is none.
+
+    Read as shell: a name in a comment is not an arm. Only bare word
+    alternatives count, so the `*)` and `"")` arms -- everything else, and
+    nothing -- are left out rather than read as values.
+    """
+    lines = [code_line(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    head = re.compile(r"""case\s+"?\$\{?""" + re.escape(variable) + r"""\}?"?\s+in\b""")
+    start = next((number for number, line in enumerate(lines) if head.search(line)), None)
+    if start is None:
+        return None
+    found: set[str] = set()
+    for line in lines[start + 1 :]:
+        if line.strip() == "esac":
+            break
+        match = CASE_ARM.match(line)
+        if match is None:
+            continue
+        for alternative in match.group("pattern").split("|"):
+            alternative = alternative.strip()
+            if CASE_VALUE.match(alternative):
+                found.add(alternative)
+    return found
+
+
+def check_value_consumers(options: list[dict[str, str]]) -> int:
+    """Each enumerated `values` column against the code that reads it.
+
+    The column is the single authority for what `--theme` accepts: the
+    installer validates against it, the resolved value is printed from it, and
+    `render-installer-options.py` publishes it as fact. The runtime enum in
+    `bin/.local/bin/theme` was a separate hand-written list that nothing
+    compared with it, so adding a flavour to the manifest gave an install that
+    ran every package, Stow and Mason step and then failed on its
+    second-to-last plan step with "Invalid Catppuccin flavour".
+    """
+    errors = 0
+    try:
+        rows = read_tsv(CONSUMER_MANIFEST, CONSUMER_FIELDS)
+    except ManifestSchemaError as error:
+        for message in error.messages:
+            fail(message)
+        return 1
+
+    enumerated = {
+        (option["platform"], option["option"]): option
+        for option in options
+        if option["kind"] == "value" and LITERAL_VALUES.match(option["values"] or "")
+    }
+    covered: set[tuple[str, str]] = set()
+    for row in rows:
+        matching = [
+            key for key in enumerated
+            if key[1] == row["option"] and row["platform"] in {"-", key[0]}
+        ]
+        if not matching:
+            fail(f"{CONSUMER_MANIFEST.name}: {row['consumer']} is declared as reading "
+                 f"{row['option']}, which no {row['platform']} option row enumerates")
+            errors += 1
+            continue
+        path = ROOT / row["consumer"]
+        if not path.is_file():
+            fail(f"{CONSUMER_MANIFEST.name}: {row['consumer']} does not exist")
+            errors += 1
+            continue
+        if row["kind"] != "shell-case":
+            fail(f"{CONSUMER_MANIFEST.name}: {row['consumer']} declares the kind "
+                 f"{row['kind']!r}, which this check cannot read")
+            errors += 1
+            continue
+        accepted = case_values(path, row["detail"])
+        if accepted is None:
+            fail(f"{row['consumer']}: no `case \"${row['detail']}\" in` to read the "
+                 f"accepted {row['option']} values from; the registry says this file "
+                 f"is what enforces them")
+            errors += 1
+            continue
+        for key in matching:
+            covered.add(key)
+            declared = {value for value in enumerated[key]["values"].split("|") if value}
+            for value in sorted(declared - accepted):
+                fail(f"{key[0]}: the manifest offers {row['option']} {value!r}, which "
+                     f"{row['consumer']} does not accept; a selection it refuses is "
+                     f"one the install fails on after doing its work")
+                errors += 1
+            for value in sorted(accepted - declared):
+                fail(f"{key[0]}: {row['consumer']} accepts {row['option']} {value!r}, "
+                     f"which the manifest does not offer, so nothing can select it")
+                errors += 1
+
+    for key in sorted(enumerated.keys() - covered):
+        fail(f"{key[0]}: the manifest enumerates {key[1]} values, but "
+             f"{CONSUMER_MANIFEST.name} names nothing that reads them, so the list "
+             f"is documented rather than enforced")
+        errors += 1
+    return errors
+
+
+def load_time_assignments(text: str) -> dict[str, str]:
+    """Each variable this text sets when it is run, as the literal it is set to.
+
+    Function bodies are left out: a default is what the file assigns on its way
+    to the argv loop, not what some function would assign if it were called.
+    Quotes are dropped, so `ai_codex=''` reads as the empty string it is.
+    """
+    found: dict[str, str] = {}
+    for line in outside_functions(text).splitlines():
+        for match in ASSIGNMENT.finditer(code_line(line)):
+            value = match.group("value")
+            if value[:1] in {"'", '"'} and value[-1:] == value[:1]:
+                value = value[1:-1]
+            found[match.group("name")] = value
+    return found
+
+
+def declared_defaults(installer: pathlib.Path, platform: str) -> dict[str, str]:
+    """The literal each variable holds when the installer starts parsing argv.
+
+    A default stated through one variable is resolved one step, because that is
+    how a default shared by every platform is written: `THEME_DEFAULT_FLAVOUR`
+    lives in common/lib/theme-selection.sh and each installer assigns it. Its
+    literal is as much a second statement of the manifest's default as an
+    inline `true` is, so it is compared rather than skipped.
+    """
+    text = installer.read_text(encoding="utf-8")
+    parser = PARSER.search(text)
+    preamble = text[: parser.start()] if parser else text
+    library: dict[str, str] = {}
+    for path in sorted((ROOT / "common" / "lib").glob("*.sh")) + sorted(
+        (ROOT / "platforms" / platform / "lib").glob("*.sh")
+    ):
+        library.update(load_time_assignments(path.read_text(encoding="utf-8")))
+    resolved: dict[str, str] = {}
+    for name, value in load_time_assignments(preamble).items():
+        reference = REFERENCE.match(value)
+        if reference and reference.group("name") in library:
+            value = library[reference.group("name")]
+        resolved[name] = value
+    return resolved
+
+
+def check_declared_defaults(
+    platform: str, relative: str, options: list[dict[str, str]],
+    bodies: dict[str, str], defaults: dict[str, str],
+) -> int:
+    """Each declared default against the value the installer starts with.
+
+    The manifest and the generated reference both publish that column as fact,
+    and nothing compared it with the `name=value` the installer actually starts
+    from. Flipping `macos defaults` to false in the manifest and regenerating
+    the documentation passed every validator, every render gate and every
+    suite, while the installer went on defaulting it to true.
+    """
+    errors = 0
+    for option in options:
+        flag = option["on_flag"]
+        if flag in {"", "-"} or flag not in bodies:
+            continue
+        assignment = ARM_ASSIGNMENT.search(bodies[flag])
+        if assignment is None:
+            continue
+        variable = assignment.group("name")
+        if variable not in defaults:
+            fail(f"{platform}: {relative} records {flag} in ${variable}, which it "
+                 f"never sets before parsing argv, so the option has no default "
+                 f"to record")
+            errors += 1
+            continue
+        declared = option["default"]
+        expected = "" if declared in UNSET_DEFAULTS else declared
+        found = defaults[variable]
+        if found == expected:
+            continue
+        name = option["option"]
+        fail(f"{platform}: the manifest gives {name} the default {declared!r}, "
+             f"but {relative} starts with {variable}={found!r}; the generated "
+             f"reference publishes the manifest's answer")
+        errors += 1
+    return errors
+
+
 def main() -> int:
     errors = 0
     try:
@@ -173,6 +405,8 @@ def main() -> int:
         for column in ("on_flag", "off_flag"):
             if option[column] not in {"", "-"}:
                 flags.add(option[column])
+
+    errors += check_value_consumers(options)
 
     installers = {
         path.parent.name: path for path in sorted(ROOT.glob("platforms/*/install.sh"))
@@ -237,6 +471,14 @@ def main() -> int:
             fail(f"{platform}: {flag} is listed in REJECTED_FLAGS, but {relative} "
                  f"has no case arm that rejects it")
             errors += 1
+
+        errors += check_declared_defaults(
+            platform,
+            relative,
+            [option for option in options if option["platform"] == platform],
+            bodies,
+            declared_defaults(installer, platform),
+        )
 
     return 1 if errors else 0
 

@@ -208,7 +208,7 @@ def plan_steps(
     """Each `plan_add` line: its line number, id, apply function and declaration.
 
     Returned with the number of lines that could not be read. A `plan_add` line
-    the tokeniser cannot split into the command and its eight arguments is a
+    the tokeniser cannot split into the command and its seven arguments is a
     build error, not a line to skip: dropping it takes the step out of the
     check in both directions, so an undeclared network step would pass and the
     preflight would never probe the host it downloads from. Shell the tokeniser
@@ -223,15 +223,15 @@ def plan_steps(
         if start == -1:
             continue
         tokens = tokenize(stripped[start:])
-        if len(tokens) != 9:
+        if len(tokens) != 8:
             fail(
                 f"{page}:{number}: cannot read this plan_add line as a command "
-                f"with eight arguments (read {len(tokens) - 1}); every step has "
+                f"with seven arguments (read {len(tokens) - 1}); every step has "
                 f"to be checked, so an unreadable one is a build error"
             )
             errors += 1
             continue
-        declared = tokens[8].strip("'\"").split()
+        declared = tokens[7].strip("'\"").split()
         steps.append((number, tokens[1].strip("'\""), tokens[5], set(declared)))
     return steps, errors
 

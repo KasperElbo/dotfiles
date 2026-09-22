@@ -1,0 +1,3 @@
+platform	option	consumer	kind	detail	summary
+-	theme	bin/.local/bin/theme	shell-case	flavour	The theme command applies a flavour and refuses one it does not know
+fedora	hardware	platforms/fedora/scripts/install-asus-hardware.sh	shell-case	model	The ASUS hardware installer branches on the model it was given
