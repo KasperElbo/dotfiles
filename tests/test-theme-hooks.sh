@@ -511,6 +511,36 @@ assert_contains "$TEST_OUTPUT" 'was applied only partially'
 assert_file_line "$machine/config/dotfiles/theme" mocha
 printf 'PASS: a failing Noctty bridge is reported without losing shared state\n'
 
+# The middle state the other three cases step over: Windows PowerShell is
+# installed, so the hook runs the bridge, but the Windows bootstrap has not
+# put set-theme.ps1 in place. PowerShell then exits the status the command
+# reserves for that, and the flavour is recorded as skipped rather than as
+# applied everywhere.
+#
+# The Bash side of this contract is what runs here; the PowerShell side is
+# asserted below, because this suite runs where there is no PowerShell to run
+# the command with.
+new_wsl_machine
+install_powershell 3
+run_theme WINDOWS_SYSTEM_ROOT="$windows_root"
+assert_success
+assert_contains "$TEST_OUTPUT" 'fedora-wsl:noctty'
+assert_contains "$TEST_OUTPUT" 'the Noctty helper is not installed'
+assert_contains "$TEST_OUTPUT" 'Catppuccin mocha selected.'
+for phrase in 'was applied only partially' 'theme bridge unavailable'; do
+  assert_not_contains "$TEST_OUTPUT" "$phrase"
+done
+printf 'PASS: an uninstalled Noctty helper is skipped, not reported as applied\n'
+
+# Both halves have to agree on the number. The hook names it once and splices
+# it into the PowerShell command, so this holds them to the same value rather
+# than to two copies of a 3 that could drift apart.
+wsl_hook_text="$(cat "$wsl_hook")"
+assert_contains "$wsl_hook_text" 'noctty_bridge_absent=3'
+assert_contains "$wsl_hook_text" \
+  'if (-not (Test-Path -LiteralPath $helper)) { exit '"'"'"$noctty_bridge_absent"'"'"' }'
+printf 'PASS: the PowerShell command exits the status the hook reads\n'
+
 # --- Parrot owns no desktop theme hooks -------------------------------------
 
 parrot_hooks="$repo_root/platforms/parrot-ctf/stow/theme-hooks"
