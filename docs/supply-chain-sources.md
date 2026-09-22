@@ -57,6 +57,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 
 | Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
 |---|---|---|---|---|---|---|---|---|
+| `distribution-gpg-keys` | RPM Fusion signing keys, from Fedora's own signed package | Fedora Project | `rpm-package` | `root` | `releasever` | rpm -q distribution-gpg-keys | `repo-gpg` | distribution |
 | `fedora-os-repos` | Fedora base system packages | Fedora Project | `rpm-repo` | `root` | `releasever` | dnf-history | `repo-gpg` | distribution |
 | `parrot-os-repos` | Parrot base system packages | Parrot Security | `apt-repo` | `root` | `release` | dpkg-status | `repo-gpg` | distribution |
 | `rpmfusion-free-release` | RPM Fusion free release package | RPM Fusion | `rpm-package` | `root` | `releasever` | rpm -q rpmfusion-free-release | `https-tls` | per-fedora-release |
@@ -84,6 +85,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `catppuccin-bat-themes` | `https://raw.githubusercontent.com/catppuccin/bat/${bat_theme_commit}/themes/${encoded_name}` | restore the previous commit and digests | `platforms/parrot-ctf/scripts/install-terminal.sh` |
 | `catppuccin-kde` | `https://github.com/catppuccin/kde.git` | reinstall the previous tag | `platforms/fedora/scripts/install-kde-theme.sh` |
 | `catppuccin-tmux` | `https://github.com/catppuccin/tmux.git` | git checkout the previous tag | `common/install-tmux-theme.sh` |
+| `distribution-gpg-keys` | `https://mirrors.fedoraproject.org` | sudo dnf remove distribution-gpg-keys | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `dotfiles-repository` | `https://github.com/KasperElbo/dotfiles.git` | git checkout the previous commit | `.github/workflows/real-install.yml` |
 | `fedora-os-repos` | `https://mirrors.fedoraproject.org` | sudo dnf history undo | `platforms/fedora/scripts/install-system.sh` `platforms/fedora-wsl/scripts/install-system.sh` |
 | `firstmate-repo` | `https://github.com/kunchenguid/firstmate.git` | git -C ~/.local/share/firstmate checkout <commit> | `common/install-ai.sh` |

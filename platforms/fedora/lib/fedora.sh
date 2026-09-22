@@ -207,14 +207,42 @@ ensure_terra_repository() {
     die "The Terra bootstrap did not install terra-release."
 }
 
-# terra_repo_gpgcheck_values: the effective signature-checking settings DNF
-# applies to the terra repository, as "<option> = <value>" lines, or nothing
-# when DNF does not know the repository. DNF resolves the repository files and
-# every override itself, so this reads what DNF will actually enforce rather
-# than one file's spelling of it. Read-only and sudo-free.
-terra_repo_gpgcheck_values() {
-  dnf --dump-repo-config=terra 2>/dev/null |
+# repo_gpgcheck_values <repo_id>: the effective signature-checking settings DNF
+# applies to a repository, as "<option> = <value>" lines, or nothing when DNF
+# does not know the repository. DNF resolves the repository files and every
+# override itself, so this reads what DNF will actually enforce rather than one
+# file's spelling of it. Read-only and sudo-free.
+repo_gpgcheck_values() {
+  dnf --dump-repo-config="$1" 2>/dev/null |
     awk -F ' = ' '$1 == "gpgcheck" || $1 == "pkg_gpgcheck" { print $1 " = " $2 }'
+}
+
+# verify_repo_trust_root <repo_id> <human name>: asserts that DNF still
+# enforces package signatures for a repository this installer added.
+#
+# Every repository the installer adds is added once and then never looked at
+# again -- the bootstraps all return early on a machine that already has
+# theirs -- so a repository file later edited to gpgcheck=0, or shipped that
+# way, is only ever caught by a verifier. Source common/lib/verify.sh first.
+verify_repo_trust_root() {
+  local repo_id="$1" human_name="$2" gpgcheck_values setting unchecked=""
+
+  gpgcheck_values="$(repo_gpgcheck_values "$repo_id")"
+  if ! grep -q '^gpgcheck = ' <<<"$gpgcheck_values"; then
+    fail "DNF reports no gpgcheck setting for the $repo_id repository;" \
+      "$human_name packages may install without signature verification"
+    return 0
+  fi
+
+  while IFS= read -r setting; do
+    [[ "$setting" == *' = 1' ]] || unchecked+="${unchecked:+, }$setting"
+  done <<<"$gpgcheck_values"
+  if [[ -n "$unchecked" ]]; then
+    fail "$repo_id repository has $unchecked, expected 1;" \
+      "$human_name packages install without signature verification"
+  else
+    pass "$repo_id repository enforces package signatures (gpgcheck = 1)"
+  fi
 }
 
 # rpm_keyring_fingerprints: the primary fingerprint of every key in the RPM
@@ -236,7 +264,7 @@ rpm_keyring_fingerprints() {
 # gpgcheck=0 or a signing key removed from the keyring is only ever caught
 # here. Read-only and sudo-free. Source common/lib/verify.sh first.
 verify_terra_trust_root() {
-  local releasever gpgcheck_values setting unchecked="" pinned
+  local releasever pinned
 
   if ! rpm -q terra-release >/dev/null 2>&1; then
     fail "terra-release is not installed; run" \
@@ -244,21 +272,7 @@ verify_terra_trust_root() {
     return 0
   fi
 
-  gpgcheck_values="$(terra_repo_gpgcheck_values)"
-  if ! grep -q '^gpgcheck = ' <<<"$gpgcheck_values"; then
-    fail "DNF reports no gpgcheck setting for the terra repository;" \
-      "Terra packages may install without signature verification"
-  else
-    while IFS= read -r setting; do
-      [[ "$setting" == *' = 1' ]] || unchecked+="${unchecked:+, }$setting"
-    done <<<"$gpgcheck_values"
-    if [[ -n "$unchecked" ]]; then
-      fail "terra repository has $unchecked, expected 1;" \
-        "Terra packages install without signature verification"
-    else
-      pass "terra repository enforces package signatures (gpgcheck = 1)"
-    fi
-  fi
+  verify_repo_trust_root terra Terra
 
   releasever="$(rpm -E %fedora 2>/dev/null || true)"
   if [[ ! "$releasever" =~ ^[0-9]+$ ]]; then
@@ -284,6 +298,19 @@ verify_terra_trust_root() {
   fi
 }
 
+# The directory distribution-gpg-keys installs the RPM Fusion signing keys
+# into, and the directory DNF reads repository files from. Both are
+# overridable so the suite can build a real layout without writing to /etc or
+# installing a package.
+RPM_FUSION_KEY_DIR="${RPM_FUSION_KEY_DIR:-/usr/share/distribution-gpg-keys/rpmfusion}"
+DNF_REPO_DIR="${DNF_REPO_DIR:-/etc/yum.repos.d}"
+
+# rpm_fusion_key_path <variant> <releasever>: where the reviewed signing key
+# for free or nonfree lives once distribution-gpg-keys is installed.
+rpm_fusion_key_path() {
+  printf '%s/RPM-GPG-KEY-rpmfusion-%s-fedora-%s\n' "$RPM_FUSION_KEY_DIR" "$1" "$2"
+}
+
 ensure_rpm_fusion_repositories() {
   if rpm -q \
     rpmfusion-free-release \
@@ -292,18 +319,102 @@ ensure_rpm_fusion_repositories() {
     return
   fi
 
-  local fedora_version
+  local fedora_version variant key
   fedora_version="$(rpm -E %fedora)"
+  [[ "$fedora_version" =~ ^[0-9]+$ ]] ||
+    die "Could not determine the Fedora release version for the RPM Fusion bootstrap."
+
+  # The two release RPMs are what install the keys every later RPM Fusion
+  # package is checked against, so until they are installed there is nothing
+  # on the machine to check *them* against: Fedora ships no RPM Fusion signing
+  # keys in its own keyring and dnf's localpkg_gpgcheck is off by default.
+  # HTTPS to mirrors.rpmfusion.org used to be the entire trust boundary, which
+  # means one successful interception over the install window left a
+  # permanent, self-consistent trust root behind.
+  #
+  # Fedora does ship distribution-gpg-keys, its own signed package carrying
+  # the RPM Fusion keys, so the keys arrive through a package DNF has already
+  # verified against Fedora's keyring, and the release RPMs are then checked
+  # by signature like any other package.
+  # network-source: distribution-gpg-keys
+  if ! rpm -q distribution-gpg-keys >/dev/null 2>&1; then
+    info "Installing distribution-gpg-keys for the RPM Fusion signing keys"
+    sudo dnf install -y distribution-gpg-keys ||
+      die "Could not install distribution-gpg-keys, which carries the RPM Fusion signing keys."
+  fi
+
+  for variant in free nonfree; do
+    key="$(rpm_fusion_key_path "$variant" "$fedora_version")"
+    # No fallback to an unverified install: a missing key means this Fedora
+    # release is newer than the keys distribution-gpg-keys carries, and the
+    # honest answer is to say so rather than to install the release RPMs the
+    # way this repository has just stopped installing them.
+    [[ -r "$key" ]] ||
+      die "No reviewed RPM Fusion $variant signing key for Fedora $fedora_version at $key. Update distribution-gpg-keys, or install the RPM Fusion repositories by hand once you have verified the release packages."
+    info "Importing the RPM Fusion $variant signing key for Fedora $fedora_version"
+    # network-source: distribution-gpg-keys
+    sudo rpm --import "$key" ||
+      die "Could not import the RPM Fusion $variant signing key."
+  done
 
   info "Enabling the RPM Fusion repositories"
-  # HTTPS to mirrors.rpmfusion.org is the whole trust boundary here, which is
-  # what config/network-sources.tsv records as this source's integrity
-  # mechanism. Fedora ships no RPM Fusion signing keys, and dnf's
-  # localpkg_gpgcheck is off by default, so nothing verifies these two release
-  # RPMs by signature before they are installed. They are what install the keys
-  # every later RPM Fusion package is then checked against.
   # network-source: rpmfusion-free-release,rpmfusion-nonfree-release
   sudo dnf install -y \
+    --setopt=localpkg_gpgcheck=1 \
     "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm" \
     "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm"
+}
+
+# rpm_fusion_repo_ids <variant>: every repository id the release package owns,
+# read from the .repo files it installed. Each variant ships more than one
+# repository -- the base one, updates, and the testing ones -- and gpgcheck=0
+# in any of them is the same hole, so the set is taken from the package's own
+# file list rather than from names written out here.
+rpm_fusion_repo_ids() {
+  local path
+  rpm -ql "rpmfusion-$1-release" 2>/dev/null | while IFS= read -r path; do
+    [[ "$path" == "$DNF_REPO_DIR"/*.repo && -r "$path" ]] || continue
+    sed -n 's/^\[\([^]]*\)\]$/\1/p' "$path"
+  done
+}
+
+# verify_rpm_fusion_trust_root: re-asserts that DNF still enforces signatures
+# for the RPM Fusion repositories. The two release packages are what install
+# the keys every later RPM Fusion package is checked against, so a repository
+# of theirs left at gpgcheck=0 is the one that matters most and the one
+# nothing looked at. Read-only and sudo-free. Source common/lib/verify.sh
+# first.
+verify_rpm_fusion_trust_root() {
+  local variant repo_ids repo_id installed=""
+
+  for variant in free nonfree; do
+    rpm -q "rpmfusion-$variant-release" >/dev/null 2>&1 &&
+      installed+="${installed:+ }$variant"
+  done
+
+  # Optional, so absence is a state to report rather than a failure -- but it
+  # is reported, because a section that prints nothing reads as a section that
+  # found nothing wrong.
+  if [[ -z "$installed" ]]; then
+    pass "no RPM Fusion repositories on this machine, so none to enforce"
+    return 0
+  fi
+
+  for variant in free nonfree; do
+    if [[ " $installed " != *" $variant "* ]]; then
+      fail "rpmfusion-$variant-release is not installed while its sibling is;" \
+        "rerun the desktop-tools installer to restore both repositories"
+      continue
+    fi
+    repo_ids="$(rpm_fusion_repo_ids "$variant")"
+    if [[ -z "$repo_ids" ]]; then
+      fail "rpmfusion-$variant-release owns no readable repository file, so" \
+        "whether RPM Fusion $variant packages are signature-checked is unknown"
+      continue
+    fi
+    while IFS= read -r repo_id; do
+      [[ -n "$repo_id" ]] || continue
+      verify_repo_trust_root "$repo_id" "RPM Fusion $variant"
+    done <<<"$repo_ids"
+  done
 }

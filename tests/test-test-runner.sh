@@ -121,6 +121,72 @@ assert_contains "$TEST_OUTPUT" "has no column: tool"
 assert_contains "$TEST_OUTPUT" "could not read the version floors from $headerless"
 assert_eq '' "$(cat "$log")" 'a floor manifest without a tool column must stop before any suite executes'
 
+printf 'The lazy.nvim checkout is resolved by one rule, shared with the suite that needs it\n'
+# Two copies of this rule would be two chances for the runner to preflight a
+# path the suite does not use, which is worse than not preflighting: the run
+# would be refused for a checkout that is present, or admitted for one that is
+# missing. Both callers source this file, so the rule is asserted once here.
+# shellcheck source=lib/lazy-nvim.sh
+source "$repo_root/tests/lib/lazy-nvim.sh"
+
+assert_eq "$root/explicit" \
+  "$(DOTFILES_LAZY_NVIM="$root/explicit" lazy_nvim_checkout)" \
+  'DOTFILES_LAZY_NVIM names the checkout when it is set'
+assert_eq "$root/xdg/nvim/lazy/lazy.nvim" \
+  "$(DOTFILES_LAZY_NVIM='' XDG_DATA_HOME="$root/xdg" lazy_nvim_checkout)" \
+  'otherwise the path a normal install leaves behind'
+
+# `lua/lazy`, not the directory itself: an empty directory and a half-finished
+# clone both satisfy a bare -d and then fail further in, talking about Lua.
+bare_checkout="$root/bare-lazy"
+mkdir -p "$bare_checkout"
+lazy_nvim_is_ready "$bare_checkout" &&
+  _test_die 'an empty directory was accepted as a lazy.nvim checkout'
+mkdir -p "$bare_checkout/lua/lazy"
+lazy_nvim_is_ready "$bare_checkout" ||
+  _test_die 'a directory carrying lua/lazy was not accepted as a checkout'
+
+printf 'A missing lazy.nvim checkout is a runner error, not a suite failure partway through\n'
+# The defect: the preflight only understood names on PATH, so this requirement
+# bypassed it and surfaced as one red suite in the middle of a long run on a
+# machine that satisfied every documented tool. Bounded by `timeout`, because a
+# regression here does not fail this case, it starts the whole aggregate run.
+: >"$log"
+run_capture env "DOTFILES_LAZY_NVIM=$root/no-such-lazy-checkout" RUNNER_LOG="$log" \
+  timeout 120 "$repo_root/scripts/test.sh"
+assert_status 2
+assert_contains "$TEST_OUTPUT" 'no lazy.nvim checkout at'
+assert_contains "$TEST_OUTPUT" "$root/no-such-lazy-checkout"
+assert_contains "$TEST_OUTPUT" 'no suites were run or credited as skipped'
+assert_not_contains "$TEST_OUTPUT" '==> tests/'
+assert_eq '' "$(cat "$log")" 'the refusal must happen before any suite executes'
+
+printf 'Targeted mode still runs without a lazy.nvim checkout\n'
+# Each selected suite reports its own dependencies, and the Neovim suite's hard
+# failure stays the backstop; refusing a targeted run over a checkout it does
+# not need would be the same defect in the other direction.
+: >"$log"
+run_capture env "DOTFILES_LAZY_NVIM=$root/no-such-lazy-checkout" \
+  DOTFILES_TEST_REQUIRED_COMMANDS=bash RUNNER_LOG="$log" \
+  "$repo_root/scripts/test.sh" "$pass_one"
+assert_status 0
+assert_file_contains "$log" 'pass-one'
+
+printf 'The run states how many suites it is about to run, read off the array\n'
+# The count in circulation was 89 while the runner ran 82. A number quoted from
+# memory is a coverage claim nothing checks, so the run prints its own.
+: >"$log"
+run_capture env DOTFILES_TEST_REQUIRED_COMMANDS=bash RUNNER_LOG="$log" \
+  "$repo_root/scripts/test.sh" "$pass_one" "$pass_two"
+assert_status 0
+assert_contains "$TEST_OUTPUT" 'Running 2 suites'
+: >"$log"
+run_capture env DOTFILES_TEST_REQUIRED_COMMANDS=bash RUNNER_LOG="$log" \
+  "$repo_root/scripts/test.sh" "$pass_one"
+assert_status 0
+assert_contains "$TEST_OUTPUT" 'Running 1 suite'
+assert_not_contains "$TEST_OUTPUT" 'Running 1 suites'
+
 printf 'A suite that is not registered in default_tests is a build failure\n'
 # Nothing used to require this. A new tests/test-*.sh that always failed passed
 # every validator, because no check compared the directory with the runner's

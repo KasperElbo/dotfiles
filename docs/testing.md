@@ -23,6 +23,7 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 | Python 3 (`python3`) | >= 3.11 | every `scripts/*.py` validator and generator |
 | jq | any recent release | JSON-fixture and action-registry suites |
 | ripgrep (`rg`) | any recent release | `./scripts/test.sh` preflight and search-based checks |
+| lazy.nvim | the revision [`nvim-lazyvim/.config/nvim/lazy-lock.json`](../nvim-lazyvim/.config/nvim/lazy-lock.json) pins | `./scripts/test.sh` preflight and the Neovim spec-resolution suite. A checkout, not a command — see below |
 
 `./scripts/test.sh` also preflights `awk`, `bash`, `curl`, `find`, `getent`,
 `git`, `grep`, `mktemp`, `sed`, `sha256sum`, `timeout` and `unlink`, which are
@@ -66,12 +67,36 @@ reader it would have to start first. The kernel minimum in
 belongs to the distribution rather than to this repository, which can refuse to
 enable the hardware but cannot raise it.
 
-The Neovim spec-resolution suite inside `tests/test-neovim-tool-ownership.sh`
-additionally needs a lazy.nvim checkout, because it resolves this repository's
-plugin fragments through lazy.nvim itself instead of reading them. It uses
-`DOTFILES_LAZY_NVIM` when that names a checkout, and otherwise the one a normal
-install already leaves in `${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/lazy.nvim`.
-A missing checkout fails the suite; it is never skipped.
+lazy.nvim is the one entry in that table that is not a command, which is why it
+is spelled out here rather than left to the preflight's command list.
+`tests/test-neovim-tool-ownership.sh` resolves this repository's plugin
+fragments through lazy.nvim itself instead of reading them, so a checkout is a
+hard requirement of that suite: a missing one fails it and is never skipped.
+Both the suite and `./scripts/test.sh`'s preflight resolve the path through
+`lazy_nvim_checkout` in [`tests/lib/lazy-nvim.sh`](../tests/lib/lazy-nvim.sh),
+so there is one rule -- `DOTFILES_LAZY_NVIM` when it names a checkout, and
+otherwise the one a normal install already leaves in
+`${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/lazy.nvim`. Two copies would be
+two chances for the runner to preflight a path the suite does not use, which is
+worse than not preflighting at all: the run would be refused for a checkout that
+is present, or admitted for one that is missing.
+
+An aggregate run refuses up front when that checkout is absent, in the same
+"no suites were run or credited as skipped" terms the command and floor failures
+use, and says how to get one. Before that, the requirement bypassed the
+preflight entirely, because the preflight only understood names on `PATH`: one
+suite out of eighty-odd failed in the middle of a long run on a machine that
+satisfied every documented tool, naming lazy.nvim but not the policy -- the
+exact failure mode the command list exists to prevent. The `repository` job
+clones the pinned revision and exports `DOTFILES_LAZY_NVIM`, so the gap was
+invisible on pull requests and visible only to a contributor running the
+documented command. A targeted run is unaffected: each selected suite reports
+its own dependencies, and refusing one over a checkout it does not need would be
+the same defect pointing the other way.
+
+The run also states how many suites it is about to run, read off the array
+rather than quoted from anywhere. The count in circulation was 89 while the
+runner ran 82, which matters whenever that number is used as a coverage claim.
 
 `scripts/test-installer.sh` is a deprecated compatibility alias that forwards
 to `./scripts/test.sh` unchanged; use `./scripts/test.sh`.
@@ -229,6 +254,38 @@ rule applies to the search itself: prefer a plain-text comparison to a pattern
 language whose syntax the assertion does not actually use, and give a tool that
 could be missing an explicit requirement rather than an `|| true` that reads its
 absence as a clean result.
+
+A reproduction can manufacture the defect it claims to find, which is the third
+way a test lies about its subject. #368 reported that `plan_preflight`
+suppressed errexit through the action it runs. It does not: Bash exempts a
+command in an `&&`/`||` list only up to the final operator, and the action sits
+after it. The reproduction wrapped the call as
+`plan_preflight && status=0 || status=$?`, which is itself a suppressing
+position, so it measured its own harness and reported the behaviour it had
+created. Two threads drove the real function before the issue was closed as not
+reproducing.
+
+So a claim about `errexit`, `pipefail`, `nounset`, a subshell, an exit status or
+a truthiness coercion begins with a negative control that drives the real
+function from its real call shape -- the way its callers actually write it,
+never inside a condition or an `&&`/`||` list, and in its own process when the
+status of an aborted statement is the thing being measured. A control that
+cannot be made to fail before the fix refutes the finding rather than confirming
+it.
+
+The same class has a second shape, where the manufactured part is the
+specification rather than the harness. An issue argued that a Windows shim
+resolved to the wrong file because `PATHEXT` prefers `.EXE` to `.PS1`. `PATHEXT`
+is cmd.exe's mechanism; PowerShell resolves an ExternalScript ahead of an
+Application, so a bare name finds the `.ps1` first, and the comment naming
+`PATHEXT` was the only defect there. The validation pass repeated the premise
+instead of testing it and carried the wrong specification forward as a reason to
+expect a group of related findings to hold.
+
+So a finding's evidence is the behaviour of this code on this platform,
+observed. A citation -- `PATHEXT`, POSIX, a man page, a vendor doc -- is a
+hypothesis to check against the thing that actually runs, because a real
+documented behaviour of the wrong system reads exactly like evidence.
 
 A suite whose code under test probes for tools on `PATH` calls
 `test_isolate_path [command ...]` right after that trap. It replaces `PATH` with

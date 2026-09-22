@@ -242,6 +242,30 @@ repository is not `1`, and when the fingerprint pinned for the running Fedora
 release is missing from the RPM keyring. When the running release has no
 pinned row it warns instead, mirroring the installer.
 
+## Every repository, re-checked after install
+
+Terra is not the only trust root this installer establishes, and every one of
+these bootstraps returns early for good once its repository exists. A
+repository shipped or later edited with `gpgcheck=0` therefore keeps
+installing root-privileged packages unchecked, and only a verifier can say
+so. `verify_repo_trust_root` in
+[`platforms/fedora/lib/fedora.sh`](../platforms/fedora/lib/fedora.sh) is the
+one implementation, asking DNF what it will actually enforce rather than
+reading one file's spelling of it, and all three callers use it:
+
+- **Terra**, as part of the signing-key check above.
+- **Tailscale**, from `verify-tailscale.sh`. Whatever the fetched `.repo`
+  file says becomes `/etc/yum.repos.d/tailscale.repo` verbatim, including its
+  `gpgcheck` setting and its `gpgkey` URL, and nothing looked at it again.
+- **RPM Fusion**, from `verify.sh`, for every repository the two release
+  packages own rather than only the base pair — the `updates` repositories
+  are where later packages actually come from. The repository ids come from
+  each package's own file list, so a repository RPM Fusion adds later is
+  checked without this repository being told about it.
+
+A machine with no RPM Fusion repositories reports that it has none. A
+section that prints nothing reads as a section that found nothing wrong.
+
 **The remaining boundary** is a Fedora release newer than the pinned set. There
 is no fingerprint to compare against, so the installer prints the downloaded
 key's fingerprint and refuses to continue unless a human acknowledges it —
