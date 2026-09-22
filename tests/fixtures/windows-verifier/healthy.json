@@ -72,7 +72,13 @@
     }
   },
   "Configuration": {
-    "ManagedBlockValid": false,
+    "ManagedBlock": {
+      "Exists": false,
+      "Count": 0,
+      "MarkerError": null,
+      "Body": null,
+      "UserCommand": false
+    },
     "Files": []
   },
   "Wsl": {
