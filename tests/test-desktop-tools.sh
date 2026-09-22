@@ -29,15 +29,17 @@ test_stub_install "$test_root" dnf
 test_stub_install "$test_root" sudo
 test_stub_allow "$test_root" dnf install -y ark gwenview okular
 test_stub_allow "$test_root" dnf install -y gimp pdfarranger skanpage xdg-utils
-test_stub_allow "$test_root" dnf install -y \
-  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-.noarch.rpm \
-  https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-.noarch.rpm
+test_stub_allow "$test_root" dnf install -y distribution-gpg-keys
+test_stub_allow "$test_root" dnf install -y --setopt=localpkg_gpgcheck=1 \
+  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-90.noarch.rpm \
+  https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-90.noarch.rpm
 test_stub_allow "$test_root" dnf install -y mpv
 test_stub_allow "$test_root" sudo dnf install -y ark gwenview okular
 test_stub_allow "$test_root" sudo dnf install -y gimp pdfarranger skanpage xdg-utils
-test_stub_allow "$test_root" sudo dnf install -y \
-  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-.noarch.rpm \
-  https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-.noarch.rpm
+test_stub_allow "$test_root" sudo dnf install -y distribution-gpg-keys
+test_stub_allow "$test_root" sudo dnf install -y --setopt=localpkg_gpgcheck=1 \
+  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-90.noarch.rpm \
+  https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-90.noarch.rpm
 test_stub_allow "$test_root" sudo dnf install -y mpv
 
 cat >"$test_root/handlers/dnf" <<'EOF'
@@ -45,14 +47,26 @@ cat >"$test_root/handlers/dnf" <<'EOF'
 printf 'dnf %s\n' "$*" >>"$COMMAND_LOG"
 EOF
 
+# `rpm -E %fedora` answers here, instead of printing nothing and leaving
+# the release out of the URLs this suite then asserted. The installer
+# refuses an unreadable release now, so a fixture that kept modelling the
+# old behaviour would assert the refusal rather than the bootstrap.
+# `--import` is logged, so the order of import and install is observable.
 cat >"$mock_bin/rpm" <<EOF
 #!/usr/bin/env bash
-if [[ "\$1" == -q ]]; then
+case "\$1" in
+-q)
   for present in \$RPM_PRESENT; do
     [[ "\$2" == "\$present" ]] && exit 0
   done
   exit 1
-fi
+  ;;
+-E)
+  [[ "\$2" == '%fedora' ]] || exit 1
+  printf '%s\\n' "\$MOCK_FEDORA_RELEASE"
+  ;;
+--import) printf 'rpm %s\\n' "\$*" >>"\$COMMAND_LOG" ;;
+esac
 exit 0
 EOF
 
@@ -88,6 +102,18 @@ chmod +x "$mock_bin"/* "$test_root/handlers"/*
 
 printf 'ID=fedora\n' >"$test_root/os-release"
 
+# The RPM Fusion signing keys distribution-gpg-keys installs, as a fixture:
+# the bootstrap imports these before it installs the release packages, and
+# refuses outright when they are absent.
+rpm_fusion_keys="$test_root/distribution-gpg-keys"
+mkdir -p "$rpm_fusion_keys"
+for rpm_fusion_variant in free nonfree; do
+  printf 'key\n' \
+    >"$rpm_fusion_keys/RPM-GPG-KEY-rpmfusion-$rpm_fusion_variant-fedora-90"
+  test_stub_allow "$test_root" sudo rpm --import \
+    "$rpm_fusion_keys/RPM-GPG-KEY-rpmfusion-$rpm_fusion_variant-fedora-90"
+done
+
 test_environment=(
   env
   "HOME=$test_root/home"
@@ -97,6 +123,8 @@ test_environment=(
   "COMMAND_LOG=$command_log"
   "OS_RELEASE_FILE=$test_root/os-release"
   "XDG_MIME_STORE=$mime_store"
+  "MOCK_FEDORA_RELEASE=90"
+  "RPM_FUSION_KEY_DIR=$rpm_fusion_keys"
 )
 
 run_install() {
@@ -189,6 +217,22 @@ if grep -Fq 'terra' "$command_log"; then
 fi
 grep -Fq 'rpmfusion' "$command_log"
 printf 'PASS: RPM Fusion is enabled for full multimedia codec support\n'
+
+# --- and enabled against keys Fedora signed, not against nothing -----------
+
+# The two release packages are what install the keys every later RPM Fusion
+# package is checked against, so until they are installed there is nothing
+# on the machine to check them against: dnf's localpkg_gpgcheck is off by
+# default and Fedora's keyring carries no RPM Fusion key.
+grep -Fq 'rpm --import' "$command_log"
+grep -Fq -- '--setopt=localpkg_gpgcheck=1' "$command_log"
+first_rpm_fusion_command="$(grep -nE 'rpm --import|rpmfusion-free-release' \
+  "$command_log" | head -n1)"
+if [[ "$first_rpm_fusion_command" != *'rpm --import'* ]]; then
+  printf 'The RPM Fusion release packages were installed before the keys.\n' >&2
+  exit 1
+fi
+printf 'PASS: the RPM Fusion keys are imported before the release packages\n'
 
 # --- the verifier reports through the shared verification contract ---------
 

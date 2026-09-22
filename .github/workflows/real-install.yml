@@ -43,6 +43,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run clean install, verifier, rerun and state transition
+        # The sequence now installs the optional profiles, two of which resolve
+        # their own "latest" release through api.github.com, as mise does for
+        # its GitHub-backed tools. Unauthenticated that is 60 requests an hour
+        # shared with every other tenant on the runner's address, which the
+        # macOS job has failed on with nothing wrong on its own side. The
+        # workflow's own token raises it to 5000/hour, and its permissions are
+        # contents:read, so the token can read this repository and nothing
+        # else. The script forwards it into the container only for the
+        # installing user. See docs/supply-chain.md, "Authenticating the
+        # rate-limited API".
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: ./tests/integration/fedora-clean-install.sh
 
       - name: Record evidence boundary

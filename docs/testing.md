@@ -23,6 +23,7 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 | Python 3 (`python3`) | >= 3.11 | every `scripts/*.py` validator and generator |
 | jq | any recent release | JSON-fixture and action-registry suites |
 | ripgrep (`rg`) | any recent release | `./scripts/test.sh` preflight and search-based checks |
+| lazy.nvim | the revision [`nvim-lazyvim/.config/nvim/lazy-lock.json`](../nvim-lazyvim/.config/nvim/lazy-lock.json) pins | `./scripts/test.sh` preflight and the Neovim spec-resolution suite. A checkout, not a command — see below |
 
 `./scripts/test.sh` also preflights `awk`, `bash`, `curl`, `find`, `getent`,
 `git`, `grep`, `mktemp`, `sed`, `sha256sum`, `timeout` and `unlink`, which are
@@ -66,12 +67,36 @@ reader it would have to start first. The kernel minimum in
 belongs to the distribution rather than to this repository, which can refuse to
 enable the hardware but cannot raise it.
 
-The Neovim spec-resolution suite inside `tests/test-neovim-tool-ownership.sh`
-additionally needs a lazy.nvim checkout, because it resolves this repository's
-plugin fragments through lazy.nvim itself instead of reading them. It uses
-`DOTFILES_LAZY_NVIM` when that names a checkout, and otherwise the one a normal
-install already leaves in `${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/lazy.nvim`.
-A missing checkout fails the suite; it is never skipped.
+lazy.nvim is the one entry in that table that is not a command, which is why it
+is spelled out here rather than left to the preflight's command list.
+`tests/test-neovim-tool-ownership.sh` resolves this repository's plugin
+fragments through lazy.nvim itself instead of reading them, so a checkout is a
+hard requirement of that suite: a missing one fails it and is never skipped.
+Both the suite and `./scripts/test.sh`'s preflight resolve the path through
+`lazy_nvim_checkout` in [`tests/lib/lazy-nvim.sh`](../tests/lib/lazy-nvim.sh),
+so there is one rule -- `DOTFILES_LAZY_NVIM` when it names a checkout, and
+otherwise the one a normal install already leaves in
+`${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/lazy.nvim`. Two copies would be
+two chances for the runner to preflight a path the suite does not use, which is
+worse than not preflighting at all: the run would be refused for a checkout that
+is present, or admitted for one that is missing.
+
+An aggregate run refuses up front when that checkout is absent, in the same
+"no suites were run or credited as skipped" terms the command and floor failures
+use, and says how to get one. Before that, the requirement bypassed the
+preflight entirely, because the preflight only understood names on `PATH`: one
+suite out of eighty-odd failed in the middle of a long run on a machine that
+satisfied every documented tool, naming lazy.nvim but not the policy -- the
+exact failure mode the command list exists to prevent. The `repository` job
+clones the pinned revision and exports `DOTFILES_LAZY_NVIM`, so the gap was
+invisible on pull requests and visible only to a contributor running the
+documented command. A targeted run is unaffected: each selected suite reports
+its own dependencies, and refusing one over a checkout it does not need would be
+the same defect pointing the other way.
+
+The run also states how many suites it is about to run, read off the array
+rather than quoted from anywhere. The count in circulation was 89 while the
+runner ran 82, which matters whenever that number is used as a coverage claim.
 
 `scripts/test-installer.sh` is a deprecated compatibility alias that forwards
 to `./scripts/test.sh` unchanged; use `./scripts/test.sh`.
@@ -229,6 +254,38 @@ rule applies to the search itself: prefer a plain-text comparison to a pattern
 language whose syntax the assertion does not actually use, and give a tool that
 could be missing an explicit requirement rather than an `|| true` that reads its
 absence as a clean result.
+
+A reproduction can manufacture the defect it claims to find, which is the third
+way a test lies about its subject. #368 reported that `plan_preflight`
+suppressed errexit through the action it runs. It does not: Bash exempts a
+command in an `&&`/`||` list only up to the final operator, and the action sits
+after it. The reproduction wrapped the call as
+`plan_preflight && status=0 || status=$?`, which is itself a suppressing
+position, so it measured its own harness and reported the behaviour it had
+created. Two threads drove the real function before the issue was closed as not
+reproducing.
+
+So a claim about `errexit`, `pipefail`, `nounset`, a subshell, an exit status or
+a truthiness coercion begins with a negative control that drives the real
+function from its real call shape -- the way its callers actually write it,
+never inside a condition or an `&&`/`||` list, and in its own process when the
+status of an aborted statement is the thing being measured. A control that
+cannot be made to fail before the fix refutes the finding rather than confirming
+it.
+
+The same class has a second shape, where the manufactured part is the
+specification rather than the harness. An issue argued that a Windows shim
+resolved to the wrong file because `PATHEXT` prefers `.EXE` to `.PS1`. `PATHEXT`
+is cmd.exe's mechanism; PowerShell resolves an ExternalScript ahead of an
+Application, so a bare name finds the `.ps1` first, and the comment naming
+`PATHEXT` was the only defect there. The validation pass repeated the premise
+instead of testing it and carried the wrong specification forward as a reason to
+expect a group of related findings to hold.
+
+So a finding's evidence is the behaviour of this code on this platform,
+observed. A citation -- `PATHEXT`, POSIX, a man page, a vendor doc -- is a
+hypothesis to check against the thing that actually runs, because a real
+documented behaviour of the wrong system reads exactly like evidence.
 
 A suite whose code under test probes for tools on `PATH` calls
 `test_isolate_path [command ...]` right after that trap. It replaces `PATH` with
@@ -735,6 +792,42 @@ silently become test fixtures.
 | Apple Silicon macOS | A GitHub-hosted `macos-26` Apple Silicon runner invokes the public entry point through `/bin/bash` with ordinary PATH lookup restricted to Apple system paths, requires explicit Homebrew Bash discovery/re-exec, and executes the real bootstrap/install path, verifier, development workflow smoke tests, idempotent rerun, then an OCaml/AI/defaults/theme state transition. Every AI component the platform advertises is then probed individually on that runner: it must resolve through mise, must not be an Intel-only binary or a Homebrew/global-npm duplicate, and must run a harmless `--version`/`--help`. The remembered selection is finally replayed with `./install.sh --rerun` and reverified, which is what proves the optional AI subcomponents survive the persistent-selection round trip. | GitHub's image is disposable and real macOS/arm64, but it already contains Homebrew. Installing Homebrew itself on a factory-fresh Mac and granting interactive Accessibility/Tailscale approvals remain manual assurance. The AI probe never authenticates anything, so it proves installable and runnable, not logged in. TeX is user-managed on macOS, so the LaTeX workflow is never exercised there. |
 | Fedora WSL / Windows boundary | `windows-latest` exercises the Windows bootstrap boundary. The manual self-hosted WSL job imports a fresh distro from a clean Fedora WSL export tar for every run, performs the first install, terminates and relaunches that distro so `/etc/wsl.conf` changes take effect, then runs the independent verifier, idempotent rerun and theme transition before unregistering it. | GitHub-hosted Windows runners do not provide a dependable, reboot-capable Fedora WSL installation. Clean WSL evidence therefore depends on maintaining an immutable clean export on the labelled self-hosted runner. |
 | Parrot CTF guest | Scheduled CI confirms Parrot/APT availability and requires the real installer to reject a non-QEMU container specifically at the VM preflight boundary. A manual clean/snapshotted KVM/QEMU guest additionally runs an invalid-package failure-propagation check, install, verify, rerun and theme transition. | GitHub has no hosted Parrot KVM/QEMU guest with the repository's required guest channels/isolation. The container job is explicitly **not** counted as VM evidence. The self-hosted VM must be reverted to its clean snapshot between runs. |
+
+### Why the real installs are weekly, and what that costs
+
+Every gate a pull request waits on is mocked. `validate.yml` runs lint, the
+mocked suites, the PowerShell suites and a macOS job whose install is
+`--dry-run`; none of them installs anything. The real installs above run on a
+Sunday schedule or a manual dispatch, and the WSL and Parrot jobs only on a
+dispatch that sets their input. So a change can pass every merge gate, break a
+real install, and sit on `main` until the next scheduled run — up to a week on
+Fedora and macOS, and indefinitely on WSL and Parrot until someone dispatches
+them.
+
+**That is the accepted cadence, not an oversight.** A clean Fedora run is
+around ninety minutes of runner time and the matrix is four platform classes,
+two of them self-hosted and stateful: the WSL job imports a golden export tar
+and the Parrot job reverts a VM snapshot, and neither can run concurrently with
+itself. Making that a required pull-request check would put ninety minutes and a
+serialised self-hosted runner in front of every merge, including the
+documentation-only ones, for evidence that has so far agreed with the mocked
+tier on every run. The repository buys timeliness elsewhere instead: the
+registry enforcement in `scripts/validate-capabilities.py` requires every
+implemented capability to be selected by a real-install invocation and to have
+its verifier run there, so the weekly job cannot silently stop covering
+something, and that requirement *is* checked on every pull request.
+
+What this means in practice is the rule already stated under
+[Maintenance/release role](#maintenancerelease-role): a green pull request means
+the mocked tier agreed, not that any machine was installed, so changes to
+bootstrap, login-shell, package-provider, lifecycle, Neovim bootstrap, VM
+boundary or platform installer code are reviewed against the latest real-install
+run before a release rather than against their own checks.
+
+Revisit this only if a real-install run actually catches something the mocked
+tier missed, or if the gap between a merge and its evidence starts costing more
+than the runner time would. Until then, the weekly cadence is the decision, and
+a change proposing to tighten it should say which of the two happened.
 
 ### Self-hosted runner contracts
 

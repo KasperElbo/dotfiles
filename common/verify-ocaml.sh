@@ -140,9 +140,60 @@ if [[ -n "$native_prefix" ]]; then
   native_prefix="$(verify_canonical_existing_path "$native_prefix" 2>/dev/null || printf '%s' "$native_prefix")"
   native_prefix="${native_prefix%/}"
 fi
-if [[ -z "$native_prefix" ]]; then
+# Living under the native prefix is not the same as being owned by the native
+# provider, and the gap is not hypothetical: /usr/local is precisely the
+# hierarchy a distribution package manager does NOT own, and it is where
+# upstream's opam binary installer puts opam on Linux by default. So
+# /usr/local/bin/opam satisfied /usr/* and was reported as natively provided,
+# which is the one case this section exists to rule out.
+#
+# Only the platform's package manager can answer ownership properly, and this
+# file is portable -- tests/test-platform-boundary.sh forbids it from naming
+# any distribution's package tools, comments included, which is the rule that
+# makes the seam below the right shape rather than a nicety. So a platform
+# verifier that can ask supplies both halves:
+# DOTFILES_NATIVE_OWNER_QUERY, a command printing the package that owns a path
+# given as its last argument, and DOTFILES_NATIVE_OWNER, the package the answer
+# has to be. The query is a plain argv, split on whitespace and carrying no
+# quoting of its own.
+native_owner="${DOTFILES_NATIVE_OWNER:-}"
+native_owner_query="${DOTFILES_NATIVE_OWNER_QUERY:-}"
+ocaml_owner=""
+declare -a ocaml_owner_argv=()
+
+if [[ -n "$native_owner" && -n "$native_owner_query" ]]; then
+  read -r -a ocaml_owner_argv <<<"$native_owner_query"
+
+  if ! command_exists "${ocaml_owner_argv[0]}"; then
+    not_observed "${ocaml_owner_argv[0]} is unavailable here, so whether" \
+      "$opam_canonical is provided by the $native_owner package was not" \
+      "checked"
+  else
+    # The query is handed the canonical path. A package database records the
+    # real path, so asking about a spelling that reaches the file through a
+    # symlink reports "no owning package" for a correct installation.
+    ocaml_owner="$("${ocaml_owner_argv[@]}" "$opam_canonical" 2>/dev/null || true)"
+
+    if [[ "$ocaml_owner" == "$native_owner" ]]; then
+      pass "opam is provided by the platform's $native_owner package:" \
+        "$opam_canonical"
+    else
+      fail "opam resolves to $opam_canonical, owned by" \
+        "${ocaml_owner:-no native package}; expected the platform's" \
+        "$native_owner package, so this is not the opam the OCaml profile" \
+        "installed"
+    fi
+  fi
+elif [[ -z "$native_prefix" ]]; then
   not_observed "The native package prefix for platform ${ocaml_platform} is" \
     "unknown here, so ownership of $opam_canonical was not confirmed"
+elif [[ "$opam_canonical" == "$native_prefix"/local/* ]]; then
+  # The one containment this fallback must refuse, for the reason above. It is
+  # the weaker test, so it is worth it being explicit about what it cannot do:
+  # it establishes where opam lives, not which package put it there.
+  fail "opam resolves to $opam_canonical, under $native_prefix/local, which is" \
+    "not what the platform's package manager owns; this is not the opam the" \
+    "OCaml profile installed"
 elif [[ "$opam_canonical" == "$native_prefix"/* ]]; then
   pass "opam is owned by the platform's native provider under $native_prefix:" \
     "$opam_canonical"

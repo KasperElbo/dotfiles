@@ -6,6 +6,10 @@ set -u
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 # shellcheck source=../../../common/lib/verify.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/verify.sh"
+# shellcheck source=../lib/fedora.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/fedora.sh"
+# shellcheck source=../lib/tailscale.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tailscale.sh"
 
 verify_reset
 
@@ -13,6 +17,9 @@ verify_reset
 # never mutates tailnet/account state: it only inspects the locally
 # installed CLI, the systemd unit, and the daemon's own already-reported
 # backend state.
+
+section "Tailscale package repository"
+verify_tailscale_trust_root
 
 section "Tailscale commands"
 check_command tailscale
