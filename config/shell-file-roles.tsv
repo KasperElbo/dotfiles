@@ -4,6 +4,7 @@ public-entrypoint	755	doctor	Portable read-only health report
 public-entrypoint	755	scripts/lint.sh	Repository lint entry point
 public-entrypoint	755	scripts/test.sh	Repository test entry point
 internal-executable	755	scripts/doctor.sh	Doctor implementation behind ./doctor
+internal-executable	755	scripts/list-shell-files.py	The tracked shell files ./scripts/lint.sh checks, read by that entry point
 public-entrypoint	755	scripts/benchmark-shell-startup.sh	Manual shell-startup measurement
 public-entrypoint	755	scripts/test-dev-workflows.sh	Disposable development-workflow smoke tests
 public-entrypoint	755	scripts/update-starship-themes.sh	Generate the tracked Starship configurations
@@ -11,6 +12,7 @@ public-entrypoint	755	scripts/check-pin-freshness.sh	Report which pinned compone
 public-entrypoint	755	docs/cheatsheets/generate.sh	Render the printable cheat sheets
 public-entrypoint	755	docs/cheatsheets/verify.sh	Verify the printable cheat sheets
 platform-entrypoint	755	platforms/*/install.sh	Platform installer, selected by --platform
+installed-system-command	644	platforms/fedora/assets/dotfiles-sway	Installed to /usr/local/bin by install-sway.sh, which sets the executable bit; the Wayland session Exec=
 internal-executable	755	common/*.sh	Portable component installers and verifiers
 platform-command	755	platforms/*/scripts/*.sh	Belongs to one platform; safe to run directly for one component
 internal-executable	755	scripts/install-main.sh	Root installer body, run through an explicit interpreter

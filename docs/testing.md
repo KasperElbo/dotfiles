@@ -485,6 +485,32 @@ both fail, and the checker never silently repairs the tracked file. The suite
 also asserts that the README stays an entry point rather than growing back
 into the operating manual.
 
+### What the shell lint gate checks
+
+`./scripts/lint.sh` reads its file set from `scripts/list-shell-files.py`, not
+from a glob. The rule is the shebang, not the extension: a tracked file is
+linted if it ends in `.sh` **or** its first line names `bash` or `sh`. That
+distinction is the whole point. A command installed onto `PATH` does not carry
+an extension, and fourteen tracked Bash programs — `bin/.local/bin/theme`,
+`doctor`, the stowed Sway and WSL interop commands, and
+`platforms/fedora/assets/dotfiles-sway`, which is the Wayland session `Exec=`
+the display manager runs to start the desktop — were therefore checked by
+nothing. A hard syntax error could be appended to any of them and the gate
+still printed "Shell validation passed" (issue #384, NC-01).
+
+The reader enforces its own floor: every file the old `*.sh` glob matched must
+still be in the set it returns, or it fails rather than printing a shorter
+list, so a regression in the reader cannot quietly narrow coverage back.
+
+`tests/test-lint-file-selection.sh` proves the effect rather than the wiring.
+It breaks each extensionless program in a scratch copy of the tree and runs the
+real entry point against it, and it records the argv ShellCheck is actually
+handed from a stub, because the defect being guarded against is exactly a file
+set that looks right in one place and is narrower in another. It also asserts
+that removing the session command's row from `config/shell-file-roles.tsv`
+fails validation: `governed()` claims any `platforms/*/assets/*` file carrying
+a shell shebang, so that program's mode is somebody's responsibility too.
+
 ### Compatibility wrappers, file modes and names
 
 `tests/test-compat-wrappers.sh` owns the deprecation policy (issue #161). A

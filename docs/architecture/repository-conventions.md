@@ -118,6 +118,12 @@ stowed `bin` directory, plus the PowerShell/Python files `scripts/validate-shell
 also governs) matches exactly one row there, which fixes both its role and its
 required file mode; `./scripts/lint.sh` enforces the match.
 
+A program's extension does not decide whether it is governed, because a command
+on `PATH` has none: a `platforms/*/assets/*` file carrying a shell shebang is
+claimed too, which is how the Wayland session command came to have a role. The
+same shebang rule decides what the lint gate syntax-checks and ShellChecks —
+see [what the shell lint gate checks](../testing.md#what-the-shell-lint-gate-checks).
+
 | Kind | Where (examples) | What it means |
 |---|---|---|
 | **Portable entry point** (`public-entrypoint`) | `./install.sh`, `./doctor`, `./scripts/lint.sh`, `./scripts/test.sh` | Works on every supported platform. These are the documented way in. |
@@ -130,6 +136,7 @@ required file mode; `./scripts/lint.sh` enforces the match.
 | **Stowed command** (`stowed-command`) | `bin/.local/bin/*`, `platforms/*/stow/*/.local/bin/*` | Lands on `PATH` once stowed; a real command a user runs by name. |
 | **Stowed config / data** (`stowed-config`, `stowed-data`) | `zsh/.config/zsh/*`, `fzf/.config/fzf/themes/*.sh` | Sourced by an interactive shell or another tool once stowed; never executed directly. |
 | **Test entry point** (`test-entrypoint`) | `tests/test-*.sh`, `tests/integration/*.sh` | A test suite, run by `./scripts/test.sh` or directly. |
+| **Installed system command** (`installed-system-command`) | `platforms/fedora/assets/dotfiles-sway` | Installed onto the machine outside `$HOME` by a platform script, which sets the executable bit; the tracked copy stays 644. |
 
 See `config/shell-file-roles.tsv` for the full set of patterns, including the
 Windows (`.ps1`) and Python entry points and libraries it also governs.
