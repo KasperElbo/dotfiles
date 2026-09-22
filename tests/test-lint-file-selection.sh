@@ -48,11 +48,25 @@ extensionless=(
 # entry point runs against a real index. Every check here runs `git ls-files`,
 # and a directory that is not a repository would fail for the wrong reason.
 scratch_repo() {
-  local target="$1"
+  local target="$1" name
   mkdir -p "$target"
-  (cd "$repo_root" && git ls-files -z | tar --null -cf - -T -) | tar xf - -C "$target"
+  while IFS= read -r -d '' name; do
+    case "$name" in
+    */*) mkdir -p "$target/${name%/*}" ;;
+    esac
+    cp -p "$repo_root/$name" "$target/$name"
+  done < <(git -C "$repo_root" ls-files -z)
   git -C "$target" init -q
   git -C "$target" -c user.email=test@invalid -c user.name=test add -A
+}
+
+# lint_in <directory> [name=value ...]: ./scripts/lint.sh, run from <directory>
+# with any assignments in front of it. A subshell rather than `env -C`, which
+# is a GNU extension the BSD env on a macOS contributor's machine does not have.
+lint_in() {
+  local directory="$1"
+  shift
+  (cd "$directory" && env "$@" ./scripts/lint.sh)
 }
 
 # ---------------------------------------------------------------------------
@@ -108,16 +122,18 @@ printf 'PASS: the reader fails rather than returning a set narrower than the glo
 # ---------------------------------------------------------------------------
 # bash -n reaches those programs
 
+# One copy, restored between cases: each program is broken on its own, so a
+# pass cannot come from a defect left behind by the previous case.
+broken_root="$root/broken"
+scratch_repo "$broken_root"
 for name in bin/.local/bin/theme doctor platforms/fedora/assets/dotfiles-sway; do
-  broken_root="$root/broken-${name//\//-}"
-  scratch_repo "$broken_root"
   printf '\nfunction broken( { echo "unbalanced"\n' >>"$broken_root/$name"
-  run_capture env -C "$broken_root" ./scripts/lint.sh
+  run_capture lint_in "$broken_root"
+  cp -p "$repo_root/$name" "$broken_root/$name"
   assert_failure
   assert_contains "$TEST_OUTPUT" "$name"
   assert_not_contains "$TEST_OUTPUT" 'Shell validation passed'
   printf 'PASS: a syntax error in %s fails ./scripts/lint.sh\n' "$name"
-  rm -rf "$broken_root"
 done
 
 # ---------------------------------------------------------------------------
@@ -138,7 +154,7 @@ printf '%s\n' "\$@" >"$root/shellcheck-argv"
 exit 1
 STUB
 chmod 755 "$stub_bin/shellcheck"
-run_capture env -C "$argv_root" "PATH=$stub_bin:$PATH" ./scripts/lint.sh
+run_capture lint_in "$argv_root" "PATH=$stub_bin:$PATH"
 assert_failure
 [[ -s "$root/shellcheck-argv" ]] ||
   _test_die 'lint.sh never reached ShellCheck, so the argv below would prove nothing'
