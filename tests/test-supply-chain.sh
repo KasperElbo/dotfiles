@@ -493,8 +493,12 @@ if (($# == 2)); then
   }'
   exit 0
 fi
-printf 'pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:\n'
-printf 'fpr:::::::::%s:\n' "$MOCK_FPR"
+# MOCK_FPR is a space-separated list, so a served key file can carry more than
+# one key -- which is the shape the pin has to be able to see.
+for fingerprint in $MOCK_FPR; do
+  printf 'pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:\n'
+  printf 'fpr:::::::::%s:\n' "$fingerprint"
+done
 EOF
 cat >"$terra_bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -571,6 +575,26 @@ assert_success
 assert_contains "$TEST_OUTPUT" "caller's explicit acknowledgement"
 assert_file_contains "$terra_log" 'rpm --import'
 printf 'PASS: an acknowledged unpinned key is imported\n'
+
+# GAP-25. `rpm --import` trusts every key in the file it is given, so the pin
+# has to answer for every key in the file. It used to read the first block and
+# stop, which made a file whose first key was Terra's and whose second was
+# anyone else's pass the pin, import in full, and verify clean afterwards --
+# the post-install check only asks whether the pinned fingerprint is present.
+run_terra 90 "$terra_pinned_fpr $terra_other_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'carries 2 keys'
+assert_contains "$TEST_OUTPUT" "$terra_pinned_fpr"
+assert_contains "$TEST_OUTPUT" "$terra_other_fpr"
+assert_file_empty "$terra_log"
+printf 'PASS: a key file carrying a second key is refused before any import\n'
+
+run_terra 91 "$terra_other_fpr $terra_pinned_fpr" \
+  TERRA_TRUST_KEY_FINGERPRINT="$terra_other_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'carries 2 keys'
+assert_file_empty "$terra_log"
+printf 'PASS: an acknowledgement does not cover a second key in the same file\n'
 
 # --- Terra: the verifier re-asserts the trust root on every run ------------
 
