@@ -534,7 +534,10 @@ fi
 
 section "OCaml profile"
 
-if DOTFILES_NATIVE_PREFIX=/usr "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+if DOTFILES_NATIVE_PREFIX=/usr \
+  DOTFILES_NATIVE_OWNER=opam \
+  DOTFILES_NATIVE_OWNER_QUERY='rpm -qf --queryformat %{NAME}' \
+  "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
   pass "Optional OCaml profile"
 else
   fail "Optional OCaml profile verification failed"

@@ -390,15 +390,14 @@ QUERY
   VERIFIER_PATH="$MACHINE$opam_dir:$OWNER_BIN:/usr/bin:/bin"
 }
 
-# run_owned_verifier [extra VAR=VALUE ...]: the caller supplies both halves of
-# the ownership question, and the native prefix as well, because the platform
-# verifiers pass it and because it is what made the /usr/local case pass.
+# run_owned_verifier: the caller supplies both halves of the ownership
+# question, and the native prefix as well, because the platform verifiers pass
+# it and because it is what made the /usr/local case pass.
 run_owned_verifier() {
   run_verifier \
     "DOTFILES_NATIVE_PREFIX=$MACHINE/usr" \
     "DOTFILES_NATIVE_OWNER=opam" \
-    "DOTFILES_NATIVE_OWNER_QUERY=query-owner" \
-    "$@"
+    "DOTFILES_NATIVE_OWNER_QUERY=query-owner"
 }
 
 new_owned_machine /usr/bin

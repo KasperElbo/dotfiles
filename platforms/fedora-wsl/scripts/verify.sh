@@ -499,7 +499,10 @@ ocaml_state="$XDG_CONFIG_HOME/dotfiles/ocaml.conf"
 # Unconditional: the shared verifier reports an unselected profile as not
 # applicable, and only it can tell that apart from a selected but broken one.
 section "OCaml profile"
-if DOTFILES_NATIVE_PREFIX=/usr "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+if DOTFILES_NATIVE_PREFIX=/usr \
+  DOTFILES_NATIVE_OWNER=opam \
+  DOTFILES_NATIVE_OWNER_QUERY='rpm -qf --queryformat %{NAME}' \
+  "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
   pass "OCaml compiler and Platform tools start inside WSL"
 else
   fail "OCaml profile verification failed"
