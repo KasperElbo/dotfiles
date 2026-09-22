@@ -425,7 +425,7 @@ if lint_output="$(lint_fixture)"; then
   printf "The linter let a registry's annotation cover a different one.\n" >&2
   exit 1
 fi
-assert_contains "$lint_output" 'github:rogueowner/mason-registry'
+assert_contains "$lint_output" 'rogueowner/mason-registry'
 assert_contains "$lint_output" 'https://github.com/rogueowner/mason-registry'
 git -C "$fixture_repo" checkout -q -- common/bootstrap-mason.lua
 lint_fixture >/dev/null
@@ -492,6 +492,58 @@ rm -f -- "$fixture_repo/platforms/windows/scratch.ps1"
 git -C "$fixture_repo" add -A
 lint_fixture >/dev/null
 printf 'PASS: every PowerShell package verb of the family is flagged\n'
+
+# A Scoop bucket is a git clone of a third-party repository whose manifests
+# decide what every `scoop install` fetches and runs. The Windows installer
+# passes `$Bucket.Url` to `scoop bucket add`, so the clone's identity lives in
+# platforms/windows/manifest.psd1 -- a file nothing scanned, so the two
+# registered bucket rows had no line holding them to anything.
+cat >>"$fixture_repo/platforms/windows/manifest.psd1" <<'EOF'
+@{
+    RogueBucket = @{
+        Name = 'rogue'
+        Url = 'https://github.com/rogueowner/scoop-rogue'
+    }
+}
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered Scoop bucket.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'platforms/windows/manifest.psd1:'
+assert_contains "$lint_output" 'unregistered manifest-url network source'
+git -C "$fixture_repo" checkout -q -- platforms/windows/manifest.psd1
+lint_fixture >/dev/null
+printf 'PASS: an unregistered Scoop bucket fails the linter\n'
+
+# github.com serves both buckets and both Mason registries, so the host check
+# alone would let any of them cover the others. Repointing a declared bucket
+# while keeping its annotation is the edit that matters, and it is a URL
+# rather than a whole construct.
+sed -i "s|https://github.com/amanthanvi/scoop-noctty|https://github.com/attacker/scoop-noctty|" \
+  "$fixture_repo/platforms/windows/manifest.psd1"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted a repointed Scoop bucket.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'attacker/scoop-noctty'
+git -C "$fixture_repo" checkout -q -- platforms/windows/manifest.psd1
+lint_fixture >/dev/null
+printf 'PASS: a repointed Scoop bucket is not covered by its old annotation\n'
+
+# A shell assignment is not a manifest declaration. Spaces around the `=` are
+# what tells them apart, and a shell variable holding a URL is covered by
+# whatever construct then fetches it.
+cat >"$fixture_repo/scripts/plain-assignment.sh" <<'EOF'
+#!/usr/bin/env bash
+url='https://example.invalid/path'
+printf '%s\n' "$url"
+EOF
+git -C "$fixture_repo" add -A
+lint_fixture >/dev/null
+rm -f -- "$fixture_repo/scripts/plain-assignment.sh"
+git -C "$fixture_repo" add -A
+printf 'PASS: a shell URL assignment is not read as a manifest declaration\n'
 
 # The walk that finds an annotation above a continued construct stops at the
 # first line of code, and a list element is not a continuation of the one

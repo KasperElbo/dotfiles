@@ -15,25 +15,59 @@
     "CommandPath": "C:\\Users\\fixture\\scoop\\shims\\scoop.ps1",
     "Bucket": {
       "Name": "noctty",
+      "Path": "C:\\Users\\fixture\\scoop\\buckets\\noctty",
+      "DeclaredUrl": "https://github.com/amanthanvi/scoop-noctty",
       "Exists": true,
-      "Path": "C:\\Users\\fixture\\scoop\\buckets\\noctty"
+      "OriginUrl": "https://github.com/amanthanvi/scoop-noctty",
+      "OriginMatches": true,
+      "BucketListRead": false,
+      "Registered": null,
+      "ConfiguredUrl": null,
+      "ConfiguredMatches": null,
+      "Owned": true
     },
     "ExtrasBucket": {
       "Name": "extras",
+      "Path": "C:\\Users\\fixture\\scoop\\buckets\\extras",
+      "DeclaredUrl": "https://github.com/ScoopInstaller/Extras",
       "Exists": true,
-      "Path": "C:\\Users\\fixture\\scoop\\buckets\\extras"
+      "OriginUrl": "https://github.com/ScoopInstaller/Extras",
+      "OriginMatches": true,
+      "BucketListRead": false,
+      "Registered": null,
+      "ConfiguredUrl": null,
+      "ConfiguredMatches": null,
+      "Owned": true
     },
     "Package": {
       "Name": "noctty",
+      "QualifiedName": "noctty/noctty",
+      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\noctty\\current",
+      "ExecutablePath": "C:\\Users\\fixture\\scoop\\apps\\noctty\\current\\noctty.exe",
+      "CommandPath": "C:\\Users\\fixture\\scoop\\shims\\noctty.exe",
+      "DeclaredBucket": "noctty",
+      "InstalledBucket": "noctty",
+      "MetadataError": null,
       "Exists": true,
-      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\noctty\\current\\noctty.exe",
-      "CommandPath": "C:\\Users\\fixture\\scoop\\shims\\noctty.exe"
+      "HasManifest": true,
+      "HasExecutable": true,
+      "BucketMatches": true,
+      "Installed": true
     },
     "HandyPackage": {
       "Name": "handy",
+      "QualifiedName": "extras/handy",
+      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\handy\\current",
+      "ExecutablePath": "C:\\Users\\fixture\\scoop\\apps\\handy\\current\\handy.exe",
+      "CommandPath": "C:\\Users\\fixture\\scoop\\shims\\handy.exe",
+      "DeclaredBucket": "extras",
+      "InstalledBucket": "extras",
+      "MetadataError": null,
       "Exists": true,
-      "CurrentPath": "C:\\Users\\fixture\\scoop\\apps\\handy\\current\\handy.exe",
-      "CommandPath": "C:\\Users\\fixture\\scoop\\shims\\handy.exe"
+      "HasManifest": true,
+      "HasExecutable": true,
+      "BucketMatches": true,
+      "Installed": true
     }
   },
   "Configuration": {

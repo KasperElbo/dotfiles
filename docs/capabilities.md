@@ -332,8 +332,13 @@ the repository once per rule, proving each one can fail:
 - **Run by CI.** Every declared verifier must be run against a real
   installation by `.github/workflows/real-install.yml`, directly or through a
   `tests/integration/` sequence or a `tests/*.ps1` suite one of its steps runs.
-  A PowerShell suite spells repository paths with backslashes, which the check
-  normalizes before looking for the verifier it is evidence for. The verifiers of
+  Only the shell of the workflow counts: both rules below read the bodies of
+  its `run:` keys, in all three shapes YAML writes them, and nothing else. A
+  step's `name:`, an `if:` and a message a step echoes name a script without
+  running it, and a workflow the reader cannot take a single `run:` block out
+  of is an error rather than a file that proves everything. A PowerShell suite
+  spells repository paths with backslashes, which the check normalizes before
+  looking for the verifier it is evidence for. The verifiers of
   profiles no real-install job installs are listed in `MOCKED_VERIFIERS` with
   the default fast suite that runs them against a mocked machine instead, and
   that suite must be in `scripts/test.sh`'s default tests and run the verifier.
@@ -343,8 +348,9 @@ the repository once per rule, proving each one can fail:
   verifier ran and they did not. So a second rule reads the flags of every
   `./install.sh` invocation in `.github/workflows/real-install.yml` and in the
   `tests/integration/` sequences its steps run — the invocation's own arguments,
-  not the file's text, so a flag written in a step title or a comment proves
-  nothing — and requires an `implemented` row with a `--flag` to be among them.
+  read out of the shell a step runs, so neither a flag nor a whole invocation
+  written in a step title or a comment proves anything — and requires an
+  `implemented` row with a `--flag` to be among them.
   A row that is not may say so in `ci_scope` and no other way. Rows whose
   evidence is a mocked machine (`MOCKED_VERIFIERS`) answer to the rule above
   instead, and a transient control such as `--dev-workflows` installs nothing,
