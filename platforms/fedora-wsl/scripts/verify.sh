@@ -36,15 +36,52 @@ while (($#)); do
   shift
 done
 
+# windows_interop_resolution <path>: the Windows executable <path> ultimately
+# names, whether it is one itself or a symlink chain ending at one. Prints
+# nothing for an empty path or one that stays on the Linux side.
+#
+# command -v answers with the first PATH hop and does not follow symlinks, so
+# asking is_windows_path about that spelling alone accepted a Linux-spelled
+# shim pointing at bat.exe and then ran it through WSL interop (issue #396,
+# GAP-11). The repository already guards this by hand elsewhere:
+# resolve_mise_command prefers $HOME/.local/bin/mise over PATH exactly so a
+# stale WSL process cannot select mise.exe.
+#
+# Scope, stated rather than implied: this closes the symlink case. A wrapper
+# script that execs a .exe is still a Linux-native file by every test here and
+# needs its own treatment.
+windows_interop_resolution() {
+  local path="$1"
+  local resolved=""
+
+  [[ -n "$path" ]] || return 0
+  if is_windows_path "$path"; then
+    printf '%s\n' "$path"
+    return 0
+  fi
+
+  # resolve_existing_path follows the whole chain; resolve_symlink_target is
+  # the fallback for a link whose Windows target is not mounted right now,
+  # which still names a target worth refusing.
+  resolved="$(resolve_existing_path "$path" 2>/dev/null || true)"
+  [[ -n "$resolved" ]] ||
+    resolved="$(resolve_symlink_target "$path" 2>/dev/null || true)"
+
+  [[ -n "$resolved" ]] || return 0
+  ! is_windows_path "$resolved" || printf '%s\n' "$resolved"
+}
+
 # check_linux_command <name> [--probe [arguments]]: check_command, after first
 # refusing a command that resolves to a Windows executable.
 check_linux_command() {
   local command_name="$1"
   local command_path
+  local windows_target
 
   command_path="$(command -v "$command_name" 2>/dev/null || true)"
-  if [[ -n "$command_path" ]] && is_windows_path "$command_path"; then
-    fail "$command_name resolves to a Windows executable: $command_path"
+  windows_target="$(windows_interop_resolution "$command_path")"
+  if [[ -n "$windows_target" ]]; then
+    fail "$command_name resolves to a Windows executable: $windows_target"
   else
     check_command "$@"
   fi
@@ -347,12 +384,16 @@ verify | leftover)
     fail "Claude Code does not start in a fresh Zsh login"
   fi
 
+  # "is Linux-native" is a claim about where the command ends up, so it is
+  # made about the resolved target rather than the first PATH hop (GAP-11).
   for command_name in claude codex herdr treehouse; do
     command_path="$(command -v "$command_name" 2>/dev/null || true)"
     if [[ -z "$command_path" ]]; then
       continue
-    elif is_windows_path "$command_path"; then
-      fail "$command_name resolves to a Windows executable: $command_path"
+    fi
+    windows_target="$(windows_interop_resolution "$command_path")"
+    if [[ -n "$windows_target" ]]; then
+      fail "$command_name resolves to a Windows executable: $windows_target"
     else
       pass "$command_name is Linux-native: $command_path"
     fi
@@ -471,23 +512,34 @@ check_catppuccin_tmux
 
 section "Configuration links"
 
-check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/"
-check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh/"
+check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/" \
+  "$DOTFILES_ROOT/zsh/.zshenv"
+check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh/" \
+  "$DOTFILES_ROOT/zsh/.config/zsh/.zshrc"
 check_symlink "$XDG_CONFIG_HOME/zsh/platform-env.zsh" \
-  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/zsh-platform/"
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/zsh-platform/" \
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform-env.zsh"
 check_symlink "$XDG_CONFIG_HOME/zsh/platform.zsh" \
-  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/zsh-platform/"
-check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git/"
-check_symlink "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise/"
-check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim/"
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/zsh-platform/" \
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform.zsh"
+check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git/" \
+  "$DOTFILES_ROOT/git/.config/git/config"
+check_symlink "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise/" \
+  "$DOTFILES_ROOT/mise/.config/mise/config.toml"
+check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" "$DOTFILES_ROOT/nvim-lazyvim/" \
+  "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/init.lua"
 check_symlink "$XDG_CONFIG_HOME/nvim/lua/plugins/wsl.lua" \
-  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/nvim-wsl/"
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/nvim-wsl/" \
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/nvim-wsl/.config/nvim/lua/plugins/wsl.lua"
 check_symlink "$HOME/.local/bin/wsl-copy" \
-  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/interop/"
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/interop/" \
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/interop/.local/bin/wsl-copy"
 check_symlink "$HOME/.local/bin/wsl-paste" \
-  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/interop/"
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/interop/" \
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/interop/.local/bin/wsl-paste"
 check_symlink "$HOME/.local/bin/wsl-open" \
-  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/interop/"
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/interop/" \
+  "$DOTFILES_ROOT/platforms/fedora-wsl/stow/interop/.local/bin/wsl-open"
 
 if [[ -e "$XDG_CONFIG_HOME/ghostty/config" ]]; then
   warning "Ghostty configuration exists in WSL but is not managed by this profile"
@@ -499,11 +551,19 @@ ocaml_state="$XDG_CONFIG_HOME/dotfiles/ocaml.conf"
 # Unconditional: the shared verifier reports an unselected profile as not
 # applicable, and only it can tell that apart from a selected but broken one.
 section "OCaml profile"
+# What the sub-verifier established, not one of the three worlds it exits 0
+# for. common/verify-ocaml.sh answers the same way for a selected and healthy
+# profile, a selected one it cannot observe, and one that is neither selected
+# nor installed -- and ocaml is disabled for fedora-wsl, so a stock machine
+# with no opam and no ocamlc was printing a green line claiming the compiler
+# starts (issue #396, GAP-07). The sub-verifier prints which world it found;
+# this line only reports that it ran and was satisfied. Fedora's twin already
+# words it neutrally.
 if DOTFILES_NATIVE_PREFIX=/usr \
   DOTFILES_NATIVE_OWNER=opam \
   DOTFILES_NATIVE_OWNER_QUERY='rpm -qf --queryformat %{NAME}' \
   "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
-  pass "OCaml compiler and Platform tools start inside WSL"
+  pass "OCaml profile verification completed"
 else
   fail "OCaml profile verification failed"
 fi
