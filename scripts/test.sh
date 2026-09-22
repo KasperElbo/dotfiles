@@ -147,6 +147,7 @@ default_tests=(
   tests/test-wsl-interop.sh
   tests/test-wsl-open.sh
   tests/test-fedora-wsl.sh
+  tests/test-wsl-path-sanitizer.sh
   tests/test-parrot-ctf.sh
   tests/test-parrot-isolation.sh
   tests/test-parrot-terminal.sh

@@ -257,6 +257,30 @@ non-interactive startup and can enforce a budget with `--interactive-ms` /
 wall-clock timing is machine- and load-dependent, so a timing assertion in the
 fast suite would be a flaky gate rather than evidence.
 
+### The Fedora WSL PATH sanitizer
+
+`platform-env.zsh` strips Windows drive mounts out of `PATH`, which is the one
+piece of behaviour that defines the Fedora WSL profile: without it Windows
+executables resolve in the Linux development environment and `command -v`
+starts answering with `.exe` shims. Until `tests/test-wsl-path-sanitizer.sh`
+existed the only check on it was a `grep` for the case-arm text over the file's
+own source, and `tests/test-fedora-wsl.sh` replaces `zsh` with a Bash stub that
+computes `PATH` itself, so the tracked file was never interpreted by a shell in
+any test. Inverting the case arm so the sanitizer *kept* every Windows path
+left lint at 0 and the whole default suite green, printing "Fedora WSL
+verification rejects a Windows entry the Zsh sanitizer hides" while the
+sanitizer hid nothing (issue #384, PS-01).
+
+The suite runs the tracked file under real Zsh with a seeded `PATH` and reads
+the `PATH` that comes out: a mixed `PATH` keeps its Linux entries in order and
+loses its Windows ones, a Linux mount point under `/mnt` that is not a drive
+letter survives, and a `PATH` of nothing but Windows mounts is left unsanitized
+with a reason on stderr rather than emptied — an empty `PATH` would leave the
+login shell with no commands at all and nothing saying why. It ends with two
+controls run against copies of the file, one with the case arm inverted and one
+with the loop body removed, both of which must be rejected. A suite that cannot
+be made to fail proves nothing about the file it names.
+
 ### Theme precedence and platform hooks
 
 Two suites carry issue #148.
