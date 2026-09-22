@@ -761,4 +761,86 @@ assert_contains "$TEST_OUTPUT" 'mise is unavailable'
 assert_probe_counts 0 0 0 1
 printf 'PASS: without mise the prefix is unobserved, not silently clean\n'
 
+# --- Optional-capability dispatch: the sub-verifier's verdict ---------------
+#
+# verify_optional_capability is the function every optional section of the
+# Fedora and Fedora WSL verifiers goes through, and the mechanism that turns
+# "a selected capability's own verifier failed" into "this platform's
+# verification failed" lives in its else-branch alone. Flipping that one token
+# from fail to pass left the whole default suite byte-identical, and nothing in
+# CI reaches the branch either: the Fedora real-install job selects only --kde
+# and --sway, whose verification is inline, and the Fedora WSL job selects no
+# optional capability at all (issue #383, tv-1).
+#
+# The two suites named after this area deliberately stay out of it.
+# tests/test-optional-capability-dispatch.sh covers which disposition each pair
+# of records produces and asserts that every section reaches its component
+# verifier, saying in as many words that what the verifier then decides "is its
+# own business and not this suite's". This is that business: the sub-verifier
+# is a stub whose exit status is the fixture.
+printf 'Optional-capability sub-verifier verdicts\n'
+
+dispatch_root="$root/dispatch"
+mkdir -p "$dispatch_root/state/dotfiles" "$dispatch_root/config/dotfiles"
+
+# A machine whose last installation recorded hardening, and the component
+# state a completed install of it leaves behind.
+record_dispatch_selection() {
+  cat >"$dispatch_root/state/dotfiles/install.conf" <<EOF
+schema_version=2
+profile=install
+status=installed
+platform=fedora
+requested_capabilities=$1
+observed_capabilities=$1
+external_assurance=not-recorded
+repository=local-checkout
+revision=0123456789abcdef
+provenance=capability-manifest@0123456789abcdef
+EOF
+}
+
+cat >"$dispatch_root/config/dotfiles/hardening.conf" <<'EOF'
+schema_version=2
+profile=hardening
+selinux_mode=enforcing
+faillock=enabled
+auditd=enabled
+status=installed
+EOF
+
+# The sub-verifier's exit status is the only thing that varies between cases.
+dispatch_case() {
+  verify_reset
+  XDG_CONFIG_HOME="$dispatch_root/config" \
+    XDG_STATE_HOME="$dispatch_root/state" \
+    DOTFILES_ROOT="$repo_root" \
+    run_capture probe_counts \
+    verify_optional_capability 'Hardening profile' fedora hardening "$@"
+}
+
+record_dispatch_selection base,hardening
+
+dispatch_case true
+assert_contains "$TEST_OUTPUT" 'Hardening profile verification completed'
+assert_probe_counts 1 0 0 0
+printf 'PASS: a sub-verifier that succeeds is reported as completed\n'
+
+dispatch_case false
+assert_contains "$TEST_OUTPUT" 'Hardening profile verification failed'
+assert_not_contains "$TEST_OUTPUT" 'Hardening profile verification completed'
+assert_probe_counts 0 1 0 0
+printf 'PASS: a sub-verifier that fails is counted as a failure, not a pass\n'
+
+# The same must hold for the other disposition that dispatches. State left
+# behind by a capability this machine did not select is verified anyway, with
+# a warning saying so -- and a failure there is still a failure.
+record_dispatch_selection base
+
+dispatch_case false
+assert_contains "$TEST_OUTPUT" 'is not selected by this machine'"'"'s recorded installation'
+assert_contains "$TEST_OUTPUT" 'Hardening profile verification failed'
+assert_probe_counts 0 1 1 0
+printf 'PASS: a failing sub-verifier over leftover state is a failure too\n'
+
 printf 'Shared verifier tests passed.\n'
