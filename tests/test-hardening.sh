@@ -607,9 +607,16 @@ EOF
 if [[ "$1" == -l ]]; then
   # MOCK_AUDITCTL_EMPTY models the real failure mode this check exists for:
   # the rules file on disk is intact, but augenrules never loaded it, so the
-  # running kernel is watching nothing.
-  [[ "${MOCK_AUDITCTL_EMPTY:-false}" == true ]] ||
+  # running kernel is watching nothing. MOCK_AUDITCTL_RULES models the other
+  # one: a kernel that answers, but with a ruleset that is not the one the
+  # installer wrote.
+  if [[ "${MOCK_AUDITCTL_EMPTY:-false}" == true ]]; then
+    :
+  elif [[ -n "${MOCK_AUDITCTL_RULES:-}" ]]; then
+    printf '%s\n' "$MOCK_AUDITCTL_RULES"
+  else
     cat "$FAKE_ROOT/etc/audit/rules.d/90-dotfiles-hardening.rules" 2>/dev/null
+  fi
 fi
 exit 0
 EOF
@@ -823,7 +830,8 @@ SUDO_EOF
     'auditd watch rules is present, mode 640, and unmodified'
   assert_contains "$verify_output" \
     'hardening sysctl drop-in is present, mode 644, and unmodified'
-  assert_contains "$verify_output" 'dotfiles watch rules are loaded'
+  assert_contains "$verify_output" \
+    'every dotfiles watch rule is loaded in the running kernel'
   # Manual-assurance areas are labelled as such instead of counted as proof.
   assert_contains "$verify_output" 'manual assurance:'
   assert_contains "$verify_output" 'Mount options (manual assurance, not verified)'
@@ -880,7 +888,9 @@ SUDO_EOF
     run_verify
     assert_failure
     assert_contains "$TEST_OUTPUT" \
-      "faillock policy drop-in no longer contains 'unlock_time = 900'"
+      'faillock policy drop-in no longer matches the policy'
+    assert_contains "$TEST_OUTPUT" \
+      "line 3 is 'unlock_time = 5', expected 'unlock_time = 900'"
     cp -p "$backup" "$faillock_dropin"
 
     # 3. Wrong file mode: a group/other-readable sudoers drop-in.
@@ -927,8 +937,80 @@ SUDO_EOF
     sed -i 's/^PermitRootLogin no$/PermitRootLogin yes/' "$ssh_dropin"
     run_verify
     assert_failure
-    assert_contains "$TEST_OUTPUT" "no longer contains 'PermitRootLogin no'"
+    assert_contains "$TEST_OUTPUT" \
+      "line 2 is 'PermitRootLogin yes', expected 'PermitRootLogin no'"
     cp -p "$backup" "$ssh_dropin"
+
+    # 6b. A policy line that was not removed but overruled, by inserting the
+    #     opposite directive above it. sshd_config(5) takes the first value it
+    #     reads for a keyword, so root SSH login is on while every line the
+    #     installer wrote is still present, in its original order. Asking
+    #     whether each expected line occurs somewhere in the file cannot see
+    #     this; only comparing the whole file against what was written can.
+    cp -p "$ssh_dropin" "$backup"
+    sed -i '0,/^PermitRootLogin no$/s//PermitRootLogin yes\nPermitRootLogin no/' \
+      "$ssh_dropin"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'sshd hardening drop-in applied no longer matches the policy'
+    assert_contains "$TEST_OUTPUT" \
+      "line 2 is 'PermitRootLogin yes', expected 'PermitRootLogin no'"
+    cp -p "$backup" "$ssh_dropin"
+
+    # 6c. Every directive commented out. The file still contains the text of
+    #     each policy line, and enforces none of them.
+    cp -p "$faillock_dropin" "$backup"
+    sed -i 's/^\([^#]\)/# \1/' "$faillock_dropin"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'faillock policy drop-in no longer matches the policy'
+    assert_contains "$TEST_OUTPUT" "line 2 is '# deny = 5'"
+    cp -p "$backup" "$faillock_dropin"
+
+    # 6d. Values loosened by extending them rather than shortening them:
+    #     deny = 50 locks out after fifty attempts, unlock_time = 9000 is two
+    #     and a half hours. Both expected lines are still substrings of the
+    #     file, which is the shape mutation 2 above does not cover.
+    cp -p "$faillock_dropin" "$backup"
+    sed -i 's/^deny = 5$/deny = 50/;s/^unlock_time = 900$/unlock_time = 9000/' \
+      "$faillock_dropin"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'faillock policy drop-in no longer matches the policy'
+    assert_contains "$TEST_OUTPUT" "line 2 is 'deny = 50', expected 'deny = 5'"
+    cp -p "$backup" "$faillock_dropin"
+
+    # 6e. The two audit watches no expected-line list ever named: the
+    #     installer writes five rules, and /etc/group and /etc/sudoers.d/ were
+    #     asserted nowhere, so deleting them was invisible.
+    local audit_rules="$fake_root/etc/audit/rules.d/90-dotfiles-hardening.rules"
+    cp -p "$audit_rules" "$backup"
+    sed -i '\#/etc/group#d;\#/etc/sudoers.d/#d' "$audit_rules"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'auditd watch rules no longer matches the policy'
+    assert_contains "$TEST_OUTPUT" "expected '-w /etc/group -p wa -k dotfiles-identity'"
+    cp -p "$backup" "$audit_rules"
+
+    # 5b. A kernel that answers with a ruleset that is not this profile's. The
+    #     rules file is intact and auditd is running, so only the loaded rules
+    #     themselves distinguish this from a healthy machine. A decoy rule
+    #     carrying the identity key as a substring used to satisfy the check.
+    run_verify MOCK_AUDITCTL_RULES='-w /tmp/decoy -p r -k dotfiles-identity-DISABLED'
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      "'-w /etc/passwd -p wa -k dotfiles-identity' is not loaded"
+    assert_contains "$TEST_OUTPUT" 'present but ineffective'
+
+    # 5c. A partially loaded ruleset: the first watch is in the kernel and the
+    #     rest are not, which the failure has to name.
+    run_verify MOCK_AUDITCTL_RULES='-w /etc/passwd -p wa -k dotfiles-identity'
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      "'-w /etc/shadow -p wa -k dotfiles-identity' is not loaded"
 
     # 7. An owned timer that was disabled after installation.
     sed -i '/^dnf5-automatic.timer$/d' "$enabled_units"
