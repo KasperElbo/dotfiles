@@ -10,12 +10,14 @@ platform="fedora"
 platform_explicit="false"
 rerun="false"
 expect_platform="false"
-subcommand=""
 help_requested="false"
 
-# Inspect only the platform selector, --rerun, the help flags and the doctor
-# subcommand. Do not shift or rebuild "$@": the exact original argument vector
-# is forwarded across the interpreter boundary.
+# Inspect only the platform selector, --rerun and the help flags. Do not shift
+# or rebuild "$@": the exact original argument vector is forwarded across the
+# interpreter boundary. The platform selector is honoured wherever it stands,
+# because every other option here belongs to the platform installer and may
+# precede it; the doctor subcommand is not read in this loop, for the reason
+# the grammar below states.
 for argument in "$@"; do
   if [ "$expect_platform" = "true" ]; then
     if [ -z "$argument" ]; then
@@ -46,9 +48,6 @@ for argument in "$@"; do
     -h | --help)
       help_requested="true"
       ;;
-    doctor)
-      subcommand="doctor"
-      ;;
   esac
 done
 
@@ -57,16 +56,71 @@ if [ "$expect_platform" = "true" ]; then
   exit 1
 fi
 
-# doctor is a subcommand, not a platform option, so it is answered here --
-# before the platform dispatch -- however it is spelled: bare, or after a
-# --platform the user copied from the surrounding documentation. Routing it
-# into a platform installer is what made ./install.sh --platform macos doctor
-# answer with an unknown-option error from that platform's parser.
+# The root command grammar, in one place (#373):
+#
+#   ./install.sh [--platform NAME | --platform=NAME] doctor
+#   ./install.sh [any platform options]
+#
+# doctor is a word in command position, not a value that happens to spell it.
+# Command position is the first argument that is neither the --platform
+# selector nor the value it consumes, and nothing may follow the subcommand.
+# Scanning the whole vector for the token instead -- which is what this did --
+# made ./install.sh --theme doctor --dry-run exit 0 from the read-only report
+# while the user was asking a platform installer for a Catppuccin flavour.
+# Every argument here is either an option this file knows, or a platform option
+# whose values this file cannot enumerate, so the only safe reading is
+# positional.
+subcommand=""
+subcommand_trailing=""
+subcommand_has_trailing="false"
+command_position_taken="false"
+scan_expect_platform="false"
+for argument in "$@"; do
+  if [ "$command_position_taken" = "true" ]; then
+    if [ "$subcommand_has_trailing" = "false" ]; then
+      subcommand_trailing="$argument"
+      subcommand_has_trailing="true"
+    fi
+    continue
+  fi
+
+  if [ "$scan_expect_platform" = "true" ]; then
+    scan_expect_platform="false"
+    continue
+  fi
+
+  case "$argument" in
+    --platform)
+      scan_expect_platform="true"
+      ;;
+    --platform=*) ;;
+    doctor)
+      subcommand="doctor"
+      command_position_taken="true"
+      ;;
+    *)
+      command_position_taken="true"
+      ;;
+  esac
+done
+
+# The report takes no arguments of its own, so anything after it was meant for
+# something else and is reported rather than dropped in silence.
+if [ "$subcommand" = "doctor" ] && [ "$subcommand_has_trailing" = "true" ]; then
+  printf 'ERROR: doctor takes no arguments (got %s)\n' "$subcommand_trailing" >&2
+  printf 'Usage: ./install.sh [--platform NAME] doctor\n' >&2
+  exit 1
+fi
+
+# The report is answered here, before the platform dispatch, however the
+# optional selector is spelled. Routing it into a platform installer is what
+# made ./install.sh --platform macos doctor answer with an unknown-option error
+# from that platform's parser.
 #
 # It does not go through the macOS compatibility bootstrap either. That
 # bootstrap exists to install Homebrew and a supported Bash, and the report is
 # read-only; scripts/doctor.sh selects a supported interpreter for itself and
-# says so plainly when there is none. It takes no arguments of its own.
+# says so plainly when there is none.
 if [ "$subcommand" = "doctor" ]; then
   exec "${BASH:-/bin/bash}" "$repo_root/scripts/doctor.sh"
 fi

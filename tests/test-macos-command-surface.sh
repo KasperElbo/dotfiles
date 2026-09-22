@@ -418,6 +418,170 @@ if ! grep -Fq 'Unsupported platform: doctor' <<<"$output" &&
 fi
 printf 'PASS: --platform doctor still names a platform\n'
 
+# --- The root command grammar: `doctor` only in command position (#373) -------
+#
+# Both root boundaries used to scan the whole argument vector for a token equal
+# to `doctor`, so any option's value could claim the subcommand:
+# `./install.sh --theme doctor --dry-run` exited 0 from the read-only report
+# instead of asking the platform installer for a Catppuccin flavour called
+# `doctor`. The grammar is now positional -- an optional --platform selector,
+# then the subcommand, and nothing after it -- and it is stated in both files,
+# so both are exercised here rather than only the one a Linux runner happens to
+# reach.
+#
+# scripts/install-main.sh is run with an interpreter chosen here, because this
+# file itself runs under Apple's Bash 3.2 on the macOS runner and that file
+# refuses at its own boundary. The same interpreter is what makes the precise
+# rejection messages below assertable on every platform: the vectors reach a
+# platform installer's option parser, which rejects them before any probing.
+# shellcheck source=../common/lib/modern-bash.sh
+. "$repo_root/common/lib/modern-bash.sh"
+grammar_bash="$(modern_bash_find || true)"
+if [ -z "$grammar_bash" ]; then
+  printf 'No Bash %s or newer to run scripts/install-main.sh with; the grammar cases would prove nothing\n' \
+    "$MODERN_BASH_MINIMUM" >&2
+  exit 1
+fi
+
+doctor_env() {
+  env HOME="$doctor_home" XDG_CONFIG_HOME="$doctor_home/config" \
+    XDG_STATE_HOME="$doctor_home/state" XDG_DATA_HOME="$doctor_home/data" "$@"
+}
+
+# The negative control for token scanning. `doctor` appears in the vector, as
+# another option's value or after an argument the installer does not know, and
+# must not be read as the subcommand: the run has to fail, and the report must
+# not appear. Asserted on both boundaries, and on scripts/install-main.sh the
+# exact rejection is asserted too, so "it failed" cannot come from somewhere
+# else.
+assert_doctor_not_in_command_position() {
+  local description="$1"
+  local expected="$2"
+  shift 2
+  local output
+  local status
+
+  output="$(doctor_env "$repo_root/install.sh" "$@" 2>&1)" && status=0 || status=$?
+  if [ "$status" -eq 0 ]; then
+    printf '%s\n%s\n' "./install.sh $description succeeded instead of being rejected:" \
+      "$output" >&2
+    exit 1
+  fi
+  if grep -Fq 'Dotfiles doctor (read-only)' <<<"$output"; then
+    printf '%s\n%s\n' "./install.sh $description ran the doctor instead of forwarding the vector:" \
+      "$output" >&2
+    exit 1
+  fi
+
+  output="$(doctor_env "$grammar_bash" "$repo_root/scripts/install-main.sh" "$@" 2>&1)" &&
+    status=0 || status=$?
+  if [ "$status" -eq 0 ]; then
+    printf '%s\n%s\n' "scripts/install-main.sh $description succeeded instead of being rejected:" \
+      "$output" >&2
+    exit 1
+  fi
+  if grep -Fq 'Dotfiles doctor (read-only)' <<<"$output"; then
+    printf '%s\n%s\n' "scripts/install-main.sh $description ran the doctor instead of forwarding the vector:" \
+      "$output" >&2
+    exit 1
+  fi
+  if ! grep -Fq "$expected" <<<"$output"; then
+    printf '%s\n%s\n' "scripts/install-main.sh $description was not rejected with \"$expected\":" \
+      "$output" >&2
+    exit 1
+  fi
+  printf 'PASS: %s is not the doctor subcommand\n' "$description"
+}
+
+assert_doctor_not_in_command_position '--theme doctor --dry-run' \
+  'Invalid Catppuccin flavour: doctor' --theme doctor --dry-run
+assert_doctor_not_in_command_position '--hardware doctor' \
+  'Invalid hardware profile: doctor' --hardware doctor
+assert_doctor_not_in_command_position 'an unknown option followed by doctor' \
+  'Unknown option: --not-an-option' --not-an-option doctor
+# An empty argument occupies command position like any other word, and Apple's
+# Bash 3.2 must carry it across the boundary as one.
+assert_doctor_not_in_command_position 'an empty argument followed by doctor' \
+  'Unknown option: ' "" doctor
+
+# The subcommand takes no arguments of its own. Dropping them in silence is how
+# `--dry-run` came to mean nothing next to a report that changes nothing
+# anyway, and it would hide a mistyped platform selector just as well.
+assert_doctor_rejects_trailing() {
+  local description="$1"
+  shift
+  local output
+  local status
+
+  output="$(doctor_env "$repo_root/install.sh" "$@" 2>&1)" && status=0 || status=$?
+  if [ "$status" -eq 0 ] ||
+    ! grep -Fq 'doctor takes no arguments' <<<"$output"; then
+    printf '%s\n%s\n' "./install.sh $description was not rejected as a trailing argument:" \
+      "$output" >&2
+    exit 1
+  fi
+
+  output="$(doctor_env "$grammar_bash" "$repo_root/scripts/install-main.sh" "$@" 2>&1)" &&
+    status=0 || status=$?
+  if [ "$status" -eq 0 ] ||
+    ! grep -Fq 'doctor takes no arguments' <<<"$output"; then
+    printf '%s\n%s\n' "scripts/install-main.sh $description was not rejected as a trailing argument:" \
+      "$output" >&2
+    exit 1
+  fi
+  printf 'PASS: %s is rejected\n' "$description"
+}
+
+assert_doctor_rejects_trailing 'doctor --dry-run' doctor --dry-run
+assert_doctor_rejects_trailing 'doctor --platform macos' doctor --platform macos
+
+# The documented forms reach the report through scripts/install-main.sh too,
+# which is the boundary the macOS bootstrap hands the unchanged vector to.
+assert_install_main_reaches_doctor() {
+  local description="$1"
+  shift
+  local output
+  output="$(
+    doctor_env "$grammar_bash" "$repo_root/scripts/install-main.sh" "$@" 2>&1
+  )" || {
+    printf '%s did not succeed:\n%s\n' "$description" "$output" >&2
+    exit 1
+  }
+  grep -Fq 'Dotfiles doctor (read-only)' <<<"$output" || {
+    printf '%s did not reach the doctor:\n%s\n' "$description" "$output" >&2
+    exit 1
+  }
+  grep -Fq 'No changes made.' <<<"$output" || {
+    printf '%s did not finish the report:\n%s\n' "$description" "$output" >&2
+    exit 1
+  }
+  printf 'PASS: %s reaches the doctor\n' "$description"
+}
+
+assert_install_main_reaches_doctor 'scripts/install-main.sh doctor' doctor
+while IFS= read -r platform_name; do
+  [ -n "$platform_name" ] || continue
+  assert_install_main_reaches_doctor \
+    "scripts/install-main.sh --platform $platform_name doctor" \
+    --platform "$platform_name" doctor
+  assert_install_main_reaches_doctor \
+    "scripts/install-main.sh --platform=$platform_name doctor" \
+    "--platform=$platform_name" doctor
+done <<<"$platform_names"
+
+# scripts/install-main.sh reads the same grammar as the compatibility entry
+# point, which is a claim about two files rather than about one run.
+output="$(
+  doctor_env "$grammar_bash" "$repo_root/scripts/install-main.sh" \
+    --platform doctor 2>&1 || true
+)"
+if ! grep -Fq 'Unsupported platform: doctor' <<<"$output"; then
+  printf '%s\n%s\n' 'scripts/install-main.sh --platform doctor did not name a platform:' \
+    "$output" >&2
+  exit 1
+fi
+printf 'PASS: scripts/install-main.sh --platform doctor still names a platform\n'
+
 # --- The interesting case, run for real where a real Apple Bash exists --------
 
 # /bin/bash is Apple's 3.2 on a macOS runner and a modern Bash elsewhere, so the
