@@ -26,14 +26,30 @@ fedora_retired_stow_links() {
   local source_path
   local relative_path
   local target_path
+  local canonical_root
 
   local package_dir
 
   case "$package" in
-  sway | waybar) retired_prefix="$DOTFILES_ROOT/$package/" ;;
-  theme-assets) retired_prefix="$FEDORA_STOW_DIR/sway/.local/share/wallpapers/" ;;
+  sway | waybar) retired_prefix="$package/" ;;
+  theme-assets)
+    retired_prefix="${FEDORA_STOW_DIR#"$DOTFILES_ROOT"/}/sway/.local/share/wallpapers/"
+    ;;
   *) return 0 ;;
   esac
+  # Physical, because the target side below is physically resolved.
+  # DOTFILES_ROOT is logical -- common.sh builds it with cd/pwd, which keeps
+  # whatever symlinks the invocation walked through -- so a prefix spelled
+  # from it never matches, every retired link reads as current, and the
+  # migration both stops removing them and stops exempting them. The
+  # installer then refuses the machines the migration exists for. This is the
+  # same hazard, and the same remedy, as common/lib/preflight.sh's ownership
+  # prefix. canonical_path_spelling is not usable here: the retired prefix's
+  # own parents no longer exist in the checkout, so only the root can be
+  # resolved.
+  canonical_root="$(resolve_existing_path "$DOTFILES_ROOT" 2>/dev/null ||
+    printf '%s' "$DOTFILES_ROOT")"
+  retired_prefix="${canonical_root%/}/$retired_prefix"
   # Resolved, not assumed: theme-assets is shared and lives at the top of the
   # checkout, so the migration reads its files from there while still
   # comparing them against the Sway package that used to own them.

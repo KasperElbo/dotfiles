@@ -18,7 +18,11 @@ vim.opt.runtimepath:prepend(mason_plugin)
 
 require("mason").setup({
   registries = {
+    -- Every LSP server and debug adapter Mason installs is resolved through
+    -- these two lists, so each is a trust root of its own.
+    -- network-source: mason-registry
     "github:mason-org/mason-registry",
+    -- network-source: mason-registry-crashdummyy
     "github:Crashdummyy/mason-registry",
   },
 })
