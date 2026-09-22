@@ -121,7 +121,9 @@ homebrew_path() {
 # The directory macOS keeps applications in. A real run never sets the
 # override; it exists so the one profile that writes an application bundle
 # itself, rather than handing the job to Homebrew, can be exercised against a
-# fixture directory the way HOMEBREW_BIN and SHELLS_FILE already allow.
+# fixture directory the way HOMEBREW_BIN and SHELLS_FILE already allow. The
+# Tailscale installer reads the application bundle's command-line tool through
+# it too, so its closing guidance can be exercised the same way.
 macos_applications_dir() {
   printf '%s\n' "${MACOS_APPLICATIONS_DIR:-/Applications}"
 }

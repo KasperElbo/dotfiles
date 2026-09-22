@@ -175,7 +175,9 @@ On macOS, `--platform macos
 (Homebrew cask `tailscale-app`, a sandboxed Network Extension app, not a
 `tailscaled` systemd-style service — macOS has no systemd). Authentication
 stays interactive by opening the app; nothing here scripts macOS's Network
-Extension permission grant or the tailnet login. See [the macOS
+Extension permission grant or the tailnet login. The installer's closing
+summary only reads the connection state and whether the CLI is available, and
+lists just the steps still left to you. See [the macOS
 guide](../platforms/macos.md#optional-tailscale) for the full command-line/CLI
 integration notes and verification details.
 
