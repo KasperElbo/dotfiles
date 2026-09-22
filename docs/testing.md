@@ -297,12 +297,45 @@ Mocks go in front (`PATH="$mock_bin:$PATH"`); never append `/usr/bin` or `/bin`.
 A named command the runner lacks fails the suite rather than silently narrowing
 `PATH`. Host state that is not a command, such as the runner's user id or its
 DNF repository files, is pinned the same way through the suite's mocks and the
-product's override variables (`DNF_REPO_DIR`, `OS_RELEASE_FILE`, ...). The goal
+product's override variables (`DNF_REPO_DIR`, `OS_RELEASE_FILE`,
+`MACOS_APPLICATIONS_DIR`, ...). A check that names such a location outright
+answers from the machine running the tests: the macOS verifier read
+`/Applications` directly for Ghostty, AeroSpace and Tailscale, so those
+checks passed on a maintainer's own Mac and failed on a Linux runner, and
+which of the two a run reported had nothing to do with the tree under test. The goal
 is the same result on a developer workstation as in the pinned CI container.
 For example, `tests/test-hardening.sh` sets `HARDENING_ROOT` to its fake root so
 the hardening profile's owned drop-ins are read and written there; without it, a
 machine with the profile installed answers the suite's missing-drop-in checks
 from its real `/etc`.
+
+A suite that runs a platform verifier against a fixture the fixture cannot make
+clean states which checks are allowed to fail, by name, through
+`assert_verifier_failures <output> [prefix ...]`. Counting them is an open
+assertion. The macOS fixture describes no Mac, so ten checks fail in it whatever
+the tree does; while the suite held that run to a *number*, a check added to the
+verifier that failed on every single run merely raised the number by one, every
+case measured as "one more failure than the baseline" still passed, and nothing
+anywhere observed that the new check had never once succeeded. That is what
+happened to the Neovim plugin check in issue #371: it was green in CI from its
+first commit and had never worked. Naming the set closes it -- a failure the
+list does not describe is reported, whatever the count did -- and the count
+still follows from the list, so the one-more-failure cases are unchanged.
+
+Each declared entry is a prefix, because a verifier names the paths it looked at
+and those carry the fixture's temporary root. A prefix must begin exactly one
+failure line and every failure line must be begun by exactly one prefix: an
+entry loose enough to cover two failures is the same open assertion in
+miniature, so the assertion refuses it rather than accept a weaker version of
+itself. `tests/test-test-support.sh` drives all four outcomes, including the
+extra always-failing check as the negative control for #371.
+
+The other three platform suites reach a run with no failures at all, which is
+the same assertion with an empty list, and they keep their own form of it: the
+Fedora verifier must come out clean at the end of the mocked bootstrap in
+`tests/test-idempotency.sh`, and the Fedora WSL and Parrot fixtures must verify
+cleanly in their own suites. A fixture that verifies cleanly needs no list; only
+one that cannot must say why, entry by entry.
 
 ### Shared shell startup and ergonomics
 
@@ -744,7 +777,8 @@ installer that runs but produces the wrong target.
   dry-run plan, and every unimplemented one to declare no flag.
 - `tests/test-macos-verification.sh` runs the real macOS verifier against a
   mocked Apple Silicon machine. The checks a Linux runner can never satisfy
-  fail identically in every run, so each case breaks exactly one fact (a
+  are declared by name and asserted as the complete set the healthy fixture may
+  fail, so each case breaks exactly one fact (a
   Starship configuration for the wrong flavour, a missing Delta override, Mason
   package or Catppuccin tmux plugin, a Homebrew `dotnet` ahead of the mise
   shim, a command that resolves but cannot run) and asserts exactly one more
