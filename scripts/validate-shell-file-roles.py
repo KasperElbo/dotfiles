@@ -20,42 +20,32 @@ from __future__ import annotations
 
 import argparse
 import pathlib
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from manifests import SHELL_FILE_ROLES_MANIFEST as MANIFEST  # noqa: E402
 from manifests import role_pattern_matches as matches  # noqa: E402
-from manifests import ManifestSchemaError, read_tsv  # noqa: E402
+from manifests import ManifestSchemaError, has_shell_shebang, read_tsv  # noqa: E402
+from manifests import tracked_files  # noqa: E402
 
 FIELDS = ["role", "mode", "pattern", "description"]
 
 
-def tracked(root: pathlib.Path) -> list[str]:
-    """Tracked files only.
-
-    A filesystem walk is not a substitute: this policy is about what the
-    repository ships, so an unreadable index is an error to report, not
-    something to paper over with a different file set.
-    """
-    result = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        raise SystemExit(
-            f"shell-file roles: cannot list tracked files in {root}: "
-            f"{result.stderr.strip() or f'git exited {result.returncode}'}"
-        )
-    return [name for name in result.stdout.split("\0") if name]
-
-
-def governed(name: str) -> bool:
+def governed(root: pathlib.Path, name: str) -> bool:
     """Files whose executable bit this repository is responsible for."""
     if name.endswith((".sh", ".zsh", ".ps1")):
         return True
     if "/.local/bin/" in name or name.startswith("bin/.local/bin/"):
         return True
     if name.startswith("scripts/") and name.endswith(".py"):
+        return True
+    # A platform asset carrying a shell shebang is a program this repository
+    # installs onto the machine -- platforms/fedora/assets/dotfiles-sway is the
+    # Wayland session `Exec=`, so it is the command the display manager runs to
+    # start the desktop -- and it was governed by nothing, because it has no
+    # extension and is not stowed. The shebang is what makes it a program, so
+    # the shebang is what decides.
+    if matches("platforms/*/assets/**", name) and has_shell_shebang(root / name):
         return True
     return name in {"doctor", "zsh/.zshenv"} or name.startswith("zsh/.config/zsh/")
 
@@ -96,8 +86,8 @@ def main() -> int:
             problems.append(f"rule {rule['pattern']!r}: every role needs a description")
 
     used: set[str] = set()
-    for name in tracked(root):
-        if not governed(name):
+    for name in tracked_files(root):
+        if not governed(root, name):
             continue
         applicable = [rule for rule in rules if matches(rule["pattern"], name)]
         if not applicable:

@@ -85,6 +85,7 @@ default_tests=(
   tests/test-tool-floors.sh
   tests/test-install-option-parsers.sh
   tests/test-repository-hygiene.sh
+  tests/test-lint-file-selection.sh
   tests/test-documentation.sh
   tests/test-compat-wrappers.sh
   tests/test-command-provider-closure.sh
