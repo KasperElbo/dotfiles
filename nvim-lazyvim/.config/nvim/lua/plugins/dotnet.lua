@@ -4,10 +4,15 @@ return {
     "mason-org/mason.nvim",
     opts = function(_, opts)
       opts.registries = opts.registries or {
+        -- network-source: mason-registry
         "github:mason-org/mason-registry",
       }
 
+      -- roslyn is absent from the official registry, so this fork is the only
+      -- place it resolves from.
+      -- network-source: mason-registry-crashdummyy
       if not vim.tbl_contains(opts.registries, "github:Crashdummyy/mason-registry") then
+        -- network-source: mason-registry-crashdummyy
         table.insert(opts.registries, "github:Crashdummyy/mason-registry")
       end
 

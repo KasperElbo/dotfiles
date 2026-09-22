@@ -17,7 +17,15 @@ jobs:
   repository:
     name: Repository validation
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A hang detector, not a performance target. This job lints every tracked
+    # shell file and runs the whole suite, so it is the long one, and it grows
+    # whenever either does: 9m11s, 9m19s and 9m58s on 22 September against a
+    # 10-minute budget, then a kill at 10m00s once the suite reached 89. A
+    # budget set near the measured runtime fails every pull request in flight
+    # at once, and does it as `cancelled` rather than `failure`, which reads
+    # like a flake rather than the wall it is. Twenty leaves about ten minutes
+    # spare, which at roughly 4.5 seconds a suite is room for another hundred.
+    timeout-minutes: 20
     # Pinned by digest so a validation run is reproducible against one
     # exact base image. This is docker.io/library/fedora:44 as of
     # 2026-09-14; see config/network-sources.tsv (validation-image-fedora).
