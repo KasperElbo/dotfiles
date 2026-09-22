@@ -72,11 +72,17 @@ new_machine() {
 # run_verifier: the real verifier in the fixture machine. Extra environment
 # assignments are passed through, and the stub directory leads PATH so a
 # command a case wants present exists and nothing else does.
+#
+# verifier_entry is the path the verifier is started through. It matters
+# because DOTFILES_ROOT is derived from it logically, so a case can run the
+# same checkout twice under two spellings.
+verifier_entry="$verifier"
+
 run_verifier() {
   local summary
   set +e
   env "${base_environment[@]}" "PATH=$stub_bin:$PATH" "$@" \
-    "$verifier" >"$root/verify.out" 2>"$root/verify.err"
+    "$verifier_entry" >"$root/verify.out" 2>"$root/verify.err"
   verifier_status=$?
   set -e
   verifier_output="$(cat "$root/verify.out" "$root/verify.err")"
@@ -371,5 +377,57 @@ set_theme mocha
 run_verifier
 assert_contains "$verifier_output" 'KDE integration is selected but its global theme is missing'
 printf 'PASS: a recognised flavour is still checked against the installed global theme\n'
+
+# ---------------------------------------------------------------------------
+# The machine-local Git config ownership test does not depend on how the
+# checkout was spelled
+# ---------------------------------------------------------------------------
+#
+# The check exists to catch a machine-local Git config that is really a link
+# into the Stow package. It compared realpath's physical answer against a path
+# built from DOTFILES_ROOT, which is logical: a checkout reached through a
+# symlink produced two different strings for one file, and the same defective
+# link read as a failure by one spelling and as a perfectly good local config
+# by the other (issue #398).
+
+git_link_failure='Local Git config still links into the dotfiles repo'
+
+# The link Stow would have made: straight at the package file, which a clean
+# checkout does not have, so the target dangles and only its spelling decides.
+plant_git_package_link() {
+  mkdir -p "$root/config/git"
+  ln -sfn "$repo_root/git/.config/git/local" "$root/config/git/local"
+}
+
+new_machine base,dotnet-debug
+plant_git_package_link
+run_verifier
+assert_contains "$verifier_output" "$git_link_failure"
+printf 'PASS: a machine-local Git config linking into the package fails\n'
+
+# The same machine and the same link, reached through a symlink to the
+# checkout. Nothing about the machine changed, so neither may the verdict.
+checkout_alias="$root/checkout-alias"
+ln -sfn "$repo_root" "$checkout_alias"
+verifier_entry="$checkout_alias/platforms/fedora/scripts/verify.sh"
+run_verifier
+assert_contains "$verifier_output" "$git_link_failure"
+verifier_entry="$verifier"
+printf 'PASS: the verdict is the same when the checkout is reached through a symlink\n'
+
+# The control, under both spellings: a real machine-local file is not a link
+# into the package and must keep passing.
+new_machine base,dotnet-debug
+mkdir -p "$root/config/git"
+printf '[user]\n\temail = fixture@example.com\n' >"$root/config/git/local"
+run_verifier
+assert_contains "$verifier_output" "Local Git config exists: $root/config/git/local"
+assert_not_contains "$verifier_output" "$git_link_failure"
+
+verifier_entry="$checkout_alias/platforms/fedora/scripts/verify.sh"
+run_verifier
+assert_not_contains "$verifier_output" "$git_link_failure"
+verifier_entry="$verifier"
+printf 'PASS: a genuine machine-local Git config passes under both spellings\n'
 
 printf '\nFedora verification tests passed.\n'

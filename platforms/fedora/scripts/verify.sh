@@ -499,8 +499,14 @@ for name in local drdk; do
     pass "Machine-local Git config is outside the Stow package: $name"
   fi
 
-  if [[ -L "$file" ]] &&
-    [[ "$(realpath -m "$file")" == "$repo_file" ]]; then
+  # resolved_link_matches, not a spelling comparison. realpath resolves the
+  # link physically while repo_file is built from DOTFILES_ROOT, which is
+  # logical and keeps whatever symlinks the caller walked through, so on a
+  # checkout reached through a symlink the two strings differed although they
+  # named the same file and a link straight into the package read as clean
+  # (issue #398). The same helper decides the AGENTS.md ownership question
+  # below for the same reason.
+  if resolved_link_matches "$file" "$repo_file"; then
     fail "Local Git config still links into the dotfiles repo: $file"
   elif [[ -f "$file" ]]; then
     pass "Local Git config exists: $file"
