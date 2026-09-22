@@ -36,9 +36,22 @@ stub() {
 
 # --- Apple Silicon platform --------------------------------------------------
 
+# `list --cask` answers, rather than exiting non-zero the way this stub used to
+# for everything but --prefix. A Homebrew that cannot answer is a real state the
+# competing-cask check has to report as unobserved, so it is a case below and
+# not the fixture's resting state (issue #396, GAP-24).
 stub brew <<'EOF'
 #!/usr/bin/env bash
-[[ "${1:-}" == --prefix ]] && printf '/opt/homebrew\n'
+case "${1:-} ${2:-}" in
+"--prefix ")
+  printf '/opt/homebrew\n'
+  ;;
+"list --cask")
+  printf '%s' "${MOCK_BREW_CASKS:-}"
+  exit "${MOCK_BREW_CASK_EXIT:-0}"
+  ;;
+*) exit 1 ;;
+esac
 EOF
 stub csrutil <<'EOF'
 #!/usr/bin/env bash
@@ -117,18 +130,58 @@ exit 0
 EOF
 # `defaults read <bundle>/Contents/Info CFBundleShortVersionString`, answered
 # from the one-line fixture plist below.
+# `defaults read`, answering both the dictation profile's version read and the
+# managed-defaults section's per-key reads. The store is a fixture file, so a
+# case can change or withdraw exactly one key. A key the store does not hold
+# reports the way a never-written key does: non-zero, with nothing on stdout.
 stub defaults <<'EOF'
 #!/usr/bin/env bash
-[[ "${1:-}" == read && "${3:-}" == CFBundleShortVersionString ]] || exit 1
-plist="$2.plist"
-[[ -f "$plist" ]] || exit 1
-value="$(sed -n 's/^version=//p' "$plist" | head -n 1)"
-[[ -n "$value" ]] || exit 1
-printf '%s\n' "$value"
+[[ "${1:-}" == read ]] || exit 1
+domain="${2:-}"
+key="${3:-}"
+if [[ "$key" == CFBundleShortVersionString ]]; then
+  plist="$domain.plist"
+  [[ -f "$plist" ]] || exit 1
+  value="$(sed -n 's/^version=//p' "$plist" | head -n 1)"
+  [[ -n "$value" ]] || exit 1
+  printf '%s\n' "$value"
+  exit 0
+fi
+[[ -f "${MOCK_DEFAULTS_DB:-}" ]] || exit 1
+while IFS='|' read -r stored_domain stored_key stored_value; do
+  [[ "$stored_domain" == "$domain" && "$stored_key" == "$key" ]] || continue
+  printf '%s\n' "$stored_value"
+  exit 0
+done <"$MOCK_DEFAULTS_DB"
+exit 1
 EOF
+# file(1), as the verifier calls it: `file -bL <path>`. -b is honoured here
+# because suppressing the filename is the whole fix. While this stub prefixed
+# every answer with the path, the netcoredbg fixture -- whose path ends in
+# /tools/netcoredbg/osx-arm64/netcoredbg -- could not be given a non-arm64
+# answer at all, so the suite could not express the case below (issue #390,
+# GAP-19). MOCK_FILE_PATH names one file to describe differently, so a case
+# changes one fact and the other architecture checks keep their verdicts.
 stub file <<'EOF'
 #!/usr/bin/env bash
-printf '%s: Mach-O 64-bit executable arm64\n' "${!#}"
+brief=false
+target=""
+while (($#)); do
+  case "$1" in
+  -*) [[ "$1" != *b* ]] || brief=true ;;
+  *) target="$1" ;;
+  esac
+  shift
+done
+description='Mach-O 64-bit executable arm64'
+if [[ -n "${MOCK_FILE_PATH:-}" && "$target" == "$MOCK_FILE_PATH" ]]; then
+  description="${MOCK_FILE_DESCRIPTION:-$description}"
+fi
+if [[ "$brief" == true ]]; then
+  printf '%s\n' "$description"
+else
+  printf '%s: %s\n' "$target" "$description"
+fi
 EOF
 stub dscl <<'EOF'
 #!/usr/bin/env bash
@@ -326,6 +379,37 @@ EOF_STATE
 }
 write_dictation_state
 
+# --- Managed macOS defaults --------------------------------------------------
+#
+# The thirteen keys apply-defaults.sh writes, with the values `defaults read`
+# answers for them. Derived from the installer's own array by a parse of its
+# own, rather than from the verifier's reader, so a reader that had stopped
+# seeing rows cannot agree with the fixture about what the set is.
+macos_defaults_db="$root/defaults-db"
+screenshot_directory="$home/Pictures/Screenshots"
+awk -F '|' -v screenshots="$screenshot_directory" -v quote="'" '
+  /^managed_defaults=\(/ { inside = 1; next }
+  inside && /^\)/ { inside = 0 }
+  !inside { next }
+  {
+    gsub("^[[:space:]]*" quote "|" quote "[[:space:]]*$", "")
+    value = $4
+    if (value == "__SCREENSHOT_DIRECTORY__") {
+      value = screenshots
+    } else if ($3 == "bool") {
+      value = (value == "true") ? 1 : 0
+    }
+    print $1 "|" $2 "|" value
+  }
+' "$repo_root/platforms/macos/scripts/apply-defaults.sh" >"$macos_defaults_db"
+# The six settings the old five-entry subset never read. If the installer stops
+# writing one, this suite says so rather than quietly testing less.
+for managed_key in tilesize orientation AppleShowAllFiles ShowStatusBar \
+  location type KeyRepeat InitialKeyRepeat; do
+  grep -q "|$managed_key|" "$macos_defaults_db" ||
+    _test_die "the managed defaults fixture no longer covers $managed_key"
+done
+
 # The deterministic mise context is install-time state that the verifier reads
 # and never writes (issue #345), so the fixture provides it as an installed
 # machine would.
@@ -352,9 +436,14 @@ verify_environment=(
 )
 
 # run_verifier [VAR=value ...]: the verifier's output and failure count.
+# verifier_flags holds the optional-section flags the run is made with; they go
+# after the script, where env would otherwise read them as its own options.
 failures=0
+verifier_flags=()
 run_verifier() {
-  run_capture "${verify_environment[@]}" "$@" "$repo_root/platforms/macos/scripts/verify.sh"
+  run_capture "${verify_environment[@]}" "$@" \
+    "$repo_root/platforms/macos/scripts/verify.sh" \
+    ${verifier_flags[@]+"${verifier_flags[@]}"}
   assert_failure
   [[ "$(sed $'s/\033\\[[0-9;]*m//g' <<<"$TEST_OUTPUT")" =~ macOS\ verification\ failed:\ ([0-9]+)\ failure ]] ||
     _test_die "the macOS verifier did not report a failure summary:\n$TEST_OUTPUT"
@@ -475,13 +564,71 @@ run_verifier
 expect_one_more_failure 'a resolvable command that cannot run fails verification' \
   "stow resolves to $mock_bin/stow but does not run: 'stow --version' exited 127"
 
-# --- Optional dictation profile: one broken fact at a time -------------------
-
 # The previous case left a deliberately broken `stow` in place. Restore it, so
 # the cases below are measured against the same healthy baseline as every
 # other case rather than against one extra standing failure.
 rm "$mock_bin/stow"
 ln -s /usr/bin/true "$mock_bin/stow"
+
+# --- Architecture checks read file(1)'s description, not its echo of the path -
+#
+# check_arm64_file matched `file -L` output, which begins with the path it was
+# handed. The bundled debugger is checked at .../tools/netcoredbg/osx-arm64/
+# netcoredbg, so "arm64" was guaranteed present in the text being matched and
+# the check could not fail for an architecture reason (issue #390, GAP-19).
+
+run_verifier "MOCK_FILE_PATH=$debugger" \
+  'MOCK_FILE_DESCRIPTION=Mach-O 64-bit executable x86_64'
+expect_one_more_failure 'an x86_64 bundled netcoredbg fails verification' \
+  'EasyDotnet bundled netcoredbg does not report arm64 or universal architecture'
+
+# The same check used to accept a download that is not an executable at all,
+# for the same reason.
+run_verifier "MOCK_FILE_PATH=$debugger" \
+  'MOCK_FILE_DESCRIPTION=HTML document text'
+expect_one_more_failure 'an HTML error page in place of netcoredbg fails verification' \
+  'EasyDotnet bundled netcoredbg does not report arm64 or universal architecture'
+
+# --- Managed macOS defaults: the whole set the installer writes --------------
+
+verifier_flags=(--defaults)
+
+# checked_defaults <output>: the domain|key pairs the run actually read back.
+checked_defaults() {
+  sed $'s/\033\\[[0-9;]*m//g' <<<"$1" |
+    sed -n 's/^[^ ]* \(NSGlobalDomain\|com\.apple\.[a-z]*\) \([A-Za-z-]*\) \(=\|expected\) .*/\1|\2/p' |
+    sort -u
+}
+
+run_verifier "MOCK_DEFAULTS_DB=$macos_defaults_db"
+assert_eq "$baseline_failures" "$failures" \
+  'a machine carrying every managed default: failure count'
+assert_eq "$(cut -d '|' -f 1,2 <"$macos_defaults_db" | sort -u)" \
+  "$(checked_defaults "$TEST_OUTPUT")" \
+  'the managed defaults the verifier reads are exactly the ones apply-defaults.sh writes'
+while IFS='|' read -r managed_domain managed_key managed_value; do
+  assert_contains "$TEST_OUTPUT" "$managed_domain $managed_key = $managed_value"
+done <"$macos_defaults_db"
+printf 'PASS: every managed default the installer writes is read back\n'
+
+# A screenshot default changed on the machine. The old five-entry subset named
+# neither screencapture key, so this reported nothing.
+sed 's#^com\.apple\.screencapture|type|png$#com.apple.screencapture|type|jpg#' \
+  "$macos_defaults_db" >"$root/defaults-db-screenshot"
+run_verifier "MOCK_DEFAULTS_DB=$root/defaults-db-screenshot"
+expect_one_more_failure 'a changed screenshot format fails verification' \
+  'com.apple.screencapture type expected png, got jpg'
+
+# A keyboard default reverted to the system's own, which reads as unset.
+grep -v '^NSGlobalDomain|KeyRepeat|' "$macos_defaults_db" \
+  >"$root/defaults-db-keyrepeat"
+run_verifier "MOCK_DEFAULTS_DB=$root/defaults-db-keyrepeat"
+expect_one_more_failure 'a reverted key-repeat default fails verification' \
+  'NSGlobalDomain KeyRepeat expected 2, got unset'
+
+verifier_flags=()
+
+# --- Optional dictation profile: one broken fact at a time -------------------
 
 # expect_more_failures <count> <description> <message>
 expect_more_failures() {
@@ -541,6 +688,21 @@ printf 'PASS: %s\n' 'a stalled Gatekeeper assessment warns instead of failing'
 run_verifier MOCK_SPCTL_ASSESS_EXIT=2
 expect_more_failures 1 'an spctl that cannot assess is reported as such' \
   'The Gatekeeper assessment of Ghost Pepper could not be made; spctl exited 2'
+
+# A Homebrew that cannot answer is not a Homebrew that answered "no cask". The
+# check used to discard both the status and stderr, so grep ran on the empty
+# string and reported the absence of evidence as evidence of absence -- the one
+# check in this section that did not fail closed (issue #396, GAP-24).
+run_verifier MOCK_BREW_CASK_EXIT=2
+assert_eq "$baseline_failures" "$failures" \
+  'a Homebrew that cannot list casks: failure count'
+assert_contains "$TEST_OUTPUT" 'Homebrew did not list its casks (exit 2)'
+printf 'PASS: %s\n' 'a Homebrew that cannot list casks is unobserved, not a clean bill'
+
+# And a cask that really does provide Ghost Pepper is still a failure.
+run_verifier MOCK_BREW_CASKS=ghost-pepper
+expect_more_failures 1 'a competing Homebrew cask fails verification' \
+  'A Homebrew cask also provides Ghost Pepper'
 
 # Recorded state that names a different release than the machine has.
 write_dictation_state 1.0.0
