@@ -55,6 +55,15 @@ of them that way, so a manifest edit that is not reflected in its output fails
 the build rather than quietly making a page wrong. Regenerate by running the
 generator with no arguments.
 
+The comparison each gate makes lives in one place, `scripts/lib/generated.py`,
+and it is on bytes. Eight copies of the same five lines meant eight copies of
+the same mistake: reading the committed file in text mode translated `\r\n` and
+a lone `\r` to `\n`, so a file whose bytes differed from a fresh render was
+reported as current and running the generator then changed it. `.gitattributes`
+stores and checks out every text file with `\n` so the question does not arise
+in the first place; the byte comparison is what notices if something gets past
+that.
+
 A whole-file artifact says so in its first lines; a partial one is delimited by
 `<!-- BEGIN GENERATED … -->` and `<!-- END GENERATED … -->` markers, and the
 prose outside those markers is hand-written and yours to edit.
