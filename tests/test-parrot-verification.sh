@@ -512,6 +512,23 @@ if "${verify_environment[@]}" \
 fi
 grep -Fq 'mise resolution is not deterministic' "$test_root/stray-context.log"
 grep -Fq '.mise.toml' "$test_root/stray-context.log"
+# ...and nothing in that run claims an answer it got through the contaminated
+# context. The headless Neovim start called mise directly while the version
+# read two lines above it went through run_mise, so this one run printed both
+# "Neovim unknown does not satisfy the >= 0.12 baseline" and "Reduced LazyVim
+# profile starts headlessly": a green tick earned in a context the verifier
+# had just declared non-deterministic.
+if grep -Fq 'Reduced LazyVim profile starts headlessly' "$test_root/stray-context.log"; then
+  printf 'The headless Neovim check passed using a contaminated mise context.\n' >&2
+  cat "$test_root/stray-context.log" >&2
+  exit 1
+fi
+grep -Fq 'Refusing to run mise' "$test_root/stray-context.log" || {
+  printf 'The headless Neovim check did not report why it could not run mise:\n' >&2
+  cat "$test_root/stray-context.log" >&2
+  exit 1
+}
+printf 'PASS: no check claims an answer obtained through a contaminated mise context\n'
 if [[ ! -f "$parrot_mise_context/.mise.toml" ]]; then
   printf 'Parrot verification deleted the stray declaration it was meant to report.\n' >&2
   exit 1
