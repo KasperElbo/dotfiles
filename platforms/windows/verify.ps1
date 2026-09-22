@@ -24,6 +24,7 @@ $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $Manifest = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'manifest.psd1')
 . (Join-Path $PSScriptRoot 'lib\wsl-version.ps1')
 . (Join-Path $PSScriptRoot 'lib\scoop.ps1')
+. (Join-Path $PSScriptRoot 'lib\selection-state.ps1')
 
 if (-not $StatePath) {
     if ($FixturePath) {
@@ -214,49 +215,25 @@ function ConvertFrom-WslText {
     )
 }
 
-function Get-StateFlag {
-    param(
-        [AllowNull()]
-        [object]$State,
-        [string]$Name
-    )
-
-    # A selection file written before a flag existed simply does not carry it,
-    # and an absent optional selection means "not selected" rather than an
-    # unreadable state file.
-    if ($null -eq $State) { return $false }
-    $property = $State.PSObject.Properties[$Name]
-    if ($null -eq $property) { return $false }
-    return [bool]$property.Value
-}
-
 function Get-LiveObservation {
+    # The whole state is validated before anything on the machine is observed.
+    # It is the file that decides what verification demands, so a value it
+    # cannot read is an error rather than an answer: a state that does not
+    # validate leaves every selection false, and the failure below is about the
+    # state, not about the components a corrupt file stopped asking for.
     $stateExists = Test-Path -LiteralPath $StatePath -PathType Leaf
-    $stateError = $null
-    $state = $null
-    if ($stateExists) {
-        try {
-            $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
-        }
-        catch {
-            $stateError = $_.Exception.Message
-        }
-    }
+    $stateJson = if ($stateExists) { Get-Content -LiteralPath $StatePath -Raw } else { $null }
+    $state = Read-WindowsSelectionState -Json $stateJson `
+        -SupportedSchemaVersion ([int]$Manifest.SchemaVersion)
 
-    $nocttySelected = $false
-    $configurationSelected = $false
-    $handySelected = $false
-    $wslRequired = $false
-    $distribution = ''
-    $schemaVersion = $null
-    if ($null -ne $state) {
-        $nocttySelected = Get-StateFlag -State $state -Name 'NocttySelected'
-        $configurationSelected = Get-StateFlag -State $state -Name 'NocttyConfigurationSelected'
-        $handySelected = Get-StateFlag -State $state -Name 'HandySelected'
-        $wslRequired = Get-StateFlag -State $state -Name 'WslRequired'
-        $distribution = [string]$state.FedoraDistribution
-        $schemaVersion = $state.SchemaVersion
-    }
+    $nocttySelected = $state.NocttySelected
+    $configurationSelected = $state.NocttyConfigurationSelected
+    $handySelected = $state.HandySelected
+    $wslRequired = $state.WslRequired
+    $distribution = $state.FedoraDistribution
+    $schemaVersion = $state.SchemaVersion
+    $stateError = $state.Error
+    $stateValid = $state.Valid
 
     # Every command below is resolved through the shared resolver, never
     # through PATH alone: a package's shim reaches PATH through the registry,
@@ -351,6 +328,7 @@ function Get-LiveObservation {
     return [pscustomobject]@{
         State = [pscustomobject]@{
             Exists = $stateExists
+            Valid = $stateValid
             Error = $stateError
             SchemaVersion = $schemaVersion
             NocttySelected = $nocttySelected
@@ -488,16 +466,29 @@ if ($null -ne $observation) {
     if (-not $observation.State.Exists) {
         Write-VerificationFailure "Windows selection state is missing: $StatePath"
     }
-    elseif ($observation.State.Error) {
+    elseif (-not $observation.State.Valid) {
         Write-VerificationFailure "Windows selection state is invalid: $($observation.State.Error)"
     }
-    elseif ([int]$observation.State.SchemaVersion -ne [int]$Manifest.SchemaVersion) {
-        Write-VerificationFailure "Unsupported Windows selection schema: $($observation.State.SchemaVersion)"
-    }
     else {
-        Write-VerificationPass "Windows selection state schema $($observation.State.SchemaVersion)"
+        Write-VerificationPass (
+            "Windows selection state schema $($observation.State.SchemaVersion) " +
+            'is complete and typed'
+        )
     }
+}
 
+# Everything below is a question the state decides the answer to: which
+# applications must be installed, whether the managed configuration must be
+# there, whether WSL is required at all. A state that did not validate cannot
+# decide any of them, so the sections are not run rather than run against
+# defaults -- "no Scoop-owned application is selected" out of a file nobody
+# could read would be the corrupt state suppressing the very checks it was
+# supposed to demand.
+if ($null -ne $observation -and -not $observation.State.Valid) {
+    Write-Host ''
+    Write-Host 'Everything below depends on the selection state, which could not be read.'
+}
+elseif ($null -ne $observation) {
     Write-Host ''
     Write-Host 'Scoop ownership'
     $scoopSelections = @()
