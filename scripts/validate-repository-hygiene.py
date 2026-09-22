@@ -32,6 +32,10 @@ diff and expensive to notice later:
 8. A workflow whitespace check with no range. `git diff --check` alone
    inspects the working tree, which a runner always leaves clean, so the step
    reports success on exactly the damage it exists to catch.
+9. A repository validation workflow that does not run the secret scanner.
+   README.md claims categorically that nothing secret is in this repository,
+   and `./scripts/scan-secrets.sh` is what stands behind that claim; a gate
+   that can be removed by deleting one workflow step is not a gate.
 
 Usage:
     scripts/validate-repository-hygiene.py [--root DIR]
@@ -366,6 +370,55 @@ def check_workflow_whitespace_range(root: pathlib.Path, problems: list[str]) -> 
             )
 
 
+# The scanner, and the workflow that has to run it. Matched as a command
+# rather than as the word "gitleaks", so renaming the tool inside the script
+# does not silently satisfy this, and so a mention in a comment does not.
+SECRET_SCANNER = pathlib.Path("scripts") / "scan-secrets.sh"
+SCANNER_INVOCATION = re.compile(r"(?:^|[\s;&|])\./scripts/scan-secrets\.sh(?![\w./-])")
+VALIDATION_WORKFLOW = "validate.yml"
+
+
+def check_secret_scanner(root: pathlib.Path, problems: list[str]) -> None:
+    """The secret-scanning gate exists and the validation workflow runs it.
+
+    README.md makes a categorical no-secret claim, and this is the only check
+    that covers every tracked path and the whole history. A gate that one
+    deleted workflow step disables is decorative, so the step is required
+    here: removing it turns a silent loss of coverage into a lint failure.
+
+    The script itself is required too, because a workflow line calling a file
+    that does not exist would otherwise satisfy this on a tree where the gate
+    had been removed outright.
+    """
+    if not (root / SECRET_SCANNER).is_file():
+        problems.append(
+            f"{SECRET_SCANNER.as_posix()} is missing, so nothing checks the "
+            "README's claim that no credential is committed here."
+        )
+        return
+
+    workflow = root / WORKFLOWS / VALIDATION_WORKFLOW
+    if not workflow.is_file():
+        problems.append(
+            f"{(WORKFLOWS / VALIDATION_WORKFLOW).as_posix()} is missing, so "
+            f"{SECRET_SCANNER.as_posix()} runs nowhere in CI."
+        )
+        return
+
+    for line in workflow.read_text(encoding="utf-8").splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        if SCANNER_INVOCATION.search(line):
+            return
+
+    problems.append(
+        f"{(WORKFLOWS / VALIDATION_WORKFLOW).as_posix()} never runs "
+        f"./{SECRET_SCANNER.as_posix()}, so a committed credential reaches "
+        "main with every check green. Restore the step, or delete the "
+        "README's no-secret claim along with it."
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -386,6 +439,7 @@ def main() -> int:
     check_python_bytecode(root, problems)
     check_workflow_action_pins(root, problems)
     check_workflow_whitespace_range(root, problems)
+    check_secret_scanner(root, problems)
 
     for problem in problems:
         print(f"Repository hygiene: {problem}", file=sys.stderr)

@@ -493,6 +493,95 @@ assert_eq "$mason_case_before" \
   'verifying a complete Mason installation must not change it'
 printf '# no pins\n' >"$mason_case_pins"
 
+# GAP-34. Both artifacts existing says nothing about the link joining them, so
+# each case below leaves bin/stylua executable and the receipt's target file in
+# place, and changes only where the link goes. The undamaged sibling must still
+# pass in every one, which is what separates a check that got stricter from one
+# that started failing everything.
+mason_stylua_link() {
+  printf '%s\n' "$mason_case_root/nvim/mason/bin/stylua"
+}
+
+# The decoy is built here rather than borrowed from the system: /bin/true is
+# absent on macOS, and a dangling link would be caught by the executable test
+# that was already there, so the case would stop exercising this one.
+unrelated_binary="$root/unrelated-bin/true"
+mkdir -p "$(dirname "$unrelated_binary")"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$unrelated_binary"
+chmod +x "$unrelated_binary"
+
+mason_case_begin link-to-unrelated-binary
+ln -sf "$unrelated_binary" "$(mason_stylua_link)"
+[[ -x "$(mason_stylua_link)" ]] ||
+  _test_die 'the repointed link must stay executable, or this case proves nothing'
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" 'bin/stylua resolves to'
+assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
+printf 'PASS: a Mason executable repointed outside its package is reported\n'
+
+# The sharpest shape: the link points at a real, executable, Mason-installed
+# binary -- the other package's. Every existence test in the check is satisfied.
+mason_case_begin link-to-other-package
+ln -sf ../packages/lua-language-server/lua-language-server "$(mason_stylua_link)"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" 'lua-language-server'
+assert_file_contains "$root/mason.out" 'not the'
+printf 'PASS: a Mason executable pointing at another package is reported\n'
+
+# A relative and an absolute spelling of the same file are the same file, and a
+# mason root reached through a symlink is the same root. Neither may read as
+# drift, or the cases above would be satisfied by a check that rejects
+# everything.
+mason_case_begin link-spelled-absolutely
+ln -sf "$mason_case_root/nvim/mason/packages/stylua/stylua" "$(mason_stylua_link)"
+mason_case_check
+assert_verifier_counts 2 0 0
+assert_file_contains "$root/mason.out" 'Mason: stylua (installed at 2.1.0)'
+printf 'PASS: an absolutely spelled Mason link is the same link\n'
+
+mason_case_begin link-through-symlinked-root
+mason_symlinked_root="$root/mason-symlinked-root"
+rm -rf -- "$mason_symlinked_root"
+ln -sfn "$mason_case_root" "$mason_symlinked_root"
+verify_reset
+XDG_DATA_HOME="$mason_symlinked_root" \
+  check_mason_inventory "$root/mason-inventory.txt" "$mason_case_pins" \
+  >"$root/mason.out" 2>&1 || true
+assert_verifier_counts 2 0 0
+assert_file_contains "$root/mason.out" 'Mason: stylua (installed at 2.1.0)'
+printf 'PASS: a Mason root reached through a symlink is the same root\n'
+
+# A receipt that claims no executables cancelled the link check rather than
+# failing it, so deleting .links -- or emptying .links.bin -- made the strictest
+# part of this check disappear while the package still reported installed.
+mason_case_begin receipt-without-links
+mason_stylua_receipt="$mason_case_root/nvim/mason/packages/stylua/mason-receipt.json"
+jq 'del(.links)' "$mason_stylua_receipt" >"$mason_stylua_receipt.edited"
+mv "$mason_stylua_receipt.edited" "$mason_stylua_receipt"
+rm -f -- "$(mason_stylua_link)"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" 'carries no links object'
+assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
+printf 'PASS: a receipt with no links object is not a finished install\n'
+
+# An empty links.bin is deliberately still credited, and this pins that choice
+# rather than leaving it as an accident. Mason supports a package that links
+# only share or opt, and reporting one unconverged would fail the install
+# outright; no receipt from a real install has been read here to say otherwise.
+# The cost is that this one damage shape is not caught, which is the point of
+# writing it down.
+mason_case_begin receipt-with-empty-bin-links
+mason_stylua_receipt="$mason_case_root/nvim/mason/packages/stylua/mason-receipt.json"
+jq '.links.bin = {}' "$mason_stylua_receipt" >"$mason_stylua_receipt.edited"
+mv "$mason_stylua_receipt.edited" "$mason_stylua_receipt"
+mason_case_check
+assert_verifier_counts 2 0 0
+assert_file_contains "$root/mason.out" 'Mason: stylua (installed at 2.1.0)'
+printf 'PASS: a receipt that links nothing into bin is still credited\n'
+
 # jq is how a receipt is read. There is no way to make it answer "not
 # installed", so this narrows PATH to a base userland without it and requires
 # the check to say so: one that skipped every package because a tool was
