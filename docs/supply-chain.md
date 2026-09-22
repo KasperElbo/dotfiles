@@ -462,3 +462,64 @@ repository uses is the ephemeral CI token described above, which is supplied
 by GitHub Actions to its own job. Staged installer content lives in a
 mode-0600 file inside a 0700 directory and is deleted immediately after it
 runs. Tests use fixtures, never real secrets.
+
+### The gate behind that claim
+
+`./scripts/scan-secrets.sh` scans the working tree and every commit reachable
+from `HEAD` with a version-pinned [gitleaks](https://github.com/gitleaks/gitleaks),
+using the upstream default rules as published for that version. It is one
+command, run identically by a contributor and by the "Scan for committed
+credentials" step in `.github/workflows/validate.yml`, which is why the
+scanner is a pinned binary rather than a GitHub Action: an action runs only
+inside a workflow, so it could not be run before a push and a fork could not
+run it at all.
+
+The step is not optional, and not only by convention.
+`scripts/validate-repository-hygiene.py` requires `validate.yml` to invoke the
+scanner, so removing the step — or commenting it out — fails lint rather than
+quietly removing the coverage. `tests/test-repository-hygiene.sh` proves both
+halves: that the gate catches a credential using the exact command CI runs,
+and that the tree is refused when the gate is taken away.
+
+**History is scanned on every run, not just a commit range.** A credential
+deleted from the working tree is still a credential, reachable by anyone with
+the repository; scanning only the diff would report the deletion as clean. At
+the current size this costs about a second for the whole history, so the
+cheaper option would buy nothing. `--range A..B` exists for when that stops
+being true, and the decision to switch should be made on a measurement rather
+than on principle.
+
+Findings are redacted. The rule, the file and the line are printed; the
+matched value never is, so a CI log does not become the second place a leaked
+credential lives.
+
+The allowlist in `.gitleaks.toml` is empty, because it can be: the tree and
+the full history are clean against the default rules. That file states the two
+rules for adding an entry — scope it to the one literal, and say why the
+literal cannot be a credential — and says why generating a credential-shaped
+string at runtime is better than allowlisting one for good.
+
+GitHub's own secret scanning and push protection are worth enabling on the
+repository as well, in **Settings → Code security**. They are complementary
+rather than a substitute: they act on pushes to GitHub, while this gate runs
+on a workstation before the push and in any fork.
+
+### Bumping the secret scanner
+
+The pin is five lines at the top of `scripts/scan-secrets.sh`: `version` and
+one SHA-256 per supported platform. Take the digests from upstream's own
+`gitleaks_<version>_checksums.txt` in the same release rather than computing
+them from a download, so the value recorded is the one upstream published:
+
+```bash
+version=8.30.1
+curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v$version/gitleaks_${version}_checksums.txt"
+```
+
+Then update `version` and the four digests, and run `./scripts/scan-secrets.sh`
+once. A new release can add rules, so a bump can turn the gate red on content
+that passed yesterday; that is the gate working, and the finding is triaged
+like any other rather than pinned away from.
+
+`scripts/check-pin-freshness.sh` reports when a newer release exists, through
+the `gitleaks-release` row in `config/pin-freshness.tsv`.

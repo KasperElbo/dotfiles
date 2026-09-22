@@ -12,6 +12,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 |---|---|---|---|---|---|---|---|---|
 | `catppuccin-bat-themes` | Catppuccin bat/delta syntax themes | Catppuccin | `file` | `user` | `6810349b28055dce54076712fc05fc68da4b8ec0` | commit+sha256 | `sha256-pinned` | manual-bump |
 | `ghost-pepper-release` | Ghost Pepper dictation application disk image | matthartman | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
+| `gitleaks-release` | Secret-scanning gate: the gitleaks binary ./scripts/scan-secrets.sh runs | gitleaks | `archive` | `user` | `pinned release + per-platform sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `hack-nerd-font` | Hack Nerd Font release archive | Nerd Fonts | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `handy-release` | Handy dictation application release RPM | cjpais | `rpm-package` | `root` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `parrot-boundary-image` | Parrot base image for the CI boundary check (not VM evidence) | Parrot Security | `container-image` | `root` | `latest` | sha256:944b58dad7e74ae4789e5ae9e369109dc5ebb3fe143ec65a5e39ec4132d80469 | `image-digest-pinned` | manual-bump |
@@ -86,6 +87,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `fedora-os-repos` | `https://mirrors.fedoraproject.org` | sudo dnf history undo | `platforms/fedora/scripts/install-system.sh` `platforms/fedora-wsl/scripts/install-system.sh` |
 | `firstmate-repo` | `https://github.com/kunchenguid/firstmate.git` | git -C ~/.local/share/firstmate checkout <commit> | `common/install-ai.sh` |
 | `ghost-pepper-release` | `https://github.com/matthartman/ghost-pepper/releases/download/v${ghost_pepper_version}/GhostPepper.dmg` | pin the previous release tag and sha256 in platforms/macos/lib/dictation.sh, then rerun with --dictation | `platforms/macos/scripts/install-dictation.sh` `platforms/macos/lib/dictation.sh` |
+| `gitleaks-release` | `https://github.com/gitleaks/gitleaks/releases/download/v${version}/${artifact}` | pin the previous release tag and per-platform digests in scripts/scan-secrets.sh | `scripts/scan-secrets.sh` |
 | `hack-nerd-font` | `https://github.com/ryanoasis/nerd-fonts/releases/download/v${font_version}/Hack.tar.xz` | reinstall the previous version directory | `platforms/parrot-ctf/scripts/install-terminal.sh` |
 | `handy-release` | `https://github.com/cjpais/Handy/releases/download/v${handy_version}/${handy_rpm}` | pin the previous release tag and sha256 in platforms/fedora/lib/dictation.sh, then rerun with --dictation | `platforms/fedora/scripts/install-dictation.sh` `platforms/fedora/lib/dictation.sh` |
 | `homebrew-formulae` | `https://formulae.brew.sh` | brew uninstall | `platforms/macos/Brewfile` `platforms/macos/scripts/install-system.sh` |

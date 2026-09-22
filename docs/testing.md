@@ -632,6 +632,34 @@ installer that runs but produces the wrong target.
   failure, naming it. A Catppuccin tmux checkout moved past the pin is the
   exception: it warns, naming both versions, and adds no failure.
 
+## Secret scanning
+
+`./scripts/scan-secrets.sh` is the gate behind the README's claim that nothing
+secret is committed here. It scans the working tree and the whole history with
+a version-pinned gitleaks, and `.github/workflows/validate.yml` runs that same
+command before lint, so a contributor and CI run the identical check. What it
+covers, why history is scanned every time and how to bump the pin are in
+[supply chain](supply-chain.md#the-gate-behind-that-claim).
+
+Two things make it a gate rather than a habit.
+`scripts/validate-repository-hygiene.py` refuses a tree whose validation
+workflow does not invoke the scanner, so the step cannot be deleted or
+commented out without failing lint. And `tests/test-repository-hygiene.sh`
+drives the real script over a fixture checkout: it requires a planted access
+key and a planted private key to be caught, requires a credential that was
+committed and then deleted to still be caught from history, requires the
+report not to reprint the matched value, and requires a scanner that is not
+the pinned version to be refused outright, since a different build is a
+different rule set.
+
+That suite needs the pinned binary and never downloads one, because no suite
+here reaches the network. In CI the scan step runs earlier in the same job and
+leaves it in the cache; on a workstation, running `./scripts/scan-secrets.sh`
+once does the same. Set `DOTFILES_GITLEAKS` to use a copy from somewhere else.
+
+The credential-shaped strings in that suite are assembled from parts, so the
+repository never contains one and the allowlist can stay empty.
+
 ## Scheduled pin freshness
 
 `.github/workflows/pin-freshness.yml` runs `./scripts/check-pin-freshness.sh`
