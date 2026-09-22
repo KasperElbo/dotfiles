@@ -357,6 +357,10 @@ case "$*" in
   exit 96
   ;;
 esac
+# npm reports a dependency problem in the tree through its exit status while
+# still printing the tree, so TEST_NPM_GLOBAL_STATUS is set independently of
+# what was listed above.
+exit "${TEST_NPM_GLOBAL_STATUS:-0}"
 EOF_NPM_GLOBAL
   chmod +x "$bin/npm"
 }

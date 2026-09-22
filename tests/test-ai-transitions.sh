@@ -157,7 +157,13 @@ chmod +x "$mock_bin/curl"
 
 cat >"$mock_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' "$HOME/.local/bin:$MISE_SHIMS_DIR:$PATH"
+# The verifier asks both logins for their PATH through a marker. Only the
+# interactive login carries mise's shims, because mise is activated in .zshrc
+# while .zshenv is read by both.
+case "${1:-}" in
+-lc) printf 'login-path:%s\n' "$HOME/.local/bin:/usr/bin:/bin" ;;
+*) printf 'login-path:%s\n' "$HOME/.local/bin:$MISE_SHIMS_DIR:$PATH" ;;
+esac
 EOF
 chmod +x "$mock_bin/zsh"
 

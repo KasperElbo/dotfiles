@@ -566,8 +566,14 @@ cat >"$bootstrap_bin/zsh" <<'EOF'
 printf '\033[H\033[2J\033[3J'
 system_path="${MOCK_SYSTEM_PATH_PREFIX:+$MOCK_SYSTEM_PATH_PREFIX:}$PATH"
 PATH="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
-if [[ "$*" == *'printf "%s\\n" "$PATH"'* ]]; then
-  printf '%s\n' "$PATH"
+if [[ "$*" == *'login-path:'* ]]; then
+  # The verifier asks both logins for their PATH through this marker. This
+  # fixture answers both with the sanitized login PATH, because what it exists
+  # to model is what the WSL PATH sanitizer produces. The difference between
+  # the two logins -- mise is activated in .zshrc, so only the interactive one
+  # carries the shims -- is what tests/test-ai-profile.sh covers, with a
+  # fixture built for it and a copy in ~/.local/bin as the negative control.
+  printf 'login-path:%s\n' "$PATH"
 elif [[ "$*" == *'__DOTFILES_VERIFY_SYSTEM_PATH__'* ]]; then
   printf '\n__DOTFILES_VERIFY_SYSTEM_PATH__%s\n' "$system_path"
 elif [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then

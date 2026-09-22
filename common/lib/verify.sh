@@ -813,9 +813,15 @@ check_no_global_npm_duplicate() {
     global_npm="$("$mise_command" exec -- npm ls --global --depth=0 --parseable 2>/dev/null)"
   fi
   status=$?
-  if ((status != 0)); then
-    not_observed "npm is not runnable under mise; cannot rule out a duplicate" \
-      "AI package in the active Node prefix"
+  # npm reports a dependency problem in the tree with a non-zero exit while
+  # still printing the tree, so keying the not_observed branch on the status
+  # alone reported a run that enumerated the prefix and named the duplicate as
+  # a run that could not happen (issue #396, GAP-35). What separates "could
+  # not run" from "ran and exited non-zero" is whether there is any output:
+  # with none there is nothing to read, and only then is this unobserved.
+  if ((status != 0)) && [[ -z "$global_npm" ]]; then
+    not_observed "npm produced no output under mise; cannot rule out a" \
+      "duplicate AI package in the active Node prefix"
     return
   fi
 
@@ -835,8 +841,20 @@ check_no_global_npm_duplicate() {
     fi
   done
 
-  [[ "$duplicate" == true ]] ||
-    pass "No AI package is duplicated in the active Node prefix"
+  if [[ "$duplicate" == true ]]; then
+    return
+  fi
+
+  # Output was read and named no duplicate. If npm still exited non-zero, the
+  # tree it printed may be incomplete, so absence of a duplicate in it is not
+  # proof of absence.
+  if ((status != 0)); then
+    not_observed "npm exited $status while listing the active Node prefix and" \
+      "named no duplicate AI package; the listing may be incomplete"
+    return
+  fi
+
+  pass "No AI package is duplicated in the active Node prefix"
 }
 
 # The deterministic mise context is this verifier's own precondition: every
@@ -862,10 +880,34 @@ check_mise_context() {
   fail "mise resolution is not deterministic: $diagnosis"
 }
 
+# verify_login_path <interactive|non-interactive>: the PATH a fresh Zsh login
+# configures, read with check_login_environment's marker-and-sed discipline so
+# a .zshrc that writes to stdout cannot become the first PATH component.
+# Fails, printing nothing, when zsh is unavailable or answers nothing.
+verify_login_path() {
+  local mode="$1" answer
+
+  command_exists zsh || return 1
+  case "$mode" in
+  interactive)
+    answer="$(zsh -lic 'printf "login-path:%s\n" "$PATH"' 2>/dev/null |
+      sed -n 's/.*login-path://p' | tail -n 1)"
+    ;;
+  non-interactive)
+    answer="$(zsh -lc 'printf "login-path:%s\n" "$PATH"' 2>/dev/null |
+      sed -n 's/.*login-path://p' | tail -n 1)"
+    ;;
+  *) return 1 ;;
+  esac
+
+  [[ -n "$answer" ]] || return 1
+  printf '%s\n' "$answer"
+}
+
 check_mise_owned() {
   local name="$1"
   local resolved mise_resolved mise_shim configured_path configured_resolved mise_command
-  local mise_data_dir mise_shims_dir
+  local mise_data_dir mise_shims_dir login_resolved
 
   resolved="$(command -v "$name" 2>/dev/null || true)"
   if [[ -z "$resolved" ]]; then
@@ -924,6 +966,32 @@ check_mise_owned() {
     ! shell_paths_match "$configured_resolved" "$mise_shim"; then
     fail "$name resolves outside mise in the configured login PATH: $configured_resolved (mise manages $mise_resolved)"
     return 1
+  fi
+
+  # The configured login PATH above is captured from an INTERACTIVE login,
+  # which is the one shell where mise activation necessarily wins: the tracked
+  # Zsh package activates mise in .zshrc, while .zshenv -- read by every
+  # top-level Zsh, interactive or not -- puts $HOME/.local/bin first and adds
+  # no mise paths. So that probe says nothing about the login where
+  # ~/.local/bin wins and there are no shims at all, and a non-mise copy of a
+  # tool there was reported as mise-owned (issue #396, GAP-33).
+  #
+  # A name that does not resolve at all in that login is the ordinary
+  # shim-only case, not a defect: nothing is said about it. A caller that
+  # supplies VERIFY_CONFIGURED_LOGIN_PATH by hand supplies this one too or
+  # the second probe does not run.
+  if [[ -n "${VERIFY_NONINTERACTIVE_LOGIN_PATH:-}" ]]; then
+    login_resolved="$(PATH="$VERIFY_NONINTERACTIVE_LOGIN_PATH" \
+      command -v "$name" 2>/dev/null || true)"
+    if [[ -n "$login_resolved" ]] &&
+      ! shell_paths_match "$login_resolved" "$mise_resolved" &&
+      ! shell_paths_match "$login_resolved" "$mise_shim"; then
+      fail "$name resolves outside mise in a login that is not interactive:" \
+        "$login_resolved (mise manages $mise_resolved). Such a login reads" \
+        ".zshenv but not .zshrc, so mise is never activated there and this" \
+        "copy is what runs"
+      return 1
+    fi
   fi
 
   if shell_paths_match "$resolved" "$mise_resolved"; then
