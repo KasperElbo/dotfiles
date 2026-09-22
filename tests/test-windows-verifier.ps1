@@ -267,6 +267,88 @@ try {
         -Result (Invoke-Verifier -Fixture $case) `
         -Expected 'Handy current executable is outside Scoop ownership'
 
+    # The managed block, read as one structure. Each of these passed the four
+    # independent global regex matches this replaced, because every line the
+    # verifier looked for did occur somewhere in the file.
+    $case = New-CaseFixture -Name 'duplicate-managed-block' -Change {
+        param($item)
+        $item.Configuration.ManagedBlock.Count = 2
+        $item.Configuration.ManagedBlock.Body = $null
+    }
+    Assert-FailureContains -Name 'two managed blocks' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'has 2 repository-managed blocks'
+
+    $case = New-CaseFixture -Name 'no-managed-block' -Change {
+        param($item)
+        $item.Configuration.ManagedBlock.Count = 0
+        $item.Configuration.ManagedBlock.Body = $null
+    }
+    Assert-FailureContains -Name 'no managed block' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'has no repository-managed block'
+
+    $case = New-CaseFixture -Name 'malformed-markers' -Change {
+        param($item)
+        $item.Configuration.ManagedBlock.MarkerError = 'a BEGIN marker is never closed by an END marker'
+        $item.Configuration.ManagedBlock.Body = $null
+    }
+    Assert-FailureContains -Name 'markers that do not pair up' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'malformed managed block: a BEGIN marker is never closed'
+
+    $case = New-CaseFixture -Name 'stale-distribution' -Change {
+        param($item)
+        $item.Configuration.ManagedBlock.Body =
+        $item.Configuration.ManagedBlock.Body.Replace('FedoraLinux-44', 'FedoraLinux-42')
+    }
+    Assert-FailureContains -Name 'a block naming another distribution' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'managed block is not what this checkout writes for FedoraLinux-44'
+
+    # A required line moved out of the block is exactly what a presence-only
+    # check cannot see: the line is still in the file, just not where this
+    # repository puts it.
+    $case = New-CaseFixture -Name 'split-required-line' -Change {
+        param($item)
+        $item.Configuration.ManagedBlock.Body =
+        $item.Configuration.ManagedBlock.Body.Replace(
+            "config-file = `"dotfiles/theme.conf`"`n", '')
+    }
+    Assert-FailureContains -Name 'a required line outside the block' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'managed block is not what this checkout writes'
+
+    $case = New-CaseFixture -Name 'extra-line-in-block' -Change {
+        param($item)
+        $item.Configuration.ManagedBlock.Body =
+        $item.Configuration.ManagedBlock.Body + "window-padding-x = 99`n"
+    }
+    Assert-FailureContains -Name 'a line this checkout does not write' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'managed block is not what this checkout writes'
+
+    # A user command outside the block is the documented third state, and the
+    # block this checkout writes for it is a different one.
+    $case = New-CaseFixture -Name 'user-command-honoured' -Change {
+        param($item)
+        $item.Configuration.ManagedBlock.UserCommand = $true
+        $item.Configuration.ManagedBlock.Body =
+        $item.Configuration.ManagedBlock.Body.Replace(
+            'command = direct:wsl.exe --distribution FedoraLinux-44',
+            '# Fedora WSL command omitted: a user-managed command exists below.')
+    }
+    Assert-Success -Name 'a user-managed command in control' `
+        -Result (Invoke-Verifier -Fixture $case)
+
+    $case = New-CaseFixture -Name 'user-command-overridden' -Change {
+        param($item)
+        $item.Configuration.ManagedBlock.UserCommand = $true
+    }
+    Assert-FailureContains -Name 'a user command the block overrode' `
+        -Result (Invoke-Verifier -Fixture $case) `
+        -Expected 'managed block is not what this checkout writes'
+
     $case = New-CaseFixture -Name 'broken-config' -Change {
         param($item)
         $item.Configuration.Files[1].BrokenLink = $true
