@@ -54,6 +54,15 @@ assert_no_temporary_files() {
   fi
 }
 
+# A real Unix socket, so the verifier's -S test is answered by the filesystem.
+make_socket() {
+  python3 -c '
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.bind(sys.argv[1])
+' "$1"
+}
+
 new_test_root() {
   test_new_root
   test_root="$TEST_ROOT"
@@ -75,6 +84,17 @@ new_test_root() {
   # Volumes, networks and Compose projects the run created and has not removed.
   : >"$test_root/podman-resources"
   mkdir -p "$test_root/tmp"
+  # The listen path systemctl reports for podman.socket, when a case sets one.
+  : >"$test_root/user-socket-listen"
+  # Owner names for the stat stub, as "<path>\t<owner>".
+  : >"$test_root/stat-owners"
+  # A real rootless runtime directory holding a real Unix socket, so the
+  # verifier's own -S test and its mode reads answer from the filesystem
+  # rather than from a fixture that could only ever say yes.
+  mkdir -p "$test_root/runtime/podman"
+  chmod 700 "$test_root/runtime/podman"
+  make_socket "$test_root/runtime/podman/podman.sock"
+  chmod 660 "$test_root/runtime/podman/podman.sock"
 
   # DNF uses the shared exact-argv contract so renamed packages or unexpected
   # package-manager flags fail this high-risk installer suite immediately.
@@ -91,10 +111,32 @@ new_test_root() {
   test_stub_allow "$test_root" systemctl --user enable --now podman.socket
   test_stub_allow "$test_root" systemctl --user is-enabled --quiet podman.socket
   test_stub_allow "$test_root" systemctl --user is-active --quiet podman.socket
+  test_stub_allow "$test_root" systemctl --user show podman.socket \
+    --property=Listen
   # The verifier only consults the system scope to explain why a system-scoped
   # socket does not satisfy the user-scoped requirement; it is never enabled.
   test_stub_allow "$test_root" systemctl is-enabled --quiet podman.socket
   test_stub_allow "$test_root" systemctl is-active --quiet podman.socket
+
+  # Modes come from the real filesystem, so a case sets one with chmod and the
+  # verifier reads what is actually there. Only the owner name is answered from
+  # a table: the suite runs as whoever invoked it while the verifier compares
+  # against the stubbed `id -un`, and a test cannot chown without privileges.
+  cat >"$mock_bin/stat" <<EOF
+#!/usr/bin/env bash
+if [[ "\${1:-}" == -c && "\${2:-}" == '%U' ]]; then
+  path="\${3:-}"
+  [[ -e "\$path" ]] || exit 1
+  owner="\$(grep -F "\$path"\$'\t' "\$STAT_OWNERS" 2>/dev/null | head -1)" || true
+  if [[ -n "\$owner" ]]; then
+    printf '%s\n' "\${owner#*\$'\t'}"
+  else
+    printf '%s\n' tester
+  fi
+  exit 0
+fi
+exec $(type -P stat) "\$@"
+EOF
 
   cat >"$mock_bin/rpm" <<'EOF'
 #!/usr/bin/env bash
@@ -176,6 +218,15 @@ if [[ $# -eq 4 && "$1" == --user && "$2" == is-active &&
   "$3" == --quiet && "$4" == podman.socket ]]; then
   grep -qx podman.socket "$USER_ACTIVE_UNITS" 2>/dev/null
   exit $?
+fi
+
+if [[ $# -eq 4 && "$1" == --user && "$2" == show &&
+  "$3" == podman.socket && "$4" == --property=Listen ]]; then
+  # Empty unless a case records one, which is how the fallback to the default
+  # rootless layout gets exercised as well as the resolved path.
+  listen="$(cat "$USER_SOCKET_LISTEN" 2>/dev/null)"
+  [[ -z "$listen" ]] || printf 'Listen=%s (Stream)\n' "$listen"
+  exit 0
 fi
 
 if [[ $# -eq 3 && "$1" == is-enabled && "$2" == --quiet &&
@@ -398,6 +449,9 @@ base_environment() {
     "PODMAN_IMAGE_STORE=$root/podman-images" \
     "PODMAN_RESOURCE_STORE=$root/podman-resources" \
     "TMPDIR=$root/tmp" \
+    "USER_SOCKET_LISTEN=$root/user-socket-listen" \
+    "STAT_OWNERS=$root/stat-owners" \
+    "XDG_RUNTIME_DIR=$root/runtime" \
     "USER=tester"
 }
 
@@ -602,6 +656,120 @@ run_capture env "${test_environment[@]}" \
 assert_success
 assert_contains "$TEST_OUTPUT" 'podman.socket is enabled and active for the user'
 printf 'PASS: recorded api_socket=enabled with a healthy user socket passes\n'
+
+# --- the API socket is checked for owner and mode, not only for unit state --
+#
+# SEC-06: the section above reads a systemd unit state, which says the endpoint
+# is running and nothing about the shape it is running in. The Podman API
+# socket is equivalent to shell access -- anything that can talk to it can run
+# a container with an arbitrary bind mount -- so these cases put a real socket
+# on disk and read back what the verifier says about it.
+
+socket_test_root() {
+  new_test_root
+  mapfile -t test_environment < <(base_environment "$test_root")
+  printf 'tester:100000:65536\n' >"$test_root/subuid"
+  printf 'tester:100000:65536\n' >"$test_root/subgid"
+  write_containers_state "$test_root" enabled
+  printf 'podman.socket\n' >"$test_root/user-enabled-units"
+  printf 'podman.socket\n' >"$test_root/user-active-units"
+  socket_path="$test_root/runtime/podman/podman.sock"
+}
+
+run_socket_verifier() {
+  run_capture env "${test_environment[@]}" \
+    "$repo_root/platforms/fedora/scripts/verify-containers.sh" --skip-smoke-test
+}
+
+# a user-owned 0660 socket in a 0700 directory -> pass, naming what it saw
+socket_test_root
+
+run_socket_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" "$socket_path"
+assert_contains "$TEST_OUTPUT" 'is owned by tester, mode 660'
+assert_contains "$TEST_OUTPUT" 'is mode 700, so the API socket is reachable by tester only'
+printf 'PASS: a healthy API socket is reported with its owner and its mode\n'
+
+# a socket owned by another user -> fail, naming the owner
+socket_test_root
+printf '%s\t%s\n' "$socket_path" someone-else >"$test_root/stat-owners"
+
+run_socket_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'is owned by someone-else, not tester'
+printf 'PASS: an API socket owned by another user fails verification\n'
+
+# a world-accessible socket -> fail, naming the mode
+socket_test_root
+chmod 666 "$socket_path"
+
+run_socket_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'is mode 666, which is open to every user on this machine'
+printf 'PASS: a world-accessible API socket fails verification\n'
+
+# more than read and write for the group -> fail, naming the mode
+socket_test_root
+chmod 670 "$socket_path"
+
+run_socket_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'is mode 670, which grants its group more than read and write'
+printf 'PASS: an over-permissive group mode on the API socket fails\n'
+
+# a directory anyone can walk into -> fail, whatever the socket's own mode is
+socket_test_root
+chmod 755 "$test_root/runtime/podman"
+
+run_socket_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'is mode 755, so users other than tester can reach the API socket'
+printf 'PASS: a world-readable directory around the API socket fails\n'
+chmod 700 "$test_root/runtime/podman"
+
+# the listen path comes from the unit, not from an assumption about the layout.
+# The overridden socket is the healthy one and the default-layout socket is
+# world-accessible, so a verifier that checked the assumed path would fail here
+# and a verifier that named it would be caught naming it.
+socket_test_root
+mkdir -p "$test_root/elsewhere"
+chmod 700 "$test_root/elsewhere"
+make_socket "$test_root/elsewhere/overridden.sock"
+chmod 660 "$test_root/elsewhere/overridden.sock"
+chmod 666 "$socket_path"
+printf '%s\n' "$test_root/elsewhere/overridden.sock" >"$test_root/user-socket-listen"
+
+run_socket_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" \
+  "$test_root/elsewhere/overridden.sock (systemctl --user show podman.socket)"
+assert_contains "$TEST_OUTPUT" 'is owned by tester, mode 660'
+assert_not_contains "$TEST_OUTPUT" "$socket_path"
+printf 'PASS: the API socket is checked where the unit says it listens\n'
+chmod 660 "$socket_path"
+
+# nothing at the resolved path -> unobserved, not a failure: an operator whose
+# socket is somewhere this cannot see has not thereby got a broken profile
+socket_test_root
+rm -f "$socket_path"
+
+run_socket_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" 'is not a socket, so its owner and mode cannot be checked'
+assert_contains "$TEST_OUTPUT" 'completed with unobserved checks'
+printf 'PASS: an API socket that cannot be found is unobserved, not failed\n'
+
+# api_socket=disabled -> there is no socket to check, so the section is silent
+socket_test_root
+write_containers_state "$test_root" disabled
+: >"$test_root/user-enabled-units"
+: >"$test_root/user-active-units"
+
+run_socket_verifier
+assert_success
+assert_not_contains "$TEST_OUTPUT" 'API socket ownership and mode'
+printf 'PASS: no API socket was asked for, so none is checked\n'
 
 # requested enabled + socket never established -> fail
 new_test_root
