@@ -14,6 +14,15 @@ So the declaration is checked here rather than trusted. Two jobs:
    function can reach -- directly, through a helper it calls, or through the
    argument vector it hands ``plan_command_run`` -- must be declared, and
    nothing else may be.
+
+   "A helper it calls" is read by ``scripts/lib/shellread.py`` rather than by
+   a regex here. The regex that used to live here found the callee by
+   anchoring on what opens a command, and let the opener itself be the callee:
+   `if helper; then` read as calls to `if` and `then`, so a script reached
+   only through a conditional was never required to be declared and the
+   preflight never probed the host it downloads from. That is precisely the
+   failing open this file exists to prevent, so the reading is shared with
+   ``validate-tool-floors.py``, which had grown the same fault separately.
 2. **A source a planned script fetches is reachable.** A step's script may
    source a library that does the fetching, and the registry row would then
    name only the library. The preflight matches consumers against the step's
@@ -41,6 +50,12 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from manifests import ManifestSchemaError, read_tsv  # noqa: E402
+from shellread import (  # noqa: E402
+    UnreadableShell,
+    commands,
+    function_bodies,
+    outside_functions,
+)
 
 FIELDS = [
     "id", "component", "owner", "kind", "url", "privilege", "tier",
@@ -52,16 +67,13 @@ SCRIPT = re.compile(
     r"(?:\$DOTFILES_ROOT/|\$repo_root/|(?<![\w/.-]))"
     r"(?P<path>(?:" + "|".join(TOPLEVEL) + r")/[A-Za-z0-9._/-]+\.(?:sh|py))"
 )
-DEFINITION = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\(\)\s*\{?")
 # A function reached through the plan's own command-vector indirection, where
 # the function name is an argument rather than the word starting a statement.
+# Finding a function called as a command is `scripts/lib/shellread.py`'s job,
+# not this file's; this is the one call shape that module cannot see, because
+# the callee is an argument.
 COMMAND_VECTOR = re.compile(
     r"plan_command_(?:run|note)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
-)
-# A function called as a command: the first word of a statement.
-CALL = re.compile(
-    r"(?:^|[;&|]|\|\||&&|\$\(|\bthen\b|\belse\b|\bdo\b)\s*"
-    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
 )
 SOURCED = re.compile(
     r"^\s*(?:source|\.)\s+\"?(?:\$DOTFILES_ROOT/|\$repo_root/|\$\(dirname[^)]*\)/)?"
@@ -119,24 +131,8 @@ def functions(paths: list[pathlib.Path]) -> dict[str, str]:
     for path in paths:
         if not path.is_file():
             continue
-        lines = path.read_text(encoding="utf-8").splitlines()
-        index = 0
-        while index < len(lines):
-            match = DEFINITION.match(lines[index])
-            if match is None:
-                index += 1
-                continue
-            body = [lines[index]]
-            if "}" in lines[index][match.end() :] or lines[index].rstrip().endswith("}"):
-                found.setdefault(match.group("name"), "\n".join(body))
-                index += 1
-                continue
-            index += 1
-            while index < len(lines) and not lines[index].startswith("}"):
-                body.append(lines[index])
-                index += 1
-            found.setdefault(match.group("name"), "\n".join(body))
-            index += 1
+        for name, body in function_bodies(path.read_text(encoding="utf-8")).items():
+            found.setdefault(name, body)
     return found
 
 
@@ -152,31 +148,9 @@ def reachable_scripts(
     scripts = {match.group("path") for match in SCRIPT.finditer(body)}
     for match in COMMAND_VECTOR.finditer(body):
         scripts |= reachable_scripts(match.group("name"), bodies, seen)
-    for line in body.splitlines():
-        for match in CALL.finditer(line):
-            scripts |= reachable_scripts(match.group("name"), bodies, seen)
+    for called in commands(body):
+        scripts |= reachable_scripts(called, bodies, seen)
     return scripts
-
-
-def strip_functions(text: str) -> str:
-    """The file's top-level code, with its function bodies removed."""
-    lines = text.splitlines()
-    kept: list[str] = []
-    index = 0
-    while index < len(lines):
-        match = DEFINITION.match(lines[index])
-        if match is None:
-            kept.append(lines[index])
-            index += 1
-            continue
-        if "}" in lines[index][match.end() :] or lines[index].rstrip().endswith("}"):
-            index += 1
-            continue
-        index += 1
-        while index < len(lines) and not lines[index].startswith("}"):
-            index += 1
-        index += 1
-    return "\n".join(kept)
 
 
 def reachable_sources(
@@ -197,9 +171,8 @@ def sources_in(text: str, bodies: dict[str, str], seen: set[str]) -> set[str]:
         found |= {name for name in match.group("ids").split(",") if name}
     for match in COMMAND_VECTOR.finditer(text):
         found |= reachable_sources(match.group("name"), bodies, seen)
-    for line in text.splitlines():
-        for match in CALL.finditer(line):
-            found |= reachable_sources(match.group("name"), bodies, seen)
+    for called in commands(text):
+        found |= reachable_sources(called, bodies, seen)
     return found
 
 
@@ -210,7 +183,7 @@ def script_sources(root: pathlib.Path, script: str) -> set[str]:
         return set()
     closure = sorted(sourced_closure(root, start))
     bodies = functions(closure)
-    return sources_in(strip_functions(start.read_text(encoding="utf-8")), bodies, set())
+    return sources_in(outside_functions(start.read_text(encoding="utf-8")), bodies, set())
 
 
 def sourced_closure(root: pathlib.Path, start: pathlib.Path) -> set[pathlib.Path]:
@@ -302,12 +275,25 @@ def main() -> int:
     reported: set[str] = set()
     for install in installs:
         platform = install.parent.name
-        bodies = functions(
-            [install]
-            + sorted((install.parent / "lib").glob("*.sh"))
-            + sorted((root / "common" / "lib").glob("*.sh"))
-        )
         page = install.relative_to(root).as_posix()
+        # Shell this reader cannot parse is a build error for the same reason
+        # an unreadable `plan_add` line is: a file that drops out contributes
+        # no reachable scripts, so the step it belongs to looks as though it
+        # ran none and the preflight probes nothing.
+        try:
+            bodies = functions(
+                [install]
+                + sorted((install.parent / "lib").glob("*.sh"))
+                + sorted((root / "common" / "lib").glob("*.sh"))
+            )
+        except UnreadableShell as problem:
+            fail(
+                f"{page}: this platform's shell cannot be read: {problem}. "
+                f"Until it parses, which scripts its steps run is unknown, "
+                f"which is not the same as none"
+            )
+            errors += 1
+            continue
         steps, unreadable = plan_steps(install, page)
         errors += unreadable
         if not steps:
@@ -335,7 +321,17 @@ def main() -> int:
                 errors += 1
 
             for script in sorted(declared):
-                for source in sorted(script_sources(root, script)):
+                try:
+                    fetched = script_sources(root, script)
+                except UnreadableShell as problem:
+                    fail(
+                        f"{script} cannot be read as shell: {problem}. Until "
+                        f"it parses, which sources it fetches is unknown, which "
+                        f"is not the same as none"
+                    )
+                    errors += 1
+                    continue
+                for source in sorted(fetched):
                     if source not in consumers or script in consumers[source]:
                         continue
                     message = (

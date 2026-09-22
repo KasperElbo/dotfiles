@@ -136,7 +136,22 @@ ARRAY_OWNERS = {
     ("platforms/fedora/scripts/install-dictation.sh", "packages"): "dictation",
 }
 
-PACKAGE_ARRAY = re.compile(r"^\s*(\w*packages)=\(([^)]*)\)", re.M)
+# A `<name>packages=(…)` literal array, or an append to one. The declaration
+# keyword and its flags are part of the shape because this repository writes
+# them -- `local -a packages=()` in common/lib/verify.sh, `local selected=()
+# packages=()` in the Fedora installer -- and a pattern anchored on the name
+# alone read straight past `local packages=(unowned)`, which is an installer
+# that installs a package no capability owns while this check reports none.
+PACKAGE_ARRAY = re.compile(
+    r"^\s*(?:(?:local|declare|typeset|readonly|export)\s+(?:-\w+\s+)*)?"
+    r"(\w*packages)\+?=\(([^)]*)\)",
+    re.M,
+)
+# The same arrays found without anchoring on anything, which is what
+# PACKAGE_ARRAY should have matched. A file where this finds more has an array
+# shape the anchored pattern cannot read, and an unreadable array is an
+# unchecked install rather than an empty one, so `package_arrays` refuses.
+PACKAGE_ARRAY_WRITTEN = re.compile(r"\w*packages\+?=\(")
 
 COMMON_STOW = pathlib.Path("common") / "stow.sh"
 # How a platform Stow script runs the portable one, and which of the portable
@@ -343,10 +358,25 @@ def package_arrays(path: pathlib.Path) -> dict[str, list[str]]:
     Read through `code_text()`, because a commented-out entry is not installed:
     matching the raw file would let `# ripgrep` keep satisfying a row that
     claims the package while dnf no longer installs it.
+
+    An array this cannot read is a build error rather than an array with no
+    entries. The shapes that used to be unreadable -- `local packages=(...)`,
+    `declare -a extra_packages=(...)`, `readonly more_packages=(...)` -- each
+    let an installer install a package no capability owned with this check
+    reporting nothing at all, so the count of arrays written is compared with
+    the count read.
     """
     found: dict[str, list[str]] = {}
     text = code_text(path)
-    for match in PACKAGE_ARRAY.finditer(text):
+    matches = list(PACKAGE_ARRAY.finditer(text))
+    written = len(PACKAGE_ARRAY_WRITTEN.findall(text))
+    if written > len(matches):
+        raise SystemExit(
+            f"{path}: {written} package arrays are written here and only "
+            f"{len(matches)} could be read; an array shape this check cannot "
+            f"parse is an unchecked install, not an absent one"
+        )
+    for match in matches:
         entries = [
             word for word in match.group(2).split()
             if not word.startswith("#") and not word.startswith("$")

@@ -360,6 +360,40 @@ sed -i 's/^for capability in base vm-guest; do$/packages=(bat curl)\n&/' \
 expect_scratch_rejected 'a verifier with a literal package list is rejected' \
   'platforms/parrot-ctf/scripts/verify.sh: verifier keeps its own packages=(...) list (bat curl)'
 
+# ...and the same list written with a declaration keyword, which is the shape
+# the pattern used to read straight past. `local -a packages=()` is how
+# common/lib/verify.sh really declares one, so this was not a hypothetical
+# spelling: the array simply did not exist as far as this check could tell.
+new_scratch declared-package-array
+sed -i 's/^for capability in base vm-guest; do$/declare -a packages=(bat curl)\n&/' \
+  "$scratch/platforms/parrot-ctf/scripts/verify.sh"
+expect_scratch_rejected 'a verifier with a declared package list is rejected' \
+  'platforms/parrot-ctf/scripts/verify.sh: verifier keeps its own packages=(...) list (bat curl)'
+
+# The installer direction of the same shape: an array declared inside a
+# function installed packages with no owning row while this check reported no
+# array at all.
+new_scratch local-package-array
+sed -i 's/^installed_matches_pin() {$/&\n  local packages=(unowned-by-any-capability)/' \
+  "$scratch/platforms/fedora/scripts/install-dictation.sh"
+expect_scratch_rejected 'a local package array is not invisible' \
+  "platforms/fedora/scripts/install-dictation.sh: packages installs 'unowned-by-any-capability', which no fedora capability owns"
+
+new_scratch declared-installer-array
+sed -i 's/^installed_matches_pin() {$/&\n  declare -a extra_packages=(unowned-by-any-capability)/' \
+  "$scratch/platforms/fedora/scripts/install-dictation.sh"
+expect_scratch_rejected 'a declared installer array must still name its owner' \
+  "platforms/fedora/scripts/install-dictation.sh: package array 'extra_packages' is not declared in ARRAY_OWNERS"
+
+# An array shape the pattern still cannot read is an unchecked install rather
+# than an absent one, so the number of arrays written is compared with the
+# number read and a shortfall fails the build.
+new_scratch unreadable-package-array
+sed -i 's/^installed_matches_pin() {$/&\n  local selected=() packages=(unowned-by-any-capability)/' \
+  "$scratch/platforms/fedora/scripts/install-dictation.sh"
+expect_scratch_rejected 'an unreadable package array is an error, not an absent install' \
+  'package arrays are written here and only'
+
 # A verifier, and a verifier it runs, report through the shared library.
 new_scratch library
 sed -i '/common\/lib\/verify\.sh"$/d' "$scratch/platforms/fedora/scripts/verify-vm-host.sh"

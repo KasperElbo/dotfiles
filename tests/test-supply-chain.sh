@@ -40,6 +40,78 @@ assert_contains "$TEST_OUTPUT" 'cannot read this plan_add line as a command'
 assert_contains "$TEST_OUTPUT" 'platforms/fedora/install.sh:'
 printf 'PASS: a plan_add line the tokeniser cannot read is a build error\n'
 
+# A helper reached only through a conditional is still reached. The regex that
+# used to find the callee here anchored on what opens a command and let the
+# opener itself be the callee, so `if helper; then` read as calls to `if` and
+# `then` and the script behind the helper was never required to be declared.
+# That is the failing open the validator exists to prevent:
+# `preflight_plan_network` derives its probe set from the declaration, so the
+# host is never probed and the run mutates before it discovers it cannot
+# download. Both spellings of the hidden call get a case, because widening the
+# opener set without excluding the keywords from the callee fixes neither.
+hidden_tree="$test_root/hidden-call-tree"
+mkdir -p "$hidden_tree"
+tar -C "$repo_root" --exclude=.git --exclude=.claude -cf - . |
+  tar -C "$hidden_tree" -xf -
+hidden_install="$hidden_tree/platforms/fedora/install.sh"
+cp "$hidden_install" "$test_root/fedora-install.pristine"
+
+# hide_call <conditional>: the theme step's apply function, which declares no
+# scripts at all, reaching the Tailscale installer only through the given
+# conditional. The mutation is checked with `bash -n` first, because a case
+# that is not valid shell proves nothing about a reader of shell.
+hide_call() {
+  cp "$test_root/fedora-install.pristine" "$hidden_install"
+  python3 - "$hidden_install" "$1" <<'PYTHON'
+import pathlib
+import sys
+
+install, conditional = pathlib.Path(sys.argv[1]), sys.argv[2]
+original = (
+    'apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || '
+    '"$HOME/.local/bin/theme" "$theme"; }'
+)
+text = install.read_text(encoding="utf-8")
+if original not in text:
+    raise SystemExit(f"{install}: apply_theme is not the line this test rewrites")
+install.write_text(
+    text.replace(
+        original,
+        "fedora_extra_step() { plan_command_run fedora_tailscale_command; }\n"
+        "apply_theme() { " + conditional + "; "
+        '[[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }',
+    )
+)
+PYTHON
+  bash -n "$hidden_install"
+  run_capture python3 "$repo_root/scripts/validate-plan-network.py" --root "$hidden_tree"
+}
+
+undeclared_message='step theme runs platforms/fedora/scripts/install-tailscale.sh but does not declare it'
+
+hide_call 'if fedora_extra_step; then :; fi'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$undeclared_message"
+printf 'PASS: a script reached through `if helper; then` must still be declared\n'
+
+hide_call 'if [[ "$install_tailscale" == true ]]; then fedora_extra_step; fi'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$undeclared_message"
+printf 'PASS: the one-line `if cond; then helper; fi` hides nothing either\n'
+
+# The same helper called plainly, which is the case that always failed. It is
+# here so that a reader which stopped finding calls altogether could not pass
+# the two cases above by reading nothing at all.
+hide_call 'fedora_extra_step'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$undeclared_message"
+printf 'PASS: the plain call is still reported, so the cases above are not vacuous\n'
+
+cp "$test_root/fedora-install.pristine" "$hidden_install"
+run_capture python3 "$repo_root/scripts/validate-plan-network.py" --root "$hidden_tree"
+assert_success
+printf 'PASS: the copied tree validates unmutated, so the mutation is the variable\n'
+
 # Everything the audit named as a trust source is actually registered.
 for source_id in terra-repo terra-signing-key rpmfusion-free-release \
   rpmfusion-nonfree-release tailscale-repo mise-installer starship-installer \

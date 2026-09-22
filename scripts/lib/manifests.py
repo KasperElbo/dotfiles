@@ -210,9 +210,17 @@ def check_or_write(target: pathlib.Path, content: str, argv: list[str]) -> int:
 
 
 # The `packages=(…)` array a Stow script iterates, and every `packages+=(…)`
-# append to it, conditional or not.
-STOW_PACKAGES_ARRAY = re.compile(r"^\s*packages=\((?P<names>[^)]*)\)", re.MULTILINE)
-STOW_PACKAGES_APPEND = re.compile(r"^\s*packages\+=\((?P<names>[^)]*)\)", re.MULTILINE)
+# append to it, conditional or not. The declaration keyword and its flags are
+# part of the shape: `local -a packages=()` is the same array, and anchoring on
+# the name alone made a Stow script's own list invisible, which reads as a
+# package deployed with no owning row.
+ARRAY_DECLARATION = r"(?:(?:local|declare|typeset|readonly|export)\s+(?:-\w+\s+)*)?"
+STOW_PACKAGES_ARRAY = re.compile(
+    r"^\s*" + ARRAY_DECLARATION + r"packages=\((?P<names>[^)]*)\)", re.MULTILINE
+)
+STOW_PACKAGES_APPEND = re.compile(
+    r"^\s*" + ARRAY_DECLARATION + r"packages\+=\((?P<names>[^)]*)\)", re.MULTILINE
+)
 
 
 def stow_packages(script: pathlib.Path) -> list[str]:

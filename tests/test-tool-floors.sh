@@ -437,6 +437,126 @@ write_consumer 'broken() {
 assert_failure
 assert_contains "$TEST_OUTPUT" 'enforce.sh cannot be read as shell'
 
+# --- Where the brace sits does not decide whether a floor is enforced -------
+
+# A definition was once recognised only with its opening brace on the same
+# line, so moving the brace one line down made the function invisible and its
+# body counted as load-time code. The floor check could then sit in a function
+# nothing ever calls with no floor enforced anywhere and this check still
+# green, which is the exact state the "function nothing calls" case above
+# exists to refuse. Both brace positions and the `function` keyword spelling
+# therefore get a case, in both directions.
+write_consumer 'never_called()
+{
+  tool_floor_check nvim
+}
+: nothing calls it'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+write_consumer 'called()
+{
+  tool_floor_check nvim
+}
+called'
+assert_success
+
+write_consumer 'function never_called {
+  tool_floor_check nvim
+}
+: nothing calls it'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+# A definition whose brace never arrives is a file that could not be read,
+# which is not a file that enforces nothing.
+write_consumer 'broken()
+: never opened'
+assert_failure
+assert_contains "$TEST_OUTPUT" 'enforce.sh cannot be read as shell'
+
+# --- The same predicate in the other direction ------------------------------
+
+# A floor check written as a condition is enforced on every code path, and the
+# reader that took `if` for the callee said the opposite: it reported the file
+# as naming a reader it never runs. Refusing a correct enforcement is as
+# damaging as accepting an absent one, because the fix offered is to rewrite
+# working shell.
+write_consumer 'if ! tool_floor_check nvim; then
+  printf "Install a newer Neovim first\n" >&2
+  exit 1
+fi'
+assert_success
+
+write_consumer 'if tool_floor_check nvim; then :; fi'
+assert_success
+
+# The shape common/install-neovim-tools.sh really writes, argument vector and
+# all: the probe is built first and passed through, so the callee is followed
+# by a quoted array expansion.
+write_consumer 'nvim_version_probe=(nvim)
+if ! tool_floor_check nvim "${nvim_version_probe[@]}"; then
+  printf "Install a newer Neovim first\n" >&2
+  exit 1
+fi'
+assert_success
+
+# --- The shared reader, asserted directly -----------------------------------
+
+# Both this validator and scripts/validate-plan-network.py used to carry their
+# own copy of "a word in command position", and both copies let a keyword
+# opener be captured as the callee. The two copies disagreed about which
+# openers existed while sharing the bug, so the reading now lives in
+# scripts/lib/shellread.py and is checked here rather than only through its
+# callers: every opener has to yield the word it opens.
+run_capture python3 - "$repo_root" <<'PY'
+import importlib.util, pathlib, sys
+
+spec = importlib.util.spec_from_file_location(
+    "shellread", pathlib.Path(sys.argv[1]) / "scripts" / "lib" / "shellread.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+wrong = {
+    line: sorted(module.commands(line))
+    for line in (
+        "helper",
+        "if helper; then",
+        "elif helper; then",
+        'if [[ -n "$x" ]]; then helper; fi',
+        "while helper; do",
+        "until helper; do",
+        "! helper",
+        "{ helper; }",
+        "(helper)",
+        "other && helper",
+        "other; helper",
+    )
+    if module.commands(line) - {"other"} != {"helper"}
+}
+print("misread: " + repr(wrong) if wrong else "every opener yields the word it opens")
+PY
+assert_success
+assert_contains "$TEST_OUTPUT" 'every opener yields the word it opens'
+
+# A reserved word is never a callee, and neither is the variable a declaration
+# builtin declares: capturing either invents a call that does not exist.
+run_capture python3 - "$repo_root" <<'PY'
+import importlib.util, pathlib, sys
+
+spec = importlib.util.spec_from_file_location(
+    "shellread", pathlib.Path(sys.argv[1]) / "scripts" / "lib" / "shellread.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+found = set()
+for line in ("if helper; then", "local floor=1", "declare -a probe=()", "return 1"):
+    found |= module.commands(line)
+print(" ".join(sorted(found & set(module.RESERVED_WORDS))) or "no reserved word read as a callee")
+PY
+assert_success
+assert_contains "$TEST_OUTPUT" 'no reserved word read as a callee'
+
 # The reader names come from the library, so renaming one is tracked rather
 # than leaving this check looking for a name that no longer exists.
 renamed="$root/renamed-reader"
