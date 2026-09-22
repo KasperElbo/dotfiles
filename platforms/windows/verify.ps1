@@ -24,6 +24,7 @@ $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $Manifest = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'manifest.psd1')
 . (Join-Path $PSScriptRoot 'lib\wsl-version.ps1')
 . (Join-Path $PSScriptRoot 'lib\scoop.ps1')
+. (Join-Path $PSScriptRoot 'lib\noctty-config.ps1')
 
 if (-not $StatePath) {
     if ($FixturePath) {
@@ -306,23 +307,29 @@ function Get-LiveObservation {
         }
     }
 
-    $managedBlockValid = $false
+    # The managed block is read as one structure, through the same parser the
+    # installer writes it with. Four independent global regex matches answer
+    # "does this line occur anywhere", which a file holding a current block and
+    # a stale one satisfies while Ghostty reads both.
+    $managedBlock = [pscustomobject]@{
+        Exists = $false
+        Count = 0
+        MarkerError = $null
+        Body = $null
+        UserCommand = $false
+    }
     if ($configurationSelected -and (Test-Path -LiteralPath $rootConfig -PathType Leaf)) {
         $content = Get-Content -LiteralPath $rootConfig -Raw
-        $baseBlockValid = (
-            $content -match '(?m)^# BEGIN dotfiles Fedora WSL\r?$' -and
-            $content -match '(?m)^# END dotfiles Fedora WSL\r?$' -and
-            $content -match '(?m)^config-file = "dotfiles/ghostty\.conf"\r?$' -and
-            $content -match '(?m)^config-file = "dotfiles/theme\.conf"\r?$'
-        )
-        $expectedCommand = [regex]::Escape(
-            "command = direct:wsl.exe --distribution $distribution"
-        )
-        $commandValid = (
-            $content -match "(?m)^${expectedCommand}\r?$" -or
-            $content -match '(?m)^# Fedora WSL command omitted: a user-managed command exists below\.\r?$'
-        )
-        $managedBlockValid = $baseBlockValid -and $commandValid
+        $parsed = Get-NocttyManagedBlocks -Content $content
+        $userContent = if ($parsed.MarkerError) { $null }
+        else { Remove-NocttyManagedBlocks -Content $content }
+        $managedBlock = [pscustomobject]@{
+            Exists = $true
+            Count = $parsed.Count
+            MarkerError = $parsed.MarkerError
+            Body = if ($parsed.Count -eq 1) { $parsed.Blocks[0].Body } else { $null }
+            UserCommand = Test-NocttyUserCommand -Content $userContent
+        }
     }
 
     $wslCommand = Get-Command wsl.exe -ErrorAction SilentlyContinue
@@ -386,7 +393,7 @@ function Get-LiveObservation {
             }
         }
         Configuration = [pscustomobject]@{
-            ManagedBlockValid = $managedBlockValid
+            ManagedBlock = $managedBlock
             Files = @($configurationFiles)
         }
         Wsl = [pscustomobject]@{
@@ -557,11 +564,41 @@ if ($null -ne $observation) {
             }
         }
 
-        if ($observation.Configuration.ManagedBlockValid) {
-            Write-VerificationPass 'Noctty root configuration contains the expected managed block'
+        # Exactly one block, and its contents exactly what this checkout would
+        # write for the recorded distribution. A second block is a failure even
+        # when the first one is perfect, because Ghostty reads both.
+        $block = $observation.Configuration.ManagedBlock
+        if (-not $block.Exists) {
+            Write-VerificationFailure 'Noctty root configuration is missing, so it has no managed block'
+        }
+        elseif ($block.MarkerError) {
+            Write-VerificationFailure (
+                'Noctty root configuration has a malformed managed block: ' +
+                $block.MarkerError
+            )
+        }
+        elseif ($block.Count -eq 0) {
+            Write-VerificationFailure 'Noctty root configuration has no repository-managed block'
+        }
+        elseif ($block.Count -gt 1) {
+            Write-VerificationFailure (
+                "Noctty root configuration has $($block.Count) repository-managed blocks; " +
+                'Ghostty reads every one of them'
+            )
         }
         else {
-            Write-VerificationFailure 'Noctty root configuration managed block is missing or stale'
+            $expectedBody = New-NocttyManagedBlockBody `
+                -Distribution $observation.State.FedoraDistribution `
+                -HasUserCommand:([bool]$block.UserCommand)
+            if ($block.Body -ne $expectedBody) {
+                Write-VerificationFailure (
+                    'Noctty root configuration managed block is not what this checkout ' +
+                    "writes for $($observation.State.FedoraDistribution)"
+                )
+            }
+            else {
+                Write-VerificationPass 'Noctty root configuration contains exactly the expected managed block'
+            }
         }
     }
 

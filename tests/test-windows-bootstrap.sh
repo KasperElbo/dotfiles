@@ -198,15 +198,42 @@ grep -Fq 'function Write-WindowsSelectionState' "$installer"
 # shellcheck disable=SC2016
 grep -Fq 'Write-WindowsSelectionState -Distribution $selectedFedora' "$installer"
 grep -Fq "ghostty\.config\ghostty\shared.conf" "$installer"
-grep -Fq 'config-file = "dotfiles/ghostty.conf"' "$installer"
-grep -Fq 'config-file = "dotfiles/theme.conf"' "$installer"
-grep -Fq "command = direct:wsl.exe --distribution \$Distribution" "$installer"
 grep -Fq 'Sync-NocttyGhosttyConfig' "$installer"
 grep -Fq "Get-ChildItem -LiteralPath \$GhosttyThemes -Filter '*.conf'" "$installer"
 grep -Fq "Join-Path \$PSScriptRoot 'set-noctty-theme.ps1'" "$installer"
 grep -Fq "Where-Object { \$_ -match '^\s*theme\s*=' }" "$installer"
-grep -Fq '# BEGIN dotfiles Fedora WSL' "$installer"
 grep -Fq 'leaving it in control' "$installer"
+
+# The repository-managed block in Noctty's config.ghostty is a structure, and
+# both scripts read it through one parser. How many blocks the file holds, where
+# each begins and ends, and what is between the markers are all questions
+# independent global regex matches answer wrongly: two managed blocks satisfy
+# "a BEGIN marker occurs somewhere" and "the expected config-file line occurs
+# somewhere" while giving Ghostty conflicting settings.
+noctty_config_helper="$repo_root/platforms/windows/lib/noctty-config.ps1"
+[[ -f "$noctty_config_helper" ]]
+grep -Fq 'function Get-NocttyManagedBlocks' "$noctty_config_helper"
+grep -Fq 'function Remove-NocttyManagedBlocks' "$noctty_config_helper"
+grep -Fq 'function Test-NocttyUserCommand' "$noctty_config_helper"
+grep -Fq 'function New-NocttyManagedBlock' "$noctty_config_helper"
+grep -Fq '# BEGIN dotfiles Fedora WSL' "$noctty_config_helper"
+grep -Fq 'config-file = "dotfiles/ghostty.conf"' "$noctty_config_helper"
+grep -Fq 'config-file = "dotfiles/theme.conf"' "$noctty_config_helper"
+grep -Fq "command = direct:wsl.exe --distribution \$Distribution" "$noctty_config_helper"
+
+for windows_script in "$installer" "$windows_verifier"; do
+  grep -Fq "Join-Path \$PSScriptRoot 'lib\noctty-config.ps1'" "$windows_script" || {
+    printf 'The Noctty managed block must be read through the shared parser: %s\n' \
+      "$windows_script" >&2
+    exit 1
+  }
+done
+
+# The installer removes every complete block, never just the first one.
+if grep -Fq "Replace(\$content, '', 1)" "$installer"; then
+  printf 'The installer must converge every managed block, not only the first.\n' >&2
+  exit 1
+fi
 
 grep -Fq "[ValidateSet('latte', 'frappe', 'macchiato', 'mocha')]" "$theme_helper"
 grep -Fq "theme = catppuccin-\$Flavor.conf" "$theme_helper"

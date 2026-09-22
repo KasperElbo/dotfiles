@@ -37,7 +37,13 @@
     }
   },
   "Configuration": {
-    "ManagedBlockValid": true,
+    "ManagedBlock": {
+      "Exists": true,
+      "Count": 1,
+      "MarkerError": null,
+      "Body": "# Reuse the tracked Ghostty configuration; keep Windows-only settings here.\nconfig-file = \"dotfiles/ghostty.conf\"\nconfig-file = \"dotfiles/theme.conf\"\ncommand = direct:wsl.exe --distribution FedoraLinux-44\n",
+      "UserCommand": false
+    },
     "Files": [
       {
         "Name": "Noctty root configuration",
