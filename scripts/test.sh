@@ -88,6 +88,7 @@ default_tests=(
   tests/test-registry-schema.sh
   tests/test-manifest-reader.sh
   tests/test-capabilities.sh
+  tests/test-check-outcomes.sh
   tests/test-tool-floors.sh
   tests/test-install-option-parsers.sh
   tests/test-repository-hygiene.sh

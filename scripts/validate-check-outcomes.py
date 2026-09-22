@@ -149,7 +149,8 @@ def main() -> int:
                 for line in sites
                 if not {"pass", "fail"} <= outcomes.get((verifier, line), set())
             )
-            rows.append(f"{verifier}\t{uncovered}\t{len(sites)} check_* call sites")
+            plural = "" if len(sites) == 1 else "s"
+            rows.append(f"{verifier}\t{uncovered}\tof {len(sites)} check_* call site{plural}")
         LEDGER.write_text("\n".join(rows) + "\n", encoding="utf-8")
         print(f"Wrote {LEDGER.relative_to(ROOT)} from {arguments.trace}.")
         return 0
@@ -169,7 +170,8 @@ def main() -> int:
             continue
         if verifier not in recorded:
             fail(
-                f"{verifier} calls check_* {len(sites)} times but {ledger} does "
+                f"{verifier} calls check_* {len(sites)} time"
+                f"{'' if len(sites) == 1 else 's'} but {ledger} does "
                 f"not record it; every verifier answers to this rule"
             )
             errors += 1
@@ -183,8 +185,10 @@ def main() -> int:
         if len(uncovered) > allowed:
             listed = ", ".join(f"{verifier}:{line}" for line in uncovered)
             fail(
-                f"{verifier}: {len(uncovered)} check_* call sites were never "
-                f"driven to both a pass and a fail by the default suites, and "
+                f"{verifier}: {len(uncovered)} check_* call site"
+                f"{'' if len(uncovered) == 1 else 's'} "
+                f"{'was' if len(uncovered) == 1 else 'were'} never driven to "
+                f"both a pass and a fail by the default suites, and "
                 f"{ledger} allows {allowed}. A check no fixture can fail proves "
                 f"nothing. Give the new one a failing fixture, or raise the "
                 f"count with the reason. The sites are: {listed}"
