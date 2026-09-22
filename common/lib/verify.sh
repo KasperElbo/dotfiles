@@ -686,6 +686,12 @@ check_catppuccin_tmux() {
 # login that is not interactive, which is what rules out an interactive-only
 # definition satisfying the check by accident.
 #
+# What this cannot prove: that the variable reaches a process this shell did
+# not start. Anything launched outside a top-level Zsh -- an editor, a
+# launcher, a shell that predates the install -- reads none of .zshenv, so for
+# Claude Code specifically this is the second line and not the block itself.
+# See check_claude_update_settings below.
+#
 # The probe prints its own marker and an explicit sentinel for an unset
 # variable, so the three outcomes stay distinguishable. The marker is matched
 # anywhere on the line because a login shell is free to write control sequences
@@ -724,6 +730,59 @@ check_login_environment() {
       "Claude Code would update itself outside mise"
     ;;
   esac
+}
+
+# check_claude_update_settings <settings-file> <key>...: the update block that
+# survives a launch this repository did not start.
+#
+# check_login_environment above can only prove what a Zsh it starts itself
+# exports. Claude Code is routinely launched by something that is not a
+# descendant of a top-level Zsh -- an editor, a launcher, a shell that was
+# already running when the profile was installed -- and such a process gets
+# none of .zshenv. Claude Code reads its own settings file whatever started it,
+# so that file is where the block has to be, and here is where it is proven.
+#
+# A key set to anything other than "1" is a failure rather than a warning: the
+# tool's gate is what it is, and a value it does not accept leaves the updater
+# free to write a second copy into the active Node prefix, which is exactly the
+# state check_no_global_npm_duplicate then reports.
+check_claude_update_settings() {
+  local file="$1"
+  shift
+  local key value missing="false"
+
+  if ! command_exists jq; then
+    not_observed "jq is unavailable; cannot read $file to prove that Claude" \
+      "Code's updater is disabled"
+    return
+  fi
+
+  if [[ ! -e "$file" ]]; then
+    fail "$file does not exist, so Claude Code's updater is unrestricted" \
+      "however it is launched. Rerun './common/install-ai.sh' to declare $*"
+    return 1
+  fi
+
+  if ! jq -e . "$file" >/dev/null 2>&1; then
+    fail "$file is not valid JSON, so Claude Code reads no settings from it" \
+      "and its updater is unrestricted. Repair the file, then rerun" \
+      "'./common/install-ai.sh'"
+    return 1
+  fi
+
+  for key in "$@"; do
+    value="$(jq -r --arg key "$key" '.env[$key] // "<unset>"' "$file" 2>/dev/null)"
+    if [[ "$value" == "1" ]]; then
+      pass "$key=1 in $file"
+    else
+      fail "$key is $value in $file, not 1; Claude Code would install a" \
+        "second copy of itself into the active Node prefix. Rerun" \
+        "'./common/install-ai.sh'"
+      missing="true"
+    fi
+  done
+
+  [[ "$missing" == false ]]
 }
 
 # check_no_global_npm_duplicate <package>...: an AI package installed into the

@@ -74,39 +74,82 @@ if [[ -e "$hardening_state" ]]; then
   fi
 fi
 
-# check_owned_root_file <label> <path> <expected-mode> [<expected-line>...]
+# unreadable_without_password <label> <path>
+#
+# A control this verifier could not read is not a control that is gone. Saying
+# so is the whole point of the distinction: reporting an unreadable drop-in as
+# missing would send someone to re-run the installer over a machine that is
+# fine, and reporting it as present would be a guess.
+unreadable_without_password() {
+  not_observed "$1 could not be read without a sudo password, so whether it" \
+    "is still the file the installer wrote was not checked: $2 -- run" \
+    "'sudo -v' first, or run verification as root"
+}
+
+# check_owned_root_file <label> <drop-in>
 #
 # An owned drop-in has to exist, carry the mode the installer set, and still
-# contain the policy it was written with. Reverting any one of those silently
+# hold the content it was written with. Reverting any one of those silently
 # disables the control, so each is a failure on its own.
+#
+# The content is compared whole, against the same
+# platforms/fedora/lib/hardening.sh table the installer wrote it from. Asking
+# only whether each policy line occurs somewhere in the file cannot see a line
+# that was added, and an added line is enough to reverse a policy: sshd reads
+# the first value it finds for a keyword, so a `PermitRootLogin yes` inserted
+# above this profile's `PermitRootLogin no` enables root SSH login with every
+# written line still in place. These files are small, generated, and marked
+# safe to delete, so anything that is not the generated content is drift.
 check_owned_root_file() {
   local label="$1"
-  local path="$2"
-  local expected_mode="$3"
-  shift 3
-  local actual_mode content expected_line
+  local dropin="$2"
+  local path expected_mode actual_mode content expected status
 
-  if ! managed_root_file_exists "$path"; then
+  path="$(hardening_dropin_path "$dropin")"
+  # stat(1) reports a mode without the leading zero install(1) is given.
+  expected_mode="$(hardening_dropin_mode "$dropin")"
+  expected_mode="${expected_mode#0}"
+
+  managed_root_file_exists "$path"
+  status=$?
+  case "$status" in
+  0) ;;
+  1)
     fail "$label is missing: $path (created by the hardening profile; re-run" \
       "./scripts/install-hardening.sh to restore it)"
     return 1
-  fi
+    ;;
+  *)
+    unreadable_without_password "$label" "$path"
+    return 0
+    ;;
+  esac
 
-  actual_mode="$(managed_root_file_mode "$path" || true)"
+  status=0
+  actual_mode="$(managed_root_file_mode "$path")" || status=$?
+  if ((status == 2)); then
+    unreadable_without_password "$label" "$path"
+    return 0
+  fi
   if [[ "$actual_mode" != "$expected_mode" ]]; then
     fail "$label has mode ${actual_mode:-unknown}, expected $expected_mode:" \
       "$path"
     return 1
   fi
 
-  content="$(managed_root_file_read "$path")"
-  for expected_line in "$@"; do
-    if [[ "$content" != *"$expected_line"* ]]; then
-      fail "$label no longer contains '$expected_line': $path (the control" \
-        "was reverted or edited; re-run ./scripts/install-hardening.sh)"
-      return 1
-    fi
-  done
+  status=0
+  content="$(managed_root_file_read "$path")" || status=$?
+  if ((status == 2)); then
+    unreadable_without_password "$label" "$path"
+    return 0
+  fi
+  expected="$(hardening_dropin_content "$dropin")"
+  if [[ "$content" != "$expected" ]]; then
+    fail "$label no longer matches the policy the hardening profile wrote:" \
+      "$path ($(hardening_dropin_difference "$expected" "$content")); the" \
+      "control was reverted or edited -- re-run ./scripts/install-hardening.sh"
+    return 1
+  fi
 
   pass "$label is present, mode $expected_mode, and unmodified: $path"
 }
@@ -216,9 +259,7 @@ else
         "not in effect -- run: sudo authselect enable-feature with-faillock"
     fi
 
-    check_owned_root_file "faillock policy drop-in" \
-      /etc/security/faillock.conf.d/90-dotfiles-hardening.conf 644 \
-      'deny = 5' 'unlock_time = 900'
+    check_owned_root_file "faillock policy drop-in" faillock
   else
     warning "the installer could not enable pam_faillock on this machine" \
       "(recorded faillock=${state_faillock:-unknown}); account lockout is" \
@@ -235,9 +276,7 @@ else
     warning "the installer recorded sudo_logfile=false; sudo command logging" \
       "is not configured by this profile on this machine"
   else
-    check_owned_root_file "sudo logfile drop-in" \
-      /etc/sudoers.d/90-dotfiles-hardening 440 \
-      'Defaults logfile="/var/log/sudo.log"'
+    check_owned_root_file "sudo logfile drop-in" sudo-logfile
   fi
 
   # -------------------------------------------------------------------------
@@ -248,23 +287,41 @@ else
   section "auditd"
 
   if [[ "$state_auditd" == "true" ]]; then
-    check_owned_root_file "auditd watch rules" \
-      /etc/audit/rules.d/90-dotfiles-hardening.rules 640 \
-      '-w /etc/passwd -p wa -k dotfiles-identity' \
-      '-w /etc/shadow -p wa -k dotfiles-identity' \
-      '-w /etc/sudoers -p wa -k dotfiles-sudoers'
+    check_owned_root_file "auditd watch rules" auditd-rules
 
     if check_system_service_enabled_and_active auditd.service; then
       if ! command_exists auditctl; then
         not_observed "auditctl is unavailable, so whether the watch rules" \
           "are loaded into the running kernel audit subsystem could not be" \
           "read"
-      elif sudo auditctl -l 2>/dev/null | grep -q dotfiles-identity; then
-        pass "dotfiles watch rules are loaded in the running kernel"
+      elif ! hardening_privileged_read_available; then
+        not_observed "reading the loaded audit rules needs sudo, and" \
+          "verification never asks for a password, so whether the watch" \
+          "rules reached the running kernel was not checked -- run 'sudo -v'" \
+          "first, or run verification as root"
       else
-        fail "the dotfiles audit watch rules are not loaded in the running" \
-          "kernel; the rules file is present but ineffective -- run: sudo" \
-          "augenrules --load"
+        # Every rule the installer wrote has to be in the running kernel, not
+        # merely something carrying one of its keys: a partial load leaves the
+        # unloaded watches recording nothing, and a key is a substring anyone
+        # can put in a rule of their own. auditctl prints a loaded watch back
+        # in the spelling the rules file uses, so the comparison is line for
+        # line against the same source the file was written from.
+        loaded_rules="$(sudo -n auditctl -l 2>/dev/null || true)"
+        missing_rule=""
+        while IFS= read -r audit_rule; do
+          [[ -n "$audit_rule" ]] || continue
+          grep -Fxq -- "$audit_rule" <<<"$loaded_rules" && continue
+          missing_rule="$audit_rule"
+          break
+        done < <(hardening_dropin_content auditd-rules)
+
+        if [[ -z "$missing_rule" ]]; then
+          pass "every dotfiles watch rule is loaded in the running kernel"
+        else
+          fail "the dotfiles audit watch rule '$missing_rule' is not loaded" \
+            "in the running kernel; the rules file is present but" \
+            "ineffective -- run: sudo augenrules --load"
+        fi
       fi
     else
       note "the hardening profile recorded auditd=true, so its watch rules" \
@@ -283,11 +340,7 @@ else
 
   section "sysctl hardening"
 
-  check_owned_root_file "hardening sysctl drop-in" \
-    /etc/sysctl.d/90-dotfiles-hardening.conf 644 \
-    'kernel.yama.ptrace_scope = 1' \
-    'kernel.kptr_restrict = 2' \
-    'kernel.dmesg_restrict = 1'
+  check_owned_root_file "hardening sysctl drop-in" sysctl
 
   check_sysctl() {
     local key="$1"
@@ -314,11 +367,9 @@ else
 
   section "SSH posture"
 
-  ssh_dropin="/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
   case "$state_ssh" in
   hardened)
-    check_owned_root_file "sshd hardening drop-in applied" "$ssh_dropin" 644 \
-      'PermitRootLogin no' 'MaxAuthTries 3' 'LoginGraceTime 20'
+    check_owned_root_file "sshd hardening drop-in applied" ssh
     ;;
   present-not-hardened)
     warning "sshd was present at installation but could not be hardened" \
