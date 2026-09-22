@@ -74,6 +74,18 @@ if [[ -e "$hardening_state" ]]; then
   fi
 fi
 
+# unreadable_without_password <label> <path>
+#
+# A control this verifier could not read is not a control that is gone. Saying
+# so is the whole point of the distinction: reporting an unreadable drop-in as
+# missing would send someone to re-run the installer over a machine that is
+# fine, and reporting it as present would be a guess.
+unreadable_without_password() {
+  not_observed "$1 could not be read without a sudo password, so whether it" \
+    "is still the file the installer wrote was not checked: $2 -- run" \
+    "'sudo -v' first, or run verification as root"
+}
+
 # check_owned_root_file <label> <drop-in>
 #
 # An owned drop-in has to exist, carry the mode the installer set, and still
@@ -91,27 +103,46 @@ fi
 check_owned_root_file() {
   local label="$1"
   local dropin="$2"
-  local path expected_mode actual_mode content expected
+  local path expected_mode actual_mode content expected status
 
   path="$(hardening_dropin_path "$dropin")"
   # stat(1) reports a mode without the leading zero install(1) is given.
   expected_mode="$(hardening_dropin_mode "$dropin")"
   expected_mode="${expected_mode#0}"
 
-  if ! managed_root_file_exists "$path"; then
+  managed_root_file_exists "$path"
+  status=$?
+  case "$status" in
+  0) ;;
+  1)
     fail "$label is missing: $path (created by the hardening profile; re-run" \
       "./scripts/install-hardening.sh to restore it)"
     return 1
-  fi
+    ;;
+  *)
+    unreadable_without_password "$label" "$path"
+    return 0
+    ;;
+  esac
 
-  actual_mode="$(managed_root_file_mode "$path" || true)"
+  status=0
+  actual_mode="$(managed_root_file_mode "$path")" || status=$?
+  if ((status == 2)); then
+    unreadable_without_password "$label" "$path"
+    return 0
+  fi
   if [[ "$actual_mode" != "$expected_mode" ]]; then
     fail "$label has mode ${actual_mode:-unknown}, expected $expected_mode:" \
       "$path"
     return 1
   fi
 
-  content="$(managed_root_file_read "$path")"
+  status=0
+  content="$(managed_root_file_read "$path")" || status=$?
+  if ((status == 2)); then
+    unreadable_without_password "$label" "$path"
+    return 0
+  fi
   expected="$(hardening_dropin_content "$dropin")"
   if [[ "$content" != "$expected" ]]; then
     fail "$label no longer matches the policy the hardening profile wrote:" \
@@ -148,8 +179,26 @@ disabled)
   fail "SELinux is disabled"
   ;;
 unavailable)
-  warning "SELinux is not available on this kernel (e.g. inside a" \
-    "container); environmental, not something this profile can change"
+  # /sys/fs/selinux is absent both inside a container, where SELinux is a
+  # host-kernel feature this profile cannot reach, and on a Fedora install
+  # booted with selinux=0, where it is the control being reported on. The
+  # record tells them apart the way the permissive arm above already does: a
+  # machine whose installation saw a working SELinux and now has none lost it
+  # after installation. A record that itself says unavailable is the container
+  # case, recorded as such, and stays environmental.
+  case "$state_selinux" in
+  "" | unavailable)
+    warning "SELinux is not available on this kernel (e.g. inside a" \
+      "container); environmental, not something this profile can change"
+    ;;
+  *)
+    fail "SELinux is not available on this kernel at all, but the hardening" \
+      "profile recorded selinux_mode=$state_selinux, so this kernel had" \
+      "SELinux when the profile was installed and no longer does -- check" \
+      "the kernel command line (grep selinux= /proc/cmdline) and" \
+      "/etc/selinux/config"
+    ;;
+  esac
   ;;
 *)
   warning "Could not determine SELinux mode"
@@ -263,6 +312,11 @@ else
         not_observed "auditctl is unavailable, so whether the watch rules" \
           "are loaded into the running kernel audit subsystem could not be" \
           "read"
+      elif ! hardening_privileged_read_available; then
+        not_observed "reading the loaded audit rules needs sudo, and" \
+          "verification never asks for a password, so whether the watch" \
+          "rules reached the running kernel was not checked -- run 'sudo -v'" \
+          "first, or run verification as root"
       else
         # Every rule the installer wrote has to be in the running kernel, not
         # merely something carrying one of its keys: a partial load leaves the
@@ -270,7 +324,7 @@ else
         # can put in a rule of their own. auditctl prints a loaded watch back
         # in the spelling the rules file uses, so the comparison is line for
         # line against the same source the file was written from.
-        loaded_rules="$(sudo auditctl -l 2>/dev/null || true)"
+        loaded_rules="$(sudo -n auditctl -l 2>/dev/null || true)"
         missing_rule=""
         while IFS= read -r audit_rule; do
           [[ -n "$audit_rule" ]] || continue
@@ -361,8 +415,13 @@ else
   if systemctl is-enabled --quiet dnf5-automatic.timer 2>/dev/null; then
     pass "dnf5-automatic.timer is enabled"
 
+    # DNF_AUTOMATIC_ROOT prefixes the search the way HARDENING_ROOT prefixes
+    # the owned drop-ins, so a fixture can answer for this file. Empty (the
+    # default) means the real root. Unlike the drop-ins this file belongs to
+    # dnf: the profile enables the timer and never writes the configuration.
     automatic_conf=""
     for candidate in /etc/dnf/automatic.conf /etc/dnf/dnf5-plugins/automatic.conf; do
+      candidate="${DNF_AUTOMATIC_ROOT:-}$candidate"
       if [[ -f "$candidate" ]]; then
         automatic_conf="$candidate"
         break
@@ -372,11 +431,25 @@ else
     if [[ -n "$automatic_conf" ]]; then
       apply_updates="$(grep -E '^[[:space:]]*apply_updates[[:space:]]*=' \
         "$automatic_conf" 2>/dev/null | tail -n1 | cut -d= -f2 | xargs || true)"
-      if [[ "$apply_updates" == "yes" ]]; then
-        note "apply_updates=yes in $automatic_conf (this system auto-installs updates, not this profile's default)"
-      else
-        note "apply_updates=${apply_updates:-no} in $automatic_conf (downloads/reports only)"
-      fi
+      # dnf reads this key with libdnf5's OptionBool, which lower-cases the
+      # value and accepts 1/yes/true/on and 0/no/false/off, rejecting anything
+      # else. Comparing against the single spelling "yes" reported a machine
+      # set to apply_updates = true -- which does auto-install updates -- as
+      # downloading and reporting only.
+      case "${apply_updates,,}" in
+      1 | yes | true | on)
+        note "apply_updates=$apply_updates in $automatic_conf (this system auto-installs updates, not this profile's default)"
+        ;;
+      0 | no | false | off)
+        note "apply_updates=$apply_updates in $automatic_conf (downloads/reports only)"
+        ;;
+      "")
+        note "$automatic_conf sets no apply_updates; the packaged default (no) applies (downloads/reports only)"
+        ;;
+      *)
+        note "could not read apply_updates from $automatic_conf: '$apply_updates' is not a boolean dnf accepts (1/yes/true/on, 0/no/false/off), so whether this system auto-installs updates is unknown"
+        ;;
+      esac
     else
       note "no /etc override; using the packaged default (apply_updates=no, download_updates=yes)"
     fi
