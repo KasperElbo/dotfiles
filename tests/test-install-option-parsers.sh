@@ -241,7 +241,7 @@ run_capture env "INSTALL_OPTION_MANIFEST=$manifest" \
   python3 "$repo_root/scripts/validate-install-options.py"
 assert_failure
 assert_contains "$TEST_OUTPUT" \
-  "the manifest offers theme 'nonsense', which bin/.local/bin/theme does not accept"
+  "the manifest offers theme 'nonsense', which bin/.local/bin/theme does not cover"
 printf 'PASS: a flavour the registry offers and the runtime refuses fails\n'
 
 test_new_root
@@ -252,7 +252,7 @@ run_capture env "INSTALL_OPTION_MANIFEST=$manifest" \
   python3 "$repo_root/scripts/validate-install-options.py"
 assert_failure
 assert_contains "$TEST_OUTPUT" \
-  "bin/.local/bin/theme accepts theme 'frappe', which the manifest does not offer"
+  "bin/.local/bin/theme covers theme 'frappe'"
 printf 'PASS: a flavour the runtime accepts and the registry drops fails\n'
 
 scratch_tree
@@ -261,7 +261,7 @@ replace_line "$tree/bin/.local/bin/theme" '  latte|frappe|macchiato|mocha)' \
 run_capture python3 "$tree/scripts/validate-install-options.py"
 assert_failure
 assert_contains "$TEST_OUTPUT" \
-  "the manifest offers theme 'frappe', which bin/.local/bin/theme does not accept"
+  "the manifest offers theme 'frappe', which bin/.local/bin/theme does not cover"
 printf 'PASS: a flavour deleted from the runtime fails against the registry\n'
 
 # An enumeration nothing is held to is documentation, not a contract, so a
@@ -285,5 +285,97 @@ run_capture python3 "$tree/scripts/validate-install-options.py"
 assert_failure
 assert_contains "$TEST_OUTPUT" 'no `case "$flavour" in`'
 printf 'PASS: a consumer whose case this check cannot find fails\n'
+
+
+# --- Every shape a consumer states its values in ----------------------------
+
+# The registry was held to one consumer and ten others kept their own copy of
+# the four flavours, so a flavour added to the manifest was accepted by the
+# installer, recorded, and then ignored by Neovim, missing from Starship and
+# refused by the Windows theme script. Each shape below is one of those copies,
+# and each case is the drift that used to pass.
+
+scratch_tree
+replace_line "$tree/nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua" \
+  '    mocha = true,' '    mocha = false,'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "which nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua does not cover"
+printf 'PASS: a flavour missing from the Neovim table fails\n'
+
+scratch_tree
+replace_line "$tree/platforms/windows/set-noctty-theme.ps1" \
+  "    [ValidateSet('latte', 'frappe', 'macchiato', 'mocha')]" \
+  "    [ValidateSet('latte', 'frappe', 'macchiato')]"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "which platforms/windows/set-noctty-theme.ps1 does not cover"
+printf 'PASS: a flavour missing from the PowerShell parameter set fails\n'
+
+scratch_tree
+replace_line "$tree/scripts/update-starship-themes.sh" '  mocha' '  # mocha'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "which scripts/update-starship-themes.sh does not cover"
+printf 'PASS: a flavour missing from the Starship generator fails\n'
+
+scratch_tree
+replace_line "$tree/platforms/macos/scripts/verify.sh" \
+  'for flavour in latte frappe macchiato mocha; do' \
+  'for flavour in latte frappe macchiato; do'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "which platforms/macos/scripts/verify.sh does not cover"
+printf 'PASS: a flavour a verifier stops checking assets for fails\n'
+
+# The Fedora hook reads two different things through "$1", so the row names the
+# function as well: the flavour case, not the Ghostty reload case.
+scratch_tree
+hook="$tree/platforms/fedora/stow/theme-hooks/.config/dotfiles/theme-hooks.d/fedora.sh"
+replace_line "$hook" "  latte) printf 'Catppuccin-Latte-Mauve\n' ;;" \
+  "  # latte) printf 'Catppuccin-Latte-Mauve\n' ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "theme-hooks.d/fedora.sh does not cover"
+printf 'PASS: a flavour dropped from a function-scoped case fails\n'
+
+# The asset half: a flavour the registry offers with nothing on disk to stow,
+# and a file on disk for a flavour nothing can select.
+scratch_tree
+rm -f "$tree/theme-assets/.local/share/wallpapers/catppuccin-mocha.webp"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "which theme-assets/.local/share/wallpapers/catppuccin-{value}.webp does not cover"
+printf 'PASS: a flavour with no wallpaper on disk fails\n'
+
+scratch_tree
+cp "$tree/theme-assets/.local/share/wallpapers/catppuccin-mocha.webp" \
+  "$tree/theme-assets/.local/share/wallpapers/catppuccin-espresso.webp"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "covers theme 'espresso'"
+printf 'PASS: an asset for a flavour the registry does not offer fails\n'
+
+# A lock-screen wallpaper is not a flavour called mocha-lock: the two patterns
+# share a directory and a prefix, and reading one as the other would have made
+# the whole directory drift from the registry in both directions at once.
+run_capture python3 "$repo_root/scripts/validate-install-options.py"
+assert_success
+printf 'PASS: two file patterns in one directory read as their own values\n'
+
+# A kind the check cannot read is an error: a consumer whose shape is unknown
+# enforces nothing, and reading that as agreement is the defect itself.
+test_new_root
+consumers="$TEST_ROOT/unreadable-kind.tsv"
+sed 's/\tshell-case\t/\tvibes\t/' "$repo_root/config/option-consumers.tsv" >"$consumers"
+run_capture env "OPTION_CONSUMER_MANIFEST=$consumers" \
+  python3 "$repo_root/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "declares the kind 'vibes', which this check cannot read"
+printf 'PASS: a consumer kind this check cannot read fails\n'
 
 printf 'Installer option parser validation passed.\n'
