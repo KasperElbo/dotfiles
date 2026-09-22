@@ -287,7 +287,7 @@ apply_ocaml() { plan_command_run fedora_ocaml_command; }
 apply_ai() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interactive); plan_command_run fedora_ai_command "${args[@]}"; }
 apply_kde() { plan_command_run fedora_kde_command; }
 apply_latex() { plan_command_run fedora_latex_command; }
-apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
+apply_theme() { theme_apply_stowed "$theme"; }
 verify_fedora() { plan_command_run fedora_verify_command; }
 apply_dev_workflows() { plan_command_run fedora_dev_workflows_command; }
 

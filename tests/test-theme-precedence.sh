@@ -310,4 +310,43 @@ assert_contains "$TEST_OUTPUT" 'No theme option is declared for platform: nowher
 assert_path_missing "$machine/config/dotfiles/theme"
 printf 'PASS: local setup checks the flavour against the same manifest\n'
 
+# --- The theme plan step applies the theme or fails (GAP-38) ----------------
+#
+# `theme` is deployed by the shared `bin` Stow package, two plan positions
+# before the theme step. Each installer's apply_theme used to be
+# `[[ ! -x "$HOME/.local/bin/theme" ]] || ...`, so a run whose Stow step
+# deployed nothing still printed "[theme] completed" having applied nothing.
+# One helper now decides, and it fails instead.
+
+new_machine
+apply_home="$machine/apply-home"
+mkdir -p "$apply_home/.local/bin"
+apply_stowed='source "$1/common/lib/common.sh"
+  source "$1/common/lib/theme-selection.sh"
+  theme_apply_stowed "$2"'
+
+run_capture env "HOME=$apply_home" bash -c "$apply_stowed" _ "$repo_root" mocha
+assert_failure
+assert_contains "$TEST_OUTPUT" 'The theme command is not installed at'
+
+printf '#!/usr/bin/env bash\nprintf "applied %%s\\n" "$1"\n' \
+  >"$apply_home/.local/bin/theme"
+chmod +x "$apply_home/.local/bin/theme"
+run_capture env "HOME=$apply_home" bash -c "$apply_stowed" _ "$repo_root" mocha
+assert_success
+assert_contains "$TEST_OUTPUT" 'applied mocha'
+
+printf '#!/usr/bin/env bash\nexit 4\n' >"$apply_home/.local/bin/theme"
+run_capture env "HOME=$apply_home" bash -c "$apply_stowed" _ "$repo_root" mocha
+assert_status 4
+printf 'PASS: the theme apply helper fails when the stowed command is missing\n'
+
+# The four installers each carried their own copy of the lenient guard, so the
+# helper only holds while all four still route through it.
+for platform in "${platforms[@]}"; do
+  assert_file_line "$repo_root/platforms/$platform/install.sh" \
+    'apply_theme() { theme_apply_stowed "$theme"; }'
+done
+printf 'PASS: every installer applies the theme through the shared helper\n'
+
 printf 'Theme precedence and rerun-preservation tests passed.\n'

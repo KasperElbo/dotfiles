@@ -101,6 +101,39 @@ deployed="$(find "$direct_home" -mindepth 1 ! -path "$direct_home/.zshenv" -prin
   printf 'A refused stow created entries in HOME: %s\n' "$deployed" >&2; exit 1
 }
 
+# A package directory this checkout does not have is a missing package, not one
+# to leave out. common/stow.sh used to warn, continue, print "Portable dotfiles
+# stowed" and exit 0, so a checkout without the zsh package left HOME with no
+# .zshrc and no .zshenv while the calling plan step reported completed. Both
+# sibling Stow scripts die on the identical condition.
+#
+# The checkout is presented as a directory of symlinks rather than copied, so
+# DOTFILES_ROOT -- which is logical -- is that directory and the zsh package is
+# genuinely absent from it.
+partial_root="$test_root/partial-checkout"
+partial_home="$test_root/partial-home"
+mkdir -p "$partial_root" "$partial_home"
+for entry in "$repo_root"/*; do
+  [[ "$(basename "$entry")" != zsh ]] || continue
+  ln -s "$entry" "$partial_root/$(basename "$entry")"
+done
+if HOME="$partial_home" \
+  XDG_CONFIG_HOME="$partial_home/.config" \
+  XDG_DATA_HOME="$partial_home/.local/share" \
+  "$partial_root/common/stow.sh" --headless \
+  >"$test_root/partial-stow.log" 2>&1; then
+  printf 'A checkout missing the zsh package unexpectedly passed common/stow.sh.\n' >&2
+  exit 1
+fi
+grep -Fq 'Stow package is missing: zsh' "$test_root/partial-stow.log"
+grep -Fq 'Refusing to stow' "$test_root/partial-stow.log"
+partial_deployed="$(find "$partial_home" -mindepth 1 -print)"
+[[ -z "$partial_deployed" ]] || {
+  printf 'A refused stow created entries in HOME: %s\n' "$partial_deployed" >&2
+  exit 1
+}
+printf 'PASS: a checkout missing a Stow package is refused, not skipped\n'
+
 # A platform script checks its own packages before the portable ones are
 # deployed, so a conflict in a platform package leaves nothing behind either.
 platform_home="$test_root/platform-home"

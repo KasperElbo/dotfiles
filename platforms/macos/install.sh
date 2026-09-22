@@ -216,7 +216,7 @@ apply_ai() {
 }
 apply_macos_defaults() { "$DOTFILES_ROOT/platforms/macos/scripts/apply-defaults.sh"; }
 apply_dev_workflows() { local args=(--all); [[ "$install_ocaml" != true ]] || args+=(--ocaml); "$DOTFILES_ROOT/scripts/test-dev-workflows.sh" "${args[@]}"; }
-apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
+apply_theme() { theme_apply_stowed "$theme"; }
 apply_aerospace() { open -a AeroSpace || warn 'Open AeroSpace manually from /Applications'; }
 verify_macos() {
   macos_run_verifier "$apply_defaults" "$install_containers" "$install_tailscale" \

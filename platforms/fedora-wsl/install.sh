@@ -188,7 +188,7 @@ apply_ocaml() { plan_command_run wsl_ocaml_command; }
 apply_containers() { plan_command_run wsl_containers_command; }
 apply_tmux() { plan_command_run wsl_tmux_command; }
 apply_ai() { local args=(); [[ "$interactive" == true ]] || args+=(--non-interactive); plan_command_run wsl_ai_command "${args[@]}"; }
-apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
+apply_theme() { theme_apply_stowed "$theme"; }
 verify_wsl() { plan_command_run wsl_verify_command; }
 
 plan_add system 'Install Fedora command-line prerequisites and Linux-native mise' apply preflight_wsl apply_system : "Set Zsh as the user's default login shell. $(plan_command_note wsl_system_command)" 'platforms/fedora-wsl/scripts/install-system.sh'
