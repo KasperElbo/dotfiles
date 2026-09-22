@@ -1202,13 +1202,27 @@ try {
                 (Join-Path $repoRoot 'platforms\windows\manifest.psd1') 'FedoraLinux-44' $false $false $true
 
             # Every selection flag is a JSON boolean rather than a string that
-            # happens to read like one; verify.ps1 casts these, and PowerShell
-            # reads the non-empty string 'false' as true.
+            # happens to read like one; verify.ps1 rejects anything else, and
+            # PowerShell reads the non-empty string 'false' as true.
             foreach ($flag in @('WslRequired', 'NocttySelected', 'NocttyConfigurationSelected', 'HandySelected')) {
                 if ($raw -notmatch "`"$flag`"\s*:\s*(true|false)") {
                     throw "$flag is not a JSON boolean in the recorded state: $raw"
                 }
             }
+
+            # The reader the verifier uses, asked of what the writer just
+            # wrote. This is the one assertion that fails if either side moves
+            # without the other: a state install.ps1 records has to be one
+            # verify.ps1 accepts, unchanged.
+            . (Join-Path $PSScriptRoot '..\platforms\windows\lib\selection-state.ps1')
+            $read = Read-WindowsSelectionState -Json $raw `
+                -SupportedSchemaVersion ([int]$windowsManifest.SchemaVersion)
+            Assert-Equal -Actual $read.Valid -Expected $true `
+                -Message "The verifier rejected a state install.ps1 wrote: $($read.Error)"
+            Assert-Equal -Actual $read.HandySelected -Expected $true `
+                -Message 'The verifier read a selected Handy as unselected.'
+            Assert-Equal -Actual $read.FedoraDistribution -Expected 'FedoraLinux-44' `
+                -Message 'The verifier read back the wrong distribution.'
 
             $state = $raw | ConvertFrom-Json
             Assert-Equal -Actual $state.FedoraDistribution -Expected 'FedoraLinux-44' `

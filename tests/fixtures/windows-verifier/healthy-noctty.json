@@ -1,6 +1,7 @@
 {
   "State": {
     "Exists": true,
+    "Valid": true,
     "Error": null,
     "SchemaVersion": 1,
     "NocttySelected": true,

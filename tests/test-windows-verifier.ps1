@@ -767,12 +767,160 @@ try {
         $env:PATH = $originalPath
     }
 
-    # The helper verify.ps1 dot-sources is held to the same read-only contract
-    # as the verifier itself.
-    $source = (Get-Content -LiteralPath $verifier -Raw)
-    foreach ($helper in @('scoop.ps1', 'noctty-config.ps1')) {
+    # -----------------------------------------------------------------------
+    # The selection state, which decides what everything below it demands.
+    # [bool] on whatever JSON happened to hold is not a reading of a boolean:
+    # in PowerShell a non-empty string is true, so a hand-edited "false" read
+    # as selected and an empty array read as not selected, and either way the
+    # run still printed a green schema line.
+    # -----------------------------------------------------------------------
+
+    . (Join-Path $repoRoot 'platforms\windows\lib\selection-state.ps1')
+
+    function New-SelectionStateJson {
+        param([hashtable]$Override = @{})
+
+        $state = [ordered]@{
+            SchemaVersion = 1
+            FedoraDistribution = 'FedoraLinux-44'
+            WslRequired = $true
+            NocttySelected = $true
+            NocttyConfigurationSelected = $true
+            HandySelected = $false
+        }
+        foreach ($key in $Override.Keys) { $state[$key] = $Override[$key] }
+        return ($state | ConvertTo-Json)
+    }
+
+    $healthy = Read-WindowsSelectionState -Json (New-SelectionStateJson) -SupportedSchemaVersion 1
+    Assert-Equal -Actual $healthy.Valid -Expected $true `
+        -Message "A healthy selection state was rejected: $($healthy.Error)"
+    Assert-Equal -Actual $healthy.NocttySelected -Expected $true `
+        -Message 'A selected component was not read as selected.'
+    Assert-Equal -Actual $healthy.HandySelected -Expected $false `
+        -Message 'An unselected component was not read as unselected.'
+    Assert-Equal -Actual $healthy.FedoraDistribution -Expected 'FedoraLinux-44' `
+        -Message 'The recorded distribution was not read back.'
+
+    # Only JSON true and false. Each of these was accepted before, and four of
+    # them silently changed which components verification demanded.
+    foreach ($value in @('false', 'no', '', 1, 0, $null, @(), @{}, 'true')) {
+        $json = New-SelectionStateJson -Override @{ NocttySelected = $value }
+        $read = Read-WindowsSelectionState -Json $json -SupportedSchemaVersion 1
+        Assert-Equal -Actual $read.Valid -Expected $false `
+            -Message "A NocttySelected that is not a boolean was accepted: $json"
+        if ($read.Error -notlike 'NocttySelected is *not true or false') {
+            throw "A non-boolean flag was rejected for the wrong reason: $($read.Error)"
+        }
+        Assert-Equal -Actual $read.NocttySelected -Expected $false `
+            -Message 'A rejected state still answered a selection question.'
+    }
+    Write-Host 'PASS: only JSON true and false are accepted for a selection flag'
+
+    # A flag that is simply absent is not "not selected": it is a state file
+    # this checkout did not write, and defaulting it is how a component drops
+    # out of verification without anybody being told.
+    foreach ($required in @(
+            'SchemaVersion', 'FedoraDistribution', 'WslRequired',
+            'NocttySelected', 'NocttyConfigurationSelected', 'HandySelected'
+        )) {
+        $state = New-SelectionStateJson | ConvertFrom-Json
+        $state.PSObject.Properties.Remove($required)
+        $read = Read-WindowsSelectionState -Json ($state | ConvertTo-Json) -SupportedSchemaVersion 1
+        Assert-Equal -Actual $read.Valid -Expected $false `
+            -Message "A state missing $required was accepted."
+        if ($read.Error -notlike "*no $required*") {
+            throw "A state missing $required was rejected for the wrong reason: $($read.Error)"
+        }
+    }
+    Write-Host 'PASS: every required property is required, and named when it is absent'
+
+    # Schemas in both directions refuse, and say which they are, because the
+    # remedy differs: rerun the installer, or update the checkout.
+    $older = Read-WindowsSelectionState -SupportedSchemaVersion 1 `
+        -Json (New-SelectionStateJson -Override @{ SchemaVersion = 0 })
+    Assert-Equal -Actual $older.Valid -Expected $false -Message 'An older schema was accepted.'
+    if ($older.Error -notlike '*no migration for it*') {
+        throw "An older schema was refused without saying so: $($older.Error)"
+    }
+    $newer = Read-WindowsSelectionState -SupportedSchemaVersion 1 `
+        -Json (New-SelectionStateJson -Override @{ SchemaVersion = 2 })
+    Assert-Equal -Actual $newer.Valid -Expected $false -Message 'A future schema was accepted.'
+    if ($newer.Error -notlike '*this checkout cannot read it*') {
+        throw "A future schema was refused without saying so: $($newer.Error)"
+    }
+    $quoted = Read-WindowsSelectionState -SupportedSchemaVersion 1 `
+        -Json (New-SelectionStateJson -Override @{ SchemaVersion = '1' })
+    Assert-Equal -Actual $quoted.Valid -Expected $false `
+        -Message 'A quoted schema version was accepted as the number it looks like.'
+
+    # The distribution reaches wsl.exe and a regex in this script, so it is held
+    # to the shape install.ps1 would have accepted.
+    foreach ($bad in @('', 'Fedora Linux 44', 'Fedora;rm -rf', 44, $true, $null, @())) {
+        $read = Read-WindowsSelectionState -SupportedSchemaVersion 1 `
+            -Json (New-SelectionStateJson -Override @{ FedoraDistribution = $bad })
+        Assert-Equal -Actual $read.Valid -Expected $false `
+            -Message "An invalid FedoraDistribution was accepted: '$bad'"
+    }
+    Write-Host 'PASS: the recorded distribution must be a distribution name'
+
+    # A file that is not a JSON object at all answers every property lookup
+    # with nothing, which would read as a state whose selections are all absent.
+    foreach ($notAnObject in @('[]', '[1,2]', '1', '"text"', 'true', 'null', '', '   ')) {
+        $read = Read-WindowsSelectionState -Json $notAnObject -SupportedSchemaVersion 1
+        Assert-Equal -Actual $read.Valid -Expected $false `
+            -Message "A state that is not a JSON object was accepted: $notAnObject"
+    }
+    $unparseable = Read-WindowsSelectionState -Json '{ "SchemaVersion": ' -SupportedSchemaVersion 1
+    Assert-Equal -Actual $unparseable.Valid -Expected $false -Message 'Unparseable JSON was accepted.'
+    if ($unparseable.Error -notlike 'it is not JSON*') {
+        throw "Unparseable JSON was rejected for the wrong reason: $($unparseable.Error)"
+    }
+    Write-Host 'PASS: a state that is not a JSON object is not a state'
+
+    # An invalid state may not suppress the checks it was supposed to demand.
+    $case = New-CaseFixture -Name 'invalid-state' -Change {
+        param($item)
+        $item.State.Valid = $false
+        $item.State.Error = 'NocttySelected is the string "false", not true or false'
+        $item.State.NocttySelected = $false
+        $item.State.NocttyConfigurationSelected = $false
+        $item.State.HandySelected = $false
+        $item.State.WslRequired = $false
+    }
+    $result = Invoke-Verifier -Fixture $case
+    Assert-FailureContains -Name 'an invalid selection state' -Result $result `
+        -Expected 'Windows selection state is invalid: NocttySelected is the string "false"'
+    foreach ($suppressed in @(
+            'No Scoop-owned application is selected',
+            'Noctty configuration is not selected',
+            'WSL is not recorded as required'
+        )) {
+        if ($result.Output -like "*$suppressed*") {
+            throw ("An unreadable state was allowed to answer for the machine: " +
+                "$suppressed")
+        }
+    }
+    if ($result.Output -notlike '*depends on the selection state, which could not be read*') {
+        throw "An invalid state did not say what it stopped: $($result.Output)"
+    }
+
+    # Every helper verify.ps1 dot-sources is held to the same read-only
+    # contract as the verifier itself. The list is taken from the script's own
+    # dot-source lines rather than written out here, so a helper added later
+    # cannot join the verifier without joining the contract.
+    $verifierSource = Get-Content -LiteralPath $verifier -Raw
+    $helpers = @(
+        [regex]::Matches($verifierSource, "(?m)^\. \(Join-Path \`$PSScriptRoot '(?<path>[^']+)'\)") |
+            ForEach-Object { $_.Groups['path'].Value }
+    )
+    if ($helpers.Count -lt 1) {
+        throw 'No dot-sourced helper was found in verify.ps1, so none was held to the contract.'
+    }
+    $source = $verifierSource
+    foreach ($helper in $helpers) {
         $source += (Get-Content -LiteralPath (
-                Join-Path $repoRoot "platforms\windows\lib\$helper") -Raw)
+                Join-Path $repoRoot "platforms\windows\$($helper.Replace('/', '\'))") -Raw)
     }
     foreach ($forbidden in @(
         'Invoke-WebRequest',
