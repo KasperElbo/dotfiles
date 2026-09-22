@@ -305,6 +305,8 @@ The shell re-exec belongs to the Zsh wrapper, not to the command; see
 <!-- Generated from config/actions.tsv by scripts/render-action-reference.py.
      Do not edit between these markers; edit the registry and regenerate. -->
 
+*Generated from `config/actions.tsv` by `scripts/render-action-reference.py`. Anything written by hand between the markers around this section is discarded the next time that runs — edit the source and regenerate.*
+
 ## Complete action reference
 
 Every action this repository defines or deliberately puts in front of you: 239 entries, grouped by the platform they exist on.

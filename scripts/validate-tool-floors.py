@@ -23,6 +23,16 @@ three ways that can regress:
    reader names are derived from the library instead of written here, so
    renaming one cannot leave this check looking for a name that no longer
    exists.
+
+   The shell is read by ``scripts/lib/shell.py``, which every validator that
+   reads shell shares. This check used to carry its own copy, and that copy
+   decided a definition by where its brace sat: with the brace on the line
+   below, an uncalled function read as load-time code and its floor check
+   counted, while the equivalent ``if ! tool_floor_check nvim; then die; fi``
+   was refused with a message saying the call was in a comment or a string.
+   How a definition is spelled says nothing about whether its body runs, so
+   the reader treats the three spellings alike.
+
 2. **The documentation disagrees with the table.** Every page that states a
    minimum for a tool the registry knows -- in ``>= 0.12``, ``0.12+``,
    ``0.12 or newer`` or ``at least 0.12`` form, wherever it is written -- must
@@ -59,6 +69,13 @@ import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from manifests import ManifestSchemaError, read_tsv  # noqa: E402
+from shell import (  # noqa: E402
+    UnreadableShell,
+    close_over,
+    commands,
+    outside_functions,
+    shell_functions,
+)
 
 FIELDS = ["tool", "min_version", "requirement", "consumers"]
 VERSION = re.compile(r"^[0-9]+(\.[0-9]+)*$")
@@ -70,14 +87,6 @@ FLOOR_LIBRARY = pathlib.Path("common") / "lib" / "tool-floors.sh"
 # The variable that names the registry file. A library function whose body
 # mentions it resolves the registry; one that calls such a function does too.
 MANIFEST_VARIABLE = "TOOL_FLOOR_MANIFEST"
-# `name() {`, which is the only form this repository's shell uses.
-DEFINITION = re.compile(r"^\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{?")
-# A word in command position: the start of a line or of a new statement. The
-# openers are every way this repository's shell begins one.
-COMMAND = re.compile(
-    r"(?:^|[;&|(){}]|\|\||&&|\$\(|\b(?:then|else|elif|do|if|while|until|!)\b)"
-    r"\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
-)
 # A row of the contributor-toolchain table: `| Neovim (`nvim`) | >= 0.12 | … |`.
 # Its tool cell is also where prose learns to spell the tool: `Neovim`.
 DOC_ROW = re.compile(r"^\|(?P<tool>[^|]+)\|(?P<minimum>[^|]+)\|")
@@ -136,141 +145,8 @@ def tracked(root: pathlib.Path, *patterns: str) -> list[pathlib.Path]:
     return [root / name for name in listing.split("\0") if name]
 
 
-class UnreadableLibrary(Exception):
-    """The floor library named no reader, so nothing could be checked."""
-
-
 class UnclassifiedBackend(Exception):
     """A mise backend this check has never been told how to read."""
-
-
-def strip_noise(line: str) -> str:
-    """One line with its comment dropped and its quoted text blanked out.
-
-    Quotes are kept so word boundaries survive; only the literal text inside
-    them is replaced, because a reader's name written in a string is not a
-    call. Command substitution is the exception that matters here: `"$(tool_floor
-    nvim)"` runs `tool_floor` even though it sits inside double quotes, and
-    that is how all four platform verifiers call it, so `$(` reopens ordinary
-    shell and only the quoting around it is blanked. Single quotes substitute
-    nothing, so their contents go entirely. A `#` opens a comment only at the
-    start of a word, which is what leaves `${x#y}` and `$#` alone.
-    """
-    out: list[str] = []
-    # The innermost context: "" for ordinary shell and inside $(...), else the
-    # quote character being matched. Substitution depth is tracked alongside so
-    # a `)` only closes the substitution it belongs to.
-    stack: list[str] = [""]
-    depth = 0
-    index = 0
-    while index < len(line):
-        character = line[index]
-        context = stack[-1]
-        if context == "'":
-            out.append(character if character == "'" else " ")
-            if character == "'":
-                stack.pop()
-            index += 1
-            continue
-        if line[index : index + 2] == "$(":
-            out.append("$(")
-            stack.append("")
-            depth += 1
-            index += 2
-            continue
-        if character == ")" and depth and context == "":
-            out.append(")")
-            stack.pop()
-            depth -= 1
-            index += 1
-            continue
-        if context == '"':
-            out.append(character if character == '"' else " ")
-            if character == '"':
-                stack.pop()
-            index += 1
-            continue
-        if character in "'\"":
-            stack.append(character)
-            out.append(character)
-            index += 1
-            continue
-        if character == "#" and (index == 0 or line[index - 1].isspace()):
-            break
-        out.append(character)
-        index += 1
-    return "".join(out)
-
-
-def commands(text: str) -> set[str]:
-    """Every word this shell text runs as a command."""
-    found: set[str] = set()
-    for line in text.splitlines():
-        for match in COMMAND.finditer(strip_noise(line)):
-            found.add(match.group("name"))
-    return found
-
-
-def function_spans(lines: list[str]) -> list[tuple[str, int, int]]:
-    """Each `name() {` definition as (name, first body line, closing line).
-
-    The closing brace is the one at the definition's own indentation, not the
-    first in column 0: this repository nests helper functions inside other
-    functions, and taking column 0 as the terminator swallowed everything
-    after one of them. A definition that never closes is a parse this check
-    cannot trust, so it raises rather than guessing a span.
-    """
-    spans: list[tuple[str, int, int]] = []
-    index = 0
-    while index < len(lines):
-        stripped = strip_noise(lines[index])
-        match = DEFINITION.match(stripped)
-        if match is None or not stripped.rstrip().endswith("{"):
-            index += 1
-            continue
-        closer = " " * (len(stripped) - len(stripped.lstrip())) + "}"
-        end = index + 1
-        while end < len(lines) and lines[end].rstrip() != closer:
-            end += 1
-        if end >= len(lines):
-            raise UnreadableLibrary(
-                f"the function {match.group('name')} opened on line "
-                f"{index + 1} is never closed by {closer!r}"
-            )
-        spans.append((match.group("name"), index + 1, end))
-        index = end + 1
-    return spans
-
-
-def shell_functions(text: str) -> dict[str, str]:
-    """Each function body in this shell text, by name."""
-    lines = text.splitlines()
-    bodies: dict[str, str] = {}
-    for name, first, last in function_spans(lines):
-        bodies.setdefault(name, "\n".join(lines[first:last]))
-    return bodies
-
-
-def outside_functions(text: str) -> str:
-    """The text with every function body removed, leaving what runs on load."""
-    lines = text.splitlines()
-    inside = set()
-    for _, first, last in function_spans(lines):
-        inside.update(range(first - 1, last + 1))
-    return "\n".join(line for number, line in enumerate(lines) if number not in inside)
-
-
-def close_over(start: set[str], bodies: dict[str, str]) -> set[str]:
-    """Everything reachable from `start` by calling the functions in `bodies`."""
-    reached = set(start)
-    pending = list(start)
-    while pending:
-        name = pending.pop()
-        for called in commands(bodies.get(name, "")):
-            if called not in reached:
-                reached.add(called)
-                pending.append(called)
-    return reached
 
 
 def readers(library: pathlib.Path) -> set[str]:
@@ -282,13 +158,13 @@ def readers(library: pathlib.Path) -> set[str]:
     without comparing it to the floor enforces nothing.
     """
     if not library.is_file():
-        raise UnreadableLibrary(f"{library} is missing")
+        raise UnreadableShell(f"{library} is missing")
     bodies = shell_functions(library.read_text(encoding="utf-8"))
     resolving = {
         name for name, body in bodies.items() if MANIFEST_VARIABLE in body
     }
     if not resolving:
-        raise UnreadableLibrary(
+        raise UnreadableShell(
             f"no function in {library.name} mentions {MANIFEST_VARIABLE}"
         )
     while True:
@@ -312,8 +188,6 @@ def enforces(path: pathlib.Path, reader_names: set[str]) -> bool:
     text = path.read_text(encoding="utf-8")
     bodies = shell_functions(text)
     return bool(close_over(commands(outside_functions(text)), bodies) & reader_names)
-
-
 
 
 def satisfies(pin: str, minimum: str) -> bool:
@@ -472,7 +346,7 @@ def main() -> int:
         reader_names = readers(
             pathlib.Path(__file__).resolve().parents[1] / FLOOR_LIBRARY
         )
-    except UnreadableLibrary as unreadable:
+    except UnreadableShell as unreadable:
         fail(
             f"cannot tell which functions read the registry: {unreadable}. "
             f"Every consumer check depends on that, so this is a failure "
@@ -527,7 +401,7 @@ def main() -> int:
                 continue
             try:
                 enforced = enforces(path, reader_names)
-            except UnreadableLibrary as unreadable:
+            except UnreadableShell as unreadable:
                 fail(
                     f"{consumer} cannot be read as shell: {unreadable}. Until it "
                     f"parses, whether it enforces the {tool} floor is unknown, "

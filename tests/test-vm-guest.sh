@@ -12,10 +12,14 @@ test_root="$TEST_ROOT"
 
 mock_bin="$test_root/bin"
 command_log="$test_root/commands.log"
+# The configuration root goes under $HOME, because that is the only one this
+# repository deploys to and every installer refuses any other in preflight
+# (issue #343). A fixture that separates them was only reaching the checks
+# below because that refusal used to run after them.
 mkdir -p \
   "$mock_bin" \
   "$test_root/home" \
-  "$test_root/xdg" \
+  "$test_root/home/.config" \
   "$test_root/virtio-ports"
 
 test_stub_init "$test_root"
@@ -106,7 +110,8 @@ touch \
 test_environment=(
   env
   "HOME=$test_root/home"
-  "XDG_CONFIG_HOME=$test_root/xdg"
+  # See the note beside the mkdir above: the configuration root is under $HOME.
+  "XDG_CONFIG_HOME=$test_root/home/.config"
   "XDG_DATA_HOME=$test_root/home/.local/share"
   "PATH=$mock_bin:$PATH"
   "COMMAND_LOG=$command_log"
@@ -119,12 +124,12 @@ run_install() {
   "${test_environment[@]}" "$repo_root/platforms/fedora/scripts/install-vm-guest.sh" >/dev/null
 }
 
-legacy_clipboard_bridge="$test_root/xdg/systemd/user/dotfiles-spice-wayland-clipboard.service"
+legacy_clipboard_bridge="$test_root/home/.config/systemd/user/dotfiles-spice-wayland-clipboard.service"
 mkdir -p "$(dirname "$legacy_clipboard_bridge")"
 printf '[Service]\nExecStart=/usr/bin/false\n' >"$legacy_clipboard_bridge"
 
 run_install
-state_file="$test_root/xdg/dotfiles/vm-guest.conf"
+state_file="$test_root/home/.config/dotfiles/vm-guest.conf"
 first_state="$(sha256sum "$state_file")"
 run_install
 second_state="$(sha256sum "$state_file")"
@@ -195,7 +200,7 @@ dry_run_root="$test_root/dry-run"
 mkdir -p "$dry_run_root"
 dry_run_output="$(
   HOME="$dry_run_root" \
-    XDG_CONFIG_HOME="$dry_run_root/config" \
+    XDG_CONFIG_HOME="$dry_run_root/.config" \
     "$repo_root/platforms/fedora/scripts/install-vm-guest.sh" --dry-run
 )"
 grep -Fq 'qemu-guest-agent' <<<"$dry_run_output"

@@ -702,9 +702,14 @@ for variable in XDG_CONFIG_HOME XDG_DATA_HOME; do
 done
 
 # The top-level installer refuses for the same reason, and refuses early: no
-# package manager transaction, and no lifecycle state written.
+# package manager transaction, no lifecycle state written, and -- because the
+# check is a pure lexical comparison with no prerequisites -- no sudo password
+# prompt either. It used to be the fourth-to-sixth check in each platform's
+# preflight, behind preflight_sudo, so a run that was about to be refused
+# still asked for a password first.
 xdg_install_home="$xdg_root/install-home"
 mkdir -p "$xdg_install_home"
+: >"$test_root/logs/sudo.log"
 if HOME="$xdg_install_home" XDG_CONFIG_HOME="$xdg_root/install-elsewhere" \
   XDG_STATE_HOME="$xdg_root/install-state" PATH="$mock_bin:$PATH" \
   OS_RELEASE_FILE="$test_root/os-release" \
@@ -717,6 +722,7 @@ install_refusal="$(cat "$xdg_root/install.log")"
 assert_contains "$install_refusal" "XDG_CONFIG_HOME is $xdg_root/install-elsewhere"
 assert_contains "$install_refusal" 'nothing has been changed'
 assert_file_empty "$test_root/logs/dnf.log"
+assert_file_empty "$test_root/logs/sudo.log"
 [[ ! -e "$xdg_root/install-state/dotfiles/install.conf" ]] ||
   _test_die 'the installer recorded lifecycle state before refusing the XDG root'
 [[ -z "$(cd "$xdg_install_home" && find . -mindepth 1)" ]] ||

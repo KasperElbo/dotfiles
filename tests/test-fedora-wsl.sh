@@ -312,7 +312,11 @@ HOME="$real_home" XDG_CONFIG_HOME="$real_home/.config" \
 
 platform_env="$repo_root/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform-env.zsh"
 platform_zsh="$repo_root/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform.zsh"
-grep -Fq '/mnt/[a-zA-Z]/*)' "$platform_env"
+# The sanitizer's own behaviour is not checked here. This suite replaces zsh
+# with a Bash stub that computes PATH itself, so a grep for the case-arm text
+# would match the source of a file no test ever interprets -- and did, while an
+# inverted sanitizer that kept every Windows path passed the whole gate stack.
+# tests/test-wsl-path-sanitizer.sh runs the tracked file under real Zsh instead.
 grep -Fq 'export BROWSER=wsl-open' "$platform_env"
 grep -Fq 'vim.g.vimtex_view_general_viewer = "wsl-open"' \
   "$repo_root/platforms/fedora-wsl/stow/nvim-wsl/.config/nvim/lua/plugins/wsl.lua"
@@ -566,8 +570,14 @@ cat >"$bootstrap_bin/zsh" <<'EOF'
 printf '\033[H\033[2J\033[3J'
 system_path="${MOCK_SYSTEM_PATH_PREFIX:+$MOCK_SYSTEM_PATH_PREFIX:}$PATH"
 PATH="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
-if [[ "$*" == *'printf "%s\\n" "$PATH"'* ]]; then
-  printf '%s\n' "$PATH"
+if [[ "$*" == *'login-path:'* ]]; then
+  # The verifier asks both logins for their PATH through this marker. This
+  # fixture answers both with the sanitized login PATH, because what it exists
+  # to model is what the WSL PATH sanitizer produces. The difference between
+  # the two logins -- mise is activated in .zshrc, so only the interactive one
+  # carries the shims -- is what tests/test-ai-profile.sh covers, with a
+  # fixture built for it and a copy in ~/.local/bin as the negative control.
+  printf 'login-path:%s\n' "$PATH"
 elif [[ "$*" == *'__DOTFILES_VERIFY_SYSTEM_PATH__'* ]]; then
   printf '\n__DOTFILES_VERIFY_SYSTEM_PATH__%s\n' "$system_path"
 elif [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then

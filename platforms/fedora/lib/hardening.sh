@@ -171,26 +171,72 @@ write_managed_root_file() {
 # The drop-ins this profile owns are root:root and some are mode 0440/0640, so
 # an unprivileged read cannot see them at all. sudo is used here only to read
 # and stat; nothing below writes, reloads, or enables anything.
+#
+# Every privileged read is `sudo -n`. Verification is what you run to find out
+# what state a machine is in, including from a script, a timer, or a session
+# with no terminal to answer on, so it must never stop on a password prompt.
+# When sudo will not answer without one these helpers say they could not tell,
+# with a status of their own, rather than reporting the control absent: a
+# missing control and an unreadable one are different answers, and only one of
+# them is drift.
+#
+# HARDENING_SUDO_AUTHORIZED caches the answer for the process. It is asked
+# once because the answer can only go stale in the direction of a prompt,
+# which is the thing being avoided.
+HARDENING_SUDO_AUTHORIZED=""
+
+# hardening_privileged_read_available: whether sudo answers without asking for
+# a password.
+hardening_privileged_read_available() {
+  if [[ -z "$HARDENING_SUDO_AUTHORIZED" ]]; then
+    if sudo -n true 2>/dev/null; then
+      HARDENING_SUDO_AUTHORIZED="true"
+    else
+      HARDENING_SUDO_AUTHORIZED="false"
+    fi
+  fi
+
+  [[ "$HARDENING_SUDO_AUTHORIZED" == "true" ]]
+}
+
+# managed_root_file_exists <path>: 0 present, 1 absent, 2 could not tell.
+#
+# An unprivileged stat cannot tell an absent file from one inside a directory
+# this user may not search, so a negative answer is only conclusive when sudo
+# could be asked.
 managed_root_file_exists() {
   local path="${HARDENING_ROOT:-}$1"
-  [[ -f "$path" ]] || sudo test -f "$path" 2>/dev/null
+
+  [[ ! -f "$path" ]] || return 0
+  hardening_privileged_read_available || return 2
+  sudo -n test -f "$path" 2>/dev/null || return 1
 }
 
+# managed_root_file_read <path>: prints the content; 2 when it could not be
+# read without a password.
 managed_root_file_read() {
   local path="${HARDENING_ROOT:-}$1"
+
   if [[ -r "$path" ]]; then
     cat -- "$path" 2>/dev/null
-  else
-    sudo cat -- "$path" 2>/dev/null
+    return
   fi
+
+  hardening_privileged_read_available || return 2
+  sudo -n cat -- "$path" 2>/dev/null
 }
 
+# managed_root_file_mode <path>: prints the mode; 1 when there is none to
+# read, 2 when it could not be read without a password.
 managed_root_file_mode() {
   local path="${HARDENING_ROOT:-}$1"
   local mode
 
   mode="$(stat -c '%a' "$path" 2>/dev/null || true)"
-  [[ -n "$mode" ]] || mode="$(sudo stat -c '%a' "$path" 2>/dev/null || true)"
+  if [[ -z "$mode" ]]; then
+    hardening_privileged_read_available || return 2
+    mode="$(sudo -n stat -c '%a' "$path" 2>/dev/null || true)"
+  fi
   [[ -n "$mode" ]] || return 1
   printf '%s\n' "$mode"
 }

@@ -320,6 +320,16 @@ podman run --rm docker.io/library/alpine:latest uname -m   # aarch64
 podman-compose version
 ```
 
+Note that the third command is the one thing in verification that can change
+this machine, which is why `./platforms/macos/scripts/verify.sh --containers`
+does not run it that way. It records the image state first: an image already in
+local storage is run with `--pull=never`, so the probe reaches neither the
+network nor image storage and your tag keeps naming the image it named before;
+one that is absent is pulled and then removed again, on success, on failure and
+on an interrupted run alike. Verification therefore leaves container storage as
+it found it, and if a removal ever fails it says so and names the image. Run the
+command above yourself and the image stays, as it should.
+
 See [the containers profile guide](../profiles/containers.md) for day-to-day
 use. Rollback:
 

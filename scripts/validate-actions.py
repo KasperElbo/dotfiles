@@ -223,10 +223,40 @@ def check_schema(root: pathlib.Path, rows: list[dict[str, str]], problems: list[
 # with no suffix (the Sway config, a PATH command) takes the default.
 COMMENT_PREFIXES = {".lua": ("--",), ".jsonc": ("//",), ".json": ("//",)}
 DEFAULT_COMMENT_PREFIX = ("#",)
+# Block comments, which a line prefix cannot see. Disabling a Lua keymap with
+# `--[[ ]]` or a Waybar module with `/* */` is as complete a removal as
+# commenting each line out, and Neovim really does stop loading the keys: only
+# the line-prefix half of this was checked, so the registry and the printed
+# sheets kept advertising bindings the editor no longer had. A Lua long
+# comment may carry any number of `=` signs, and its closer has to match its
+# opener, which is what `(?P=level)` holds it to.
+BLOCK_COMMENTS = {
+    ".lua": re.compile(r"--\[(?P<level>=*)\[.*?\](?P=level)\]", re.DOTALL),
+    ".jsonc": re.compile(r"/\*.*?\*/", re.DOTALL),
+    ".json": re.compile(r"/\*.*?\*/", re.DOTALL),
+}
+
+
+def blank_block_comments(text: str, suffix: str) -> str:
+    """`text` with each block comment blanked, its line breaks kept.
+
+    Blanking rather than deleting is what keeps every later line at the number
+    it has in the file, so a reported line number still points at the line the
+    reader saw.
+    """
+    expression = BLOCK_COMMENTS.get(suffix)
+    if expression is None:
+        return text
+    return expression.sub(
+        lambda match: "".join(
+            character if character == "\n" else " " for character in match.group(0)
+        ),
+        text,
+    )
 
 
 def code_text(path: pathlib.Path) -> str:
-    """`path` with every comment line blanked out, line numbering intact.
+    """`path` with every comment blanked out, line numbering intact.
 
     A source_pattern is evidence that the tool still has the action, so it has
     to match a line the tool actually reads. Commenting a binding out would
@@ -236,10 +266,14 @@ def code_text(path: pathlib.Path) -> str:
 
     Comment lines are blanked rather than dropped so a multiline pattern still
     sees the distance between the lines it spans, and the shebang is kept so a
-    pattern anchored on it is still reported as anchored on the shebang.
+    pattern anchored on it is still reported as anchored on the shebang. Block
+    comments are blanked first, for the same reason and by the same rule: what
+    the tool reads is what counts, not which comment syntax was used.
     """
     prefixes = COMMENT_PREFIXES.get(path.suffix, DEFAULT_COMMENT_PREFIX)
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = blank_block_comments(
+        path.read_text(encoding="utf-8"), path.suffix
+    ).splitlines()
     kept = []
     for number, line in enumerate(lines, 1):
         if number == 1 and line.startswith("#!"):
@@ -291,8 +325,13 @@ def check_registry_matches_implementation(
 
 
 def strip_jsonc(text: str) -> str:
-    without_block = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    return re.sub(r"(?m)^\s*//.*$", "", without_block)
+    """JSONC with its comments taken out, ready for `json.loads`.
+
+    The block comments go through the same blanker `code_text` uses, so the
+    two directions of this check cannot disagree about what a comment is: a
+    Waybar module disabled with `/* */` has to read as gone to both of them.
+    """
+    return re.sub(r"(?m)^\s*//.*$", "", blank_block_comments(text, ".jsonc"))
 
 
 # Zsh options that decide how history is stored rather than what a key or a

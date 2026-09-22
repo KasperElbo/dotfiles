@@ -91,6 +91,25 @@ run_installer() {
     "$tree/platforms/$platform/install.sh" "$@"
 }
 
+# The `theme` command the theme step applies. It arrives from the shared `bin`
+# Stow package two plan positions earlier, and the theme step now fails when it
+# is absent -- as it should, since a run whose Stow step deployed nothing must
+# not report the theme applied. Here the Stow step is one of the recorders, so
+# the link it would have made is made below instead. The command itself becomes
+# a no-op rather than a recorder: the theme step's note names no repository
+# script, so a recorded command there would read as an apply the dry run never
+# planned.
+printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/bin/.local/bin/theme"
+chmod +x "$tree/bin/.local/bin/theme"
+
+# seed_stowed_theme <home>: link it the way Stow would, so the installer's own
+# preflight sees a link this checkout owns rather than a conflicting file.
+seed_stowed_theme() {
+  local home="$1"
+  mkdir -p "$home/.local/bin"
+  ln -sfn "$tree/bin/.local/bin/theme" "$home/.local/bin/theme"
+}
+
 # check_plan_commands <dry-run output> <plan log>: every step must run exactly
 # the repository script and arguments its note names, and no step may run one
 # its note does not name. --non-interactive is an invocation-only control the
@@ -151,6 +170,7 @@ assert_plan_keeps_promises() {
   shift 3
   home="$test_root/homes/$name"
   mkdir -p "$home"
+  seed_stowed_theme "$home"
 
   run_installer "$home" "$platform" --dry-run "$@"
   assert_success
@@ -211,6 +231,7 @@ assert_contains "$TEST_OUTPUT" 'platforms/fedora/install.sh runs a repository sc
 
 control_home="$test_root/homes/diverged-tailscale"
 mkdir -p "$control_home"
+seed_stowed_theme "$control_home"
 run_installer "$control_home" fedora --dry-run --no-kde --no-latex --tailscale
 assert_success
 control_dry_run="$TEST_OUTPUT"

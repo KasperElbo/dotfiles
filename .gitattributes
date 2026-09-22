@@ -1,0 +1,13 @@
+# Line endings are normalised here so nothing has to notice them later.
+#
+# Every generated document in this repository is written with `\n` and checked
+# byte-for-byte by its `render --check` gate, so a checkout that introduced
+# CRLF would make those gates fail on a file nobody edited. `text=auto` lets
+# Git decide which files are text and stores every one of them with LF;
+# `eol=lf` checks them out that way on every platform, Windows included, where
+# `verify.ps1` and the Scoop manifests live.
+* text=auto eol=lf
+
+# Wallpapers are the only binary material tracked here. Say so, rather than
+# leaving it to detection.
+*.webp binary

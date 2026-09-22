@@ -5,15 +5,25 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 
-test_install_cleanup_trap
+# The runner now refuses any suite outside tests/, so this suite's fixtures
+# live in a scratch directory inside tests/ rather than under $TEST_ROOT. The
+# name is dot-prefixed and carries no `test-` prefix, so neither the shell glob
+# in unregistered_suites below nor the repository's own suite discovery sees
+# it, and the exit hook removes it however the suite ends.
+remove_suite_dir() {
+  [[ -n "${suite_dir:-}" ]] && rm -rf -- "$suite_dir"
+}
+
+test_install_cleanup_trap remove_suite_dir
 test_new_root
 root="$TEST_ROOT"
 log="$root/runner.log"
+suite_dir="$(mktemp -d "$repo_root/tests/.runner-fixtures.XXXXXX")"
 
 make_suite() {
   local name="$1"
   local status="$2"
-  local path="$root/$name.sh"
+  local path="$suite_dir/$name.sh"
   cat >"$path" <<EOF_SUITE
 #!/usr/bin/env bash
 printf '%s\\n' '$name' >>"\${RUNNER_LOG:?}"
@@ -158,7 +168,7 @@ assert_contains "$orphans" \
 assert_not_contains "$orphans" 'test-verifier.sh is not registered'
 
 printf 'A hung suite is killed and counted as failed, not left to stall the run\n'
-hung="$root/hang.sh"
+hung="$suite_dir/hang.sh"
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" hang >>"${RUNNER_LOG:?}"\nsleep 120\n' >"$hung"
 chmod +x "$hung"
 : >"$log"
@@ -170,5 +180,58 @@ assert_file_contains "$log" 'pass-one'
 assert_contains "$TEST_OUTPUT" 'timed out after 2s'
 assert_contains "$TEST_OUTPUT" 'failed:  1'
 assert_contains "$TEST_OUTPUT" 'passed:  1'
+
+printf 'A suite outside tests/ is refused before it can execute\n'
+# SEC-01. The runner used to execute whatever path it was handed and count it
+# as a passing suite, while this repository's .claude/settings.json pre-approves
+# `./scripts/test.sh tests/...` -- which an agent matcher reads as a prefix, so
+# a traversal out of tests/ ran arbitrary code with no permission prompt.
+#
+# The assertion is the sentinel, not the exit status: a refusal that still ran
+# the file would exit non-zero for some other reason and read as a pass here.
+outside="$root/outside-the-tree.sh"
+sentinel="$root/outside-ran"
+printf '#!/usr/bin/env bash\ntouch "%s"\n' "$sentinel" >"$outside"
+chmod +x "$outside"
+
+# Composed rather than resolved with realpath, which is not a declared runner
+# dependency: one `..` per component of the path the runner will join the
+# argument to, which lands on / and is then followed by the absolute fixture.
+traversal="tests"
+IFS='/' read -r -a suite_root_parts <<<"${repo_root#/}/tests"
+for _ in "${suite_root_parts[@]}"; do
+  traversal+="/.."
+done
+traversal+="$outside"
+: >"$log"
+run_capture env DOTFILES_TEST_REQUIRED_COMMANDS=bash RUNNER_LOG="$log" \
+  "$repo_root/scripts/test.sh" "$traversal"
+assert_status 1
+assert_contains "$TEST_OUTPUT" "Refusing to run a suite outside tests/: $traversal"
+assert_contains "$TEST_OUTPUT" 'passed:  0'
+assert_eq 'absent' "$([[ -e "$sentinel" ]] && printf 'ran' || printf 'absent')" \
+  'a refused suite must not execute'
+
+printf 'An absolute path outside tests/ is refused the same way\n'
+: >"$log"
+run_capture env DOTFILES_TEST_REQUIRED_COMMANDS=bash RUNNER_LOG="$log" \
+  "$repo_root/scripts/test.sh" "$outside"
+assert_status 1
+assert_contains "$TEST_OUTPUT" "Refusing to run a suite outside tests/: $outside"
+assert_contains "$TEST_OUTPUT" 'passed:  0'
+assert_eq 'absent' "$([[ -e "$sentinel" ]] && printf 'ran' || printf 'absent')" \
+  'a refused absolute suite must not execute'
+
+printf 'A suite inside tests/ that is absent is still the missing-suite error\n'
+# Containment must not swallow the case it sits in front of. The name is built
+# from the fixture directory rather than written out, so the hygiene suite does
+# not read a deliberately absent path as a promise that tests/ holds one.
+absent="${suite_dir#"$repo_root/"}/never-written.sh"
+: >"$log"
+run_capture env DOTFILES_TEST_REQUIRED_COMMANDS=bash RUNNER_LOG="$log" \
+  "$repo_root/scripts/test.sh" "$absent"
+assert_status 1
+assert_contains "$TEST_OUTPUT" "Missing test suite: $absent"
+assert_not_contains "$TEST_OUTPUT" 'Refusing to run a suite'
 
 printf 'Aggregate test-runner tests passed.\n'

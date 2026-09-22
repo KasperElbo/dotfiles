@@ -50,9 +50,10 @@ Handy is installed from a version-pinned upstream release .rpm whose SHA-256
 is recorded in platforms/fedora/lib/dictation.sh. Transcription is local and offline: no account,
 no API key, and no cloud endpoint is configured by this profile.
 
-The dictation key is owned by Sway, not by Handy: the tracked Sway config
-binds Super+O to 'pkill -USR2 -x handy', because an application-global
-shortcut cannot work on a wlroots compositor.
+The dictation key is owned by the desktop, not by Handy: on a Sway session the
+tracked config binds Super+O to 'pkill -USR2 -x handy', because an
+application-global shortcut cannot work on a wlroots compositor. On Plasma the
+shortcut is created by hand and runs 'handy --toggle-transcription'.
 
 Options:
   --dry-run   Show the dictation plan without changing anything
@@ -111,11 +112,24 @@ installed_matches_pin() {
   done
 }
 
+# The desktop owns the dictation key, and this profile depends on base alone,
+# so it is installable on a machine that has no Sway session. The tracked Sway
+# configuration being present is the same signal verify-dictation.sh branches
+# on, and it decides which key the plan and the closing words describe.
+sway_config="${XDG_CONFIG_HOME:-$HOME/.config}/sway/config"
+
 if [[ "$dry_run" == "true" ]]; then
   if pin_is_recorded; then
     pin_plan="$handy_rpm_sha256"
   else
     pin_plan="not recorded — the install will stop before downloading anything"
+  fi
+
+  if [[ -e "$sway_config" ]]; then
+    key_plan="Super+O, owned by Sway (pkill -USR2 -x handy)"
+  else
+    key_plan="none yet; no tracked Sway configuration here, so the shortcut is
+                    created by hand on Plasma (handy --toggle-transcription)"
   fi
 
   cat <<EOF
@@ -135,7 +149,7 @@ Signature:          upstream signs with Tauri/minisign, not an RPM GPG key, so
 Fedora packages:    ${packages[*]}
 Text insertion:     wtype (Wayland virtual keyboard); no /dev/uinput, no
                     'input' group, no dotool
-Dictation key:      Super+O, owned by Sway (pkill -USR2 -x handy)
+Dictation key:      $key_plan
 Transcription:      local only; no account, API key or cloud endpoint is
                     configured by this profile
 Models:             downloaded by Handy on first use into
@@ -214,6 +228,15 @@ cat <<'EOF'
 
 Handy is installed but has no speech model yet. Open it once to pick one; it
 downloads into ~/.config/com.pais.handy/ and never into this repository.
+EOF
+
+# The dictation capability depends on base alone, so --dictation is accepted
+# with no --sway and installs cleanly on a Plasma machine. Which key starts a
+# transcription is the one thing that differs, and the closing words are the
+# last thing the person reads, so branch them on the same signal the verifier
+# uses: the tracked Sway configuration being there at all.
+if [[ -e "$sway_config" ]]; then
+  cat <<'EOF'
 
 Press Super+O to start and stop dictation. Sway owns that key and signals the
 running Handy process, so Handy must be running for it to do anything — start
@@ -221,3 +244,14 @@ it from Fuzzel, or add `exec handy --start-hidden` to ~/.config/sway/local.conf
 if you want it every session. See docs/profiles/dictation.md.
 
 EOF
+else
+  cat <<'EOF'
+
+There is no tracked Sway configuration here, so nothing binds a dictation key
+yet. On Plasma, create one by hand in System Settings → Shortcuts → Custom
+Shortcuts, as a Command/URL action running `handy --toggle-transcription`.
+Plasma can register an application shortcut that wlroots cannot, so no signal
+is needed there. See docs/profiles/dictation.md.
+
+EOF
+fi

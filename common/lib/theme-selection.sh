@@ -132,3 +132,25 @@ theme_source_description() {
   *) printf 'unknown\n' ;;
   esac
 }
+
+# theme_apply_stowed <flavour>
+#
+# Run the stowed `theme` command for an installer's theme plan step.
+#
+# The command is deployed by the shared `bin` Stow package, two plan positions
+# earlier, so on a run that got that far it is present. When it is not, the
+# step is the wrong place to be lenient: treating the absence as "nothing to
+# do" let a run whose Stow step deployed nothing still report the theme
+# applied. Say which binary is missing and fail the step, so the plan's failure
+# report names the run that did not deploy it.
+theme_apply_stowed() {
+  local flavour="$1" command="$HOME/.local/bin/theme"
+
+  [[ -x "$command" ]] || {
+    warn "The theme command is not installed at $command"
+    warn 'It is deployed by the shared `bin` Stow package; check the stow step.'
+    return 1
+  }
+
+  "$command" "$flavour"
+}
