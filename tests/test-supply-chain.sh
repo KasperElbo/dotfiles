@@ -40,6 +40,81 @@ assert_contains "$TEST_OUTPUT" 'cannot read this plan_add line as a command'
 assert_contains "$TEST_OUTPUT" 'platforms/fedora/install.sh:'
 printf 'PASS: a plan_add line the tokeniser cannot read is a build error\n'
 
+# A step reaches a script through whatever shell the apply function is written
+# in, so the reader has to see the callee wherever it sits. The validator used
+# to find "a word in command position" with a regex whose openers were also
+# candidates for the word itself, so `if helper; then` reported `if` and `then`
+# and never the helper: a script reached that way was never required to be
+# declared, and the preflight never probed the host it downloads from.
+hidden_tree="$test_root/hidden-call-tree"
+mkdir -p "$hidden_tree"
+tar -C "$repo_root" --exclude=.git --exclude=.claude -cf - . |
+  tar -C "$hidden_tree" -xf -
+hide_call_behind() {
+  python3 - "$hidden_tree/platforms/fedora/install.sh" "$1" <<'PYTHON'
+import pathlib
+import sys
+
+installer, wrapping = pathlib.Path(sys.argv[1]), sys.argv[2]
+text = installer.read_text(encoding="utf-8")
+helper = (
+    "fedora_hidden_extra() {\n"
+    '  "$DOTFILES_ROOT/platforms/fedora/scripts/install-tailscale.sh"\n'
+    "}\n\n"
+)
+replaced = text.replace(
+    "apply_local() { plan_command_run fedora_local_command; }",
+    helper + "apply_local() {\n"
+    f"  {wrapping}\n"
+    "  plan_command_run fedora_local_command\n"
+    "}",
+    1,
+)
+if replaced == text:
+    raise SystemExit("the apply_local definition this case rewrites is gone")
+installer.write_text(replaced, encoding="utf-8")
+PYTHON
+  bash -n "$hidden_tree/platforms/fedora/install.sh"
+  run_capture python3 "$repo_root/scripts/validate-plan-network.py" --root "$hidden_tree"
+  cp "$repo_root/platforms/fedora/install.sh" \
+    "$hidden_tree/platforms/fedora/install.sh"
+}
+
+hide_call_behind 'if fedora_hidden_extra; then :; fi'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'step local runs platforms/fedora/scripts/install-tailscale.sh but does not declare it'
+printf 'PASS: a script reached through `if helper; then` must still be declared\n'
+
+hide_call_behind 'if [[ -n "${DOTFILES_EXTRA:-}" ]]; then fedora_hidden_extra; fi'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'step local runs platforms/fedora/scripts/install-tailscale.sh but does not declare it'
+printf 'PASS: a script reached from a one-line if body must still be declared\n'
+
+# Shell the reader cannot parse is unknown, not "declares nothing": an
+# unterminated function used to be read as a file with fewer functions in it.
+python3 - "$hidden_tree/platforms/fedora/install.sh" <<'PYTHON'
+import pathlib
+import sys
+
+installer = pathlib.Path(sys.argv[1])
+text = installer.read_text(encoding="utf-8")
+installer.write_text(
+    text.replace(
+        "apply_local() { plan_command_run fedora_local_command; }",
+        "apply_local() {\n  plan_command_run fedora_local_command\n",
+        1,
+    ),
+    encoding="utf-8",
+)
+PYTHON
+run_capture python3 "$repo_root/scripts/validate-plan-network.py" --root "$hidden_tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'is never closed'
+cp "$repo_root/platforms/fedora/install.sh" "$hidden_tree/platforms/fedora/install.sh"
+printf 'PASS: an installer the reader cannot parse is a build error, not a pass\n'
+
 # Everything the audit named as a trust source is actually registered.
 for source_id in terra-repo terra-signing-key rpmfusion-free-release \
   rpmfusion-nonfree-release tailscale-repo mise-installer starship-installer \

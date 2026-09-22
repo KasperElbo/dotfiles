@@ -80,6 +80,17 @@ in `scripts/validate-actions.py`), parse the construct, or run the shell and
 observe what it did. The same holds for the other configuration languages: a
 mise pin and an AeroSpace binding are parsed as TOML, a Waybar click as JSON.
 
+Where several checks read shell, they read it through one module,
+[`scripts/lib/shell.py`](../../scripts/lib/shell.py), rather than each carrying
+its own regex. The copies it replaced had drifted into two defects that are
+easy to write again: the keyword opening a statement was captured as the
+command the statement runs, so `if helper; then` reported `if` and `then` and
+the helper was never seen; and a definition counted only with its brace on the
+same line, so the same function moved between "code that runs" and "a function
+nothing calls" depending on where the brace sat. A reserved word is therefore
+never a callee, and the three spellings of a definition -- brace on the line,
+brace below it, whole function on one line -- are one definition.
+
 **A check that cannot parse its input must error.** Skipping the line it cannot
 read turns a gate into a suggestion, and that line is the one most likely to be
 wrong. `scripts/validate-plan-network.py` names the file and the line and fails

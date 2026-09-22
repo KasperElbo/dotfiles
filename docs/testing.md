@@ -43,7 +43,10 @@ or if a mise configuration this repository provisions pins a tool below its own
 floor. "Stops reading it" is decided by reading the consumer as shell: the
 reader has to be the word that starts a command, in a code path the file
 reaches, so a mention in a comment, inside a string, or in a function nothing
-calls does not count. The reader names are derived from
+calls does not count. How that code path is written makes no difference:
+`tool_floor_check nvim || exit 1` and `if ! tool_floor_check nvim; then exit 1;
+fi` both enforce the floor, and a function whose brace sits on its own line is
+as uncalled as one whose brace does not. The reader names are derived from
 [`common/lib/tool-floors.sh`](../common/lib/tool-floors.sh) rather than written
 into the validator, so renaming one cannot leave the check hunting for a name
 that no longer exists. A mise pin is read the way mise reads it: the key may be
