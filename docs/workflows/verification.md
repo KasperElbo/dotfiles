@@ -115,6 +115,36 @@ observe is reported as unobserved rather than as a pass. A verifier exits
 non-zero only when it recorded a failure — warnings and unobserved checks exit
 `0`, exactly like `./doctor`.
 
+### Starting Neovim without repairing it
+
+Proving Neovim works means starting the real configuration, and that
+configuration is built to make a workstation usable: left to itself it clones
+`lazy.nvim` when it is missing and installs every plugin the profile names and
+does not find. Under a verifier that is backwards. It fills in exactly the gaps
+the verifier exists to report, and then credits the state it just created — and
+because the deployed `~/.config/nvim` is a Stow symlink into this checkout,
+Lazy writing its lock file lands on the repository's tracked `lazy-lock.json`.
+
+`DOTFILES_NVIM_VERIFY=1` is how a verifier asks for an observational start. In
+that mode the configuration never clones `lazy.nvim` — it names the missing
+path and exits non-zero — never installs a missing plugin, and does not
+generate help tags, README copies or update checks. A start under this flag
+writes nothing below `XDG_DATA_HOME` or `XDG_CONFIG_HOME`; only the ordinary
+`shada` and log files Neovim itself keeps under `XDG_STATE_HOME` change.
+`tests/test-neovim-verify-readonly.sh` holds that, offline, with the unflagged
+start as its control.
+
+The flag makes the start harmless; it does not make it a verdict. Whether a
+plugin tree is complete and pinned is the verifier's own question, answered
+from the profile's lock file before Neovim is started at all. That shared
+check, and the platform verifiers setting this flag when they start Neovim,
+land with the change that gives all four platforms the same Neovim contract;
+today the configuration honours the flag and only the test suite sets it.
+
+Installation is the opposite case and deliberately unflagged:
+`common/install-neovim-tools.sh` *is* the thing that builds the tree, and it
+bounds every headless phase with a timeout of its own.
+
 When a verifier fails, [troubleshooting](../troubleshooting.md) is the next
 stop.
 
