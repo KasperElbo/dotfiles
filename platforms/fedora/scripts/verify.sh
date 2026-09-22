@@ -115,10 +115,15 @@ fi
 kde_selection_status=0
 install_lifecycle_capability_selected kde || kde_selection_status=$?
 
+# Selection, not just the artifact. Gating the checks on plasmashell alone let
+# the thing that was supposed to be verified decide whether it was verified: a
+# machine that recorded --kde and never got Plasma was described by no check at
+# all and scored the same as one that never asked for it (issue #394, GAP-09).
+# The artifact arm stays so an unselected machine's leftovers are still found.
 if ((kde_selection_status == 1)); then
   section "KDE integration"
   pass "KDE integration is not selected; its assets are not expected"
-elif command_exists plasmashell; then
+elif ((kde_selection_status == 0)) || command_exists plasmashell; then
   section "KDE Dolphin/KIO SFTP integration"
 
   check_command dolphin
@@ -206,41 +211,52 @@ fi
 section "Stow links"
 
 check_symlink "$HOME/.zshenv" \
-  "$DOTFILES_ROOT/zsh/"
+  "$DOTFILES_ROOT/zsh/" \
+  "$DOTFILES_ROOT/zsh/.zshenv"
 
 check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" \
-  "$DOTFILES_ROOT/zsh/"
+  "$DOTFILES_ROOT/zsh/" \
+  "$DOTFILES_ROOT/zsh/.config/zsh/.zshrc"
 
 # verifies: terminal -- Ghostty is the workstation terminal, installed with the
 # baseline and configured by the portable ghostty Stow package.
 check_symlink "$XDG_CONFIG_HOME/ghostty/config" \
-  "$DOTFILES_ROOT/ghostty/"
+  "$DOTFILES_ROOT/ghostty/" \
+  "$DOTFILES_ROOT/ghostty/.config/ghostty/config"
 
 check_symlink "$XDG_CONFIG_HOME/git/config" \
-  "$DOTFILES_ROOT/git/"
+  "$DOTFILES_ROOT/git/" \
+  "$DOTFILES_ROOT/git/.config/git/config"
 
 check_symlink "$XDG_CONFIG_HOME/lazygit/config.yml" \
-  "$DOTFILES_ROOT/lazygit/"
+  "$DOTFILES_ROOT/lazygit/" \
+  "$DOTFILES_ROOT/lazygit/.config/lazygit/config.yml"
 
 check_symlink "$XDG_CONFIG_HOME/mise/config.toml" \
-  "$DOTFILES_ROOT/mise/"
+  "$DOTFILES_ROOT/mise/" \
+  "$DOTFILES_ROOT/mise/.config/mise/config.toml"
 
 check_symlink "$XDG_CONFIG_HOME/nvim/init.lua" \
-  "$DOTFILES_ROOT/nvim-lazyvim/"
+  "$DOTFILES_ROOT/nvim-lazyvim/" \
+  "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/init.lua"
 
 check_symlink "$HOME/.tmux.conf" \
-  "$DOTFILES_ROOT/tmux/"
+  "$DOTFILES_ROOT/tmux/" \
+  "$DOTFILES_ROOT/tmux/.tmux.conf"
 
 check_symlink "$HOME/.local/bin/theme" \
-  "$DOTFILES_ROOT/bin/"
+  "$DOTFILES_ROOT/bin/" \
+  "$DOTFILES_ROOT/bin/.local/bin/theme"
 
 for flavour in latte frappe macchiato mocha; do
   check_symlink \
     "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}.webp" \
-    "$DOTFILES_ROOT/theme-assets/"
+    "$DOTFILES_ROOT/theme-assets/" \
+    "$DOTFILES_ROOT/theme-assets/.local/share/wallpapers/catppuccin-${flavour}.webp"
   check_symlink \
     "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}-lock.webp" \
-    "$DOTFILES_ROOT/theme-assets/"
+    "$DOTFILES_ROOT/theme-assets/" \
+    "$DOTFILES_ROOT/theme-assets/.local/share/wallpapers/catppuccin-${flavour}-lock.webp"
 done
 
 # ---------------------------------------------------------------------------
@@ -337,7 +353,15 @@ fi
 # Optional Sway session
 # ---------------------------------------------------------------------------
 
-if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]]; then
+# The same reasoning as the KDE gate above: a machine that recorded --sway and
+# whose stow step never ran has no sway/config, and the artifact test alone
+# therefore skipped the whole section rather than reporting the 37 checks that
+# would have named what is missing (issue #394, GAP-09).
+sway_selection_status=0
+install_lifecycle_capability_selected sway || sway_selection_status=$?
+
+if ((sway_selection_status == 0)) ||
+  [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]]; then
   section "Sway session"
 
   sway_commands=(
@@ -376,20 +400,27 @@ if [[ -e "$XDG_CONFIG_HOME/sway/config" || -L "$XDG_CONFIG_HOME/sway/config" ]];
   fi
 
   check_symlink "$XDG_CONFIG_HOME/sway/config" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/.config/sway/config"
   check_symlink \
     "$XDG_CONFIG_HOME/xdg-desktop-portal/sway-portals.conf" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/.config/xdg-desktop-portal/sway-portals.conf"
   check_symlink "$XDG_CONFIG_HOME/waybar/config.jsonc" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/waybar/"
+    "$DOTFILES_ROOT/platforms/fedora/stow/waybar/" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/waybar/.config/waybar/config.jsonc"
   check_symlink "$XDG_CONFIG_HOME/waybar/style.css" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/waybar/"
+    "$DOTFILES_ROOT/platforms/fedora/stow/waybar/" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/waybar/.config/waybar/style.css"
   check_symlink "$HOME/.local/bin/sway-workspace-grid" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/.local/bin/sway-workspace-grid"
   check_symlink "$HOME/.local/bin/sway-output-cycle" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/.local/bin/sway-output-cycle"
   check_symlink "$HOME/.local/bin/sway-session-start" \
-    "$DOTFILES_ROOT/platforms/fedora/stow/sway/"
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/" \
+    "$DOTFILES_ROOT/platforms/fedora/stow/sway/.local/bin/sway-session-start"
 
   local_sway="$XDG_CONFIG_HOME/sway/local.conf"
   if [[ -f "$local_sway" && ! -L "$local_sway" ]]; then
@@ -479,12 +510,6 @@ if [[ -n "$mise_command" ]]; then
   VERIFY_MISE_COMMAND="$mise_command"
   establish_user_tool_environment
 
-  if "$mise_command" ls >/dev/null 2>&1; then
-    pass "mise configuration loads successfully"
-  else
-    fail "mise could not load configured tools"
-  fi
-
   mise_tools=(
     dotnet
     node
@@ -498,6 +523,20 @@ if [[ -n "$mise_command" ]]; then
   )
 
   check_mise_context
+
+  # run_mise, not a bare invocation: common/lib/common.sh's contract is that
+  # every install, resolution and verification call goes through it, so a
+  # caller's project mise.toml can never reach a global bootstrap. This was the
+  # one mise call in any verifier that did not, so it answered for whatever
+  # directory the operator happened to run the verifier from, and an unrelated
+  # unparseable project config failed a machine whose global config is perfect
+  # (issue #396, GAP-12). It runs after check_mise_context so the precondition
+  # run_mise relies on is reported before it is relied on.
+  if run_mise "$mise_command" ls >/dev/null 2>&1; then
+    pass "mise configuration loads successfully"
+  else
+    fail "mise could not load configured tools"
+  fi
 
   for cmd in "${mise_tools[@]}"; do
     check_mise_owned "$cmd"

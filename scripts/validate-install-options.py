@@ -28,7 +28,7 @@ import re
 import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from manifests import ManifestSchemaError, read_tsv  # noqa: E402
-from shell import outside_functions, strip_noise  # noqa: E402
+from shell import function_spans, outside_functions, strip_noise  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPTION_MANIFEST = pathlib.Path(
@@ -208,30 +208,194 @@ def code_line(line: str) -> str:
     return line[: len(strip_noise(line))]
 
 
-def case_values(path: pathlib.Path, variable: str) -> set[str] | None:
-    """The values a `case "$variable" in` accepts, or None when there is none.
+def scoped_lines(path: pathlib.Path, detail: str) -> tuple[list[str], str, int] | None:
+    """The lines a row's `detail` points at, the name in it, and their offset.
+
+    A `detail` of `flavour` is a name the file reads where it runs; one of
+    `kde_global_theme:1` is the same name inside that function, which is how a
+    file that reads two different things through `$1` says which of them this
+    row is about. None means the function named is not in the file.
+    """
+    text = path.read_text(encoding="utf-8")
+    if ":" not in detail:
+        return [code_line(line) for line in text.splitlines()], detail, 0
+    function, _, name = detail.partition(":")
+    for defined, opened, closed, _ in function_spans(text.splitlines()):
+        if defined == function:
+            lines = text.splitlines()[opened : closed + 1]
+            return [code_line(line) for line in lines], name, opened
+    return None
+
+
+def case_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] | None:
+    """Every `case "$name" in` a row points at, and the values each accepts.
 
     Read as shell: a name in a comment is not an arm. Only bare word
     alternatives count, so the `*)` and `"")` arms -- everything else, and
-    nothing -- are left out rather than read as values.
+    nothing -- are left out rather than read as values. Each `case` is its own
+    site, because a file that branches on a flavour twice enforces the set
+    twice and a second block that has fallen behind is the drift this check is
+    for. None means the row points at a function the file does not define.
     """
-    lines = [code_line(line) for line in path.read_text(encoding="utf-8").splitlines()]
-    head = re.compile(r"""case\s+"?\$\{?""" + re.escape(variable) + r"""\}?"?\s+in\b""")
-    start = next((number for number, line in enumerate(lines) if head.search(line)), None)
-    if start is None:
+    scoped = scoped_lines(path, detail)
+    if scoped is None:
         return None
-    found: set[str] = set()
-    for line in lines[start + 1 :]:
-        if line.strip() == "esac":
-            break
-        match = CASE_ARM.match(line)
+    lines, variable, offset = scoped
+    head = re.compile(r"""case\s+"?\$\{?""" + re.escape(variable) + r"""\}?"?\s+in\b""")
+    sites: list[tuple[str, set[str]]] = []
+    for number, line in enumerate(lines):
+        if not head.search(line):
+            continue
+        found: set[str] = set()
+        for arm in lines[number + 1 :]:
+            if arm.strip() == "esac":
+                break
+            match = CASE_ARM.match(arm)
+            if match is None:
+                continue
+            for alternative in match.group("pattern").split("|"):
+                alternative = alternative.strip()
+                if CASE_VALUE.match(alternative):
+                    found.add(alternative)
+        sites.append((f'the `case "${variable}"` on line {offset + number + 1}', found))
+    return sites
+
+
+def array_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] | None:
+    """The words of the `detail=( ... )` array a row points at.
+
+    The array is read where it is written rather than by running the file, so
+    a list held in one place and used in several -- the flavours the Starship
+    generator writes a configuration for -- is one site.
+    """
+    scoped = scoped_lines(path, detail)
+    if scoped is None:
+        return None
+    lines, name, offset = scoped
+    text = "\n".join(lines)
+    opened = re.compile(r"(?:^|[;\s])" + re.escape(name) + r"=\(", re.M)
+    sites: list[tuple[str, set[str]]] = []
+    for match in opened.finditer(text):
+        closed = text.find(")", match.end())
+        if closed == -1:
+            return None
+        words = {word for word in text[match.end() : closed].split() if CASE_VALUE.match(word)}
+        line = offset + text.count("\n", 0, match.start()) + 1
+        sites.append((f"the `{name}=(` array on line {line}", words))
+    return sites
+
+
+def loop_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] | None:
+    """The words a `for detail in ...` loop runs over.
+
+    Both bash verifiers check one symlink per flavour that way, so a flavour
+    the registry offers and the loop does not name is an asset nothing checks.
+    """
+    scoped = scoped_lines(path, detail)
+    if scoped is None:
+        return None
+    lines, name, offset = scoped
+    loop = re.compile(r"\bfor\s+" + re.escape(name) + r"\s+in\s+(?P<words>[^;\n]*)")
+    sites: list[tuple[str, set[str]]] = []
+    for number, line in enumerate(lines):
+        match = loop.search(line)
         if match is None:
             continue
-        for alternative in match.group("pattern").split("|"):
-            alternative = alternative.strip()
-            if CASE_VALUE.match(alternative):
-                found.add(alternative)
-    return found
+        words = {word for word in match.group("words").split() if CASE_VALUE.match(word)}
+        sites.append((f"the `for {name} in` loop on line {offset + number + 1}", words))
+    return sites
+
+
+def lua_table_keys(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] | None:
+    """The keys of the Lua table `detail = { ... }`.
+
+    Neovim's colourscheme picker keeps the flavours it will honour in one such
+    table and falls back to a default for anything else, so a flavour missing
+    from it is one Neovim silently ignores. The table is a set, so only the
+    keys it maps to `true` count: `mocha = false` names the flavour and refuses
+    it, which is the same silent fallback with the name still in the file.
+    """
+    text = path.read_text(encoding="utf-8")
+    opened = re.compile(r"(?:^|[\s=,{(])" + re.escape(detail) + r"\s*=\s*\{", re.M)
+    sites: list[tuple[str, set[str]]] = []
+    for match in opened.finditer(text):
+        closed = text.find("}", match.end())
+        if closed == -1:
+            return None
+        body = text[match.end() : closed]
+        keys = {
+            key
+            for key, value in re.findall(r"(?:^|[\s,{])([\w.-]+)\s*=\s*([\w.-]+)", body)
+            if value == "true"
+        }
+        line = text.count("\n", 0, match.start()) + 1
+        sites.append((f"the `{detail}` table on line {line}", keys))
+    return sites
+
+
+def validate_set_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] | None:
+    """The literals of the `[ValidateSet(...)]` on the `$detail` parameter.
+
+    PowerShell refuses anything else before the script's first statement runs,
+    so this set is exactly what the Windows theme script accepts.
+    """
+    text = path.read_text(encoding="utf-8")
+    parameter = re.compile(
+        r"\[ValidateSet\((?P<values>[^)]*)\)\][^$]*\$" + re.escape(detail) + r"\b",
+        re.DOTALL,
+    )
+    sites = []
+    for match in parameter.finditer(text):
+        values = set(re.findall(r"'([^']*)'|\"([^\"]*)\"", match.group("values")))
+        line = text.count("\n", 0, match.start()) + 1
+        sites.append((
+            f"the ValidateSet on ${detail} on line {line}",
+            {single or double for single, double in values},
+        ))
+    return sites
+
+
+def pattern_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] | None:
+    """The values named by `detail`, a line this file writes once per value.
+
+    `{value}` stands for the value, so `[delta "catppuccin-{value}"]` reads the
+    four Catppuccin sections of a git theme file as the four flavours they
+    configure.
+    """
+    text = path.read_text(encoding="utf-8")
+    pattern = re.compile(
+        "".join(
+            r"(?P<value>[\w.-]+)" if part == "{value}" else re.escape(part)
+            for part in re.split(r"(\{value\})", detail)
+        )
+    )
+    return [(f"the lines matching `{detail}`", {m.group("value") for m in pattern.finditer(text)})]
+
+
+def file_per_value(detail: str) -> list[tuple[str, set[str]]]:
+    """The values a directory holds one file for.
+
+    `theme-assets/.local/share/wallpapers/catppuccin-{value}.webp` is a file
+    per flavour, and a flavour with no file is one whose install has nothing to
+    stow; a file with no flavour is an asset nothing can select.
+
+    A hyphen ends the value, because two patterns share a directory and a
+    prefix there: `catppuccin-mocha-lock.webp` is the lock-screen wallpaper for
+    `mocha`, not a desktop wallpaper for a flavour called `mocha-lock`.
+    """
+    prefix, _, suffix = detail.partition("{value}")
+    directory = ROOT / pathlib.PurePosixPath(prefix).parent
+    stem = pathlib.PurePosixPath(prefix).name
+    name_pattern = re.compile(
+        re.escape(stem) + r"(?P<value>[A-Za-z0-9_.]+)" + re.escape(suffix) + r"$"
+    )
+    found: set[str] = set()
+    if directory.is_dir():
+        for entry in directory.iterdir():
+            match = name_pattern.match(entry.name)
+            if match is not None:
+                found.add(match.group("value"))
+    return [(f"the files matching `{detail}`", found)]
 
 
 def check_value_consumers(options: list[dict[str, str]]) -> int:
@@ -269,35 +433,54 @@ def check_value_consumers(options: list[dict[str, str]]) -> int:
                  f"{row['option']}, which no {row['platform']} option row enumerates")
             errors += 1
             continue
+        # The option is claimed from here on: a row that cannot be read is an
+        # error of its own, and reporting the option as unread on top of it
+        # would say the registry names nothing when it names this.
+        covered.update(matching)
+        kind = row["kind"]
+        if kind not in CONSUMER_READERS:
+            fail(f"{CONSUMER_MANIFEST.name}: {row['consumer']} declares the kind "
+                 f"{kind!r}, which this check cannot read")
+            errors += 1
+            continue
         path = ROOT / row["consumer"]
-        if not path.is_file():
+        if kind != "file-per-value" and not path.is_file():
             fail(f"{CONSUMER_MANIFEST.name}: {row['consumer']} does not exist")
             errors += 1
             continue
-        if row["kind"] != "shell-case":
-            fail(f"{CONSUMER_MANIFEST.name}: {row['consumer']} declares the kind "
-                 f"{row['kind']!r}, which this check cannot read")
-            errors += 1
-            continue
-        accepted = case_values(path, row["detail"])
-        if accepted is None:
-            fail(f"{row['consumer']}: no `case \"${row['detail']}\" in` to read the "
+        if kind == "file-per-value":
+            sites = file_per_value(row["consumer"])
+        else:
+            sites = CONSUMER_READERS[kind](path, row["detail"])
+        if sites is None:
+            scope = row["detail"].partition(":")[0]
+            fail(f"{row['consumer']}: no function named {scope!r} to read the "
                  f"accepted {row['option']} values from; the registry says this file "
                  f"is what enforces them")
             errors += 1
             continue
+        if not sites:
+            shape = CONSUMER_SHAPES[kind](row["detail"] if kind != "file-per-value"
+                                          else row["consumer"])
+            fail(f"{row['consumer']}: no {shape} to read the accepted "
+                 f"{row['option']} values from; the registry says this file is what "
+                 f"enforces them")
+            errors += 1
+            continue
         for key in matching:
-            covered.add(key)
             declared = {value for value in enumerated[key]["values"].split("|") if value}
-            for value in sorted(declared - accepted):
-                fail(f"{key[0]}: the manifest offers {row['option']} {value!r}, which "
-                     f"{row['consumer']} does not accept; a selection it refuses is "
-                     f"one the install fails on after doing its work")
-                errors += 1
-            for value in sorted(accepted - declared):
-                fail(f"{key[0]}: {row['consumer']} accepts {row['option']} {value!r}, "
-                     f"which the manifest does not offer, so nothing can select it")
-                errors += 1
+            for where, accepted in sites:
+                for value in sorted(declared - accepted):
+                    fail(f"{key[0]}: the manifest offers {row['option']} {value!r}, "
+                         f"which {row['consumer']} does not cover in {where}; a value "
+                         f"a consumer does not know is one the install fails on after "
+                         f"doing its work")
+                    errors += 1
+                for value in sorted(accepted - declared):
+                    fail(f"{key[0]}: {row['consumer']} covers {row['option']} "
+                         f"{value!r} in {where}, which the manifest does not offer, so "
+                         f"nothing can select it")
+                    errors += 1
 
     for key in sorted(enumerated.keys() - covered):
         fail(f"{key[0]}: the manifest enumerates {key[1]} values, but "
@@ -305,6 +488,33 @@ def check_value_consumers(options: list[dict[str, str]]) -> int:
              f"is documented rather than enforced")
         errors += 1
     return errors
+
+
+# How a consumer states the values it knows, by the `kind` column. A kind this
+# table does not name is a build error rather than a row this check skips: a
+# consumer whose shape cannot be read enforces nothing, and reading that as
+# agreement is how the runtime enum drifted from the manifest in the first
+# place.
+CONSUMER_READERS = {
+    "shell-case": case_values,
+    "shell-array": array_values,
+    "shell-word-list": loop_values,
+    "lua-table": lua_table_keys,
+    "powershell-validateset": validate_set_values,
+    "line-pattern": pattern_values,
+    "file-per-value": None,
+}
+# How each kind reads in a message, so a consumer that has stopped carrying the
+# shape it is registered for is named in the words of the file it is in.
+CONSUMER_SHAPES = {
+    "shell-case": lambda detail: f'`case "${detail.rpartition(":")[2]}" in`',
+    "shell-array": lambda detail: f"`{detail.rpartition(':')[2]}=(` array",
+    "shell-word-list": lambda detail: f"`for {detail.rpartition(':')[2]} in` loop",
+    "lua-table": lambda detail: f"`{detail} = {{` table",
+    "powershell-validateset": lambda detail: f"`[ValidateSet(...)]` on `${detail}`",
+    "line-pattern": lambda detail: f"line matching `{detail}`",
+    "file-per-value": lambda detail: f"file matching `{detail}`",
+}
 
 
 def load_time_assignments(text: str) -> dict[str, str]:
