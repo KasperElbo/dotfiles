@@ -43,7 +43,7 @@ Its options:
 
 | Option | What it does |
 |---|---|
-| `-FedoraDistribution NAME` | Use an exact name from `wsl --list --online` instead of discovering the newest `FedoraLinux` entry. |
+| `-FedoraDistribution NAME` | Use an exact name from `wsl --list --online` instead of discovering the newest `FedoraLinux` entry. A name that is neither installed nor in Microsoft's catalogues is refused straight away, before any administrator prompt or WSL update. |
 | `-SkipNoctty` | Install and validate Fedora WSL without installing or configuring Noctty. |
 | `-SkipNocttyConfiguration` | Install Noctty but write none of its configuration. |
 | `-Handy` | Also install the optional Handy voice-dictation application. |

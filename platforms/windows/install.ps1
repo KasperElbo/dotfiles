@@ -190,9 +190,13 @@ function Resolve-FedoraDistribution {
             ($online -notcontains $RequestedDistribution)) {
             $web = @(Get-WebFedoraDistributions)
             if ($web -notcontains $RequestedDistribution) {
-                if ($AllowUnavailable) {
-                    return $null
-                }
+                # -AllowUnavailable exists for the auto-selection path below,
+                # where an empty catalogue is a stale catalogue and the caller
+                # updates WSL and asks again. A name the caller typed is not
+                # that case: returning $null here sends the main body through
+                # an administrator prompt and a real `wsl --update` before it
+                # ever says the name was wrong, so a one-character typo costs
+                # the user an elevation and an unwanted WSL update.
                 throw "Fedora distribution '$RequestedDistribution' is neither installed nor present in Microsoft's WSL catalogues."
             }
         }
