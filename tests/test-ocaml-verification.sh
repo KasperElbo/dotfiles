@@ -364,10 +364,19 @@ printf 'PASS: a compiler override survives a rerun that does not repeat it\n'
 # verifier will, which is also what proves the seam is usable.
 
 # A machine whose opam sits in <opam_dir>, with a package-database query that
-# owns $MACHINE/usr/bin/opam and nothing else -- which is what a package
-# database does -- and which refuses any argv this fixture did not anticipate.
+# owns <owned_dir>/opam and nothing else -- which is what a package database
+# does -- and which refuses any argv this fixture did not anticipate.
+#
+# The owned path is spelled canonically, because the verifier asks about the
+# canonical path on purpose: a package database records the real one. Spelling
+# it literally asks a question the verifier never puts, which passes wherever
+# the two spellings coincide and fails wherever they do not -- on macOS the
+# test root sits under /var/folders, itself a symlink into /private/var/folders,
+# and the literal spelling matches nothing.
 new_owned_machine() {
   local opam_dir="${1:?opam directory is required}"
+  local owned_dir="${2:-/usr/bin}"
+  local machine_canonical
 
   new_machine
   OWNER_BIN="$MACHINE/owner-bin"
@@ -375,10 +384,12 @@ new_owned_machine() {
   OPAM_MOCK="$MACHINE$opam_dir/opam"
   write_opam_mock "$OPAM_MOCK"
 
+  machine_canonical="$(cd "$MACHINE" && pwd -P)"
+
   cat >"$OWNER_BIN/query-owner" <<QUERY
 #!/usr/bin/env bash
 set -u
-if [[ "\$1" == "$MACHINE/usr/bin/opam" ]]; then
+if [[ "\$1" == "$machine_canonical$owned_dir/opam" ]]; then
   printf '%s' "\${MOCK_PACKAGE_OWNER-opam}"
   exit 0
 fi
@@ -406,6 +417,20 @@ run_owned_verifier
 assert_success
 assert_contains "$TEST_OUTPUT" "opam is provided by the platform's opam package"
 printf 'PASS: an opam the package database owns verifies\n'
+
+# ...and the question is asked about the path the package database records,
+# not the spelling PATH reached it by. Here /usr/bin is a symlink, so the two
+# differ on every platform. Without this case the rule is only exercised where
+# a test root happens to sit behind a symlink, which is what let a fixture
+# asking the wrong question pass on Linux and fail on macOS.
+new_owned_machine /usr/libexec/opam-pkg /usr/libexec/opam-pkg
+ln -s libexec/opam-pkg "$MACHINE/usr/bin"
+VERIFIER_PATH="$MACHINE/usr/bin:$OWNER_BIN:/usr/bin:/bin"
+record_ocaml_state
+run_owned_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" "opam is provided by the platform's opam package"
+printf 'PASS: the owner query is asked about the canonical path\n'
 
 # The finding's own reproduction. The path is inside the native prefix, so the
 # containment test passed it; no package owns it, which is what decides.
