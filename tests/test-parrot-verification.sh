@@ -308,8 +308,9 @@ verification_output="$(
 # manual assurances through uncounted printfs and still end on the unqualified
 # "Parrot CTF verification passed.", which finish_verification reserves for a
 # run with none of them (issue #396, GAP-21).
-sed $'s/\033\\[[0-9;]*m//g' <<<"$verification_output" |
-  grep -Eq 'Parrot CTF verification completed with warnings and unobserved checks: [0-9]+ warning\(s\), [0-9]+ unobserved check\(s\)' || {
+verification_plain="$(sed $'s/\033\\[[0-9;]*m//g' <<<"$verification_output")"
+grep -Eq 'Parrot CTF verification completed with warnings and unobserved checks: [0-9]+ warning\(s\), [0-9]+ unobserved check\(s\)' \
+  <<<"$verification_plain" || {
   printf 'A run reporting manual assurances and unobserved checks did not say so in its summary:\n' >&2
   printf '%s\n' "$verification_output" >&2
   exit 1
