@@ -56,7 +56,7 @@ function Write-VerificationFailure {
     $script:Failures++
 }
 
-function Normalize-ObservedPath {
+function ConvertTo-NormalizedPath {
     param([string]$Value)
 
     if ($Value -notmatch '^[A-Za-z]:[\\/]') {
@@ -91,8 +91,8 @@ function Test-PathWithinRoot {
     if (-not $Path -or -not $Root) { return $false }
     try {
         $trimCharacters = [char[]]@('\', '/')
-        $fullPath = (Normalize-ObservedPath $Path).TrimEnd($trimCharacters)
-        $fullRoot = (Normalize-ObservedPath $Root).TrimEnd($trimCharacters)
+        $fullPath = (ConvertTo-NormalizedPath $Path).TrimEnd($trimCharacters)
+        $fullRoot = (ConvertTo-NormalizedPath $Root).TrimEnd($trimCharacters)
         $separator = if ($Path -match '^[A-Za-z]:[\\/]') { '\' } else { [IO.Path]::DirectorySeparatorChar }
         if ($fullPath.Equals($fullRoot, [StringComparison]::OrdinalIgnoreCase)) {
             return $true
@@ -576,7 +576,10 @@ if ($null -ne $observation) {
     else {
         $installedVersion = $null
         if ($observation.Wsl.InstalledVersion) {
-            try { $installedVersion = [version]$observation.Wsl.InstalledVersion } catch { }
+            # An unreadable version is not a version: leaving it null is what makes
+            # Get-WslSupportStatus answer 'not proven' rather than throwing here.
+            try { $installedVersion = [version]$observation.Wsl.InstalledVersion }
+            catch { $installedVersion = $null }
         }
         $support = Get-WslSupportStatus `
             -InstalledVersion $installedVersion `
