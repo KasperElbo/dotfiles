@@ -388,6 +388,19 @@ choice with a recorded reason, never an omission.
 | `w / b / e` | Next word / previous word / end of word | key | upstream | `base` | the tool's own help | yes | — |
 | `:w / :q / :wq / :q!` | Write / quit / write and quit / quit discarding | key | upstream | `base` | the tool's own help | yes | — |
 | `yy / dd / p` | Yank / cut / put a line | key | upstream | `base` | the tool's own help | yes | — |
+| `<leader>md` | table-nvim: delete the column | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>m` | WhichKey group: markdown | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mC` | table-nvim: insert a column to the left | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mc` | table-nvim: insert a column to the right | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mr` | table-nvim: insert a row below | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mK` | table-nvim: insert a row above | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mt` | table-nvim: insert a table | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mh` | table-nvim: move the column left | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>ml` | table-nvim: move the column right | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mj` | table-nvim: move the row down | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<leader>mk` | table-nvim: move the row up | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<M-l>` | table-nvim: next table cell | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
+| `<M-h>` | table-nvim: previous table cell | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
 
 #### theme
 
@@ -467,19 +480,6 @@ choice with a recorded reason, never an omission.
 | `<localleader>lo` | VimTeX: compiler output | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
 | `<localleader>lt` | VimTeX: document table of contents | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
 | `<localleader>lv` | VimTeX: view the PDF / forward search | key | repository | `latex` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/latex.lua` |
-| `<leader>md` | table-nvim: delete the column | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>m` | WhichKey group: markdown | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mC` | table-nvim: insert a column to the left | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mc` | table-nvim: insert a column to the right | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mr` | table-nvim: insert a row below | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mK` | table-nvim: insert a row above | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mt` | table-nvim: insert a table | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mh` | table-nvim: move the column left | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>ml` | table-nvim: move the column right | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mj` | table-nvim: move the row down | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<leader>mk` | table-nvim: move the row up | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<M-l>` | table-nvim: next table cell | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
-| `<M-h>` | table-nvim: previous table cell | key | repository | `base` | WhichKey | no | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` |
 
 #### zsh
 

@@ -29,9 +29,10 @@ package.path = "nvim-lazyvim/.config/nvim/lua/?.lua;nvim-lazyvim/.config/nvim/lu
 
 -- The set the reduced profile is supposed to carry, stated once. Naming it
 -- here rather than deriving it from the Parrot profile is the point: a
--- workstation extra that displaced one of these would still leave three.
+-- workstation extra that displaced one of these would still leave four.
 local reduced_extras = {
   "lazyvim.plugins.extras.dap.core",
+  "lazyvim.plugins.extras.lang.markdown",
   "lazyvim.plugins.extras.lang.python",
   "lazyvim.plugins.extras.test.core",
 }
@@ -72,7 +73,7 @@ for _, extra in ipairs(workstation_only) do
 end
 
 -- The other direction, which the count alone does not give: a leak that
--- displaced one of the three would still leave three.
+-- displaced one of the four would still leave four.
 assert(
   #parrot_extras == #reduced_extras,
   "Parrot profile should contain only the reduced extra set"
