@@ -312,7 +312,11 @@ HOME="$real_home" XDG_CONFIG_HOME="$real_home/.config" \
 
 platform_env="$repo_root/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform-env.zsh"
 platform_zsh="$repo_root/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform.zsh"
-grep -Fq '/mnt/[a-zA-Z]/*)' "$platform_env"
+# The sanitizer's own behaviour is not checked here. This suite replaces zsh
+# with a Bash stub that computes PATH itself, so a grep for the case-arm text
+# would match the source of a file no test ever interprets -- and did, while an
+# inverted sanitizer that kept every Windows path passed the whole gate stack.
+# tests/test-wsl-path-sanitizer.sh runs the tracked file under real Zsh instead.
 grep -Fq 'export BROWSER=wsl-open' "$platform_env"
 grep -Fq 'vim.g.vimtex_view_general_viewer = "wsl-open"' \
   "$repo_root/platforms/fedora-wsl/stow/nvim-wsl/.config/nvim/lua/plugins/wsl.lua"
