@@ -96,14 +96,34 @@ checks the first two unconditionally, on every run, whether or not
 
 ### What verification proves
 
-`verify-hardening.sh` is read-only and sorts every check into one of four
-kinds, so a green run says exactly what it means and nothing more:
+`verify-hardening.sh` is read-only and never asks for a password. Some of the
+files this profile owns are `root:root` and mode `0440`/`0640`, and the loaded
+audit ruleset can only be read as root, so verification does use `sudo` — but
+every one of those calls is `sudo -n`. If there is no cached authorization it
+reports the control as **not observed**, naming the file and saying to run
+`sudo -v` first (or to run verification as root), and carries on with the
+rest. That distinction is the point: a control the verifier could not read is
+not a control that is gone, and reporting one as the other would send you to
+reinstall a machine that is fine. It also means verification can run from a
+script, a timer, or a session with no terminal to answer on without hanging on
+a prompt.
+
+"Read-only" is about configuration: nothing in verification writes, enables,
+reloads or relabels anything. It is not a claim that the run leaves no trace.
+Once this profile is installed, the `sudo` calls verification makes are
+themselves logged to `/var/log/sudo.log`, and reading the audit rules is an
+audited action, so a verification run shows up in the logs the profile turned
+on. That is unavoidable for a privileged read and is not drift.
+
+Every check sorts into one of four kinds, so a green run says exactly what it
+means and nothing more:
 
 | Kind | Examples | Result when unmet |
 |---|---|---|
 | **Repository-owned** | the `90-dotfiles-hardening` drop-ins under `sysctl.d`, `sudoers.d`, `faillock.conf.d`, `audit/rules.d` and `sshd_config.d`; `authselect`'s `with-faillock` feature; `auditd.service`; `dnf5-automatic.timer` | **Failure.** Each is checked for presence, the exact file mode the installer set, and the exact content it wrote — whole, against the same table the installer generated it from, because a line added above a policy line can reverse the policy while leaving every written line in place. Where a file can be present but inert, the effective state is checked too (`sysctl -n`, and every written rule in `auditctl -l`). Reverting one is drift, not a warning. |
 | **Fedora baseline** | SELinux enforcing, `firewalld` enabled and active, private-key permissions | **Failure.** The installer verifies rather than changes these, but the profile's claims rest on them. |
-| **Environmental** | Secure Boot state, SELinux unavailable inside a container, a machine where `authselect` could not enable faillock | **Warning**, with the reason. These depend on firmware, a vendor, or the host, not on this repository. |
+| **Environmental** | Secure Boot state, SELinux unavailable on a machine whose installation recorded it as unavailable too (a container), a machine where `authselect` could not enable faillock | **Warning**, with the reason. These depend on firmware, a vendor, or the host, not on this repository. A kernel that has *lost* SELinux since installation is a failure, not this: the recorded mode is what tells the two apart. |
+| **Not observed** | a root-owned drop-in or the loaded audit ruleset on a machine with no cached `sudo` authorization | **Not verified**, and named in the output with what to run to check it. Counted separately from a pass, so the summary line says the run was incomplete. |
 | **Manual assurance** | mount options, the service watch-list, the `ss -tuln` listening sockets, the exposed `firewalld` services and ports | **Not verified**, and labelled as such in the output. These are printed for a human to judge; a passing run asserts nothing about them. |
 
 Owned checks run only when the profile was actually selected — that is, when
