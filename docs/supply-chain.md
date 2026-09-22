@@ -336,6 +336,14 @@ checkout, or the component predates provenance recording — the installer
 path for manual action. It never deletes credentials, project data, or an
 unowned path that merely looks like an installer target.
 
+A removal that is attempted and *fails* is refused the same way. When `mise
+uninstall` reports an error the tool is still installed, so the installer puts
+the previous `ai.toml` back and exits non-zero rather than recording the
+removal. That restoration is what makes the failure recoverable: the managed
+conf file is the only record of what was previously declared, so a rewrite
+that had already dropped the spec would leave nothing stale to retry, and the
+same command could never remove the tool again.
+
 State separates three concepts in the one existing `ai` profile state file, so
 no second state system exists:
 
