@@ -102,6 +102,14 @@ ANNOTATION = re.compile(r"network-source:\s*([A-Za-z0-9,+-]+)")
 # blank lines between them.
 ANNOTATION_LOOKBACK = 4
 COMMENT_LINE = re.compile(r"(?:#|--|//|;)")
+# A line the next one continues, so the two are one construct: a backslash, or
+# an && / || left hanging at the end of a condition. An annotation belongs
+# above the first line of such a construct, not between its halves, where no
+# shell would let a comment go anyway. A trailing comma is deliberately not
+# here: list elements are written one per line, and treating each as a
+# continuation of the one above would hand every element the first one's
+# annotation, which is the inheritance this file exists to refuse.
+CONTINUED_LINE = re.compile(r"(?:\\|&&|\|\|)$")
 
 # Reserved annotation for a flagged construct that reaches no external network:
 # a loopback/in-container probe, or a transfer whose host is the machine under
@@ -143,6 +151,10 @@ NETWORK_PATTERNS = [
         ),
         "git-remote",
     ),
+    # A download written the same way. The git argv form was here and this one
+    # was not, so ``vim.fn.system({ "curl", "-fsSL", url })`` in a Lua file
+    # reached the network with nothing to flag it.
+    (re.compile(r"""["']curl["']\s*,"""), "curl"),
     (re.compile(r"--repofrompath"), "repofrompath"),
     (re.compile(r"https://\S*\.rpm"), "remote-rpm"),
     # The two constructs that give a machine a new package trust root: a DNF
@@ -161,6 +173,12 @@ NETWORK_PATTERNS = [
     # root reached without naming it on its own line. Neither form carries a
     # scheme, so literal_hosts finds no host and the annotation alone covers
     # them, which is the right answer for a reference that is not a URL.
+    # A Mason registry is a trust root of the same kind: every LSP server and
+    # debug adapter Mason installs is resolved through the list, and one of
+    # this repository's two is a personal fork. ``github:owner/repo`` carries
+    # no scheme, so literal_hosts finds no host in it and the repository it
+    # names is what the annotation has to be checked against.
+    (re.compile(r"""["']github:[\w.-]+/[\w.-]+["']"""), "package-registry"),
     (re.compile(r"""^\s*tap\s+["'][\w.-]+/[\w.-]+["']"""), "homebrew-tap"),
     (re.compile(r"""^\s*(?:brew|cask)\s+["'][\w.-]+/[\w.-]+/"""), "homebrew-tap-package"),
     (re.compile(r"(?:docker\.io|ghcr\.io|quay\.io|registry\.fedoraproject\.org)/\S+"), "container-image"),
@@ -228,6 +246,14 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
 # https://github.com/owner/homebrew-name, and a `brew`/`cask` argument with two
 # slashes pulls a package from that same clone. These two read both ends of
 # that identity so a tap is covered only by a source that is actually it.
+PACKAGE_REGISTRY_LABEL = "package-registry"
+PACKAGE_REGISTRY_REFERENCE = re.compile(
+    r"""["']github:(?P<owner>[\w.-]+)/(?P<name>[\w.-]+)["']"""
+)
+GITHUB_REPOSITORY = re.compile(
+    r"^https://github\.com/(?P<owner>[\w.-]+)/(?P<name>[\w.-]+?)(?:\.git)?/?$"
+)
+
 HOMEBREW_TAP_LABELS = {"homebrew-tap", "homebrew-tap-package"}
 HOMEBREW_TAP_REFERENCE = re.compile(
     r"""^\s*(?:tap|brew|cask)\s+["'](?P<owner>[\w.-]+)/(?P<name>[\w.-]+)["'/]"""
@@ -309,6 +335,27 @@ def source_taps(rows: list[dict[str, str]]) -> dict[str, set[str]]:
             else set()
         )
     return taps
+
+
+def named_registries(text: str) -> set[str]:
+    """Every ``github:owner/repo`` registry this text names, lower case."""
+    return {
+        f"{match.group('owner').lower()}/{match.group('name').lower()}"
+        for match in PACKAGE_REGISTRY_REFERENCE.finditer(text)
+    }
+
+
+def source_repositories(rows: list[dict[str, str]]) -> dict[str, set[str]]:
+    """The GitHub repository each registered source is, when its url is one."""
+    repositories = {}
+    for row in rows:
+        match = GITHUB_REPOSITORY.match(row["url"].strip())
+        repositories[row["id"]] = (
+            {f"{match.group('owner').lower()}/{match.group('name').lower()}"}
+            if match
+            else set()
+        )
+    return repositories
 
 
 def tracked_files() -> list[pathlib.Path]:
@@ -421,7 +468,9 @@ def load_registry() -> tuple[list[dict[str, str]], int]:
 
 
 def scan_for_unregistered(
-    hosts_by_source: dict[str, set[str]], taps_by_source: dict[str, set[str]]
+    hosts_by_source: dict[str, set[str]],
+    taps_by_source: dict[str, set[str]],
+    repositories_by_source: dict[str, set[str]],
 ) -> int:
     known = set(hosts_by_source)
     errors = 0
@@ -460,11 +509,11 @@ def scan_for_unregistered(
             # its provenance, which is the opposite of what this file means by
             # "proximity is not provenance".
             annotated: set[str] = set()
-            # A backslash-continued invocation is one construct whichever of
-            # its lines matched, and its annotation sits above the first of
-            # them, so the walk starts there.
+            # A continued invocation is one construct whichever of its lines
+            # matched, and its annotation sits above the first of them, so the
+            # walk starts there.
             start = index
-            while start > 0 and lines[start - 1].rstrip().endswith("\\"):
+            while start > 0 and CONTINUED_LINE.search(lines[start - 1].rstrip()):
                 start -= 1
             candidates = list(lines[start:index + 1])
             for cursor in range(start - 1, max(-1, start - 1 - ANNOTATION_LOOKBACK), -1):
@@ -537,6 +586,21 @@ def scan_for_unregistered(
                         f"config/network-sources.tsv and annotate the line with it"
                     )
                     errors += 1
+
+            if matched == PACKAGE_REGISTRY_LABEL:
+                registries = named_registries(line)
+                covered: set[str] = set()
+                for source_id in annotated:
+                    covered |= repositories_by_source.get(source_id, set())
+                for registry in sorted(registries - covered):
+                    fail(
+                        f"{relative}:{index + 1}: this package registry is "
+                        f"github:{registry}, which none of the annotated sources "
+                        f"is ({', '.join(sorted(annotated))}); register "
+                        f"https://github.com/{registry} in "
+                        f"config/network-sources.tsv and annotate the line with it"
+                    )
+                    errors += 1
     return errors
 
 
@@ -544,7 +608,9 @@ def main() -> int:
     rows, errors = load_registry()
     if not rows:
         return 1 if errors else 0
-    errors += scan_for_unregistered(source_hosts(rows), source_taps(rows))
+    errors += scan_for_unregistered(
+        source_hosts(rows), source_taps(rows), source_repositories(rows)
+    )
     return 1 if errors else 0
 
 
