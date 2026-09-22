@@ -459,6 +459,40 @@ git -C "$fixture_repo" checkout -q -- nvim-lazyvim/.config/nvim/lua/plugins/dotn
 lint_fixture >/dev/null
 printf 'PASS: an argv-form curl download fails the linter\n'
 
+# A PowerShell package verb resolves a name against a configured repository and
+# runs what comes back, so the repository is a trust root and the module is
+# code. The CI job that installs PSScriptAnalyzer carried its annotation with
+# no pattern holding it there, so deleting the annotation changed nothing.
+sed -i '/network-source: psscriptanalyzer/d' "$fixture_repo/.github/workflows/validate.yml"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an Install-Module with its annotation removed.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" '.github/workflows/validate.yml:'
+assert_contains "$lint_output" 'unregistered powershell-package network source'
+git -C "$fixture_repo" checkout -q -- .github/workflows/validate.yml
+lint_fixture >/dev/null
+printf 'PASS: an unannotated PowerShell package verb fails the linter\n'
+
+# And the other verbs of the same family, in a file that never had one.
+cat >"$fixture_repo/platforms/windows/scratch.ps1" <<'EOF'
+Register-PSRepository -Name Private -SourceLocation https://example.invalid/feed
+Save-Module -Name Anything -Path C:\tmp
+Install-PSResource -Name Anything
+EOF
+git -C "$fixture_repo" add -A
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered PowerShell package verb.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'platforms/windows/scratch.ps1:1'
+assert_contains "$lint_output" 'platforms/windows/scratch.ps1:2'
+assert_contains "$lint_output" 'platforms/windows/scratch.ps1:3'
+rm -f -- "$fixture_repo/platforms/windows/scratch.ps1"
+git -C "$fixture_repo" add -A
+lint_fixture >/dev/null
+printf 'PASS: every PowerShell package verb of the family is flagged\n'
+
 # The walk that finds an annotation above a continued construct stops at the
 # first line of code, and a list element is not a continuation of the one
 # above it. Otherwise a registry appended under an annotated one would inherit

@@ -362,8 +362,11 @@ an unregistered `curl`, `wget`, PowerShell download, remote `git clone`/`fetch`,
 `--repofrompath`, remote release RPM, or container image, and on the three
 constructs that give the machine a new package trust root: a DNF repository
 added with `dnf config-manager addrepo`, a signing key imported with
-`rpm --import`, however their argument is spelled, a Homebrew tap, and a
-package-registry reference. It also fails on a registry
+`rpm --import`, however their argument is spelled, a Homebrew tap, a
+package-registry reference, and a PowerShell package verb (`Install-Module`
+and its `Save-`/`Update-`/`-Script`/`-PSResource` siblings, and
+`Register-PSRepository`), each of which resolves a name against a configured
+repository and runs what comes back. It also fails on a registry
 row whose tier and integrity mechanism contradict each other, and on one whose
 `integrity` is `image-digest-pinned` while a consumer names some other
 reference — a digest the job does not pull is a claim about a run that never
