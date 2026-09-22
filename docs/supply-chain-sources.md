@@ -43,6 +43,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 |---|---|---|---|---|---|---|---|---|
 | `firstmate-repo` | FirstMate crew coordinator | kunchenguid | `git` | `user` | `default-branch` | firstmate_commit in ai state | `https-tls` | rolling |
 | `homebrew-formulae` | Homebrew formulae and casks | Homebrew | `package-registry` | `user` | `Brewfile` | brew bundle list | `registry-tls` | rolling |
+| `homebrew-tap-nikitabobko` | AeroSpace tiling window manager tap | nikitabobko | `git` | `user` | `HEAD` | brew tap-info nikitabobko/tap | `https-tls` | rolling |
 | `lazy-nvim` | lazy.nvim plugin manager: cloned at --branch=stable on a workstation, at the revision lazy-lock.json names by CI | folke | `git` | `user` | `stable branch (bootstrap), lazy-lock.json (CI)` | branch tip on a workstation, lazy-lock.json in CI | `https-tls` | rolling |
 | `mason-registry` | Neovim LSP/DAP tooling | Mason registry | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | rolling |
 | `mason-registry-crashdummyy` | Neovim LSP/DAP tooling absent from the official registry (roslyn) | Crashdummyy | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | rolling |
@@ -92,6 +93,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `handy-release` | `https://github.com/cjpais/Handy/releases/download/v${handy_version}/${handy_rpm}` | pin the previous release tag and sha256 in platforms/fedora/lib/dictation.sh, then rerun with --dictation | `platforms/fedora/scripts/install-dictation.sh` `platforms/fedora/lib/dictation.sh` |
 | `homebrew-formulae` | `https://formulae.brew.sh` | brew uninstall | `platforms/macos/Brewfile` `platforms/macos/scripts/install-system.sh` |
 | `homebrew-installer` | `https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh` | Homebrew uninstall script | `scripts/bootstrap-macos.sh` `platforms/macos/install.sh` `platforms/macos/scripts/install-system.sh` |
+| `homebrew-tap-nikitabobko` | `https://github.com/nikitabobko/homebrew-tap` | brew uninstall --cask aerospace && brew untap nikitabobko/tap | `platforms/macos/Brewfile` |
 | `lazy-nvim` | `https://github.com/folke/lazy.nvim.git` | restore lazy-lock.json and rerun the job; on a workstation, check out the previous commit in ~/.local/share/nvim/lazy/lazy.nvim | `nvim-lazyvim/.config/nvim/lazy-lock.json` `nvim-lazyvim/.config/nvim/lua/config/lazy.lua` `.github/workflows/validate.yml` |
 | `lazyvim-plugins` | `https://github.com/LazyVim/LazyVim` | git restore lazy-lock.json and :Lazy restore | `nvim-lazyvim/.config/nvim/lazy-lock.json` |
 | `mason-registry` | `https://github.com/mason-org/mason-registry` | Mason uninstall | `common/install-neovim-tools.sh` `common/mason-package-versions.txt` |

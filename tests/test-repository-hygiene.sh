@@ -473,6 +473,128 @@ run_capture env -C "$fixture_repo" git diff --check
 assert_success
 printf 'PASS: the unranged form passes the same commit, which is why it changed\n'
 
+# --- Every check_symlink call site names its Stow source (#369) -------------
+#
+# The helper takes the expected source as an optional third argument, which is
+# what let the migration run one platform at a time and equally what would let
+# the weak two-argument form come back unnoticed: it is not a syntax error, and
+# its output is a tick like any other. What is asserted here is that the gate
+# actually refuses a tree that regresses, because a checker that cannot fail is
+# the defect this repository files issues about.
+symlink_validator="$repo_root/scripts/validate-symlink-checks.py"
+
+run_capture python3 "$symlink_validator"
+assert_success
+printf 'PASS: every migrated check_symlink call site names its Stow source\n'
+
+# The fixture is a repository of its own: the file set comes from the git
+# index, the same way the lint gate picks it.
+# Assembled at run time, as the fixture citations above are: spelled out, a
+# path into a tree that exists only inside this suite would be a violation of
+# the rule three sections up, which governs this file too.
+symlink_fixture_root="$(printf 'platforms/%s/scripts/verify.sh' example)"
+
+new_symlink_tree() {
+  new_clean_tree
+  symlink_tree="$tree"
+  mkdir -p "$symlink_tree/$(dirname "$symlink_fixture_root")"
+  git -C "$symlink_tree" init -q
+}
+
+write_verifier() {
+  cat >"$symlink_tree/$symlink_fixture_root"
+  git -C "$symlink_tree" add -A
+}
+
+new_symlink_tree
+write_verifier <<'EOF'
+#!/usr/bin/env bash
+check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh" "$DOTFILES_ROOT/zsh/.zshenv"
+check_symlink "$HOME/.tmux.conf" \
+  "$DOTFILES_ROOT/tmux" \
+  "$DOTFILES_ROOT/tmux/.tmux.conf"
+EOF
+run_capture python3 "$symlink_validator" --root "$symlink_tree" --migrating ''
+assert_success
+printf 'PASS: three-argument call sites are accepted, continuation lines included\n'
+
+# The defect itself: a call site that proves only containment.
+new_symlink_tree
+write_verifier <<'EOF'
+#!/usr/bin/env bash
+check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh"
+EOF
+run_capture python3 "$symlink_validator" --root "$symlink_tree" --migrating ''
+assert_failure
+assert_contains "$TEST_OUTPUT" "$symlink_fixture_root calls check_symlink without an expected source"
+printf 'PASS: a two-argument call site is rejected\n'
+
+# A file still being migrated is exempt up to the exact number of call sites
+# it started with, and no further: a new weak one fails on the commit that
+# adds it rather than being absorbed by the exemption.
+new_symlink_tree
+write_verifier <<'EOF'
+#!/usr/bin/env bash
+check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh"
+check_symlink "$HOME/.tmux.conf" "$DOTFILES_ROOT/tmux"
+EOF
+run_capture python3 "$symlink_validator" --root "$symlink_tree" \
+  --migrating "$symlink_fixture_root=2"
+assert_success
+printf 'PASS: a file still being migrated is exempt up to its recorded count\n'
+
+run_capture python3 "$symlink_validator" --root "$symlink_tree" \
+  --migrating "$symlink_fixture_root=1"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'up from the 1 this migration started with'
+printf 'PASS: a weak call site beyond the recorded count is rejected\n'
+
+# ...and the exemption cannot outlive the migration it describes: once a call
+# site is migrated the number has to come down with it.
+run_capture python3 "$symlink_validator" --root "$symlink_tree" \
+  --migrating "$symlink_fixture_root=3"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'is down to 2 two-argument check_symlink call(s) from 3'
+printf 'PASS: a migrated call site is not left behind in the exemption list\n'
+
+# A shape the gate cannot read is reported rather than skipped. A call whose
+# arguments are not all double-quoted would otherwise be counted as zero
+# arguments -- silently satisfying a rule about how many it has.
+new_symlink_tree
+write_verifier <<'EOF'
+#!/usr/bin/env bash
+check_symlink $link "$DOTFILES_ROOT/zsh" "$DOTFILES_ROOT/zsh/.zshenv"
+EOF
+run_capture python3 "$symlink_validator" --root "$symlink_tree" --migrating ''
+assert_failure
+assert_contains "$TEST_OUTPUT" 'in a shape this gate cannot read'
+printf 'PASS: a call site the gate cannot parse is reported, not skipped\n'
+
+# check_symlink_owned in common/verify-ai.sh is a different function with a
+# different contract, and matching the helper's name as a substring swept it
+# in. Nothing here is a check_symlink call site at all.
+new_symlink_tree
+write_verifier <<'EOF'
+#!/usr/bin/env bash
+check_symlink_owned "Claude Code (CLAUDE.md)" "$claude_md_target"
+EOF
+run_capture python3 "$symlink_validator" --root "$symlink_tree" --migrating ''
+assert_failure
+assert_contains "$TEST_OUTPUT" 'the check would pass vacuously'
+printf 'PASS: check_symlink_owned is not read as a check_symlink call site\n'
+
+# A tree with no call sites at all passes every rule above without proving
+# anything, so it is a failure rather than a green run.
+new_symlink_tree
+write_verifier <<'EOF'
+#!/usr/bin/env bash
+printf 'nothing to see\n'
+EOF
+run_capture python3 "$symlink_validator" --root "$symlink_tree" --migrating ''
+assert_failure
+assert_contains "$TEST_OUTPUT" 'the check would pass vacuously'
+printf 'PASS: a tree with no call sites fails instead of passing vacuously\n'
+
 # --- The secret-scanning gate (#377) ---------------------------------------
 #
 # README.md claims categorically that nothing secret is in this repository.

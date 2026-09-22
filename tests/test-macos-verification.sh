@@ -376,6 +376,17 @@ ln -s "$repo_root/platforms/macos/stow/nvim-macos/.config/nvim/lua/plugins/macos
   "$config/nvim/lua/plugins/macos.lua"
 ln -s "$repo_root/platforms/macos/stow/ghostty-macos/.config/ghostty/macos.conf" \
   "$config/ghostty/macos.conf"
+# The theme hook and the four wallpapers are Stow links like the rest, and this
+# fixture deployed none of them, so five of the verifier's link checks had only
+# ever been seen failing. A fixture that cannot show a link passing cannot show
+# the wrong link failing either (issue #369).
+mkdir -p "$config/dotfiles/theme-hooks.d" "$data/wallpapers"
+ln -s "$repo_root/platforms/macos/stow/theme-hooks/.config/dotfiles/theme-hooks.d/macos.sh" \
+  "$config/dotfiles/theme-hooks.d/macos.sh"
+for wallpaper_flavour in latte frappe macchiato mocha; do
+  ln -s "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-$wallpaper_flavour.webp" \
+    "$data/wallpapers/catppuccin-$wallpaper_flavour.webp"
+done
 
 # The theme the installer applied: the state common/lib/theme-shared-state.sh
 # writes, and the Stow-deployed Starship configuration for that flavour.
@@ -538,6 +549,9 @@ for expected in \
   'Neovim 0.12.5 satisfies the >= 0.12 baseline' \
   "Ghost Pepper is at the pinned $DICTATION_VERSION" \
   'Ghost Pepper has no competing Homebrew cask' \
+  "$config/git/config -> $repo_root/git/.config/git/config" \
+  "$config/dotfiles/theme-hooks.d/macos.sh -> $repo_root/platforms/macos/stow/theme-hooks/.config/dotfiles/theme-hooks.d/macos.sh" \
+  "$data/wallpapers/catppuccin-mocha.webp -> $repo_root/theme-assets/.local/share/wallpapers/catppuccin-mocha.webp" \
   "Ghost Pepper is signed by the pinned Developer ID team $DICTATION_TEAM" \
   'Gatekeeper accepts Ghost Pepper' \
   'Microphone and Accessibility consent is interactive'; do
@@ -571,6 +585,28 @@ expect_one_more_failure 'a wrong catppuccin-*.toml fails verification' \
   "Starship configuration selects the $theme palette: expected 'palette = 'catppuccin_$theme''"
 ln -sfn "$repo_root/starship/.config/starship/catppuccin-$theme.toml" \
   "$config/starship/catppuccin-$theme.toml"
+
+# A link that resolves inside the package it is supposed to come from, at a
+# file that is not the one Stow deploys there. Until the call sites passed the
+# expected source, this was reported as owned and green: the git package holds
+# both .config/git/config and the Delta theme it includes, so the redirected
+# link satisfied "resolves somewhere below $DOTFILES_ROOT/git" (issue #369).
+ln -sfn "$repo_root/git/.config/git/themes/catppuccin.gitconfig" "$config/git/config"
+run_verifier
+expect_one_more_failure 'a link to another file in the same package fails verification' \
+  "$config/git/config is owned by $repo_root/git but is not the file Stow should have linked"
+ln -sfn "$repo_root/git/.config/git/config" "$config/git/config"
+
+# The same defect between two files that differ only in the flavour in their
+# name: one shared theme-assets package holds all four wallpapers, so a mocha
+# link pointing at the latte image was inside the expected root.
+ln -sfn "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-latte.webp" \
+  "$data/wallpapers/catppuccin-mocha.webp"
+run_verifier
+expect_one_more_failure 'a wallpaper link to another flavour fails verification' \
+  "$data/wallpapers/catppuccin-mocha.webp is owned by $repo_root/theme-assets but is not the file Stow should have linked"
+ln -sfn "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-mocha.webp" \
+  "$data/wallpapers/catppuccin-mocha.webp"
 
 mv "$config/dotfiles/git-theme" "$root/git-theme"
 run_verifier

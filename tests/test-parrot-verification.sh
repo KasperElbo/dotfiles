@@ -321,6 +321,20 @@ if grep -Fq 'Parrot CTF verification passed.' <<<"$verification_output"; then
 fi
 printf 'PASS: a run with degraded outcomes does not report an unqualified pass\n'
 grep -Fq "Catppuccin tmux is at the pinned $tmux_pin" <<<"$verification_output"
+# Every Stow link resolves to the exact repository file, not merely to
+# something under the package root (issue #369).
+for stow_link in \
+  "$home/.zshenv -> $repo_root/zsh/.zshenv" \
+  "$config/zsh/platform.zsh -> $repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh" \
+  "$config/mise/config.toml -> $repo_root/platforms/parrot-ctf/stow/mise-ctf/.config/mise/config.toml" \
+  "$local_bin/bat -> $repo_root/platforms/parrot-ctf/stow/command-shims/.local/bin/bat"; do
+  grep -Fq "$stow_link" <<<"$verification_output" || {
+    printf 'A healthy fixture did not report the expected Stow source: %s\n' "$stow_link" >&2
+    printf '%s\n' "$verification_output" >&2
+    exit 1
+  }
+done
+printf 'PASS: a healthy fixture reports the exact Stow source of every link\n'
 
 # The APT packages the verifier checks are exactly the Parrot base and
 # vm-guest rows of the manifest, minus mise, the one declared package an
@@ -479,6 +493,30 @@ done
   exit 1
 }
 printf 'PASS: a complete reduced Mason profile passes and is left untouched\n'
+
+# A link that resolves inside the package it is supposed to come from, at a
+# file that is not the one Stow deploys there. The zsh-platform package holds
+# platform.zsh and platform-env.zsh side by side, so before the call sites
+# passed the expected source this redirect satisfied "resolves somewhere below
+# .../stow/zsh-platform" and was reported as owned and green (issue #369).
+ln -sfn "$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform-env.zsh" \
+  "$config/zsh/platform.zsh"
+if "${verify_environment[@]}" \
+  "$repo_root/platforms/parrot-ctf/scripts/verify.sh" \
+  >"$test_root/mislinked-stow.log" 2>&1; then
+  printf 'Parrot verification accepted a link to another file in the same Stow package.\n' >&2
+  cat "$test_root/mislinked-stow.log" >&2
+  exit 1
+fi
+grep -Fq "$config/zsh/platform.zsh is owned by $repo_root/platforms/parrot-ctf/stow/zsh-platform but is not the file Stow should have linked" \
+  "$test_root/mislinked-stow.log" || {
+  printf 'The mislinked Stow file was not named as the reason:\n' >&2
+  cat "$test_root/mislinked-stow.log" >&2
+  exit 1
+}
+printf 'PASS: a link to another file in the same Stow package fails verification\n'
+ln -sfn "$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh" \
+  "$config/zsh/platform.zsh"
 
 ln -s /usr/bin/true "$local_bin/nmap"
 if "${verify_environment[@]}" \
