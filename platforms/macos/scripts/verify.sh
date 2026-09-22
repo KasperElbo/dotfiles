@@ -73,6 +73,38 @@ macos_managed_screenshot_directory() {
   printf '%s' "${declared//\$HOME/$HOME}"
 }
 
+# --- The one machine state this verifier can change --------------------------
+#
+# Verification is documented as read-only, and `podman run` on an image the
+# machine does not have pulls it and keeps it, so a routine check left a
+# container image in local storage (issue #372). What the smoke probe
+# introduced is recorded here and undone again on every exit path, including a
+# signal, rather than only on the line after the probe.
+#
+# The variable is empty whenever there is nothing to undo, so the handler is
+# safe to run twice and safe to run when the probe was never reached. Removal
+# is attempted only if the image is really there, so a machine with no usable
+# podman produces no advice about an image it does not have.
+MACOS_INTRODUCED_SMOKE_IMAGE=""
+
+macos_restore_smoke_image() {
+  local image="$MACOS_INTRODUCED_SMOKE_IMAGE"
+
+  MACOS_INTRODUCED_SMOKE_IMAGE=""
+  [[ -n "$image" ]] || return 0
+  podman image inspect "$image" >/dev/null 2>&1 || return 0
+  podman rmi --force "$image" >/dev/null 2>&1 ||
+    warning "Verification pulled $image and could not remove it again;" \
+      "remove it with 'podman rmi $image'"
+}
+
+# Restore, then re-raise so the caller still sees the interruption it sent.
+macos_restore_smoke_image_on_signal() {
+  macos_restore_smoke_image
+  trap - INT TERM HUP EXIT
+  kill -s "$1" "$$"
+}
+
 if ! require_apple_silicon_macos; then
   exit 1
 fi
@@ -607,8 +639,30 @@ if [[ "$containers_disposition" == verify || "$containers_disposition" == leftov
   else
     fail "Podman reports rootless=${rootless:-unknown}"
   fi
+  # An image already on this machine is run with --pull=never, so the probe
+  # touches neither the network nor local image storage and the operator's tag
+  # keeps naming the image it named before. One this machine does not have is
+  # pulled, and then removed again. Nothing here reads back what this block
+  # just did -- a check that asserts its own side effect is the shape #398 is
+  # about -- so tests/test-macos-verification.sh asserts the restore from
+  # outside, against the image store itself.
   # network-source: smoke-image-alpine
-  machine_arch="$(podman run --rm docker.io/library/alpine:latest uname -m 2>/dev/null || true)"
+  smoke_image="docker.io/library/alpine:latest"
+  if podman image inspect "$smoke_image" >/dev/null 2>&1; then
+    smoke_pull_policy=never
+  else
+    smoke_pull_policy=missing
+    MACOS_INTRODUCED_SMOKE_IMAGE="$smoke_image"
+    trap 'macos_restore_smoke_image_on_signal INT' INT
+    trap 'macos_restore_smoke_image_on_signal TERM' TERM
+    trap 'macos_restore_smoke_image_on_signal HUP' HUP
+    trap macos_restore_smoke_image EXIT
+  fi
+  machine_arch="$(
+    podman run --rm --pull="$smoke_pull_policy" "$smoke_image" uname -m 2>/dev/null || true
+  )"
+  macos_restore_smoke_image
+  trap - INT TERM HUP EXIT
   if [[ "$machine_arch" == aarch64 ]]; then
     pass "Containers run as ARM64"
   else

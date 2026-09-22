@@ -183,6 +183,73 @@ else
   printf '%s: %s\n' "$target" "$description"
 fi
 EOF
+# Podman, over an image store the suite owns. The store is a file rather than
+# the stub's own idea of state, so a case can preload it and the suite can read
+# back what the verifier left behind instead of taking the verifier's word for
+# it (issue #372). The stub records every argv it is handed, which is how the
+# --pull policy the probe chose is asserted.
+stub podman <<'EOF'
+#!/usr/bin/env bash
+store="${MOCK_PODMAN_IMAGES:-}"
+[[ -z "${MOCK_PODMAN_ARGV:-}" ]] || printf '%s\n' "$*" >>"$MOCK_PODMAN_ARGV"
+
+image_id() {
+  [[ -n "$store" && -f "$store" ]] || return 1
+  awk -F '\t' -v name="$1" \
+    '$1 == name { print $2; found = 1 } END { exit found ? 0 : 1 }' "$store"
+}
+forget_image() {
+  [[ -n "$store" && -f "$store" ]] || return 1
+  awk -F '\t' -v name="$1" '$1 != name' "$store" >"$store.next" &&
+    mv "$store.next" "$store"
+}
+
+case "${1:-}" in
+info)
+  [[ "${2:-}" == --format ]] || exit 0
+  printf 'true\n'
+  ;;
+image)
+  [[ "${2:-}" == inspect ]] || exit 1
+  shift 2
+  [[ "${1:-}" != --format ]] || shift 2
+  image_id "${1:-}" >/dev/null
+  ;;
+rmi)
+  shift
+  [[ "${1:-}" != --force ]] || shift
+  image_id "${1:-}" >/dev/null || exit 1
+  [[ "${MOCK_PODMAN_RMI_EXIT:-0}" == 0 ]] || exit "$MOCK_PODMAN_RMI_EXIT"
+  forget_image "${1:-}"
+  ;;
+run)
+  shift
+  pull=missing
+  while (($#)); do
+    case "$1" in
+    --rm) ;;
+    --pull=*) pull="${1#--pull=}" ;;
+    *) break ;;
+    esac
+    shift
+  done
+  image="${1:-}"
+  if ! image_id "$image" >/dev/null; then
+    if [[ "$pull" == never ]]; then
+      printf 'Error: %s: image not known\n' "$image" >&2
+      exit 125
+    fi
+    printf '%s\t%s\n' "$image" 'sha256:pulled-by-this-run' >>"$store"
+  fi
+  # A run that hangs after the pull, so a case can interrupt one.
+  [[ -z "${MOCK_PODMAN_RUN_HANG:-}" ]] || sleep "$MOCK_PODMAN_RUN_HANG"
+  [[ "${MOCK_PODMAN_RUN_EXIT:-0}" == 0 ]] || exit "$MOCK_PODMAN_RUN_EXIT"
+  printf 'aarch64\n'
+  ;;
+*) exit 1 ;;
+esac
+EOF
+
 stub dscl <<'EOF'
 #!/usr/bin/env bash
 printf 'UserShell: %s\n' "$MOCK_ZSH"
@@ -727,6 +794,93 @@ assert_contains "$TEST_OUTPUT" 'Dictation profile is not installed (not selected
 printf 'PASS: an unselected dictation profile verifies cleanly\n'
 mv "$root/GhostPepper.app" "$dictation_app"
 mv "$root/macos-dictation.conf" "$dictation_state"
+
+# --- Container verification restores the image state it found ----------------
+#
+# `podman run` on an image this machine does not have pulls it and keeps it, so
+# a check documented as read-only left a container image in local storage
+# (issue #372). These cases read the image store itself, before and after, so
+# what is asserted is the machine's state rather than the verifier's account of
+# it -- the verifier deliberately makes no claim about this.
+
+macos_podman_store="$root/podman-images"
+macos_podman_argv="$root/podman-argv"
+macos_smoke_image='docker.io/library/alpine:latest'
+
+# run_container_verifier [VAR=value ...]: a --containers run, over an image
+# store and an argv log this suite owns.
+run_container_verifier() {
+  : >"$macos_podman_argv"
+  run_capture "${verify_environment[@]}" \
+    "MOCK_PODMAN_IMAGES=$macos_podman_store" \
+    "MOCK_PODMAN_ARGV=$macos_podman_argv" "$@" \
+    "$repo_root/platforms/macos/scripts/verify.sh" --containers
+}
+
+# A machine that does not have the image. The probe pulls it, and storage is
+# left as it was found.
+: >"$macos_podman_store"
+run_container_verifier
+assert_contains "$TEST_OUTPUT" 'Containers run as ARM64'
+assert_eq '' "$(cat "$macos_podman_store")" \
+  'the image the smoke run introduced was left behind'
+printf 'PASS: a smoke run removes the image it introduced\n'
+
+# A machine that already has it. The tag must still name the same image ID
+# afterwards, and the probe must not have gone looking for a newer one.
+printf '%s\t%s\n' "$macos_smoke_image" 'sha256:the-copy-this-machine-had' \
+  >"$macos_podman_store"
+run_container_verifier
+assert_contains "$TEST_OUTPUT" 'Containers run as ARM64'
+assert_eq "$(printf '%s\t%s' "$macos_smoke_image" 'sha256:the-copy-this-machine-had')" \
+  "$(cat "$macos_podman_store")" \
+  'the image the machine already had did not survive verification unchanged'
+assert_contains "$(cat "$macos_podman_argv")" '--pull=never'
+printf 'PASS: an image the machine already had keeps its tag and its ID\n'
+
+# A smoke run that fails after the pull. The verdict is a failure and storage
+# is still restored.
+: >"$macos_podman_store"
+run_container_verifier MOCK_PODMAN_RUN_EXIT=1
+assert_contains "$TEST_OUTPUT" 'Container architecture is unknown'
+assert_eq '' "$(cat "$macos_podman_store")" \
+  'a failed smoke run left the image it introduced behind'
+printf 'PASS: a failed smoke run removes the image it introduced\n'
+
+# An interruption. The stub pulls and then hangs, and the run is signalled, so
+# the restore has to come from the handler rather than from the line after the
+# probe -- which this run never reaches. SIGTERM rather than SIGINT, because a
+# non-interactive shell starts a background job with SIGINT ignored and Bash
+# will not install a trap for a signal that was ignored on entry, so a SIGINT
+# here would prove nothing. The verifier traps all three of INT, TERM and HUP.
+: >"$macos_podman_store"
+"${verify_environment[@]}" "MOCK_PODMAN_IMAGES=$macos_podman_store" \
+  MOCK_PODMAN_RUN_HANG=5 \
+  "$repo_root/platforms/macos/scripts/verify.sh" --containers \
+  >"$root/interrupted.log" 2>&1 &
+interrupted_pid=$!
+for _ in $(seq 1 200); do
+  [[ -s "$macos_podman_store" ]] && break
+  sleep 0.1
+done
+[[ -s "$macos_podman_store" ]] ||
+  _test_die "the interrupted case never reached the smoke run:\n$(cat "$root/interrupted.log")"
+kill -TERM "$interrupted_pid"
+wait "$interrupted_pid" 2>/dev/null || true
+assert_eq '' "$(cat "$macos_podman_store")" \
+  'an interrupted verification left the image it introduced behind'
+if grep -Fq 'macOS verification' "$root/interrupted.log"; then
+  _test_die "the interrupted run reached its summary, so it was not interrupted:\n$(cat "$root/interrupted.log")"
+fi
+printf 'PASS: an interrupted smoke run removes the image it introduced\n'
+
+# A removal that fails is said out loud rather than passed over, because the
+# image is then still on the machine.
+: >"$macos_podman_store"
+run_container_verifier MOCK_PODMAN_RMI_EXIT=1
+assert_contains "$TEST_OUTPUT" "Verification pulled $macos_smoke_image and could not remove it again"
+printf 'PASS: an image that could not be removed again is reported\n'
+: >"$macos_podman_store"
 
 # --- The verifier reads the mise context and never writes it ---------------
 #
