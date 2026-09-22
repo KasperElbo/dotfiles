@@ -127,6 +127,7 @@ default_tests=(
   tests/test-dotnet-debugger-contract.sh
   tests/test-dap-smoke.py
   tests/test-neovim-bootstrap.sh
+  tests/test-neovim-verify-readonly.sh
   tests/test-markdown-workflow.sh
   tests/test-latex-profile.sh
   tests/test-ocaml-profile.sh
