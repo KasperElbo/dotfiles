@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Lightweight ordered plan shared by dry-run, preflight, apply and verify.
+# Lightweight ordered plan shared by dry-run, preflight and apply.
 # Callers register shell function names, keeping component scripts independently
 # useful while eliminating a second hand-maintained dry-run orchestration.
 #
@@ -17,7 +17,6 @@ PLAN_LABELS=()
 PLAN_PHASES=()
 PLAN_PREFLIGHTS=()
 PLAN_APPLIES=()
-PLAN_VERIFIES=()
 PLAN_NOTES=()
 PLAN_SCRIPTS=()
 PLAN_COMPLETED=()
@@ -34,12 +33,12 @@ plan_log() {
 
 plan_reset() {
   PLAN_IDS=(); PLAN_LABELS=(); PLAN_PHASES=(); PLAN_PREFLIGHTS=()
-  PLAN_APPLIES=(); PLAN_VERIFIES=(); PLAN_NOTES=(); PLAN_SCRIPTS=()
+  PLAN_APPLIES=(); PLAN_NOTES=(); PLAN_SCRIPTS=()
   PLAN_COMPLETED=()
   PLAN_COUNT=0; PLAN_COMPLETED_COUNT=0; PLAN_CURRENT_INDEX=-1
 }
 
-# The eighth field is the repository scripts the step runs, space-separated
+# The seventh field is the repository scripts the step runs, space-separated
 # and relative to the checkout, or the empty string for a step that runs none.
 #
 # It is what the network preflight derives its probe set from: a source in
@@ -49,7 +48,7 @@ plan_reset() {
 # the step's apply path actually runs; the declaration is data the installer
 # reads, and the check is where being wrong about it is caught.
 plan_add() {
-  [[ $# -eq 8 ]] || die "plan_add requires id, label, phase, preflight, apply, verify, note and scripts"
+  [[ $# -eq 7 ]] || die "plan_add requires id, label, phase, preflight, apply, note and scripts"
   local i existing
 
   # macOS still ships Bash 3.2. With nounset enabled, expanding an empty array
@@ -62,8 +61,8 @@ plan_add() {
     [[ "$existing" != "$1" ]] || die "Duplicate execution-plan step ID: $1"
   done
   PLAN_IDS+=("$1"); PLAN_LABELS+=("$2"); PLAN_PHASES+=("$3")
-  PLAN_PREFLIGHTS+=("$4"); PLAN_APPLIES+=("$5"); PLAN_VERIFIES+=("$6")
-  PLAN_NOTES+=("$7"); PLAN_SCRIPTS+=("$8")
+  PLAN_PREFLIGHTS+=("$4"); PLAN_APPLIES+=("$5")
+  PLAN_NOTES+=("$6"); PLAN_SCRIPTS+=("$7")
   PLAN_COUNT=$((PLAN_COUNT + 1))
 }
 
@@ -210,13 +209,5 @@ plan_execute() {
     PLAN_COMPLETED_COUNT=$((PLAN_COMPLETED_COUNT + 1))
     plan_log "success id=${PLAN_IDS[i]}"
     success "[${PLAN_IDS[i]}] completed"
-  done
-}
-
-plan_verify() {
-  local i action
-  for ((i=0; i<PLAN_COUNT; i++)); do
-    action="${PLAN_VERIFIES[i]}"
-    [[ -z "$action" || "$action" == : ]] || "$action"
   done
 }
