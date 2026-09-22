@@ -1,15 +1,15 @@
 source	probe	target	pin_file	pin_key	note
-catppuccin-bat-themes	git-head	https://github.com/catppuccin/bat.git	platforms/parrot-ctf/scripts/install-terminal.sh	bat_theme_commit	Pinned to a commit on the default branch rather than a tag, so the probe compares against that branch tip.
-catppuccin-kde	git-tags	https://github.com/catppuccin/kde.git	platforms/fedora/scripts/install-kde-theme.sh	version	-
 catppuccin-tmux	git-tags	https://github.com/catppuccin/tmux.git	common/install-tmux-theme.sh	version	-
-ghost-pepper-release	git-tags	https://github.com/matthartman/ghost-pepper.git	platforms/macos/lib/dictation.sh	DICTATION_GHOST_PEPPER_VERSION	-
-gitleaks-release	git-tags	https://github.com/gitleaks/gitleaks.git	scripts/scan-secrets.sh	version	-
+catppuccin-kde	git-tags	https://github.com/catppuccin/kde.git	platforms/fedora/scripts/install-kde-theme.sh	version	-
+catppuccin-bat-themes	git-head	https://github.com/catppuccin/bat.git	platforms/parrot-ctf/scripts/install-terminal.sh	bat_theme_commit	Pinned to a commit on the default branch rather than a tag, so the probe compares against that branch tip.
 hack-nerd-font	git-tags	https://github.com/ryanoasis/nerd-fonts.git	platforms/parrot-ctf/scripts/install-terminal.sh	font_version	-
+ghost-pepper-release	git-tags	https://github.com/matthartman/ghost-pepper.git	platforms/macos/lib/dictation.sh	DICTATION_GHOST_PEPPER_VERSION	-
 handy-release	git-tags	https://github.com/cjpais/Handy.git	platforms/fedora/lib/dictation.sh	DICTATION_HANDY_VERSION	-
-lazyvim-plugins	none	-	-	-	The lockfile pins every plugin at a commit, and lazy.nvim's own update checker is enabled for the workstation profile, so Neovim reports a newer plugin in the editor and :Lazy update writes the new lazy-lock.json through the Stow symlink into the checkout.
 netcoredbg-legacy-release	git-tags	https://github.com/Samsung/netcoredbg.git	tests/integration/macos-dotnet-debug.sh	legacy_version	Upstream stopped publishing a macOS build after this release: 3.2.0-1092 ships netcoredbg-linux-amd64.tar.gz and netcoredbg-win64.zip and no osx asset under any name, so this pin reports BEHIND and cannot move until macOS builds resume.
 opam-repository	none	-	-	-	The pin is an OCaml compiler version resolved through opam, not a ref in a git repository; opam switch list on a machine with opam is what reads it.
+lazyvim-plugins	none	-	-	-	The lockfile pins every plugin at a commit, and lazy.nvim's own update checker is enabled for the workstation profile, so Neovim reports a newer plugin in the editor and :Lazy update writes the new lazy-lock.json through the Stow symlink into the checkout.
+validation-image-fedora	none	-	-	-	The pin is a container manifest digest. Reading the current one needs a registry token exchange and a manifest HEAD against two further hosts, which is a bigger mechanism than the rest of this report.
 parrot-boundary-image	none	-	-	-	The pin is a container manifest digest, read the same way as validation-image-fedora and not readable here for the same reason. It also pins a snapshot of the moving :latest tag, so "newer" is whatever that tag points at today rather than a release.
 psscriptanalyzer	none	-	-	-	The pin is a PowerShell Gallery module version, stated in the workflow step that installs it and enforced by tests/test-windows-static-analysis.ps1; this report reads a shell-style key="value" assignment out of a tracked file, which neither a YAML step nor a PowerShell assignment can spell, so a newer analyser is taken deliberately rather than reported here.
 smoke-image-busybox	none	-	-	-	The pin is a container manifest digest, read the same way as validation-image-fedora and not readable here for the same reason. It pins a snapshot of the moving :stable tag, so the verifier's smoke test keeps pulling the reviewed busybox until the digest is bumped.
-validation-image-fedora	none	-	-	-	The pin is a container manifest digest. Reading the current one needs a registry token exchange and a manifest HEAD against two further hosts, which is a bigger mechanism than the rest of this report.
+gitleaks-release	git-tags	https://github.com/gitleaks/gitleaks.git	scripts/scan-secrets.sh	version	-
