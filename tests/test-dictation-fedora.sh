@@ -658,10 +658,48 @@ assert_contains "$TEST_OUTPUT" 'unobserved check(s)'
 mv "$verify_sway_config.hidden" "$verify_sway_config"
 printf 'PASS: an absent Sway session is unobserved rather than a false failure\n'
 
+# GAP-05. The binding commented out is the shape a substring search cannot see
+# past, and the shape someone leaves behind after turning the key off: Sway
+# ignores the line, the key does nothing, and the old check reported the toggle
+# bound. The case above only replaces the command text, which a substring
+# search does catch, so it could not tell the two predicates apart.
+cp "$verify_sway_config" "$verify_sway_config.pristine"
+sed -i 's/^bindsym \$mod+o exec pkill/# bindsym $mod+o exec pkill/' \
+  "$verify_sway_config"
+assert_file_contains "$verify_sway_config" '# bindsym $mod+o exec pkill -USR2 -x handy'
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'no live dictation binding'
+printf 'PASS: a commented-out dictation binding fails verification\n'
+
+# The anchor has to admit a line Sway accepts. Leading whitespace is legal in a
+# Sway config, so a check that rejected it would trade the false pass above for
+# a false failure.
+cp "$verify_sway_config.pristine" "$verify_sway_config"
+sed -i 's/^bindsym \$mod+o exec pkill/  bindsym $mod+o exec pkill/' \
+  "$verify_sway_config"
+run_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" 'Sway binds the dictation toggle'
+printf 'PASS: an indented dictation binding still verifies\n'
+
+# The pattern is read from config/actions.tsv, so a registry with no such row
+# has to be reported as the repository defect it is. Without this the read
+# could silently answer with nothing and the check would look like a strict one
+# that simply never matched.
+cp "$verify_sway_config.pristine" "$verify_sway_config"
+empty_action_manifest="$test_root/actions-without-dictation.tsv"
+grep -v '^sway\.dictation\.toggle	' "$repo_root/config/actions.tsv" \
+  >"$empty_action_manifest"
+ACTION_MANIFEST="$empty_action_manifest" run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'has no sway.dictation.toggle row'
+printf 'PASS: a registry with no dictation row fails rather than checking nothing\n'
+
 sed -i 's/pkill -USR2 -x handy/true/' "$verify_sway_config"
 run_verifier
 assert_failure
-assert_contains "$TEST_OUTPUT" 'no dictation binding'
+assert_contains "$TEST_OUTPUT" 'no live dictation binding'
 printf 'PASS: a Sway session without the binding fails verification\n'
 
 # --- an unselected profile verifies clean by being absent -----------------

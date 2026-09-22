@@ -23,6 +23,15 @@ verify_reset
 state_file="${DICTATION_STATE_FILE:-$(dictation_state_file)}"
 sway_config="${DICTATION_SWAY_CONFIG:-$XDG_CONFIG_HOME/sway/config}"
 
+# The Sway binding has one statement in this repository, and it is this row of
+# the action registry. scripts/validate-actions.py holds that row against the
+# tracked Sway config on every lint, so reading it here means a binding edited
+# in one place and not the other fails there rather than quietly changing what
+# this verifier looks for. manifest_field comes from common/lib/manifest.sh
+# through capabilities.sh, sourced above.
+ACTION_MANIFEST="${ACTION_MANIFEST:-$DOTFILES_ROOT/config/actions.tsv}"
+DICTATION_SWAY_ACTION_ID="sway.dictation.toggle"
+
 section "Dictation commands"
 
 # handy is the application; wtype is how it puts the transcription into the
@@ -206,11 +215,33 @@ section "Sway dictation binding"
 # registered on a wlroots compositor (no GlobalShortcuts portal), so the
 # tracked Sway config is what makes dictation reachable at all.
 if [[ -e "$sway_config" ]]; then
-  if grep -Fq 'pkill -USR2 -x handy' "$sway_config"; then
-    pass "Sway binds the dictation toggle (pkill -USR2 -x handy)"
+  # Ask for the binding as a live line, not as text occurring somewhere in the
+  # file. A commented-out `# bindsym $mod+o exec pkill -USR2 -x handy` is
+  # exactly the shape a substring search cannot see past, and it is the shape
+  # someone leaves behind after turning the key off: Sway ignores the line, the
+  # key does nothing, and the check said the toggle was bound.
+  #
+  # The line comes from config/actions.tsv rather than being written out here,
+  # so the binding has one statement in this repository.
+  if ! sway_binding_pattern="$(
+    manifest_field "$ACTION_MANIFEST" source_pattern id "$DICTATION_SWAY_ACTION_ID"
+  )"; then
+    fail "config/actions.tsv has no $DICTATION_SWAY_ACTION_ID row, so there is" \
+      "no statement of the dictation binding to check $sway_config against"
   else
-    fail "$sway_config has no dictation binding; the Sway session owns the" \
-      "dictation key, so without it nothing can start a transcription"
+    # Read once into a variable and match as a here-string. A
+    # `producer | grep -q` pipeline takes SIGPIPE precisely when the match is
+    # found, so under pipefail it fails exactly in the passing case
+    # (docs/testing.md, "Assertions that cannot fail").
+    sway_live_lines="$(grep -Ev '^[[:space:]]*(#|$)' "$sway_config" || true)"
+
+    if grep -Eq "^[[:space:]]*${sway_binding_pattern}[[:space:]]*\$" \
+      <<<"$sway_live_lines"; then
+      pass "Sway binds the dictation toggle (pkill -USR2 -x handy)"
+    else
+      fail "$sway_config has no live dictation binding; the Sway session owns" \
+        "the dictation key, so without it nothing can start a transcription"
+    fi
   fi
 else
   not_observed "No Sway configuration at $sway_config; the dictation binding" \
