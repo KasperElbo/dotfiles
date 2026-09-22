@@ -624,6 +624,18 @@ if ((${#removal_paths[@]} > 0 || ${#stale_mise_specs[@]} > 0)); then
   fi
 fi
 
+# Kept so a failed uninstall below can put the declarations back. The file is
+# the only record of what was previously declared (mise_specs_previously_declared
+# reads it), so losing a spec from it is what makes a failed removal permanent.
+previous_conf_file=""
+if [[ -f "$conf_file" ]]; then
+  previous_conf_dir="$(mktemp -d)" ||
+    die "Could not create a staging directory for the previous $conf_file"
+  AI_STAGING_DIRS+=("$previous_conf_dir")
+  previous_conf_file="$previous_conf_dir/ai.toml"
+  cp -- "$conf_file" "$previous_conf_file"
+fi
+
 info "Writing $conf_file"
 ensure_dir "$conf_dir"
 {
@@ -664,11 +676,29 @@ ensure_dir "$conf_dir"
 # missing prerequisite is still reported by its own require_command first.
 mise_prepare_context >/dev/null
 
+failed_uninstalls=()
 for spec in ${stale_mise_specs[@]+"${stale_mise_specs[@]}"}; do
   info "Removing the no-longer-selected mise tool: $spec"
-  run_mise "$mise_command" uninstall "$spec" ||
-    warn "mise could not uninstall $spec; it is no longer declared and will not be reinstalled."
+  run_mise "$mise_command" uninstall "$spec" || failed_uninstalls+=("$spec")
 done
+
+# A tool whose uninstall failed is still installed, so the declaration that
+# names it has to come back. mise_specs_previously_declared reads the conf
+# file, so a rewrite that has already dropped the spec is what makes the
+# failure permanent: the next run computes nothing stale and never retries,
+# and the verifier's advice to rerun --no-<component> cannot work. Restoring
+# the conf written before this run puts the machine back where it started.
+if ((${#failed_uninstalls[@]} > 0)); then
+  for spec in "${failed_uninstalls[@]}"; do
+    warn "mise could not uninstall $spec; it is still installed."
+  done
+  if [[ -n "$previous_conf_file" ]]; then
+    atomic_write_file "$conf_file" <"$previous_conf_file"
+  else
+    rm -f -- "$conf_file"
+  fi
+  die "Refusing to record a removal that did not happen. The tools above are still installed and are still declared in $conf_file, so this run changed nothing; fix the reason mise could not remove them and run the same command again."
+fi
 
 mise_tools_msg="Claude Code and Herdr"
 if [[ "$install_codex" == "true" ]]; then
