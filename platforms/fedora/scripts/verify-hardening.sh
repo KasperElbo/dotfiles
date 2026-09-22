@@ -179,8 +179,26 @@ disabled)
   fail "SELinux is disabled"
   ;;
 unavailable)
-  warning "SELinux is not available on this kernel (e.g. inside a" \
-    "container); environmental, not something this profile can change"
+  # /sys/fs/selinux is absent both inside a container, where SELinux is a
+  # host-kernel feature this profile cannot reach, and on a Fedora install
+  # booted with selinux=0, where it is the control being reported on. The
+  # record tells them apart the way the permissive arm above already does: a
+  # machine whose installation saw a working SELinux and now has none lost it
+  # after installation. A record that itself says unavailable is the container
+  # case, recorded as such, and stays environmental.
+  case "$state_selinux" in
+  "" | unavailable)
+    warning "SELinux is not available on this kernel (e.g. inside a" \
+      "container); environmental, not something this profile can change"
+    ;;
+  *)
+    fail "SELinux is not available on this kernel at all, but the hardening" \
+      "profile recorded selinux_mode=$state_selinux, so this kernel had" \
+      "SELinux when the profile was installed and no longer does -- check" \
+      "the kernel command line (grep selinux= /proc/cmdline) and" \
+      "/etc/selinux/config"
+    ;;
+  esac
   ;;
 *)
   warning "Could not determine SELinux mode"
@@ -397,8 +415,13 @@ else
   if systemctl is-enabled --quiet dnf5-automatic.timer 2>/dev/null; then
     pass "dnf5-automatic.timer is enabled"
 
+    # DNF_AUTOMATIC_ROOT prefixes the search the way HARDENING_ROOT prefixes
+    # the owned drop-ins, so a fixture can answer for this file. Empty (the
+    # default) means the real root. Unlike the drop-ins this file belongs to
+    # dnf: the profile enables the timer and never writes the configuration.
     automatic_conf=""
     for candidate in /etc/dnf/automatic.conf /etc/dnf/dnf5-plugins/automatic.conf; do
+      candidate="${DNF_AUTOMATIC_ROOT:-}$candidate"
       if [[ -f "$candidate" ]]; then
         automatic_conf="$candidate"
         break
@@ -408,11 +431,25 @@ else
     if [[ -n "$automatic_conf" ]]; then
       apply_updates="$(grep -E '^[[:space:]]*apply_updates[[:space:]]*=' \
         "$automatic_conf" 2>/dev/null | tail -n1 | cut -d= -f2 | xargs || true)"
-      if [[ "$apply_updates" == "yes" ]]; then
-        note "apply_updates=yes in $automatic_conf (this system auto-installs updates, not this profile's default)"
-      else
-        note "apply_updates=${apply_updates:-no} in $automatic_conf (downloads/reports only)"
-      fi
+      # dnf reads this key with libdnf5's OptionBool, which lower-cases the
+      # value and accepts 1/yes/true/on and 0/no/false/off, rejecting anything
+      # else. Comparing against the single spelling "yes" reported a machine
+      # set to apply_updates = true -- which does auto-install updates -- as
+      # downloading and reporting only.
+      case "${apply_updates,,}" in
+      1 | yes | true | on)
+        note "apply_updates=$apply_updates in $automatic_conf (this system auto-installs updates, not this profile's default)"
+        ;;
+      0 | no | false | off)
+        note "apply_updates=$apply_updates in $automatic_conf (downloads/reports only)"
+        ;;
+      "")
+        note "$automatic_conf sets no apply_updates; the packaged default (no) applies (downloads/reports only)"
+        ;;
+      *)
+        note "could not read apply_updates from $automatic_conf: '$apply_updates' is not a boolean dnf accepts (1/yes/true/on, 0/no/false/off), so whether this system auto-installs updates is unknown"
+        ;;
+      esac
     else
       note "no /etc override; using the packaged default (apply_updates=no, download_updates=yes)"
     fi
