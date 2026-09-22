@@ -355,15 +355,35 @@ check_version_at_least() {
   fi
 }
 
+# check_file_contains <label> <path> <expected>
+#
+# The expected text occurs on a line of the file that is in effect. Blank
+# lines and whole-line comments are dropped before the match, because the
+# callers are settings files and the thing being reported is that a setting
+# applies: a directive someone commented out satisfied this check, and one
+# file could prove two mutually exclusive theme flavours present at once
+# (issue #390, VL-01).
+#
+# It still proves a substring rather than a whole line. Three of the four
+# call sites pass a fragment of a longer line, so anchoring the claim to the
+# line belongs with them rather than here.
 check_file_contains() {
   local label="$1"
   local path="$2"
   local expected="$3"
+  local active=""
 
-  if [[ -r "$path" ]] && grep -Fq -- "$expected" "$path"; then
+  # Read once and match a here-string rather than piping the file into a
+  # quiet grep, which takes SIGPIPE exactly when the match is found
+  # (docs/testing.md, "Assertions that cannot fail").
+  if [[ -r "$path" ]]; then
+    active="$(grep -Ev '^[[:space:]]*(#|$)' -- "$path" || true)"
+  fi
+
+  if [[ -n "$active" ]] && grep -Fq -- "$expected" <<<"$active"; then
     pass "$label"
   else
-    fail "$label: expected '$expected' in $path"
+    fail "$label: expected '$expected' in $path, on a line that is in effect"
   fi
 }
 
