@@ -145,8 +145,9 @@ mason_package_status() {
   local mason_root="$1" package="$2" expected_version="${3:-}"
   local package_dir="$mason_root/packages/$package"
   local receipt="$package_dir/$MASON_RECEIPT_NAME"
-  local record name="" purl="" entry payload="false"
-  local field kind link_name link_target
+  local record name="" purl="" entry payload="false" links_state=""
+  local field kind link_name link_target link_path
+  local resolved_link resolved_target
 
   # shellcheck disable=SC2034
   MASON_PACKAGE_STATE=""
@@ -172,6 +173,12 @@ mason_package_status() {
   if ! record="$(jq -r '
       ["name", ((.name | strings) // "")],
       ["purl", ((((.source | objects).id) // ((.primary_source | objects).id) | strings) // "")],
+      ["links", (
+        if (.links | type) != "object" then "absent"
+        elif (.links.bin | type) != "object" then "no-bin-object"
+        else (.links.bin | length | tostring)
+        end
+      )],
       (((.links | objects).bin | objects) // {} | to_entries[] | ["bin", .key, (.value | tostring)])
       | @tsv
     ' "$receipt" 2>/dev/null)"; then
@@ -183,9 +190,11 @@ mason_package_status() {
     case "$kind" in
     name) name="$field" ;;
     purl) purl="$field" ;;
+    links) links_state="$field" ;;
     bin)
       link_name="$field"
-      if [[ ! -x "$mason_root/bin/$link_name" ]]; then
+      link_path="$mason_root/bin/$link_name"
+      if [[ ! -x "$link_path" ]]; then
         _mason_result incomplete \
           "the receipt claims the executable $mason_root/bin/$link_name, which is missing or not executable"
         return
@@ -195,11 +204,71 @@ mason_package_status() {
           "the receipt claims $package_dir/$link_target, which is missing"
         return
       fi
+      # Both artifacts existing says nothing about the link joining them. Any
+      # executable of the same name in Mason's bin directory satisfied the two
+      # tests above -- /bin/true, another package's binary, an unrelated
+      # script -- while the report said this package was installed and the
+      # installer never queued it for repair.
+      #
+      # Mason links an executable as a relative symlink into the package
+      # directory (tests/support/mason-mock-install.sh models the shape
+      # mason.nvim writes at the commit lazy-lock.json pins), so when the entry
+      # is a symlink the question "does it point at what the receipt claims"
+      # has an exact answer. Both sides are canonicalized, so a relative and an
+      # absolute spelling of one file agree and so does a mason root reached
+      # through a symlink.
+      #
+      # An entry that is NOT a symlink is left as it was. No install in this
+      # repository has produced one, and deciding a generated wrapper would
+      # mean asserting a format this code cannot see; failing it on suspicion
+      # would break every machine that has one. See the pull request for
+      # GAP-34, which records this as the remaining half.
+      if [[ -L "$link_path" ]]; then
+        resolved_link="$(resolve_existing_path "$link_path" 2>/dev/null || true)"
+        resolved_target="$(resolve_existing_path "$package_dir/$link_target" 2>/dev/null || true)"
+
+        if [[ -z "$resolved_link" || -z "$resolved_target" ]]; then
+          _mason_result incomplete \
+            "$mason_root/bin/$link_name could not be resolved against the $package_dir/$link_target the receipt claims"
+          return
+        fi
+
+        if [[ "$resolved_link" != "$resolved_target" ]]; then
+          _mason_result incomplete \
+            "$mason_root/bin/$link_name resolves to $resolved_link, not the $package_dir/$link_target the receipt claims"
+          return
+        fi
+      fi
       ;;
     esac
   done <<EOF
 $record
 EOF
+
+  # A receipt that claims no executables cancels the link check rather than
+  # passing it, and the function's contract is that a package's identity
+  # includes the links it claims to own outside its own directory. Deleting
+  # .links, or emptying .links.bin, therefore made the strictest part of this
+  # check disappear while the package still reported installed. Every package
+  # in both Neovim inventories declares at least one bin link upstream, so a
+  # receipt carrying none is not evidence of a finished install.
+  case "$links_state" in
+  absent)
+    _mason_result incomplete \
+      "the receipt in $package_dir carries no links object; Mason writes one, so this receipt is not the one Mason wrote"
+    return
+    ;;
+  no-bin-object)
+    _mason_result incomplete \
+      "the receipt in $package_dir has a links.bin that is not an object, so the executables it claims cannot be read"
+    return
+    ;;
+  0)
+    _mason_result incomplete \
+      "the receipt in $package_dir claims no executables, so nothing links this package into $mason_root/bin"
+    return
+    ;;
+  esac
 
   if [[ "$name" != "$package" ]]; then
     _mason_result incomplete \
