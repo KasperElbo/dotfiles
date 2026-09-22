@@ -1110,6 +1110,57 @@ SUDO_EOF
     assert_contains "$TEST_OUTPUT" 'install-hardening.sh'
     assert_not_contains "$TEST_OUTPUT" 'could not be read without a sudo password'
 
+    # 8d. SELinux gone from the kernel entirely, on a machine whose own
+    #     installation record says it had SELinux. That is what booting with
+    #     selinux=0 produces, and it was reported as environmental -- the
+    #     wording for a container, where the profile genuinely cannot reach
+    #     the host kernel.
+    run_verify SELINUX_FS_ROOT="$test_root/absent-selinux-fs"
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'recorded selinux_mode=enforcing'
+    assert_contains "$TEST_OUTPUT" '/proc/cmdline'
+
+    # 8e. The container case the warning exists for: the record itself says
+    #     SELinux was unavailable at installation, so nothing was lost.
+    cp -p "$state_file" "$backup"
+    sed -i 's/^selinux_mode=enforcing$/selinux_mode=unavailable/' "$state_file"
+    run_verify SELINUX_FS_ROOT="$test_root/absent-selinux-fs"
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'SELinux is not available on this kernel'
+    assert_not_contains "$TEST_OUTPUT" 'no longer does'
+    cp -p "$backup" "$state_file"
+
+    # 8f. apply_updates is read with dnf's own boolean vocabulary. libdnf5
+    #     lower-cases the value and accepts 1/yes/true/on and 0/no/false/off,
+    #     so a machine set to `true` auto-installs updates and used to be
+    #     reported as downloading and reporting only.
+    local dnf_root="$test_root/dnf-root"
+    mkdir -p "$dnf_root/etc/dnf"
+    local automatic_conf="$dnf_root/etc/dnf/automatic.conf"
+
+    printf '[commands]\napply_updates = true\n' >"$automatic_conf"
+    run_verify DNF_AUTOMATIC_ROOT="$dnf_root"
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'apply_updates=true'
+    assert_contains "$TEST_OUTPUT" 'this system auto-installs updates'
+
+    printf '[commands]\napply_updates = Off\n' >"$automatic_conf"
+    run_verify DNF_AUTOMATIC_ROOT="$dnf_root"
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'downloads/reports only'
+    assert_not_contains "$TEST_OUTPUT" 'auto-installs updates'
+
+    printf '[commands]\napply_updates = banana\n' >"$automatic_conf"
+    run_verify DNF_AUTOMATIC_ROOT="$dnf_root"
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'could not read apply_updates'
+    assert_not_contains "$TEST_OUTPUT" 'downloads/reports only'
+
+    printf '[commands]\ndownload_updates = yes\n' >"$automatic_conf"
+    run_verify DNF_AUTOMATIC_ROOT="$dnf_root"
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'sets no apply_updates'
+
     # 9. An unmet *recommendation* stays a warning: disabled Secure Boot is
     #    firmware state this profile never touches.
     run_verify MOCK_SECURE_BOOT=disabled
