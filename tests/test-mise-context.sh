@@ -167,10 +167,15 @@ esac
 EOF
 chmod +x "$mock_bin/curl"
 
-for command_name in gh tmux jq; do
+for command_name in gh tmux; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"$mock_bin/$command_name"
   chmod +x "$mock_bin/$command_name"
 done
+
+# jq is the real one: the installer reads and rewrites Claude Code's settings
+# file with it, and a stub that exits 0 without output would let every JSON
+# assertion pass while writing nothing.
+ln -sf "$(command -v jq)" "$mock_bin/jq"
 
 # The caller's project: a real directory tree carrying a conflicting
 # .mise.toml, copied from the tracked fixture so the sentinel lives in one
