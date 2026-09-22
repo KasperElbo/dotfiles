@@ -118,6 +118,12 @@ printf 'Exact Stow source\n'
 
 printf 'readme\n' >"$root/repo/pkg/README"
 source_file="$root/repo/pkg/config/file"
+# The message names canonical paths on both sides, and on macOS the test root
+# lives under $TMPDIR, which is /var/folders/... -- a symlink to
+# /private/var/folders/... So the expectation is canonicalized the same way the
+# helper canonicalizes it, or this suite passes on Linux and fails on macOS for
+# a reason that has nothing to do with what it is testing.
+canonical_source="$(resolve_existing_path "$source_file")"
 
 ln -s "$source_file" "$root/home/exact-absolute"
 verify_reset
@@ -141,7 +147,7 @@ verify_reset
 run_capture probe_counts check_symlink "$root/home/wrong-file-same-package" \
   "$root/repo/pkg" "$source_file"
 assert_contains "$TEST_OUTPUT" 'is not the file Stow should have linked'
-assert_contains "$TEST_OUTPUT" "expected=$source_file"
+assert_contains "$TEST_OUTPUT" "expected=$canonical_source"
 assert_probe_counts 0 1 0 0
 
 # A source that is not in this checkout at all is a failure naming it, rather
