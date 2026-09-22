@@ -47,10 +47,14 @@ FIELDS = [
 # tests/test-capabilities.sh derives the same list from the directories under
 # platforms/ and fails if this one drifts from it.
 PLATFORMS = {"fedora", "fedora-wsl", "macos", "parrot-ctf", "windows"}
-PLATFORM_VERIFIER = re.compile(r"^platforms/[^/]+/(?:scripts/verify\.sh|verify\.ps1)$")
 # A platform verifier is the baseline capability from its first line, so
-# requiring it to name "base" would only add noise. Every other capability it
-# is declared for must be findable in the file.
+# requiring it to name "base" would only add noise. Every other capability a
+# verifier is declared for must be findable in the file -- including the
+# dedicated ones (verify-containers.sh, common/verify-ai.sh and the rest),
+# which the rule used to skip entirely because it only applied to
+# platforms/*/scripts/verify.sh. They all name their capability already, so
+# holding them to it costs nothing and stops the next one from claiming a row
+# it never checks.
 VERIFIER_MENTION_EXEMPT = {"base"}
 
 OPTION_MANIFEST = pathlib.Path(
@@ -617,18 +621,32 @@ def check_stow_ownership(rows: list[dict[str, str]]) -> int:
 
 
 def verifier_mentions(path: pathlib.Path, capability: str) -> bool:
-    """Does this verifier say anywhere that it checks `capability`?
+    """Does this verifier check `capability`, in code or by an explicit marker?
 
-    A section that names the capability in its code or comments already says
-    so; where the name does not appear naturally, the section carries a
-    one-line `# verifies: <capability>` marker (see docs/capabilities.md).
-    Both spellings are found by the same search: separators are normalized, so
-    `dotnet-debug` is found in `check_easy_dotnet_debugger`, and a trailing
-    suffix is allowed while a leading one is not, so `latex` is not satisfied
-    by an unrelated `foolatex`.
+    Two spellings, read in two places, because they are two different claims.
+    A section that names the capability in the lines that run something is a
+    check; where the name does not appear naturally, the section carries a
+    one-line `# verifies: <capability>` marker (see docs/capabilities.md),
+    which is the one thing a comment may say here.
+
+    The whole file used to be searched raw, comments included, so deleting a
+    verifier's entire LaTeX block and leaving `# TODO: the latex checks were
+    removed` behind passed the check that exists to notice exactly that. A
+    comment is now evidence only when it is the marker.
+
+    Within each, separators are normalized, so `dotnet-debug` is found in
+    `check_easy_dotnet_debugger`, and a trailing suffix is allowed while a
+    leading one is not, so `latex` is not satisfied by an unrelated `foolatex`.
     """
-    text = re.sub(r"[^a-z0-9]+", "-", path.read_text(encoding="utf-8").lower())
-    return re.search(rf"(?:^|-){re.escape(capability.lower())}", text) is not None
+    name = re.escape(capability.lower())
+    code = re.sub(r"[^a-z0-9]+", "-", code_text(path).lower())
+    if re.search(rf"(?:^|-){name}", code) is not None:
+        return True
+    marker = re.compile(
+        rf"^[ \t]*#\s*verifies:[^\n]*(?:^|[^a-z0-9]){name}(?![a-z0-9])",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    return marker.search(path.read_text(encoding="utf-8")) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -703,13 +721,19 @@ SOURCE_PREFIXES = ('$(dirname "${BASH_SOURCE[0]}")/', "$DOTFILES_ROOT/")
 
 
 def code_text(path: pathlib.Path) -> str:
-    """A shell or YAML file without its comment lines.
+    """A shell or YAML file with its comments dropped, code and strings kept.
 
-    A path named in a comment is prose, not an invocation; only the lines that
-    run something count as evidence that it is run.
+    A name in a comment is prose, not an invocation; only what the file runs
+    counts as evidence. A comment that follows code on the same line is a
+    comment too, and `strip_noise` is what finds where it starts, because a
+    `#` inside quotes opens none. Its blanking of quoted text is wrong here --
+    a verifier names the thing it checks in the message it prints -- so the
+    comment's position is taken from the blanked line and the code is read out
+    of the original.
     """
     return "\n".join(
-        line for line in path.read_text(encoding="utf-8").splitlines()
+        line[: len(strip_noise(line))]
+        for line in path.read_text(encoding="utf-8").splitlines()
         if not line.lstrip().startswith("#")
     )
 
@@ -1017,8 +1041,7 @@ def main() -> int:
                 fail(f"line {line}: verifier does not exist: {row['verifier']}")
                 errors += 1
             elif (
-                PLATFORM_VERIFIER.match(row["verifier"])
-                and row["capability"] not in VERIFIER_MENTION_EXEMPT
+                row["capability"] not in VERIFIER_MENTION_EXEMPT
                 and not verifier_mentions(ROOT / row["verifier"], row["capability"])
             ):
                 fail(

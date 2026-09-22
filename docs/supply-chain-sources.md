@@ -32,6 +32,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 
 | Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
 |---|---|---|---|---|---|---|---|---|
+| `neovim-github-releases` | Neovim for the Parrot CTF profile | Neovim | `archive` | `user` | `0.12.5` | release tag | `https-tls` | manual-bump |
 | `netcoredbg-legacy-release` | netcoredbg x64 build used as a debugger contract control | Samsung | `archive` | `user` | `3.1.3-1062` | release tag | `https-tls` | manual-bump |
 | `opam-repository` | OCaml Platform packages | OCaml | `package-registry` | `user` | `5.5.0 compiler` | opam switch list | `registry-tls` | manual-bump |
 | `psscriptanalyzer` | PSScriptAnalyzer rules for the Windows PowerShell validation job | Microsoft | `package-registry` | `user` | `1.24.0` | 1.24.0 | `registry-tls` | manual-bump |
@@ -100,6 +101,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `mason-registry-crashdummyy` | `https://github.com/Crashdummyy/mason-registry` | Mason uninstall | `common/bootstrap-mason.lua` `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
 | `mise-installer` | `https://mise.run` | rm ~/.local/bin/mise and rerun | `platforms/fedora-wsl/install.sh` `platforms/parrot-ctf/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |
 | `mise-tool-registry` | `https://mise.jdx.dev/registry.html` | mise uninstall | `mise/.config/mise/config.toml` `common/install-mise.sh` |
+| `neovim-github-releases` | `https://github.com/neovim/neovim` | mise use -g nvim@<previous version> | `platforms/parrot-ctf/stow/mise-ctf/.config/mise/config.toml` `platforms/parrot-ctf/scripts/verify.sh` |
 | `netcoredbg-legacy-release` | `https://github.com/Samsung/netcoredbg/releases/download/3.1.3-1062/netcoredbg-osx-amd64.tar.gz` | pin the previous release tag | `tests/integration/macos-dotnet-debug.sh` |
 | `no-mistakes-installer` | `https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh` | ./scripts/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
 | `npm-registry` | `https://registry.npmjs.org` | mise uninstall | `common/install-ai.sh` |
