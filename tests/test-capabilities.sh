@@ -242,7 +242,7 @@ grep -Fq "\"\$hardware_selected:hardware\"" "$fedora_installer"
 # The command a failed run prints is rendered from the resolved selection by
 # the shared library, not by a per-platform renderer (#225, DOC-036), so the
 # hardware options reach it through the recorded selection.
-grep -Fq "DOTFILES_RERUN_COMMAND=\"\$(install_lifecycle_rerun_command fedora \"\$install_selection\")\"" \
+grep -Fq "DOTFILES_RERUN_COMMAND=\"\$(install_lifecycle_rerun_command fedora \"\$install_selection\" \"\${rerun_controls[@]}\")\"" \
   "$fedora_installer"
 if grep -Fq 'build_rerun_command' "$fedora_installer"; then
   printf 'Fedora still builds its own rerun command instead of using the shared selection model.\n' >&2

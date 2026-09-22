@@ -72,6 +72,9 @@ theme_source="$THEME_RESOLVED_SOURCE"
 install_selection_reset parrot-ctf
 install_selection_set theme "$theme"
 install_selection="$(install_selection_serialize)"
+# The command a failed run prints. This guest accepts no transient control
+# that adds work to its plan, so the selection is the whole request.
+DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command parrot-ctf "$install_selection")"
 
 # The reduced guest has no optional capabilities: its selection is fixed, and
 # still resolved in one place for the selection check, preflight and the
@@ -149,6 +152,7 @@ Host secrets:           Not forwarded or mounted
 Shared folders:         Disabled unless configured manually
 AI tooling:             Not installed
 Recorded rerun selection: $install_selection
+Rerun if this run fails: $DOTFILES_RERUN_COMMAND
 
 EOF
   plan_render
@@ -179,7 +183,6 @@ plan_preflight
 # a host nothing checked; scripts/validate-plan-network.py holds the two to
 # each other. Nothing has mutated yet at this point.
 plan_scripts | preflight_plan_network
-DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command parrot-ctf "$install_selection")"
 capabilities=''
 while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(parrot_selected_capabilities)
 install_lifecycle_begin parrot-ctf "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"

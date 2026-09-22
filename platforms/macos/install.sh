@@ -153,6 +153,12 @@ install_selection_set firstmate "${ai_firstmate:-inherit}"
 install_selection_set gnhf "${ai_gnhf:-inherit}"
 install_selection_set backpass "${ai_backpass:-inherit}"
 install_selection="$(install_selection_serialize)"
+# The command a failed run prints: this selection plus the transient controls
+# that add work to this run's plan, because the selection deliberately leaves
+# them out and a rerun without them would silently skip that work.
+rerun_controls=()
+[[ "$run_dev_workflows" != true ]] || rerun_controls+=(--dev-workflows)
+DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command macos "$install_selection" "${rerun_controls[@]}")"
 
 preflight_macos() {
   require_regular_user
@@ -264,6 +270,7 @@ AI FirstMate subcomponent: ${ai_firstmate:-inherit}
 AI GNHF subcomponent:      ${ai_gnhf:-inherit}
 AI backpass subcomponent:  ${ai_backpass:-inherit}
 Recorded rerun selection: $install_selection
+Rerun if this run fails: $DOTFILES_RERUN_COMMAND
 
 EOF
   plan_render
@@ -288,7 +295,6 @@ plan_preflight
 plan_scripts | preflight_plan_network
 capabilities=''
 while IFS= read -r capability; do capabilities+="${capabilities:+,}$capability"; done < <(macos_selected_capabilities)
-DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command macos "$install_selection")"
 install_lifecycle_begin macos "$capabilities" "$DOTFILES_RERUN_COMMAND" "$install_selection"
 if plan_execute; then :; else
   result=$?; install_lifecycle_failed "${PLAN_IDS[PLAN_CURRENT_INDEX]}" "$(plan_completed_ids)" "$(plan_pending_ids "$((PLAN_CURRENT_INDEX + 1))")"; exit "$result"

@@ -154,19 +154,30 @@ install_lifecycle_rerun_hint() {
   printf '  ./install.sh --rerun\n'
 }
 
-# install_lifecycle_rerun_command <platform> <selection>: the literal command
-# that reproduces this run's configuration, rendered from the same persistent
-# selection the lifecycle record stores.
+# install_lifecycle_rerun_command <platform> <selection> [control...]: the
+# literal command that finishes what this run was asked to do, rendered from
+# the same persistent selection the lifecycle record stores.
 #
 # This is what a run shows when it *fails*, where './install.sh --rerun' is no
 # help: only a completely successful install becomes the remembered
 # configuration, so a failed one has nothing to reapply. A fixed
 # './install.sh --platform <p> --non-interactive' would tell the user to
 # install this platform's defaults instead of the machine they asked for.
+#
+# The selection alone is not the whole request, though. A transient execution
+# control such as --dev-workflows adds work to this run's plan but is
+# deliberately never remembered, so a command rendered from the selection alone
+# would silently skip that work. Each control the run was given is passed here
+# and appended, so following the command produces this run's plan again.
 install_lifecycle_rerun_command() {
-  local platform="$1" selection="$2" rendered
+  local platform="$1" selection="$2" rendered control quoted
+  shift 2
 
   rendered="$(install_selection_render_display "$platform" "$selection" 2>/dev/null || true)"
+  for control in "$@"; do
+    printf -v quoted '%q' "$control"
+    rendered+="${rendered:+ }$quoted"
+  done
   if [[ -n "$rendered" ]]; then
     printf './install.sh --platform %s %s --non-interactive\n' "$platform" "$rendered"
   else
