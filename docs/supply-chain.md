@@ -353,16 +353,16 @@ present, naming the `--no-<component>` flag that would remove it.
 
 1. Add a row to `config/network-sources.tsv` with an owner, tier, privilege,
    integrity mechanism, cadence, rollback strategy, and consumers.
-2. Annotate the call site with `# network-source: <id>`, on the line or within
-   the four lines above it.
+2. Annotate the call site with `# network-source: <id>`, on the construct's own
+   line or in the comment block directly above it (up to four lines).
 3. Run `./scripts/render-supply-chain.py` to refresh the generated inventory.
 
 `./scripts/lint.sh` runs `scripts/validate-network-sources.py`, which fails on
 an unregistered `curl`, `wget`, PowerShell download, remote `git clone`/`fetch`,
-`--repofrompath`, remote release RPM, or container image, and on the two
-constructs that give the machine a new package trust root, a DNF repository
-added with `dnf config-manager addrepo` and a signing key imported with
-`rpm --import`, however their argument is spelled. It also fails on a registry
+`--repofrompath`, remote release RPM, or container image, and on the three
+constructs that give the machine a new package trust root: a DNF repository
+added with `dnf config-manager addrepo`, a signing key imported with
+`rpm --import`, however their argument is spelled, and a Homebrew tap. It also fails on a registry
 row whose tier and integrity mechanism contradict each other, and on one whose
 `integrity` is `image-digest-pinned` while a consumer names some other
 reference — a digest the job does not pull is a claim about a run that never
@@ -391,12 +391,22 @@ hardcoded URL would do the most damage in. Its primitives take the URL from
 their caller and say so with `# network-source: caller-provided`; the call site
 carries the annotation that names the real source.
 
-An annotation covers the host it names, not whatever construct happens to
-follow it. When a construct writes a host out in full — on its own line or on a
-continuation of it — at least one of the annotations covering it must name a
-source served by that host, so a new download dropped under an existing comment
-inherits nothing. A URL built from a variable names no host the validator can
-check, and is covered by its annotation alone.
+A Homebrew tap is one of those trust roots. `tap "owner/name"` clones
+`https://github.com/owner/homebrew-name`, and every formula in that clone is
+Ruby Homebrew runs at install time; a `brew` or `cask` argument carrying two
+slashes pulls a package from the same clone. Both forms need a row and an
+annotation, and the row's URL is the tap's repository.
+
+An annotation covers what it names, not whatever construct happens to follow
+it. Two rules enforce that. First, an annotation belongs to the construct it
+introduces: the walk up from a construct stops at the first line of code, so a
+download appended below an annotated one inherits nothing. Second, when a
+construct writes a host out in full — on its own line or on a continuation of
+it — at least one of the annotations covering it must name a source served by
+that host. A tap names no host, so the same question is asked of the tap
+itself: an annotation covers a tap only when its registered source *is* that
+tap. A URL built from a variable names no host the validator can check, and is
+covered by its annotation alone.
 
 A construct that genuinely reaches no external network (a loopback probe, a
 request to the container under test) is annotated
