@@ -123,7 +123,7 @@ apply_terminal() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/install-terminal
 apply_mise() { "$DOTFILES_ROOT/common/install-mise.sh"; }
 apply_nvim() { "$DOTFILES_ROOT/common/install-neovim-tools.sh" --profile parrot-ctf; }
 apply_tmux() { "$DOTFILES_ROOT/common/install-tmux-theme.sh"; }
-apply_theme() { [[ ! -x "$HOME/.local/bin/theme" ]] || "$HOME/.local/bin/theme" "$theme"; }
+apply_theme() { theme_apply_stowed "$theme"; }
 verify_parrot() { "$DOTFILES_ROOT/platforms/parrot-ctf/scripts/verify.sh"; }
 
 plan_add system 'Install Parrot-owned working-environment prerequisites' apply preflight_parrot apply_system : 'platforms/parrot-ctf/scripts/install-system.sh; security catalogue unchanged' 'platforms/parrot-ctf/scripts/install-system.sh'
