@@ -12,6 +12,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 |---|---|---|---|---|---|---|---|---|
 | `catppuccin-bat-themes` | Catppuccin bat/delta syntax themes | Catppuccin | `file` | `user` | `6810349b28055dce54076712fc05fc68da4b8ec0` | commit+sha256 | `sha256-pinned` | manual-bump |
 | `ghost-pepper-release` | Ghost Pepper dictation application disk image | matthartman | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
+| `gitleaks-release` | Secret-scanning gate: the gitleaks binary ./scripts/scan-secrets.sh runs | gitleaks | `archive` | `user` | `pinned release + per-platform sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `hack-nerd-font` | Hack Nerd Font release archive | Nerd Fonts | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `handy-release` | Handy dictation application release RPM | cjpais | `rpm-package` | `root` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `parrot-boundary-image` | Parrot base image for the CI boundary check (not VM evidence) | Parrot Security | `container-image` | `root` | `latest` | sha256:944b58dad7e74ae4789e5ae9e369109dc5ebb3fe143ec65a5e39ec4132d80469 | `image-digest-pinned` | manual-bump |
@@ -32,6 +33,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 
 | Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
 |---|---|---|---|---|---|---|---|---|
+| `neovim-github-releases` | Neovim for the Parrot CTF profile | Neovim | `archive` | `user` | `0.12.5` | release tag | `https-tls` | manual-bump |
 | `netcoredbg-legacy-release` | netcoredbg x64 build used as a debugger contract control | Samsung | `archive` | `user` | `3.1.3-1062` | release tag | `https-tls` | manual-bump |
 | `opam-repository` | OCaml Platform packages | OCaml | `package-registry` | `user` | `5.5.0 compiler` | opam switch list | `registry-tls` | manual-bump |
 | `psscriptanalyzer` | PSScriptAnalyzer rules for the Windows PowerShell validation job | Microsoft | `package-registry` | `user` | `1.24.0` | 1.24.0 | `registry-tls` | manual-bump |
@@ -56,6 +58,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 
 | Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
 |---|---|---|---|---|---|---|---|---|
+| `distribution-gpg-keys` | RPM Fusion signing keys, from Fedora's own signed package | Fedora Project | `rpm-package` | `root` | `releasever` | rpm -q distribution-gpg-keys | `repo-gpg` | distribution |
 | `fedora-os-repos` | Fedora base system packages | Fedora Project | `rpm-repo` | `root` | `releasever` | dnf-history | `repo-gpg` | distribution |
 | `parrot-os-repos` | Parrot base system packages | Parrot Security | `apt-repo` | `root` | `release` | dpkg-status | `repo-gpg` | distribution |
 | `rpmfusion-free-release` | RPM Fusion free release package | RPM Fusion | `rpm-package` | `root` | `releasever` | rpm -q rpmfusion-free-release | `https-tls` | per-fedora-release |
@@ -83,10 +86,12 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `catppuccin-bat-themes` | `https://raw.githubusercontent.com/catppuccin/bat/${bat_theme_commit}/themes/${encoded_name}` | restore the previous commit and digests | `platforms/parrot-ctf/scripts/install-terminal.sh` |
 | `catppuccin-kde` | `https://github.com/catppuccin/kde.git` | reinstall the previous tag | `platforms/fedora/scripts/install-kde-theme.sh` |
 | `catppuccin-tmux` | `https://github.com/catppuccin/tmux.git` | git checkout the previous tag | `common/install-tmux-theme.sh` |
+| `distribution-gpg-keys` | `https://mirrors.fedoraproject.org` | sudo dnf remove distribution-gpg-keys | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `dotfiles-repository` | `https://github.com/KasperElbo/dotfiles.git` | git checkout the previous commit | `.github/workflows/real-install.yml` |
 | `fedora-os-repos` | `https://mirrors.fedoraproject.org` | sudo dnf history undo | `platforms/fedora/scripts/install-system.sh` `platforms/fedora-wsl/scripts/install-system.sh` |
 | `firstmate-repo` | `https://github.com/kunchenguid/firstmate.git` | git -C ~/.local/share/firstmate checkout <commit> | `common/install-ai.sh` |
 | `ghost-pepper-release` | `https://github.com/matthartman/ghost-pepper/releases/download/v${ghost_pepper_version}/GhostPepper.dmg` | pin the previous release tag and sha256 in platforms/macos/lib/dictation.sh, then rerun with --dictation | `platforms/macos/scripts/install-dictation.sh` `platforms/macos/lib/dictation.sh` |
+| `gitleaks-release` | `https://github.com/gitleaks/gitleaks/releases/download/v${version}/${artifact}` | pin the previous release tag and per-platform digests in scripts/scan-secrets.sh | `scripts/scan-secrets.sh` |
 | `hack-nerd-font` | `https://github.com/ryanoasis/nerd-fonts/releases/download/v${font_version}/Hack.tar.xz` | reinstall the previous version directory | `platforms/parrot-ctf/scripts/install-terminal.sh` |
 | `handy-release` | `https://github.com/cjpais/Handy/releases/download/v${handy_version}/${handy_rpm}` | pin the previous release tag and sha256 in platforms/fedora/lib/dictation.sh, then rerun with --dictation | `platforms/fedora/scripts/install-dictation.sh` `platforms/fedora/lib/dictation.sh` |
 | `homebrew-formulae` | `https://formulae.brew.sh` | brew uninstall | `platforms/macos/Brewfile` `platforms/macos/scripts/install-system.sh` |
@@ -98,6 +103,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `mason-registry-crashdummyy` | `https://github.com/Crashdummyy/mason-registry` | Mason uninstall | `common/bootstrap-mason.lua` `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
 | `mise-installer` | `https://mise.run` | rm ~/.local/bin/mise and rerun | `platforms/fedora-wsl/install.sh` `platforms/parrot-ctf/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |
 | `mise-tool-registry` | `https://mise.jdx.dev/registry.html` | mise uninstall | `mise/.config/mise/config.toml` `common/install-mise.sh` |
+| `neovim-github-releases` | `https://github.com/neovim/neovim` | mise use -g nvim@<previous version> | `platforms/parrot-ctf/stow/mise-ctf/.config/mise/config.toml` `platforms/parrot-ctf/scripts/verify.sh` |
 | `netcoredbg-legacy-release` | `https://github.com/Samsung/netcoredbg/releases/download/3.1.3-1062/netcoredbg-osx-amd64.tar.gz` | pin the previous release tag | `tests/integration/macos-dotnet-debug.sh` |
 | `no-mistakes-installer` | `https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh` | ./scripts/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
 | `npm-registry` | `https://registry.npmjs.org` | mise uninstall | `common/install-ai.sh` |

@@ -191,6 +191,10 @@ mapfile -t mise_tools < <(
     }
   ' "$mise_config" 2>/dev/null | sort
 )
+# The backend named here is the one the manifest must declare: Parrot's own
+# Neovim is below the floor, so this profile takes it from GitHub releases
+# rather than from mise's registry, which is a trust root of its own.
+# network-source: neovim-github-releases
 if [[ "${mise_tools[*]}" == "nvim uv" ]] &&
   grep -Fqx 'nvim = "github:neovim/neovim"' "$mise_config"; then
   pass "Parrot mise manifest is limited to uv and the Neovim exception"
@@ -216,35 +220,47 @@ if [[ -n "$mise_command" ]]; then
 fi
 check_version_at_least "Neovim" "$nvim_version" "$(tool_floor nvim)"
 
+# The lock file is read before Neovim is started, not after. This guest was
+# the only platform that proved plugin commits at all, but it proved them on a
+# tree the start just above had been free to repair: the configuration installs
+# whatever the profile names and does not find, so a passing pair of checks
+# could mean the plugins were fetched moments earlier (#371). The shared check
+# is the same one every platform now runs, and it answers more than the loop it
+# replaces -- a directory that is not a checkout, a lock file that will not
+# parse, and a plugin the lock file does not name.
+check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/profiles/parrot-ctf/lazy-lock.json"
+
+# Through run_mise, as the version read two lines above already is. Called
+# directly, mise resolved from this verifier's working directory with no
+# ceiling, so a stray directory configuration anywhere at or above it decided
+# which Neovim started -- and the check reported a pass earned in a context the
+# verifier had just declared non-deterministic. In the suite's contaminated
+# run, "Neovim unknown does not satisfy the >= 0.12 baseline" and "Reduced
+# LazyVim profile starts headlessly" were printed by the same run.
+#
+# The bound stays: timeout moves inside `mise exec`, because run_mise is a
+# shell function and timeout can only run a program. It goes around nvim
+# itself, which is what was being bounded. The assignments are exported in a
+# subshell rather than written as a prefix, because a `VAR=x func` prefix on a
+# function call leaves VAR set in the shell afterwards. That is also why this
+# does not use check_neovim_starts, which bounds a program it can exec.
+#
+# DOTFILES_NVIM_VERIFY keeps the start observational. Without it this start
+# would install any plugin the check above had just reported missing, which is
+# how a damaged guest used to finish verification looking repaired.
 nvim_log="$(mktemp)"
-if [[ -n "$mise_command" ]] &&
-  DOTFILES_NVIM_PROFILE=parrot-ctf timeout --kill-after=10s 2m \
-    "$mise_command" exec -- nvim --headless +qa >"$nvim_log" 2>&1; then
+if [[ -n "$mise_command" ]] && (
+  export DOTFILES_NVIM_PROFILE=parrot-ctf
+  export DOTFILES_NVIM_VERIFY=1
+  run_mise "$mise_command" exec -- \
+    timeout --kill-after=10s "$NEOVIM_VERIFY_START_TIMEOUT" nvim --headless +qa
+) >"$nvim_log" 2>&1; then
   pass "Reduced LazyVim profile starts headlessly"
 else
   fail "Reduced LazyVim profile failed headless startup"
   sed 's/^/  /' "$nvim_log" >&2
 fi
 rm -f -- "$nvim_log"
-
-parrot_lock="$XDG_CONFIG_HOME/nvim/profiles/parrot-ctf/lazy-lock.json"
-plugin_lock_failures=0
-plugin_lock_entries=0
-while IFS=$'\t' read -r plugin_name expected_commit; do
-  [[ -n "$plugin_name" && -n "$expected_commit" ]] || continue
-  plugin_lock_entries=$((plugin_lock_entries + 1))
-  plugin_dir="$XDG_DATA_HOME/nvim/lazy/$plugin_name"
-  actual_commit="$(git -C "$plugin_dir" rev-parse HEAD 2>/dev/null || true)"
-  if [[ "$actual_commit" != "$expected_commit" ]]; then
-    fail "Lazy plugin lock mismatch: $plugin_name (expected $expected_commit, found ${actual_commit:-missing})"
-    plugin_lock_failures=$((plugin_lock_failures + 1))
-  fi
-done < <(jq -r 'to_entries[] | [.key, .value.commit] | @tsv' "$parrot_lock" 2>/dev/null)
-if ((plugin_lock_entries > 0 && plugin_lock_failures == 0)); then
-  pass "Reduced LazyVim plugins match the Parrot lockfile"
-elif ((plugin_lock_entries == 0)); then
-  fail "Parrot LazyVim lockfile is missing or empty: $parrot_lock"
-fi
 
 # Two separate questions about Mason here, and the reduced profile needs both.
 #

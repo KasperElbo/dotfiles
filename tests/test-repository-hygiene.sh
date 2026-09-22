@@ -16,9 +16,21 @@ validator="$repo_root/scripts/validate-repository-hygiene.py"
 new_clean_tree() {
   test_new_root
   tree="$TEST_ROOT/tree"
-  mkdir -p "$tree/docs/reference" "$tree/LICENSES" "$tree/vendor"
+  mkdir -p "$tree/docs/reference" "$tree/LICENSES" "$tree/vendor" \
+    "$tree/scripts" "$tree/.github/workflows"
   printf 'MIT License\n' >"$tree/LICENSES/Upstream.txt"
   printf 'vendored\n' >"$tree/vendor/thing.conf"
+  # The secret-scanning gate: a tree without it, or with a workflow that never
+  # runs it, is a defect of its own, so the clean fixture carries both.
+  printf '#!/usr/bin/env bash\n' >"$tree/scripts/scan-secrets.sh"
+  cat >"$tree/.github/workflows/validate.yml" <<'EOF'
+name: Validate
+jobs:
+  repository:
+    steps:
+      - name: Scan for committed credentials
+        run: ./scripts/scan-secrets.sh
+EOF
   cat >"$tree/docs/reference/third-party-notices.md" <<'EOF'
 # Third-party notices
 
@@ -310,6 +322,79 @@ run_capture python3 "$guard_validator" --root "$guard_tree"
 assert_success
 printf 'PASS: reaching common.sh through a guarded sibling is accepted\n'
 
+# The fixture's own path is composed from a variable, because
+# check_repository_references above refuses a tracked file that names a
+# repository path which does not exist, and this one deliberately does not.
+guard_lib="$guard_tree/common/lib"
+
+# A name in prose is not a call. This checker read each library as one string
+# and matched the symbol anywhere in it, so a library whose only mention of
+# `die` and `warn` was ordinary English in a comment was told to add a guard
+# for functions it never calls. Six libraries in this tree mention a
+# common.sh function in a comment and nowhere else, so this was not
+# hypothetical; they only passed because they source common.sh for other
+# reasons.
+cat >"$guard_lib/prose.sh" <<'EOF_PROSE'
+#!/usr/bin/env bash
+
+# This library calls nothing from common.sh. The paragraph below is prose:
+# callers should die rather than continue when the input is malformed, and
+# the installer will warn about it first. Nothing here reads DOTFILES_ROOT
+# or XDG_STATE_HOME either.
+
+prose_value() {
+  printf 'x\n'
+}
+EOF_PROSE
+
+# The rest of the tree is clean at this point, so the whole run passing is a
+# stronger statement than the absence of one message: nothing about this file
+# is demanded at all.
+run_capture python3 "$guard_validator" --root "$guard_tree"
+assert_success
+printf 'PASS: a common.sh name in a comment is not read as a call\n'
+
+# The same words as code, so the demand is still made where it is due. The
+# variable half keeps strings, because "$DOTFILES_ROOT/config" is a real read.
+cat >"$guard_lib/prose.sh" <<'EOF_CALLS'
+#!/usr/bin/env bash
+
+prose_value() {
+  [[ -n "${1:-}" ]] || die "prose_value needs an argument"
+  printf '%s\n' "$DOTFILES_ROOT/$1"
+}
+EOF_CALLS
+
+run_capture python3 "$guard_validator" --root "$guard_tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'prose.sh uses DOTFILES_ROOT, die'
+printf 'PASS: the same names as code are still demanded, strings included\n'
+
+# A guard that has been commented out sources nothing. The block was matched
+# in the raw text, so a commented `if` line above an unguarded file could
+# satisfy it; reading the file as code removes that shape entirely.
+cat >"$guard_lib/prose.sh" <<'EOF_COMMENTED'
+#!/usr/bin/env bash
+
+# if [[ -z "${DOTFILES_COMMON_LOADED:-}" ]]; then
+#   # shellcheck source=common.sh
+#   source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+# fi
+
+prose_value() {
+  die "always"
+}
+EOF_COMMENTED
+
+run_capture python3 "$guard_validator" --root "$guard_tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'prose.sh uses die'
+printf 'PASS: a commented-out guard does not satisfy the rule\n'
+
+rm -f "$guard_lib/prose.sh"
+run_capture python3 "$guard_validator" --root "$guard_tree"
+assert_success
+
 # --- Workflow actions must be pinned to a commit ---------------------------
 
 # A tag is whatever its owner last pointed it at, so an action pinned to one
@@ -582,5 +667,149 @@ run_capture python3 "$symlink_validator" --root "$symlink_tree" --migrating ''
 assert_failure
 assert_contains "$TEST_OUTPUT" 'the check would pass vacuously'
 printf 'PASS: a tree with no call sites fails instead of passing vacuously\n'
+
+# --- The secret-scanning gate (#377) ---------------------------------------
+#
+# README.md claims categorically that nothing secret is in this repository.
+# Until now nothing checked every tracked path, and nothing checked history at
+# all, so that was the one repository-wide promise with no gate behind it.
+#
+# Two things have to hold and both are tested here: the gate must actually
+# catch a credential using the command CI runs, and it must not be removable
+# without a refusal.
+
+scanner="$repo_root/scripts/scan-secrets.sh"
+
+# The pinned scanner, resolved the way scripts/scan-secrets.sh resolves it and
+# never downloaded here: no suite in this repository reaches the network. In
+# CI the "Scan for committed credentials" step runs before ./scripts/test.sh
+# in the same job, so the cache below is already populated by the time this
+# runs. On a workstation, running the scanner once does the same.
+pinned_version="$(sed -n 's/^version="\([^"]*\)"$/\1/p' "$scanner")"
+[[ -n "$pinned_version" ]] ||
+  _test_die "scripts/scan-secrets.sh no longer states its version once"
+
+gitleaks="${DOTFILES_GITLEAKS:-${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/gitleaks/$pinned_version/gitleaks}"
+[[ -x "$gitleaks" ]] ||
+  _test_die "the pinned gitleaks $pinned_version is required to test the secret-scanning gate; run ./scripts/scan-secrets.sh once to cache it, or set DOTFILES_GITLEAKS (looked in $gitleaks)"
+
+# A checkout-shaped fixture: the real scanner and the real configuration, over
+# a tree this suite owns. The script resolves its repository root from its own
+# location, so copying it under $fixture is what points it at the fixture, and
+# the symlinks mean the rules and the shared libraries under test are the
+# tracked ones rather than a copy that could drift.
+test_new_root
+scan_fixture="$TEST_ROOT/scan-fixture"
+mkdir -p "$scan_fixture/scripts"
+cp "$scanner" "$scan_fixture/scripts/scan-secrets.sh"
+ln -s "$repo_root/common" "$scan_fixture/common"
+ln -s "$repo_root/.gitleaks.toml" "$scan_fixture/.gitleaks.toml"
+git -C "$scan_fixture" init -q .
+git -C "$scan_fixture" -c user.email=t@example.invalid -c user.name=Test \
+  commit -q --allow-empty -m 'empty'
+
+scan_the_fixture() {
+  run_capture env -C "$scan_fixture" DOTFILES_GITLEAKS="$gitleaks" \
+    ./scripts/scan-secrets.sh
+}
+
+scan_the_fixture
+assert_success
+printf 'PASS: the secret scanner passes a tree with no credential in it\n'
+
+# The credential is assembled from parts so that this file never contains one:
+# a literal here would have to be allowlisted, and an allowlisted literal is a
+# match the gate has been told to ignore for good. .gitleaks.toml explains the
+# same rule. These are syntactically valid and grant nothing.
+printf 'aws_access_key_id = "%s%s"\n' 'AKIA' 'QYLPT5RZ2MJKF3WX' \
+  >"$scan_fixture/config.ini"
+scan_the_fixture
+assert_failure
+assert_contains "$TEST_OUTPUT" 'A credential was found'
+printf 'PASS: a credential in the working tree fails the exact command CI runs\n'
+
+# Redacted, so a CI log never becomes the second place the credential lives.
+assert_not_contains "$TEST_OUTPUT" 'QYLPT5RZ2MJKF3WX'
+printf 'PASS: the finding is reported without reprinting the secret\n'
+
+# Committed and deleted is still committed: the working-tree scan alone goes
+# clean here, and only the history scan still sees it. This is the case the
+# whole "scan history too" decision exists for.
+git -C "$scan_fixture" add config.ini
+git -C "$scan_fixture" -c user.email=t@example.invalid -c user.name=Test \
+  commit -q -m 'add configuration'
+# Only that one path, because the scanner, the rules and the shared libraries
+# sit in this fixture untracked on purpose: committing them would put them in
+# the history the reset below rewinds, and take them away with it.
+git -C "$scan_fixture" rm -q config.ini
+git -C "$scan_fixture" -c user.email=t@example.invalid -c user.name=Test \
+  commit -q -m 'remove configuration'
+
+run_capture env -C "$scan_fixture" "$gitleaks" dir . \
+  --config "$scan_fixture/.gitleaks.toml" --no-banner --redact --exit-code 1
+assert_success
+
+scan_the_fixture
+assert_failure
+assert_contains "$TEST_OUTPUT" 'A credential was found'
+printf 'PASS: a credential removed from the tree is still caught in history\n'
+
+# A different rule, to prove the gate is not one pattern wide.
+git -C "$scan_fixture" reset -q --hard HEAD~2
+printf -- '-----BEGIN RSA PRIVATE %s-----\n%s\n-----END RSA PRIVATE %s-----\n' \
+  'KEY' 'MIIEpAIBAAKCAQEA4Zx9qT2mVbN7cLrY8wKfDsEoQ1hJiUvXgPnMt6RaBw3ZkSyF' 'KEY' \
+  >"$scan_fixture/id_rsa"
+scan_the_fixture
+assert_failure
+rm -f "$scan_fixture/id_rsa"
+printf 'PASS: a private key is caught as well as an access key\n'
+
+# The pin is the rules: a different build is a different rule set, so a pass
+# from one would not mean what the gate claims.
+wrong_version="$TEST_ROOT/wrong-gitleaks"
+printf '#!/bin/sh\nprintf "0.0.0\\n"\n' >"$wrong_version"
+chmod +x "$wrong_version"
+run_capture env -C "$scan_fixture" DOTFILES_GITLEAKS="$wrong_version" \
+  ./scripts/scan-secrets.sh
+assert_failure
+assert_contains "$TEST_OUTPUT" "this repository pins $pinned_version"
+printf 'PASS: a scanner that is not the pinned version is refused\n'
+
+# --- The gate cannot be removed quietly ------------------------------------
+
+new_clean_tree
+rm -f "$tree/scripts/scan-secrets.sh"
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'scripts/scan-secrets.sh is missing'
+printf 'PASS: deleting the scanner is refused\n'
+
+new_clean_tree
+python3 - "$tree/.github/workflows/validate.yml" <<'PYTHON'
+import pathlib
+import sys
+
+workflow = pathlib.Path(sys.argv[1])
+text = workflow.read_text(encoding="utf-8")
+marker = "      - name: Scan for committed credentials\n"
+if marker not in text:
+    raise SystemExit("the fixture workflow has no scanner step to remove")
+workflow.write_text(text[: text.index(marker)], encoding="utf-8")
+PYTHON
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'never runs ./scripts/scan-secrets.sh'
+printf 'PASS: deleting the CI step is refused\n'
+
+# Commenting the step out is deleting it, which the line-by-line reader has to
+# see: a `#` before the invocation is the cheapest way to disable a gate.
+new_clean_tree
+sed -i.bak 's|^        run: ./scripts/scan-secrets.sh|        # run: ./scripts/scan-secrets.sh|' \
+  "$tree/.github/workflows/validate.yml"
+rm -f "$tree/.github/workflows/validate.yml.bak"
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'never runs ./scripts/scan-secrets.sh'
+printf 'PASS: commenting the CI step out is refused\n'
 
 printf '\nAll repository hygiene checks passed.\n'

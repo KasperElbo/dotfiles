@@ -9,6 +9,7 @@ public-entrypoint	755	scripts/benchmark-shell-startup.sh	Manual shell-startup me
 public-entrypoint	755	scripts/test-dev-workflows.sh	Disposable development-workflow smoke tests
 public-entrypoint	755	scripts/update-starship-themes.sh	Generate the tracked Starship configurations
 public-entrypoint	755	scripts/check-pin-freshness.sh	Report which pinned components have newer upstream releases
+public-entrypoint	755	scripts/scan-secrets.sh	Scan the working tree and history for committed credentials
 public-entrypoint	755	docs/cheatsheets/generate.sh	Render the printable cheat sheets
 public-entrypoint	755	docs/cheatsheets/verify.sh	Verify the printable cheat sheets
 platform-entrypoint	755	platforms/*/install.sh	Platform installer, selected by --platform

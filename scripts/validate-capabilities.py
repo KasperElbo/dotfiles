@@ -23,6 +23,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from shell import strip_noise  # noqa: E402
 from manifests import (  # noqa: E402
     ManifestSchemaError,
     mise_tool_package,
@@ -46,10 +47,14 @@ FIELDS = [
 # tests/test-capabilities.sh derives the same list from the directories under
 # platforms/ and fails if this one drifts from it.
 PLATFORMS = {"fedora", "fedora-wsl", "macos", "parrot-ctf", "windows"}
-PLATFORM_VERIFIER = re.compile(r"^platforms/[^/]+/(?:scripts/verify\.sh|verify\.ps1)$")
 # A platform verifier is the baseline capability from its first line, so
-# requiring it to name "base" would only add noise. Every other capability it
-# is declared for must be findable in the file.
+# requiring it to name "base" would only add noise. Every other capability a
+# verifier is declared for must be findable in the file -- including the
+# dedicated ones (verify-containers.sh, common/verify-ai.sh and the rest),
+# which the rule used to skip entirely because it only applied to
+# platforms/*/scripts/verify.sh. They all name their capability already, so
+# holding them to it costs nothing and stops the next one from claiming a row
+# it never checks.
 VERIFIER_MENTION_EXEMPT = {"base"}
 
 OPTION_MANIFEST = pathlib.Path(
@@ -562,18 +567,32 @@ def check_stow_ownership(rows: list[dict[str, str]]) -> int:
 
 
 def verifier_mentions(path: pathlib.Path, capability: str) -> bool:
-    """Does this verifier say anywhere that it checks `capability`?
+    """Does this verifier check `capability`, in code or by an explicit marker?
 
-    A section that names the capability in its code or comments already says
-    so; where the name does not appear naturally, the section carries a
-    one-line `# verifies: <capability>` marker (see docs/capabilities.md).
-    Both spellings are found by the same search: separators are normalized, so
-    `dotnet-debug` is found in `check_easy_dotnet_debugger`, and a trailing
-    suffix is allowed while a leading one is not, so `latex` is not satisfied
-    by an unrelated `foolatex`.
+    Two spellings, read in two places, because they are two different claims.
+    A section that names the capability in the lines that run something is a
+    check; where the name does not appear naturally, the section carries a
+    one-line `# verifies: <capability>` marker (see docs/capabilities.md),
+    which is the one thing a comment may say here.
+
+    The whole file used to be searched raw, comments included, so deleting a
+    verifier's entire LaTeX block and leaving `# TODO: the latex checks were
+    removed` behind passed the check that exists to notice exactly that. A
+    comment is now evidence only when it is the marker.
+
+    Within each, separators are normalized, so `dotnet-debug` is found in
+    `check_easy_dotnet_debugger`, and a trailing suffix is allowed while a
+    leading one is not, so `latex` is not satisfied by an unrelated `foolatex`.
     """
-    text = re.sub(r"[^a-z0-9]+", "-", path.read_text(encoding="utf-8").lower())
-    return re.search(rf"(?:^|-){re.escape(capability.lower())}", text) is not None
+    name = re.escape(capability.lower())
+    code = re.sub(r"[^a-z0-9]+", "-", code_text(path).lower())
+    if re.search(rf"(?:^|-){name}", code) is not None:
+        return True
+    marker = re.compile(
+        rf"^[ \t]*#\s*verifies:[^\n]*(?:^|[^a-z0-9]){name}(?![a-z0-9])",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    return marker.search(path.read_text(encoding="utf-8")) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -640,18 +659,27 @@ WINDOWS_SUITE = re.compile(r"(?<![\w-])(tests/[\w.-]+\.ps1)(?![\w-])")
 CI_EXCLUDED = "excluded:"
 INSTALL_ENTRY_POINT = "./install.sh"
 CAPABILITY_FLAG = re.compile(r"(?<![\w-])--[\w-]+")
+# Which platform an invocation installs, which is the platform its flags are
+# evidence for.
+SELECTED_PLATFORM = re.compile(r"--platform[= ]+(?P<platform>[\w-]+)")
 SOURCE_LINE = re.compile(r'^\s*(?:source|\.)\s+"(.+)"\s*$')
 SOURCE_PREFIXES = ('$(dirname "${BASH_SOURCE[0]}")/', "$DOTFILES_ROOT/")
 
 
 def code_text(path: pathlib.Path) -> str:
-    """A shell or YAML file without its comment lines.
+    """A shell or YAML file with its comments dropped, code and strings kept.
 
-    A path named in a comment is prose, not an invocation; only the lines that
-    run something count as evidence that it is run.
+    A name in a comment is prose, not an invocation; only what the file runs
+    counts as evidence. A comment that follows code on the same line is a
+    comment too, and `strip_noise` is what finds where it starts, because a
+    `#` inside quotes opens none. Its blanking of quoted text is wrong here --
+    a verifier names the thing it checks in the message it prints -- so the
+    comment's position is taken from the blanked line and the code is read out
+    of the original.
     """
     return "\n".join(
-        line for line in path.read_text(encoding="utf-8").splitlines()
+        line[: len(strip_noise(line))]
+        for line in path.read_text(encoding="utf-8").splitlines()
         if not line.lstrip().startswith("#")
     )
 
@@ -784,8 +812,17 @@ def real_install_text() -> str:
     return "\n".join(texts)
 
 
-def install_selections(text: str) -> set[str]:
-    """Every flag passed to an `./install.sh` invocation in `text`.
+def install_selections(text: str) -> dict[str, set[str]]:
+    """The flags each platform's `./install.sh` invocations pass, per platform.
+
+    Per platform, because a flag is evidence for the row of the platform it was
+    passed on and no other. One flat set said `--ocaml` on the macOS job proved
+    the Fedora and Fedora WSL rows too, and twelve rows claimed a real
+    installation that had never happened.
+
+    An invocation with no `--platform` contributes to no platform: `--rerun`
+    replays a selection made by an earlier invocation, which is where those
+    flags are already counted.
 
     The arguments of one invocation are not one line. A YAML folded scalar
     (`run: >-`) and a Bash backslash continuation both spread them over
@@ -798,7 +835,7 @@ def install_selections(text: str) -> set[str]:
     this a check about *selection*: `--kde` written in a comment, in a step
     name or in an unrelated command is not a machine that installed KDE.
     """
-    flags: set[str] = set()
+    flags: dict[str, set[str]] = {}
     lines = text.splitlines()
     for index, line in enumerate(lines):
         _, separator, arguments = line.partition(INSTALL_ENTRY_POINT)
@@ -817,7 +854,13 @@ def install_selections(text: str) -> set[str]:
                 break
             invocation.append(following)
             cursor += 1
-        flags.update(CAPABILITY_FLAG.findall(" ".join(invocation)))
+        joined = " ".join(invocation)
+        platform = SELECTED_PLATFORM.search(joined)
+        if platform is None:
+            continue
+        flags.setdefault(platform.group("platform"), set()).update(
+            CAPABILITY_FLAG.findall(joined)
+        )
     return flags
 
 
@@ -836,9 +879,10 @@ def check_capability_ci_selection(rows: list[dict[str, str]]) -> int:
     control installs nothing, so running its verifier is the whole capability.
     """
     errors = 0
-    selected = install_selections(real_install_text())
+    selections = install_selections(real_install_text())
     for row in rows:
         where = f"{row['platform']}/{row['capability']}"
+        selected = selections.get(row["platform"], set())
         scope = row["ci_scope"]
         flag = row["cli_flag"]
         selectable = (
@@ -943,8 +987,7 @@ def main() -> int:
                 fail(f"line {line}: verifier does not exist: {row['verifier']}")
                 errors += 1
             elif (
-                PLATFORM_VERIFIER.match(row["verifier"])
-                and row["capability"] not in VERIFIER_MENTION_EXEMPT
+                row["capability"] not in VERIFIER_MENTION_EXEMPT
                 and not verifier_mentions(ROOT / row["verifier"], row["capability"])
             ):
                 fail(

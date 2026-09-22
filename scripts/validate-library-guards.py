@@ -27,6 +27,29 @@ A library may instead source a sibling that is itself guarded; that reaches
 `common.sh` just as surely, so this follows those edges rather than demanding
 every file repeat the block.
 
+What counts as a use
+--------------------
+Code, not text. This read the library as one string and matched each symbol
+name anywhere in it, so a library whose only mention of `die` and `warn` was
+ordinary English prose in a comment -- "callers should die rather than
+continue", "the installer will warn about it first" -- was told to add a guard
+for functions it never calls. Six of the libraries in this tree mention a
+`common.sh` function in a comment and nowhere else.
+
+So the two halves are read differently, because they are different questions:
+
+* **A function is used when the library runs it.** `scripts/lib/shell.py`
+  answers that with `commands()`, which reads command position and drops
+  comments and single-quoted text on the way. Every call site counts, whether
+  or not anything in this file reaches it: a library function is called by its
+  consumers, so reachability from load-time code would be the wrong test.
+* **A variable is used when the library reads it undefaulted.** That one needs
+  comments gone and strings kept, since `"$DOTFILES_ROOT/config"` is a real
+  read, so it goes through `code_line`/`code_text` instead.
+
+The guard and the sibling edges are read as code too, so a commented-out
+`source` no longer satisfies either.
+
 Usage:
     scripts/validate-library-guards.py [--root DIR]
 """
@@ -37,6 +60,9 @@ import argparse
 import pathlib
 import re
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from shell import code_text, commands, shell_functions  # noqa: E402
 
 LIBRARY_DIR = pathlib.Path("common") / "lib"
 COMMON = "common.sh"
@@ -51,9 +77,6 @@ GUARD = re.compile(
 SOURCES = re.compile(
     r'source "\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/(?P<name>[A-Za-z0-9_-]+\.sh)"'
 )
-# A `name() {` definition at the start of a line, which is how every function in
-# these libraries is written.
-DEFINITION = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\(\)", re.MULTILINE)
 # Variables `common.sh` assigns at the top level and the rest of the tree reads.
 COMMON_VARIABLES = re.compile(
     r"^(?P<name>DOTFILES_ROOT|XDG_[A-Z_]+)=", re.MULTILINE
@@ -67,8 +90,10 @@ def fail(message: str) -> None:
 def common_symbols(library_dir: pathlib.Path) -> set[str]:
     """Every function and top-level variable `common.sh` defines."""
     text = (library_dir / COMMON).read_text(encoding="utf-8")
-    symbols = {match.group("name") for match in DEFINITION.finditer(text)}
-    symbols |= {match.group("name") for match in COMMON_VARIABLES.finditer(text)}
+    symbols = set(shell_functions(text))
+    symbols |= {
+        match.group("name") for match in COMMON_VARIABLES.finditer(code_text(text))
+    }
     symbols.discard("DOTFILES_COMMON_LOADED")
     return symbols
 
@@ -82,20 +107,29 @@ def used_symbols(text: str, symbols: set[str], own: set[str]) -> set[str]:
     A variable read with its own default -- `${XDG_STATE_HOME:-$HOME/...}` --
     is not a dependency: it is correct whether or not `common.sh` ran, which is
     the whole point of writing it that way. Only an undefaulted read counts.
-    Functions have no such form, so every reference to one counts.
+    Functions have no such form, so every call to one counts.
     """
-    used = set()
-    for symbol in symbols - own:
+    wanted = symbols - own
+    # Called, rather than merely named. A function's name in a comment or in a
+    # single-quoted string is not a call, and this is what used to say it was.
+    used = {symbol for symbol in wanted if symbol in commands(text)}
+
+    # A variable's value lives in a string more often than not, so this half
+    # keeps the strings and drops only the comments.
+    code = code_text(text)
+    for symbol in wanted:
+        if not symbol.isupper():
+            continue
         pattern = rf"(?<![A-Za-z0-9_]){re.escape(symbol)}(?![A-Za-z0-9_])"
-        if symbol.isupper():
-            # `${NAME` followed by any of the parameter-expansion default or
-            # alternate operators is a defaulted read; anything else is not.
-            defaulted = rf"\$\{{{re.escape(symbol)}(?::?[-=+?])"
-            occurrences = len(re.findall(pattern, text))
-            if occurrences and occurrences == len(re.findall(defaulted, text)):
-                continue
-        if re.search(pattern, text):
-            used.add(symbol)
+        # `${NAME` followed by any of the parameter-expansion default or
+        # alternate operators is a defaulted read; anything else is not.
+        defaulted = rf"\$\{{{re.escape(symbol)}(?::?[-=+?])"
+        occurrences = len(re.findall(pattern, code))
+        if not occurrences:
+            continue
+        if occurrences == len(re.findall(defaulted, code)):
+            continue
+        used.add(symbol)
     return used
 
 
@@ -114,11 +148,14 @@ def reaches_common(
     text = texts.get(name)
     if text is None:
         return False
-    if GUARD.search(text):
+    # As code: a guard block that has been commented out sources nothing, and
+    # neither does a commented sibling `source` line.
+    code = code_text(text)
+    if GUARD.search(code):
         return True
     return any(
         reaches_common(match.group("name"), texts, seen)
-        for match in SOURCES.finditer(text)
+        for match in SOURCES.finditer(code)
     )
 
 
@@ -151,7 +188,7 @@ def main() -> int:
     for name, text in texts.items():
         if name == COMMON:
             continue
-        own = {match.group("name") for match in DEFINITION.finditer(text)}
+        own = set(shell_functions(text))
         used = used_symbols(text, symbols, own)
         if not used:
             continue

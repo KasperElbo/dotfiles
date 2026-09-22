@@ -1,0 +1,35 @@
+# Rules for ./scripts/scan-secrets.sh, which both a workstation and
+# .github/workflows/validate.yml run.
+#
+# The upstream default rule set is used as published for the pinned gitleaks
+# version, and nothing is added to it. Writing local rules would mean this
+# repository maintaining a credential-detection corpus as a side project, and
+# a home-grown rule that silently stops matching is the failure this gate
+# exists to prevent.
+
+[extend]
+useDefault = true
+
+# The allowlist is deliberately empty.
+#
+# It is empty because it can be: the working tree and all 604 commits of
+# history scan clean against the default rules. Every future entry therefore
+# has to justify itself against that, rather than being added to an existing
+# pile nobody re-reads.
+#
+# Two rules for adding one:
+#
+#   1. Scope it as narrowly as the exception really is. A `paths` entry for
+#      one fixture file, or a `regexes` entry matching that one literal. Never
+#      a whole directory, and never a rule ID -- switching off `aws-access-key`
+#      because one fixture uses a documentation key turns the gate off for
+#      every real one.
+#   2. Say in a comment what the literal is and why it cannot be a credential.
+#      "test fixture" is not a reason; "AWS's own published documentation key,
+#      which grants nothing" is.
+#
+# A test that needs a credential-shaped string should generate it at runtime
+# instead -- tests/test-repository-hygiene.sh builds one from parts, so the
+# suite proves the scanner catches a real match without the repository ever
+# containing one. That is preferable to an allowlist entry, because an
+# allowlisted literal is a match this gate has been told to ignore for good.

