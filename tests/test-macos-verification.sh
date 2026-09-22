@@ -76,9 +76,28 @@ value="$(sed -n 's/^version=//p' "$plist" | head -n 1)"
 [[ -n "$value" ]] || exit 1
 printf '%s\n' "$value"
 EOF
+# Apple's file(1), in both the shapes the verifier can ask for: with -b the
+# description alone, without it the description behind the path it was handed.
+# Keeping the path-leading form is the point - a verifier that reads the whole
+# line accepts any path that happens to spell an architecture, which is what
+# MOCK_FILE_X86_64_PATH below exists to catch.
 stub file <<'EOF'
 #!/usr/bin/env bash
-printf '%s: Mach-O 64-bit executable arm64\n' "${!#}"
+set -u
+brief=false
+while [[ "${1:-}" == -* ]]; do
+  [[ "$1" != *b* ]] || brief=true
+  shift
+done
+path="${1:-}"
+architecture=arm64
+[[ "$path" != "${MOCK_FILE_X86_64_PATH:-}" ]] || architecture=x86_64
+description="Mach-O 64-bit executable $architecture"
+if [[ "$brief" == true ]]; then
+  printf '%s\n' "$description"
+else
+  printf '%s: %s\n' "$path" "$description"
+fi
 EOF
 stub dscl <<'EOF'
 #!/usr/bin/env bash
@@ -411,6 +430,14 @@ ln -s /usr/bin/true "$homebrew_bin/dotnet"
 run_verifier "MOCK_LOGIN_PATH_PREFIX=$homebrew_bin"
 expect_one_more_failure 'a Homebrew dotnet shadowing the mise-managed one fails verification' \
   "dotnet resolves outside mise in the configured login PATH: $homebrew_bin/dotnet"
+
+# An Intel netcoredbg inside EasyDotnet's arm64 bundle. The path it is reached
+# at ends in /tools/netcoredbg/osx-arm64/netcoredbg, and file(1) leads with the
+# path it was handed, so a check that matched the whole line found "arm64" in
+# the filename whatever the binary was. Only the description answers this.
+run_verifier "MOCK_FILE_X86_64_PATH=$debugger"
+expect_one_more_failure 'an Intel netcoredbg under an osx-arm64 path fails verification' \
+  'EasyDotnet bundled netcoredbg does not report arm64 or universal architecture'
 
 # A Neovim below the declared floor. It resolves and runs, so the command
 # probe above still passes it; only the floor check catches it.

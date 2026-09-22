@@ -39,11 +39,17 @@ check_arm64_file() {
     fail "$name is missing: $path"
     return
   fi
-  architecture="$(file -L "$path" 2>/dev/null || true)"
+  # -b prints the description alone. Without it file(1) leads with the path it
+  # was handed, so the architecture test also matched the path: every caller
+  # below that names an arm64 directory - EasyDotnet's
+  # tools/netcoredbg/osx-arm64/netcoredbg above all - passed on its own
+  # spelling, and the check established only that the file existed.
+  architecture="$(file -bL "$path" 2>/dev/null || true)"
   if [[ "$architecture" == *arm64* || "$architecture" == *universal* ]]; then
     pass "$name is arm64/universal: $path"
   else
-    fail "$name does not report arm64 or universal architecture: $architecture"
+    fail "$name does not report arm64 or universal architecture:" \
+      "$path is ${architecture:-unreadable}"
   fi
 }
 
@@ -139,11 +145,15 @@ fi
 for name in brew nvim node python dotnet; do
   path="$(command -v "$name" 2>/dev/null || true)"
   [[ -n "$path" ]] || continue
-  architecture="$(file -L "$path" 2>/dev/null || true)"
+  # -b, for the same reason as check_arm64_file: the description only, so the
+  # verdict cannot come from a directory in the path that names an
+  # architecture.
+  architecture="$(file -bL "$path" 2>/dev/null || true)"
   if [[ "$architecture" == *arm64* || "$architecture" == *universal* || "$architecture" == *script* || "$architecture" == *text* ]]; then
     pass "$name is native/universal: $path"
   else
-    fail "$name does not report arm64 or universal architecture: $architecture"
+    fail "$name does not report arm64 or universal architecture:" \
+      "$path is ${architecture:-unreadable}"
   fi
 done
 
@@ -369,20 +379,23 @@ macos_ai_is_agents_symlink() {
 
 # A Mach-O that is not arm64 would run under Rosetta, which this platform
 # refuses. Scripts and text are fine: they execute under the arm64 Node and
-# Python runtimes already verified above.
+# Python runtimes already verified above. file -b prints the description
+# without the path, so what is classified is the binary and never the
+# directory it happens to sit in.
 macos_ai_check_native_architecture() {
   local name="$1" resolved canonical architecture
 
   resolved="$(command -v "$name" 2>/dev/null || true)"
   [[ -n "$resolved" ]] || return 0
   canonical="$(verify_canonical_existing_path "$resolved" 2>/dev/null || printf '%s' "$resolved")"
-  architecture="$(file -L "$canonical" 2>/dev/null || true)"
+  architecture="$(file -bL "$canonical" 2>/dev/null || true)"
   case "$architecture" in
   *arm64* | *universal* | *script* | *text* | *link*)
     pass "$name runs natively on arm64: $canonical"
     ;;
   *x86_64* | *i386*)
-    fail "$name is an Intel-only binary and would need Rosetta: $architecture"
+    fail "$name is an Intel-only binary and would need Rosetta:" \
+      "$canonical is $architecture"
     ;;
   *)
     not_observed "$name architecture could not be read from ${canonical:-unknown}"
