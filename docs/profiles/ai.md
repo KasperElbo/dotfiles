@@ -116,19 +116,19 @@ Code repository) that would not carry over to Fedora WSL or macOS unchanged.
 
 ### Claude Code does not update itself
 
-Choosing mise as the owner is not enough on its own. Left with its own updater,
-Claude Code reinstalls itself under the mise-managed Node prefix; that copy then
-shadows the dedicated npm-backend installation, and verification correctly
-reports a duplicated provider. `zsh/.zshenv` therefore exports
-`DISABLE_UPDATES=1`, which is the upstream setting that blocks every update
-path. The more commonly cited `DISABLE_AUTOUPDATER` stops only the background
-check and leaves `claude update` and `claude install` able to do exactly the
-same thing, which is not what mise ownership means.
+Choosing mise as the owner is not enough on its own, and the reason is worth
+stating exactly, because the obvious fix is the wrong one.
 
-The export lives in `.zshenv` rather than behind the AI profile because that
-file is read by every Zsh, interactive or not, which is what makes the setting
-effective in a fresh login shell however Claude Code is started. On a machine
-that never selected the AI profile the variable simply has no reader.
+Claude Code decides how it was installed by looking at its own executable path.
+mise's npm backend puts the package under
+`installs/npm-anthropic-ai-claude-code/<version>/lib/node_modules/@anthropic-ai/claude-code/…`,
+and that path contains `/node_modules/@anthropic-ai/`, so the tool reads itself
+as an ordinary global npm install. Its update route for that case is `npm
+install -g @anthropic-ai/claude-code@<target>`, and npm's global prefix for the
+mise-managed Node is **the Node installation directory** — `installs/node/<version>`
+— not the backend prefix mise installed into. So the update never replaces the
+mise copy. It writes a second one beside it, which then shadows the first, and
+verification correctly reports a duplicated provider.
 
 The division of responsibility is:
 
@@ -137,14 +137,47 @@ mise         -> installs and updates Claude Code
 Claude Code  -> must not replace or update its own package
 ```
 
-Verification proves all of it from a fresh, non-interactive login rather than
-from the verifier's own environment: that `DISABLE_UPDATES` is set, that
-`claude` still resolves to the dedicated mise installation or its shim, and that
-no AI package is duplicated in the active Node prefix. A duplicate is reported
-with the command that removes only it — `npm uninstall -g <package> && mise
-reshim` — and the installer does not run that command itself. A package this
-repository did not install is unproven external state, and deleting it silently
-is the one thing the ownership model must not do. See
+Two places carry that block, and they prove different things.
+
+**Claude Code's own settings file is the block.** `common/install-ai.sh`
+declares both keys under the `env` key of `~/.claude/settings.json`:
+
+```json
+{ "env": { "DISABLE_UPDATES": "1", "DISABLE_AUTOUPDATER": "1" } }
+```
+
+The tool reads that file however it was launched, which is the property that
+makes the setting hold. Both keys because they are not interchangeable across
+versions: only builds new enough to know about `DISABLE_UPDATES` honour it,
+while every build reads `DISABLE_AUTOUPDATER`. `DISABLE_UPDATES` is also the
+stronger of the two where it is read, blocking manual `claude update` and
+`claude install` as well as the background check, which `DISABLE_AUTOUPDATER`
+alone leaves free to replace the mise-owned package.
+
+That file is **merged, never overwritten and never symlinked**: Claude Code
+writes to it itself, and so does the user. Every other key is preserved. A file
+that does not parse as JSON, or whose `env` is not an object, is reported and
+left exactly as it is, and the install does not claim success — guessing at the
+intent of a configuration file this repository did not write is the one thing
+an ownership model must not do.
+
+**`zsh/.zshenv` is the second line, not the block.** It exports the same
+setting for every top-level Zsh, interactive or not. What that cannot cover is
+a Claude Code started by something that is not a descendant of such a shell —
+an editor, a launcher, a terminal session that predates the install — and such
+a process reads none of `.zshenv`. A shell-exported variable is not a control
+over a program you did not launch from that shell, and relying on it alone is
+what let the duplicate come back after every cleanup.
+
+Verification asks both, and says which is which: that the settings file
+declares both keys with the value the tool's gate accepts, that a fresh
+non-interactive login still exports `DISABLE_UPDATES`, that `claude` resolves
+to the dedicated mise installation or its shim, and that no AI package is
+duplicated in the active Node prefix. A duplicate is reported with the command
+that removes only it — `npm uninstall -g <package> && mise reshim` — and the
+installer does not run that command itself. A package this repository did not
+install is unproven external state, and deleting it silently is the other thing
+the ownership model must not do. See
 [Anthropic's documentation on disabling auto-updates](https://code.claude.com/docs/en/setup#disable-auto-updates).
 
 The generated AI mise configuration enables npm lifecycle scripts and includes

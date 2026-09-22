@@ -334,6 +334,32 @@ reported by `mise which` - typically a native installer, Homebrew, or a global
 other installation (see each tool's own uninstall instructions) so only the
 mise-managed copy remains on `PATH`.
 
+## `@anthropic-ai/claude-code` keeps coming back in the Node prefix
+
+`verify-ai.sh` reports the package as also installed globally with npm under
+`~/.local/share/mise/installs/node/<version>`, the suggested `npm uninstall -g
+@anthropic-ai/claude-code && mise reshim` clears it, and running `claude` puts
+it straight back.
+
+That is Claude Code updating itself. It reads its own executable path to decide
+how it was installed, sees `/node_modules/@anthropic-ai/` in the mise npm
+backend's path, concludes it is an ordinary global npm install, and runs `npm
+install -g` — which lands in the active Node's prefix, not the backend prefix
+mise installed into, so a second copy appears beside the first.
+
+Check `~/.claude/settings.json`. It must contain both keys:
+
+```json
+{ "env": { "DISABLE_UPDATES": "1", "DISABLE_AUTOUPDATER": "1" } }
+```
+
+Rerunning `./common/install-ai.sh` declares them, merging into whatever else is
+already in that file. If the installer reports the file instead of writing it,
+the file does not parse as JSON or its `env` is not an object; repair it and
+rerun. `zsh/.zshenv` exports the same setting, but only for shells and their
+children, so a Claude Code launched from an editor or from a session older than
+the install never sees it. See [the AI profile](profiles/ai.md#claude-code-does-not-update-itself).
+
 ## Editing `common/assets/AGENTS.md` doesn't change what an agent sees
 
 `common/verify-ai.sh` reports whether `~/.claude/CLAUDE.md`,
