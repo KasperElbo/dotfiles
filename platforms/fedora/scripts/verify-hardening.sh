@@ -74,17 +74,66 @@ if [[ -e "$hardening_state" ]]; then
   fi
 fi
 
-# check_owned_root_file <label> <path> <expected-mode> [<expected-line>...]
+# describe_first_difference <expected> <actual>
 #
-# An owned drop-in has to exist, carry the mode the installer set, and still
-# contain the policy it was written with. Reverting any one of those silently
-# disables the control, so each is a failure on its own.
+# Names the first line where two bodies diverge, so a content failure says what
+# changed rather than only that something did. Whole-body equality is the test;
+# this only explains the verdict to whoever has to fix the machine.
+describe_first_difference() {
+  local -a expected_lines actual_lines
+  local index
+
+  mapfile -t expected_lines <<<"$1"
+  mapfile -t actual_lines <<<"$2"
+
+  for ((index = 0; index < ${#expected_lines[@]} || index < ${#actual_lines[@]}; index++)); do
+    [[ "${expected_lines[index]-}" != "${actual_lines[index]-}" ]] || continue
+    if ((index >= ${#actual_lines[@]})); then
+      printf "line %d is missing, expected '%s'" \
+        "$((index + 1))" "${expected_lines[index]}"
+    elif ((index >= ${#expected_lines[@]})); then
+      printf "line %d was added: '%s'" "$((index + 1))" "${actual_lines[index]}"
+    else
+      printf "line %d is '%s', expected '%s'" "$((index + 1))" \
+        "${actual_lines[index]}" "${expected_lines[index]}"
+    fi
+    return 0
+  done
+}
+
+# check_owned_root_file <label> <path> <expected-mode> <drop-in name>
+#
+# An owned drop-in has to exist, carry the mode the installer set, and hold
+# byte-for-byte the body hardening_dropin_content generates under <drop-in
+# name> -- the one place the installer itself writes it from. Reverting any one
+# of those silently disables the control, so each is a failure on its own.
+#
+# The content test is whole-body equality, not a search for policy lines the
+# call site happened to list. A substring search over the file called a
+# faillock drop-in with every directive commented out "unmodified"; it accepted
+# deny = 50 for an expected deny = 5; and it accepted an sshd drop-in carrying
+# PermitRootLogin yes above the expected PermitRootLogin no, which
+# sshd_config(5) resolves first-value-wins, so root SSH login was enabled while
+# the file verified clean. Whole-line matching alone still accepts that last
+# one, since the expected line is genuinely present; only requiring the whole
+# body rejects an inserted directive without a per-keyword table to maintain.
+#
+# Equality is also not a stricter rule than the installer's own:
+# write_managed_root_file treats a byte-identical file as "already applied" and
+# rewrites anything else, so a file accepted here is a file a re-run would
+# leave alone. The one difference is that both bodies are read through command
+# substitution, which drops trailing newlines, so extra blank lines at the end
+# of the file are tolerated where the installer's cmp would rewrite them; a
+# blank line changes none of these five formats. These drop-ins are wholly
+# profile-owned ("Safe to delete", says each header) and are meant to be
+# overridden by a later-numbered drop-in rather than appended to, so there is
+# no operator-added directive to make room for.
 check_owned_root_file() {
   local label="$1"
   local path="$2"
   local expected_mode="$3"
-  shift 3
-  local actual_mode content expected_line
+  local dropin="$4"
+  local actual_mode content expected_content
 
   if ! managed_root_file_exists "$path"; then
     fail "$label is missing: $path (created by the hardening profile; re-run" \
@@ -100,13 +149,14 @@ check_owned_root_file() {
   fi
 
   content="$(managed_root_file_read "$path")"
-  for expected_line in "$@"; do
-    if [[ "$content" != *"$expected_line"* ]]; then
-      fail "$label no longer contains '$expected_line': $path (the control" \
-        "was reverted or edited; re-run ./scripts/install-hardening.sh)"
-      return 1
-    fi
-  done
+  expected_content="$(hardening_dropin_content "$dropin")"
+  if [[ "$content" != "$expected_content" ]]; then
+    fail "$label no longer matches the policy the installer wrote" \
+      "($(describe_first_difference "$expected_content" "$content")): $path" \
+      "-- the control was edited, commented out, or reverted; re-run" \
+      "./scripts/install-hardening.sh to restore it"
+    return 1
+  fi
 
   pass "$label is present, mode $expected_mode, and unmodified: $path"
 }
@@ -217,8 +267,7 @@ else
     fi
 
     check_owned_root_file "faillock policy drop-in" \
-      /etc/security/faillock.conf.d/90-dotfiles-hardening.conf 644 \
-      'deny = 5' 'unlock_time = 900'
+      /etc/security/faillock.conf.d/90-dotfiles-hardening.conf 644 faillock
   else
     warning "the installer could not enable pam_faillock on this machine" \
       "(recorded faillock=${state_faillock:-unknown}); account lockout is" \
@@ -236,8 +285,7 @@ else
       "is not configured by this profile on this machine"
   else
     check_owned_root_file "sudo logfile drop-in" \
-      /etc/sudoers.d/90-dotfiles-hardening 440 \
-      'Defaults logfile="/var/log/sudo.log"'
+      /etc/sudoers.d/90-dotfiles-hardening 440 sudo-logfile
   fi
 
   # -------------------------------------------------------------------------
@@ -249,22 +297,44 @@ else
 
   if [[ "$state_auditd" == "true" ]]; then
     check_owned_root_file "auditd watch rules" \
-      /etc/audit/rules.d/90-dotfiles-hardening.rules 640 \
-      '-w /etc/passwd -p wa -k dotfiles-identity' \
-      '-w /etc/shadow -p wa -k dotfiles-identity' \
-      '-w /etc/sudoers -p wa -k dotfiles-sudoers'
+      /etc/audit/rules.d/90-dotfiles-hardening.rules 640 auditd-rules
 
     if check_system_service_enabled_and_active auditd.service; then
       if ! command_exists auditctl; then
         not_observed "auditctl is unavailable, so whether the watch rules" \
           "are loaded into the running kernel audit subsystem could not be" \
           "read"
-      elif sudo auditctl -l 2>/dev/null | grep -q dotfiles-identity; then
-        pass "dotfiles watch rules are loaded in the running kernel"
       else
-        fail "the dotfiles audit watch rules are not loaded in the running" \
-          "kernel; the rules file is present but ineffective -- run: sudo" \
-          "augenrules --load"
+        # One read of the running kernel's ruleset, then every rule the
+        # installer wrote is required in it, whole. auditctl -l prints a loaded
+        # watch back in the same `-w <path> -p <perms> -k <key>` form the rules
+        # file uses, so the generated body is directly comparable line by line.
+        #
+        # This replaced `auditctl -l | grep -q dotfiles-identity`, which proved
+        # only that the substring occurred somewhere in the output: a kernel
+        # holding one decoy rule keyed dotfiles-identity-DISABLED reported the
+        # watch rules loaded, and dotfiles-sudoers -- the second key the
+        # installer writes -- was never looked for at all, so both sudoers
+        # watches could be missing from the kernel with nothing to show it.
+        loaded_rules="$(sudo auditctl -l 2>/dev/null)"
+        missing_rules=()
+        while IFS= read -r audit_rule; do
+          [[ -n "$audit_rule" ]] || continue
+          grep -Fxq -- "$audit_rule" <<<"$loaded_rules" ||
+            missing_rules+=("$audit_rule")
+        done < <(hardening_dropin_content auditd-rules)
+
+        if ((${#missing_rules[@]} == 0)); then
+          pass "all of the dotfiles watch rules are loaded in the running kernel"
+        else
+          fail "a dotfiles audit watch rule is not loaded in the running" \
+            "kernel: '${missing_rules[0]}' (${#missing_rules[@]} of the" \
+            "profile's rules are missing, each listed below); the rules file" \
+            "is present but ineffective -- run: sudo augenrules --load"
+          for audit_rule in "${missing_rules[@]}"; do
+            note "not loaded: $audit_rule"
+          done
+        fi
       fi
     else
       note "the hardening profile recorded auditd=true, so its watch rules" \
@@ -284,10 +354,7 @@ else
   section "sysctl hardening"
 
   check_owned_root_file "hardening sysctl drop-in" \
-    /etc/sysctl.d/90-dotfiles-hardening.conf 644 \
-    'kernel.yama.ptrace_scope = 1' \
-    'kernel.kptr_restrict = 2' \
-    'kernel.dmesg_restrict = 1'
+    /etc/sysctl.d/90-dotfiles-hardening.conf 644 sysctl
 
   check_sysctl() {
     local key="$1"
@@ -317,8 +384,7 @@ else
   ssh_dropin="/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
   case "$state_ssh" in
   hardened)
-    check_owned_root_file "sshd hardening drop-in applied" "$ssh_dropin" 644 \
-      'PermitRootLogin no' 'MaxAuthTries 3' 'LoginGraceTime 20'
+    check_owned_root_file "sshd hardening drop-in applied" "$ssh_dropin" 644 ssh
     ;;
   present-not-hardened)
     warning "sshd was present at installation but could not be hardened" \

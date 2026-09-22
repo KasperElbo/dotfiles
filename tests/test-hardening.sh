@@ -608,8 +608,17 @@ if [[ "$1" == -l ]]; then
   # MOCK_AUDITCTL_EMPTY models the real failure mode this check exists for:
   # the rules file on disk is intact, but augenrules never loaded it, so the
   # running kernel is watching nothing.
-  [[ "${MOCK_AUDITCTL_EMPTY:-false}" == true ]] ||
+  #
+  # MOCK_AUDITCTL_PARTIAL models the subtler one: the kernel loaded the first
+  # watch and none of the rest. A check that searched this output for the
+  # substring dotfiles-identity saw what it wanted from that single rule, so
+  # the whole dotfiles-sudoers key could be missing from the running kernel
+  # and the ruleset still reported as loaded.
+  if [[ "${MOCK_AUDITCTL_PARTIAL:-false}" == true ]]; then
+    printf -- '-w /etc/passwd -p wa -k dotfiles-identity\n'
+  elif [[ "${MOCK_AUDITCTL_EMPTY:-false}" != true ]]; then
     cat "$FAKE_ROOT/etc/audit/rules.d/90-dotfiles-hardening.rules" 2>/dev/null
+  fi
 fi
 exit 0
 EOF
@@ -858,6 +867,7 @@ SUDO_EOF
     local sudoers_dropin="$fake_root/etc/sudoers.d/90-dotfiles-hardening"
     local sysctl_dropin="$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf"
     local ssh_dropin="$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
+    local audit_rules="$fake_root/etc/audit/rules.d/90-dotfiles-hardening.rules"
     local backup="$test_root/state/mutation-backup"
 
     run_verify() {
@@ -874,13 +884,16 @@ SUDO_EOF
     assert_contains "$TEST_OUTPUT" 'install-hardening.sh'
     cp -p "$backup" "$sysctl_dropin"
 
-    # 2. Altered content: the file is still there, the policy is not.
+    # 2. Altered content: the file is still there, the policy is not. The
+    #    failure names the line that changed, not just the file.
     cp -p "$faillock_dropin" "$backup"
     sed -i 's/^unlock_time = 900$/unlock_time = 5/' "$faillock_dropin"
     run_verify
     assert_failure
     assert_contains "$TEST_OUTPUT" \
-      "faillock policy drop-in no longer contains 'unlock_time = 900'"
+      'faillock policy drop-in no longer matches the policy the installer wrote'
+    assert_contains "$TEST_OUTPUT" \
+      "line 3 is 'unlock_time = 5', expected 'unlock_time = 900'"
     cp -p "$backup" "$faillock_dropin"
 
     # 3. Wrong file mode: a group/other-readable sudoers drop-in.
@@ -927,7 +940,10 @@ SUDO_EOF
     sed -i 's/^PermitRootLogin no$/PermitRootLogin yes/' "$ssh_dropin"
     run_verify
     assert_failure
-    assert_contains "$TEST_OUTPUT" "no longer contains 'PermitRootLogin no'"
+    assert_contains "$TEST_OUTPUT" \
+      'sshd hardening drop-in applied no longer matches the policy the installer wrote'
+    assert_contains "$TEST_OUTPUT" \
+      "line 2 is 'PermitRootLogin yes', expected 'PermitRootLogin no'"
     cp -p "$backup" "$ssh_dropin"
 
     # 7. An owned timer that was disabled after installation.
@@ -953,11 +969,86 @@ SUDO_EOF
     assert_contains "$TEST_OUTPUT" 'Secure Boot is disabled'
     assert_contains "$TEST_OUTPUT" 'never changes'
 
-    # 10. An unselected profile must not fail merely because the optional
+    # Cases 10 to 14 are the mutations a substring search over the file (and,
+    # for 14, over `auditctl -l`) reported as unmodified. Each one leaves the
+    # exact text the old check looked for in place, byte for byte, and each one
+    # disables the control anyway. They are the reason the content test is
+    # whole-body equality against hardening_dropin_content rather than a list
+    # of policy lines repeated at the call site.
+
+    # 10. Every faillock directive commented out. Both expected strings are
+    #     still in the file, behind a '# '.
+    cp -p "$faillock_dropin" "$backup"
+    printf '%s\n' \
+      '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+      '# deny = 5' \
+      '# unlock_time = 900' >"$faillock_dropin"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'faillock policy drop-in no longer matches the policy the installer wrote'
+    assert_contains "$TEST_OUTPUT" "line 2 is '# deny = 5', expected 'deny = 5'"
+    cp -p "$backup" "$faillock_dropin"
+
+    # 11. A lockout ten times weaker than the policy. 'deny = 5' is a prefix of
+    #     'deny = 50' and 'unlock_time = 900' of 'unlock_time = 9000', so the
+    #     weakened file still contained every expected string.
+    cp -p "$faillock_dropin" "$backup"
+    printf '%s\n' \
+      '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+      'deny = 50' \
+      'unlock_time = 9000' >"$faillock_dropin"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" "line 2 is 'deny = 50', expected 'deny = 5'"
+    cp -p "$backup" "$faillock_dropin"
+
+    # 12. Root SSH login re-enabled by insertion instead of by edit.
+    #     sshd_config(5) is first-value-wins per keyword, so the inserted
+    #     PermitRootLogin yes is the one sshd obeys while PermitRootLogin no
+    #     stays in the file for any per-line check to find. Whole-line matching
+    #     alone passes this; only requiring the whole body rejects it.
+    cp -p "$ssh_dropin" "$backup"
+    printf '%s\n' \
+      '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+      'PermitRootLogin yes' \
+      'PermitRootLogin no' \
+      'MaxAuthTries 3' \
+      'LoginGraceTime 20' >"$ssh_dropin"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      "line 2 is 'PermitRootLogin yes', expected 'PermitRootLogin no'"
+    cp -p "$backup" "$ssh_dropin"
+
+    # 13. Two of the five watch rules the installer writes, deleted. The call
+    #     site used to name only three of them, so the /etc/group and
+    #     /etc/sudoers.d/ watches were asserted nowhere at all.
+    cp -p "$audit_rules" "$backup"
+    grep -v -e '/etc/group' -e '/etc/sudoers.d/' "$backup" >"$audit_rules"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'auditd watch rules no longer matches the policy the installer wrote'
+    assert_contains "$TEST_OUTPUT" \
+      "expected '-w /etc/group -p wa -k dotfiles-identity'"
+    cp -p "$backup" "$audit_rules"
+
+    # 14. A kernel that loaded only the first of the five watches. The rules
+    #     file is intact, so this is about the running ruleset alone: the
+    #     failure has to name a rule that is actually missing, including the
+    #     dotfiles-sudoers watches the old substring check never looked for.
+    run_verify MOCK_AUDITCTL_PARTIAL=true
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'not loaded in the running kernel'
+    assert_contains "$TEST_OUTPUT" 'present but ineffective'
+    assert_contains "$TEST_OUTPUT" \
+      'not loaded: -w /etc/sudoers -p wa -k dotfiles-sudoers'
+
+    # 15. An unselected profile must not fail merely because the optional
     #     artifacts it never installed are absent.
     rm -f -- "$state_file" "$faillock_dropin" "$sudoers_dropin" \
-      "$sysctl_dropin" "$ssh_dropin" \
-      "$fake_root/etc/audit/rules.d/90-dotfiles-hardening.rules"
+      "$sysctl_dropin" "$ssh_dropin" "$audit_rules"
     run_verify
     assert_success
     assert_contains "$TEST_OUTPUT" 'no hardening profile selection is recorded'

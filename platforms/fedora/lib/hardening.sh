@@ -207,6 +207,67 @@ firewalld_active() {
   systemctl is-active --quiet firewalld.service
 }
 
+# hardening_dropin_content <name>: the exact body of one owned drop-in, on
+# stdout. Every writer below pipes this, and verify-hardening.sh compares the
+# file on disk against it, so "what the installer wrote" and "what the verifier
+# accepts as unmodified" are the same bytes from one place. They used not to
+# be: the verifier carried its own hand-listed copy of a few policy lines per
+# subsystem and searched for each as a substring of the whole file, which let a
+# drop-in with every directive commented out, and one with deny = 50 where
+# deny = 5 was expected, both report as unmodified -- and left two of the five
+# audit watch rules written here asserted nowhere at all, because the call site
+# only listed three. Adding or changing a directive is now one edit that the
+# writer and the verifier both follow.
+#
+# The names are subsystems, not paths: the path belongs to the writer (which
+# prefixes HARDENING_ROOT) and to the verifier's call site.
+hardening_dropin_content() {
+  case "$1" in
+  faillock)
+    printf '%s\n' \
+      '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+      'deny = 5' \
+      'unlock_time = 900'
+    ;;
+  sudo-logfile)
+    # No comment header: this one is parsed by sudoers(5) and checked with
+    # visudo -cf before it is installed, so it stays minimal.
+    printf '%s\n' \
+      'Defaults logfile="/var/log/sudo.log"'
+    ;;
+  auditd-rules)
+    # No comment header either: augenrules concatenates this file into the
+    # ruleset it loads. auditctl -l prints a loaded watch back in exactly this
+    # `-w <path> -p <perms> -k <key>` form, which is what lets the verifier
+    # require these lines whole in the running kernel's ruleset as well as on
+    # disk.
+    printf '%s\n' \
+      '-w /etc/passwd -p wa -k dotfiles-identity' \
+      '-w /etc/shadow -p wa -k dotfiles-identity' \
+      '-w /etc/group -p wa -k dotfiles-identity' \
+      '-w /etc/sudoers -p wa -k dotfiles-sudoers' \
+      '-w /etc/sudoers.d/ -p wa -k dotfiles-sudoers'
+    ;;
+  sysctl)
+    printf '%s\n' \
+      '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+      'kernel.yama.ptrace_scope = 1' \
+      'kernel.kptr_restrict = 2' \
+      'kernel.dmesg_restrict = 1'
+    ;;
+  ssh)
+    printf '%s\n' \
+      '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+      'PermitRootLogin no' \
+      'MaxAuthTries 3' \
+      'LoginGraceTime 20'
+    ;;
+  *)
+    die "hardening_dropin_content: no drop-in named '$1'"
+    ;;
+  esac
+}
+
 apply_pam_faillock() {
   command_exists authselect || {
     warn "authselect not found; skipping pam_faillock lockout"
@@ -228,19 +289,16 @@ apply_pam_faillock() {
     return 1
   fi
 
-  write_managed_root_file /etc/security/faillock.conf.d/90-dotfiles-hardening.conf \
-    0644 "pam_faillock lockout policy" <<'EOF'
-# Managed by dotfiles Fedora hardening profile. Safe to delete.
-deny = 5
-unlock_time = 900
-EOF
+  hardening_dropin_content faillock |
+    write_managed_root_file /etc/security/faillock.conf.d/90-dotfiles-hardening.conf \
+      0644 "pam_faillock lockout policy"
 }
 
 apply_sudo_audit_log() {
   local tmp
 
   tmp="$(mktemp)"
-  printf 'Defaults logfile="/var/log/sudo.log"\n' >"$tmp"
+  hardening_dropin_content sudo-logfile >"$tmp"
 
   if ! visudo -cf "$tmp" >/dev/null 2>&1; then
     rm -f "$tmp"
@@ -265,12 +323,7 @@ apply_auditd_rules() {
   before=""
   sudo test -f "$rooted_rules_path" && before="$(sudo cat "$rooted_rules_path")"
 
-  printf '%s\n' \
-    '-w /etc/passwd -p wa -k dotfiles-identity' \
-    '-w /etc/shadow -p wa -k dotfiles-identity' \
-    '-w /etc/group -p wa -k dotfiles-identity' \
-    '-w /etc/sudoers -p wa -k dotfiles-sudoers' \
-    '-w /etc/sudoers.d/ -p wa -k dotfiles-sudoers' |
+  hardening_dropin_content auditd-rules |
     write_managed_root_file "$rules_path" 0640 "auditd watch rules"
 
   after="$(sudo cat "$rooted_rules_path")"
@@ -292,11 +345,7 @@ apply_auditd_rules() {
 apply_hardening_sysctl() {
   local path="/etc/sysctl.d/90-dotfiles-hardening.conf"
 
-  printf '%s\n' \
-    '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
-    'kernel.yama.ptrace_scope = 1' \
-    'kernel.kptr_restrict = 2' \
-    'kernel.dmesg_restrict = 1' |
+  hardening_dropin_content sysctl |
     write_managed_root_file "$path" 0644 "hardening sysctl settings"
 
   info "Applying sysctl settings"
@@ -318,11 +367,7 @@ apply_ssh_hardening() {
   local tmp
 
   tmp="$(mktemp)"
-  printf '%s\n' \
-    '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
-    'PermitRootLogin no' \
-    'MaxAuthTries 3' \
-    'LoginGraceTime 20' >"$tmp"
+  hardening_dropin_content ssh >"$tmp"
 
   if sudo test -f "$path" && sudo cmp -s "$tmp" "$path"; then
     info "SSH hardening drop-in already applied: $path"
