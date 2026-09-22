@@ -15,10 +15,19 @@ outcomes away and this turns red.
 
 The remaining call sites are the ones no fixture has driven both ways yet.
 There are too many to fix in one change, so `config/check-outcomes.tsv` records
-how many each verifier still has, and the count may fall but never rise. A new
-check with no fixture behind it raises its verifier's count and is refused; a
-check that gains one lowers the count, and the recorded number has to come down
-with it, the same ratchet `scripts/validate-symlink-checks.py` uses.
+how many each verifier still has, as a ceiling: the count may fall but never
+rise, so a new check with no fixture behind it raises its verifier's count and
+is refused.
+
+The ceiling is where this parts company with `scripts/validate-symlink-checks.py`,
+which demands its counts exactly. That gate reads files, which are the same
+everywhere. This one reads behaviour, which is not: a machine with `podman` or
+`systemctl` drives checks to a verdict that a machine without them reports as
+not observed, so the Fedora CI container covers two more of the Fedora
+verifier's call sites than a plain Linux container does. Demanding the number
+exactly would fail on whichever machine covers the most. So the recorded number
+is the worst environment's, coverage beyond it is reported rather than refused,
+and `--record` is how a real gain is written down.
 
 The trace records the path the shell actually sourced, and only the repository's
 own files are counted. A suite that copies the tree somewhere and mutates the
@@ -160,6 +169,7 @@ def main() -> int:
         return 1
 
     errors = 0
+    gained: list[tuple[str, int, int]] = []
     ledger = LEDGER.relative_to(ROOT)
     for verifier in verifiers():
         sites = call_sites(verifier)
@@ -195,18 +205,21 @@ def main() -> int:
             )
             errors += 1
         elif len(uncovered) < allowed:
-            fail(
-                f"{verifier}: {len(uncovered)} check_* call sites are still "
-                f"uncovered but {ledger} allows {allowed}; lower it to "
-                f"{len(uncovered)} so the ratchet keeps what this gained"
-            )
-            errors += 1
+            gained.append((verifier, len(uncovered), allowed))
     for verifier in sorted(set(recorded) - set(verifiers())):
         fail(f"{ledger} records {verifier}, which is not a verifier in this tree")
         errors += 1
 
     if errors:
         return 1
+
+    for verifier, uncovered, allowed in gained:
+        print(
+            f"check outcomes: {verifier} is down to {uncovered} uncovered call "
+            f"sites from the {allowed} {ledger} allows; re-record with "
+            f"--record to keep the gain"
+        )
+
     covered = sum(
         1
         for verifier in verifiers()

@@ -130,8 +130,13 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "platforms/macos/scripts/verify.sh: 1 check_* call site "
 printf 'PASS: a check that can no longer fail is refused\n'
 
-# The ratchet only turns one way: coverage that was gained has to be recorded,
-# or the next uncovered check would slip in under the old allowance.
+# Coverage beyond the recorded number is reported, not refused. The count is
+# measured behaviour: a machine with podman or systemctl drives checks to a
+# verdict that a machine without them reports as not observed, and the Fedora
+# CI container really does cover two more of the Fedora verifier's call sites
+# than a plain Linux container. Demanding the number exactly, as the symlink
+# gate does with counts it reads out of files, fails on whichever machine
+# covers the most.
 new_scratch
 cover_everything
 python3 - "$scratch" <<'PYTHON'
@@ -150,9 +155,10 @@ else:
 path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PYTHON
 validate
-assert_failure
-assert_contains "$TEST_OUTPUT" "lower it to 0"
-printf 'PASS: an allowance larger than the real gap is refused\n'
+assert_success
+assert_contains "$TEST_OUTPUT" "is down to 0 uncovered call sites from the 3"
+assert_contains "$TEST_OUTPUT" "re-record"
+printf 'PASS: covering more than the ledger allows is reported, not refused\n'
 
 # A verifier the ledger does not mention is not silently exempt.
 new_scratch

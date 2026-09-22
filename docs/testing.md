@@ -649,11 +649,20 @@ A call site that produced both a pass and a fail is covered: some fixture drove
 it each way, so inverting its predicate takes one of those outcomes away and
 the run turns red naming the line. 65 of the 156 call sites are covered today,
 and the rest are too many to fix in one change, so `config/check-outcomes.tsv`
-records how many each verifier still has. The count may fall but never rise, as
-in the symlink gate below: a new check with no fixture behind it raises its
-verifier's count and is refused, and a check that gains one lowers the count,
-which must then be lowered in the file too. `--record` writes the file from a
-trace rather than leaving the numbers to be counted by hand.
+records how many each verifier still has, as a ceiling: the count may fall but
+never rise, so a new check with no fixture behind it raises its verifier's
+count and is refused.
+
+A ceiling, where the symlink gate below demands its counts exactly, because the
+two rules read different things. That gate reads files, which are identical on
+every machine. This one reads behaviour, which is not: a machine with `podman`
+or `systemctl` drives checks to a verdict that a machine without them reports
+as not observed, and the Fedora CI container covers two more of the Fedora
+verifier's call sites than a plain Linux container does. Demanding the number
+exactly would fail on whichever machine covers the most, so the recorded number
+is the worst environment's, and coverage beyond it is reported rather than
+refused. `--record` writes the file from a trace, which is how a real gain is
+written down rather than counted by hand.
 
 Only the repository's own files count. A suite that copies the tree and mutates
 the copy is proving something about the mutation, so its verdicts must not make
