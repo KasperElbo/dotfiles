@@ -559,7 +559,10 @@ section "OCaml profile"
 # starts (issue #396, GAP-07). The sub-verifier prints which world it found;
 # this line only reports that it ran and was satisfied. Fedora's twin already
 # words it neutrally.
-if DOTFILES_NATIVE_PREFIX=/usr "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+if DOTFILES_NATIVE_PREFIX=/usr \
+  DOTFILES_NATIVE_OWNER=opam \
+  DOTFILES_NATIVE_OWNER_QUERY='rpm -qf --queryformat %{NAME}' \
+  "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
   pass "OCaml profile verification completed"
 else
   fail "OCaml profile verification failed"
