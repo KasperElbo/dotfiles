@@ -250,6 +250,16 @@ fi
 #
 # Aggregate only, matching the policy the command list follows: a targeted run
 # is each suite's own business, and the suite's hard failure stays the backstop.
+# A verifier's checks are proven able to fail by what the suites drove them to,
+# which only the aggregate run sees: a targeted run reaches a fraction of the
+# call sites and would report every other one as uncovered. So the trace is
+# armed here and read once the suites are done.
+if ((${#selected_tests[@]} == 0)); then
+  check_outcome_trace="$(mktemp -t dotfiles-verify-trace.XXXXXX)"
+  export DOTFILES_VERIFY_TRACE="$check_outcome_trace"
+  trap 'rm -f "$check_outcome_trace"' EXIT
+fi
+
 if ((${#selected_tests[@]} == 0)); then
   # shellcheck source=../tests/lib/lazy-nvim.sh
   source "$repo_root/tests/lib/lazy-nvim.sh"
@@ -387,6 +397,13 @@ fi
 
 if ((${#failed[@]} > 0)); then
   exit 1
+fi
+
+if [[ -n "${check_outcome_trace:-}" ]]; then
+  printf '\n==> check-outcome coverage\n'
+  if ! python3 "$repo_root/scripts/validate-check-outcomes.py" "$check_outcome_trace"; then
+    exit 1
+  fi
 fi
 
 printf '\nAll required fast suites passed.\n'
