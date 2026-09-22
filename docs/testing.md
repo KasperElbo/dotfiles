@@ -533,7 +533,9 @@ installer that runs but produces the wrong target.
   with a mocked opam and asserts the verdict `common/verify-ocaml.sh` reaches:
   healthy, unselected, selected-but-never-installed, missing opam, missing
   switch, wrong selected switch, wrong compiler, missing opam-managed tool,
-  an opam outside the platform's native prefix, a missing or unparsable shell
+  an opam outside the platform's native prefix, an opam the package database
+  credits to no package or to another package, an opam under the prefix's
+  `local` hierarchy, a missing or unparsable shell
   hook, a switch that cannot compile, a compiler override that round-trips,
   a switch and compiler that disagree, and verification run in the same
   process immediately after installation.

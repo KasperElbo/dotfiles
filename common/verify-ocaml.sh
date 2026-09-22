@@ -98,13 +98,25 @@ fi
 # A bare PATH hit proves nothing: the point of the optional profile is that the
 # platform's native provider owns opam, and opam alone owns everything inside
 # the switch. An opam under $HOME, inside a mise data directory, or anywhere
-# else outside the native prefix is somebody else's opam, and a switch it
+# else the provider did not put there is somebody else's opam, and a switch it
 # manages is not the one this profile installed.
 #
-# The prefix itself is platform knowledge, so a platform verifier passes it in
-# through DOTFILES_NATIVE_PREFIX. The fallback exists only so a standalone run
-# of this script still checks something meaningful; it maps a recorded platform
-# identifier to its documented prefix and never invokes a package manager.
+# Where the platform has a package database, that database is asked which
+# package owns the opam that actually resolves, the way each platform verifier
+# already asks who owns ssh, scp and sftp. A prefix comparison cannot answer
+# the question: $prefix/local is inside the prefix and is precisely the
+# hierarchy the distribution package manager does not own, which is where
+# opam's own binary installer puts opam on Linux.
+#
+# Every part of that is platform knowledge, so the platform verifier passes all
+# of it in and nothing here names a package manager: the prefix through
+# DOTFILES_NATIVE_PREFIX, the query through DOTFILES_NATIVE_PACKAGE_QUERY (a
+# command taking a path as its last argument and printing its owning package),
+# and the package that must answer through DOTFILES_NATIVE_OPAM_PACKAGE. The
+# prefix comparison survives as the fallback for a platform that passes no
+# query - Homebrew, which owns its whole prefix - and there it excludes
+# $prefix/local as well, so a standalone run of this script still checks
+# something meaningful.
 
 opam_path="$(command -v opam 2>/dev/null || true)"
 if [[ -z "$opam_path" ]]; then
@@ -140,11 +152,40 @@ if [[ -n "$native_prefix" ]]; then
   native_prefix="$(verify_canonical_existing_path "$native_prefix" 2>/dev/null || printf '%s' "$native_prefix")"
   native_prefix="${native_prefix%/}"
 fi
-if [[ -z "$native_prefix" ]]; then
+# The platform's query, if it has one: a command that prints the name of the
+# package owning the path given as its last argument. The canonical path is
+# what it is asked about, because a package database records real paths and a
+# query made with whatever spelling PATH returned answers "no owning package"
+# for a perfectly correct installation.
+expected_owner="${DOTFILES_NATIVE_OPAM_PACKAGE:-}"
+read -r -a native_package_query <<<"${DOTFILES_NATIVE_PACKAGE_QUERY:-}"
+owning_package=""
+owner_answered="false"
+if [[ -n "$expected_owner" ]] && ((${#native_package_query[@]} > 0)) &&
+  command_exists "${native_package_query[0]}"; then
+  owning_package="$("${native_package_query[@]}" "$opam_canonical" 2>/dev/null || true)"
+  owner_answered="true"
+fi
+
+if [[ "$owner_answered" == "true" ]]; then
+  if [[ "$owning_package" == "$expected_owner" ]]; then
+    pass "opam is the platform's own $expected_owner package: $opam_canonical"
+  else
+    fail "opam resolves to $opam_canonical, owned by" \
+      "${owning_package:-no native package}; the OCaml profile installs the" \
+      "platform's $expected_owner package, and a switch somebody else's opam" \
+      "manages is not the one it installed"
+  fi
+elif [[ -z "$native_prefix" ]]; then
   not_observed "The native package prefix for platform ${ocaml_platform} is" \
     "unknown here, so ownership of $opam_canonical was not confirmed"
+elif [[ "$opam_canonical" == "$native_prefix"/local/* ]]; then
+  fail "opam resolves to $opam_canonical, under $native_prefix/local, which" \
+    "the platform's native provider does not own; this is the opam its own" \
+    "installer puts there, not the one the OCaml profile installed"
 elif [[ "$opam_canonical" == "$native_prefix"/* ]]; then
-  pass "opam is owned by the platform's native provider under $native_prefix:" \
+  pass "opam is inside the platform's native provider prefix $native_prefix" \
+    "and outside the local hierarchy that provider does not own:" \
     "$opam_canonical"
 else
   fail "opam resolves to $opam_canonical, outside the native package prefix" \

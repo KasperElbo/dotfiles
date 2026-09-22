@@ -270,9 +270,15 @@ every compiler switch and OCaml ecosystem package installed afterwards:
 | Fedora WSL | DNF, a smaller set (the WSL baseline already owns compiler/build prerequisites) | `bubblewrap`, `m4`, `opam`, `patch`, `pkgconf-pkg-config` |
 | macOS | Homebrew | `opam`, `pkg-config`, `gmp` |
 
-`common/verify-ocaml.sh` fails when `opam` resolves outside that platform's
-native package prefix (`/usr` on Fedora/Fedora WSL, the Homebrew prefix on
-macOS), since that is not the `opam` this profile installed.
+`common/verify-ocaml.sh` asks the platform's package database which package owns
+the `opam` that resolves and fails unless that is the provider's own `opam`
+package. The query is platform knowledge the platform verifier hands over, so
+the shared verifier names no package manager: Fedora and Fedora WSL pass
+`rpm -qf` and the package name `opam`. Where no query is passed (macOS, where
+Homebrew owns its whole prefix) it requires `opam` inside the provider's prefix
+and outside `$prefix/local`, which no distribution package owns and where
+opam's own binary installer puts opam. Either way, an `opam` the provider did
+not install is not the `opam` this profile installed.
 
 The default profile creates the named switch `dotfiles-ocaml-5.5.0`, selects it
 as the global opam switch, and installs dune, utop, `ocaml-lsp-server`,
@@ -306,8 +312,8 @@ three distinct verdicts:
 | Profile selected and healthy | pass |
 | Profile selected and missing or broken | fail |
 
-When the profile is selected it proves that opam lives inside the platform's
-native package prefix rather than merely answering on `PATH`, that the recorded
+When the profile is selected it proves that the platform's native provider owns
+the opam that resolves rather than merely that something answers on `PATH`, that the recorded
 switch exists and is the selected one, that the compiler inside it is exactly
 the recorded version, that dune, `ocamlearlybird`, `ocamllsp`, OCamlFormat, and
 utop are present, that opam's generated Zsh hook exists and parses, and that a

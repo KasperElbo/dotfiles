@@ -534,7 +534,14 @@ fi
 
 section "OCaml profile"
 
-if DOTFILES_NATIVE_PREFIX=/usr "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
+# The platform owns the ownership question, so it hands the shared verifier the
+# RPM query and the package that has to answer it rather than a path prefix to
+# compare: /usr also contains /usr/local, which DNF never owns and which is
+# where the upstream opam installer writes. Same query as the SFTP client check
+# above, for the same reason.
+if DOTFILES_NATIVE_PREFIX=/usr DOTFILES_NATIVE_OPAM_PACKAGE=opam \
+  DOTFILES_NATIVE_PACKAGE_QUERY="rpm -qf --queryformat %{NAME}" \
+  "$DOTFILES_ROOT/common/verify-ocaml.sh"; then
   pass "Optional OCaml profile"
 else
   fail "Optional OCaml profile verification failed"

@@ -106,15 +106,55 @@ MOCK
   chmod +x "$path"
 }
 
+# An rpm answering the one query the verifier makes, from a "<path> <package>"
+# table named by MOCK_RPM_OWNERS. A path no line names is owned by no package,
+# which is how rpm reports a file the distribution never shipped. Every other
+# argv is rejected outright, so a verifier that started asking rpm something
+# else fails here instead of being quietly satisfied.
+write_rpm_mock() {
+  local bin="$1"
+  mkdir -p "$bin"
+  cat >"$bin/rpm" <<'MOCK'
+#!/usr/bin/env bash
+set -u
+
+if [[ "${1:-}" != -qf || "${2:-}" != --queryformat || "${3:-}" != '%{NAME}' ]]; then
+  printf 'rpm stub rejected an unmodelled argv: %s\n' "$*" >&2
+  exit 96
+fi
+
+owner=""
+while read -r owned_path owning_package; do
+  [[ "$owned_path" == "${4:-}" ]] || continue
+  owner="$owning_package"
+  break
+done <"${MOCK_RPM_OWNERS:?MOCK_RPM_OWNERS is required}"
+if [[ -z "$owner" ]]; then
+  printf 'file %s is not owned by any package\n' "${4:-}" >&2
+  exit 1
+fi
+printf '%s' "$owner"
+MOCK
+  chmod +x "$bin/rpm"
+}
+
+# The spelling verify_canonical_existing_path produces for a directory, so an
+# owners table written here names the path the verifier really asks about and
+# not one that only looks the same.
+canonical_dir() {
+  (cd -P -- "$1" && pwd)
+}
+
 # ---------------------------------------------------------------------------
 # Fixture machine
 # ---------------------------------------------------------------------------
 
-# new_machine [selected-capabilities] [install-status] [observed]
+# new_machine [selected-capabilities] [install-status] [observed] [platform]
 new_machine() {
   local capabilities="${1:-base,dotnet-debug,ocaml}"
   local status="${2:-installed}"
   local observed="${3:-$capabilities}"
+  local platform="${4:-macos}"
 
   test_new_root
   MACHINE="$TEST_ROOT"
@@ -128,7 +168,7 @@ new_machine() {
 schema_version=2
 profile=install
 status=$status
-platform=macos
+platform=$platform
 requested_capabilities=$capabilities
 observed_capabilities=$observed
 external_assurance=not-recorded
@@ -183,7 +223,8 @@ record_ocaml_state
 run_verifier
 assert_success
 assert_contains "$TEST_OUTPUT" "OCaml profile verification passed."
-assert_contains "$TEST_OUTPUT" "opam is owned by the platform's native provider"
+assert_contains "$TEST_OUTPUT" \
+  "opam is inside the platform's native provider prefix"
 assert_contains "$TEST_OUTPUT" "A throwaway OCaml program compiles and runs"
 assert_contains "$TEST_OUTPUT" "Generated opam shell hook parses as Zsh"
 printf 'PASS: a healthy selected OCaml profile verifies\n'
@@ -272,6 +313,59 @@ VERIFIER_PATH="$MACHINE/elsewhere/bin:$PATH" run_verifier
 assert_failure
 assert_contains "$TEST_OUTPUT" "outside the native package prefix"
 printf 'PASS: an opam outside the declared provider prefix is rejected\n'
+
+# Ownership on a platform whose package database can be asked: the question is
+# which package owns the binary that resolves, not whether its path starts with
+# the prefix. $prefix/local is inside the prefix and is exactly the hierarchy no
+# distribution package owns - it is where opam's own binary installer puts opam
+# on Linux - so the prefix comparison accepted an opam the provider never
+# shipped.
+new_machine base,dotnet-debug,ocaml installed base,dotnet-debug,ocaml fedora
+record_ocaml_state
+write_rpm_mock "$MACHINE/rpm-bin"
+write_opam_mock "$MACHINE/usr/bin/opam"
+write_opam_mock "$MACHINE/usr/local/bin/opam"
+native_opam="$(canonical_dir "$MACHINE/usr/bin")/opam"
+unowned_opam="$(canonical_dir "$MACHINE/usr/local/bin")/opam"
+printf '%s opam\n' "$native_opam" >"$MACHINE/rpm-owners"
+
+VERIFIER_PATH="$MACHINE/usr/bin:$MACHINE/rpm-bin:$PATH" run_verifier \
+  "DOTFILES_NATIVE_PREFIX=$MACHINE/usr" DOTFILES_NATIVE_OPAM_PACKAGE=opam \
+  "DOTFILES_NATIVE_PACKAGE_QUERY=rpm -qf --queryformat %{NAME}" \
+  "MOCK_RPM_OWNERS=$MACHINE/rpm-owners"
+assert_success
+assert_contains "$TEST_OUTPUT" "opam is the platform's own opam package"
+printf "PASS: the opam the package database credits to the provider is accepted\n"
+
+VERIFIER_PATH="$MACHINE/usr/local/bin:$MACHINE/rpm-bin:$PATH" run_verifier \
+  "DOTFILES_NATIVE_PREFIX=$MACHINE/usr" DOTFILES_NATIVE_OPAM_PACKAGE=opam \
+  "DOTFILES_NATIVE_PACKAGE_QUERY=rpm -qf --queryformat %{NAME}" \
+  "MOCK_RPM_OWNERS=$MACHINE/rpm-owners"
+assert_failure
+assert_contains "$TEST_OUTPUT" "owned by no native package"
+assert_contains "$TEST_OUTPUT" "$unowned_opam"
+printf 'PASS: an opam inside the prefix that no package owns is rejected\n'
+
+printf '%s some-other-package\n' "$native_opam" >"$MACHINE/rpm-owners"
+VERIFIER_PATH="$MACHINE/usr/bin:$MACHINE/rpm-bin:$PATH" run_verifier \
+  "DOTFILES_NATIVE_PREFIX=$MACHINE/usr" DOTFILES_NATIVE_OPAM_PACKAGE=opam \
+  "DOTFILES_NATIVE_PACKAGE_QUERY=rpm -qf --queryformat %{NAME}" \
+  "MOCK_RPM_OWNERS=$MACHINE/rpm-owners"
+assert_failure
+assert_contains "$TEST_OUTPUT" "owned by some-other-package"
+printf 'PASS: an opam another package owns is rejected\n'
+
+# The fallback, for a platform with no package database to ask: inside the
+# provider's prefix is accepted, but $prefix/local is not part of what the
+# provider owns there either.
+new_machine
+record_ocaml_state
+write_opam_mock "$MACHINE/usr/local/bin/opam"
+VERIFIER_PATH="$MACHINE/usr/local/bin:$PATH" run_verifier \
+  "DOTFILES_NATIVE_PREFIX=$MACHINE/usr"
+assert_failure
+assert_contains "$TEST_OUTPUT" "the platform's native provider does not own"
+printf 'PASS: the prefix fallback rejects an opam under the prefix local tree\n'
 
 # An explicit compiler override must round-trip: switch name, recorded
 # compiler and the compiler inside the switch all agree.
