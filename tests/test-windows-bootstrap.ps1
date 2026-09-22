@@ -938,9 +938,12 @@ try {
         $script:nocttyWarnings = @()
         $script:nocttySyncCalls = 0
         $DryRun = $DryRunValue
-        $ManagedBlockStart = '# BEGIN dotfiles Fedora WSL'
-        $ManagedBlockEnd = '# END dotfiles Fedora WSL'
         $env:LOCALAPPDATA = $LocalAppData
+
+        # The real parser, not a stub: how many managed blocks the file holds
+        # and what is inside one is the same question verify.ps1 asks, and the
+        # two may not answer it differently.
+        . (Join-Path $PSScriptRoot '..\platforms\windows\lib\noctty-config.ps1')
 
         function Write-Step {
             param([string]$Message)
@@ -959,13 +962,16 @@ try {
 
         . ([scriptblock]::Create($FunctionText))
 
-        Set-NocttyConfiguration -Distribution $Distribution
+        $failure = $null
+        try { Set-NocttyConfiguration -Distribution $Distribution }
+        catch { $failure = $_.Exception.Message }
 
         $configPath = Join-Path $LocalAppData 'noctty\config.ghostty'
         [pscustomobject]@{
             Steps = $script:nocttySteps
             Warnings = $script:nocttyWarnings
             SyncCalls = $script:nocttySyncCalls
+            Failure = $failure
             Exists = Test-Path -LiteralPath $configPath
             Content = if (Test-Path -LiteralPath $configPath) {
                 [IO.File]::ReadAllText($configPath)
@@ -976,7 +982,7 @@ try {
 
     Assert-CaseCatchesMutation -Name 'A rerun of the Noctty configuration is a byte-for-byte no-op' `
         -FunctionText $setNocttyText `
-        -From '$managedRegex.Replace($content, '''', 1)' -To '$content' `
+        -From 'Remove-NocttyManagedBlocks -Content $content' -To '$content' `
         -Case {
             param([string]$FunctionText)
 
@@ -996,7 +1002,7 @@ try {
 
     Assert-CaseCatchesMutation -Name 'A user-managed command keeps control of Noctty' `
         -FunctionText $setNocttyText `
-        -From "'(?m)^\s*command\s*='" -To "'(?m)^\s*command-that-cannot-appear\s*='" `
+        -From 'Test-NocttyUserCommand -Content $userContent' -To '$false' `
         -Case {
             param([string]$FunctionText)
 
@@ -1021,6 +1027,125 @@ try {
                 throw "Leaving a user command in control must warn exactly once, got $($result.Warnings.Count)."
             }
         }
+
+    Assert-CaseCatchesMutation -Name 'Every managed block converges to one, not just the first' `
+        -FunctionText $setNocttyText `
+        -From 'Remove-NocttyManagedBlocks -Content $content' `
+        -To '[regex]::new(''(?ms)^# BEGIN dotfiles Fedora WSL\r?\n.*?^# END dotfiles Fedora WSL\r?\n?'').Replace($content, '''''', 1)' `
+        -Case {
+            param([string]$FunctionText)
+
+            # What a machine has after one bootstrap wrote a block and a later
+            # one prepended another: two managed blocks, the older naming a
+            # distribution that is gone. Removing only the first leaves that
+            # one behind, and its command line then reads as the user's, so the
+            # installer declines to write the command the run is about and the
+            # file ends up naming only the distribution nobody asked for.
+            $appData = Join-Path $testRoot ('noctty-dupe-{0}' -f [guid]::NewGuid().ToString('N'))
+            $configPath = Join-Path $appData 'noctty\config.ghostty'
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $configPath)) | Out-Null
+            [IO.File]::WriteAllText($configPath, (@(
+                        '# BEGIN dotfiles Fedora WSL'
+                        'config-file = "dotfiles/ghostty.conf"'
+                        'config-file = "dotfiles/theme.conf"'
+                        'command = direct:wsl.exe --distribution FedoraLinux-43'
+                        '# END dotfiles Fedora WSL'
+                        '# BEGIN dotfiles Fedora WSL'
+                        'config-file = "dotfiles/ghostty.conf"'
+                        'config-file = "dotfiles/theme.conf"'
+                        'command = direct:wsl.exe --distribution FedoraLinux-42'
+                        '# END dotfiles Fedora WSL'
+                        'window-padding-x = 8'
+                    ) -join "`n") + "`n")
+
+            $result = & $runSetNoctty $FunctionText $appData $false 'FedoraLinux-44'
+            Assert-Equal -Actual $result.Failure -Expected $null `
+                -Message 'Converging duplicate managed blocks failed.'
+            $markers = ([regex]::Matches($result.Content, '(?m)^# BEGIN dotfiles Fedora WSL\r?$')).Count
+            Assert-Equal -Actual $markers -Expected 1 `
+                -Message 'The configuration did not converge to exactly one managed block.'
+            if ($result.Content -notmatch 'command = direct:wsl\.exe --distribution FedoraLinux-44') {
+                throw "The converged block does not name this run's distribution: $($result.Content)"
+            }
+            foreach ($stale in @('FedoraLinux-43', 'FedoraLinux-42')) {
+                if ($result.Content -match [regex]::Escape($stale)) {
+                    throw "A stale distribution survived convergence: $($result.Content)"
+                }
+            }
+            Assert-Equal -Actual $result.Warnings.Count -Expected 0 `
+                -Message 'A command inside a stale managed block was mistaken for a user command.'
+            if ($result.Content -notmatch '(?m)^window-padding-x = 8\r?$') {
+                throw "User-owned content was lost: $($result.Content)"
+            }
+        }
+
+    # Zero blocks and one block are the other two starting points, and all
+    # three have to end at the same file.
+    $oneBlockStart = (@(
+            '# BEGIN dotfiles Fedora WSL'
+            'config-file = "dotfiles/ghostty.conf"'
+            'config-file = "dotfiles/theme.conf"'
+            'command = direct:wsl.exe --distribution FedoraLinux-43'
+            '# END dotfiles Fedora WSL'
+            'window-padding-x = 8'
+        ) -join "`n") + "`n"
+    $convergedContents = @()
+    foreach ($start in @(
+            @{ Name = 'no managed block'; Existing = "window-padding-x = 8`n" },
+            @{ Name = 'one managed block'; Existing = $oneBlockStart }
+        )) {
+        $appData = Join-Path $testRoot ('noctty-converge-{0}' -f [guid]::NewGuid().ToString('N'))
+        $configPath = Join-Path $appData 'noctty\config.ghostty'
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $configPath)) | Out-Null
+        [IO.File]::WriteAllText($configPath, $start.Existing)
+
+        $converged = & $runSetNoctty $setNocttyText $appData $false 'FedoraLinux-44'
+        Assert-Equal -Actual $converged.Failure -Expected $null `
+            -Message "Converging a file with $($start.Name) failed."
+        Assert-Equal `
+            -Actual (([regex]::Matches($converged.Content, '(?m)^# BEGIN dotfiles Fedora WSL\r?$')).Count) `
+            -Expected 1 -Message "A file with $($start.Name) did not converge to one block."
+        if ($converged.Content -notmatch '(?m)^window-padding-x = 8\r?$') {
+            throw "User-owned content was lost converging a file with $($start.Name)."
+        }
+        $convergedContents += $converged.Content
+    }
+    Assert-Equal -Actual $convergedContents[0] -Expected $convergedContents[1] `
+        -Message 'Files starting with no block and with one block converged differently.'
+    Write-Host 'PASS: zero, one and many managed blocks all converge to exactly one'
+
+    # Markers that do not pair up are not a file whose managed region can be
+    # identified, so nothing is written rather than something guessed at.
+    foreach ($malformed in @(
+            @{
+                Name = 'an unclosed BEGIN'
+                Text = "# BEGIN dotfiles Fedora WSL`nconfig-file = `"dotfiles/ghostty.conf`"`n"
+            },
+            @{
+                Name = 'an END before any BEGIN'
+                Text = "# END dotfiles Fedora WSL`nwindow-padding-x = 8`n"
+            },
+            @{
+                Name = 'a nested BEGIN'
+                Text = "# BEGIN dotfiles Fedora WSL`n# BEGIN dotfiles Fedora WSL`n# END dotfiles Fedora WSL`n"
+            }
+        )) {
+        $appData = Join-Path $testRoot ('noctty-bad-{0}' -f [guid]::NewGuid().ToString('N'))
+        $configPath = Join-Path $appData 'noctty\config.ghostty'
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $configPath)) | Out-Null
+        [IO.File]::WriteAllText($configPath, $malformed.Text)
+
+        $rejected = & $runSetNoctty $setNocttyText $appData $false 'FedoraLinux-44'
+        if (-not $rejected.Failure) {
+            throw "$($malformed.Name) was rewritten instead of refused: $($rejected.Content)"
+        }
+        if ($rejected.Failure -notlike '*nothing was changed*') {
+            throw "$($malformed.Name) was refused without saying the file is untouched: $($rejected.Failure)"
+        }
+        Assert-Equal -Actual $rejected.Content -Expected $malformed.Text `
+            -Message "$($malformed.Name) left the file modified."
+    }
+    Write-Host 'PASS: markers that do not pair up are refused without touching the file'
 
     Assert-CaseCatchesMutation -Name 'A dry-run Noctty configuration writes nothing and still previews the sync' `
         -FunctionText $setNocttyText `

@@ -53,8 +53,6 @@ $MinimumProvenWslVersion = [version]$WindowsManifest.MinimumProvenWslVersion
 $NocttyBucketUrl = $WindowsManifest.Scoop.NocttyBucket.Url
 $ExtrasBucketUrl = $WindowsManifest.Scoop.ExtrasBucket.Url
 $WslDistributionCatalogUrl = 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json'
-$ManagedBlockStart = '# BEGIN dotfiles Fedora WSL'
-$ManagedBlockEnd = '# END dotfiles Fedora WSL'
 $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $GhosttyConfig = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\shared.conf'
 $GhosttyThemes = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\themes'
@@ -62,6 +60,7 @@ $NocttyThemeHelper = Join-Path $PSScriptRoot 'set-noctty-theme.ps1'
 $SelectionStatePath = Join-Path $env:LOCALAPPDATA $WindowsManifest.SelectionStateRelativePath
 . (Join-Path $PSScriptRoot 'lib\wsl-version.ps1')
 . (Join-Path $PSScriptRoot 'lib\scoop.ps1')
+. (Join-Path $PSScriptRoot 'lib\noctty-config.ps1')
 
 function Write-Step {
     param([string]$Message)
@@ -722,28 +721,21 @@ function Set-NocttyConfiguration {
         $content = [IO.File]::ReadAllText($configPath)
     }
 
-    $managedPattern = '(?ms)^# BEGIN dotfiles Fedora WSL\r?\n.*?^# END dotfiles Fedora WSL\r?\n?'
-    $managedRegex = [regex]::new($managedPattern)
-    $userContent = $managedRegex.Replace($content, '', 1)
-    $hasUserCommand = $userContent -match '(?m)^\s*command\s*='
+    # Every complete managed block comes out, not the first one. A file that
+    # holds two is a file an earlier run left behind, and removing only the
+    # first leaves Ghostty reading this repository's stale settings after the
+    # current ones -- including a command naming a distribution that is gone.
+    # Malformed markers throw instead, before anything is written: where
+    # somebody else's configuration starts cannot be guessed at.
+    $userContent = Remove-NocttyManagedBlocks -Content $content
+    $hasUserCommand = Test-NocttyUserCommand -Content $userContent
 
-    $commandSetting = "command = direct:wsl.exe --distribution $Distribution"
     if ($hasUserCommand) {
-        $commandSetting = '# Fedora WSL command omitted: a user-managed command exists below.'
         Write-Warning "Noctty already has a user-managed command in $configPath; leaving it in control."
     }
 
-    $newBlock = @"
-$ManagedBlockStart
-# Reuse the tracked Ghostty configuration; keep Windows-only settings here.
-config-file = "dotfiles/ghostty.conf"
-config-file = "dotfiles/theme.conf"
-$commandSetting
-$ManagedBlockEnd
-"@
-
-    $separator = if ($userContent) { "`r`n" } else { '' }
-    $updated = "$newBlock$separator$userContent"
+    $newBlock = New-NocttyManagedBlock -Distribution $Distribution -HasUserCommand:$hasUserCommand
+    $updated = "$newBlock$userContent"
 
     if ($DryRun) {
         Write-Step "Would include the tracked Ghostty config and configure Noctty for $Distribution in $configPath"
