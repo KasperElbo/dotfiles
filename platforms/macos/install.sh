@@ -161,6 +161,12 @@ rerun_controls=()
 DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command macos "$install_selection" "${rerun_controls[@]}")"
 
 preflight_macos() {
+  # First, and before every other check: an unsupported XDG root would have
+  # Stow deploy to a place the rest of the install never reads. It is a pure
+  # lexical comparison with no prerequisites, so it really can go first --
+  # ahead of preflight_sudo, which prompts for a password on a run that is
+  # about to be refused.
+  preflight_xdg_layout
   require_regular_user
   require_apple_silicon_macos
   # config/command-providers.tsv owns this list, including curl and sudo, which
@@ -177,9 +183,6 @@ preflight_macos() {
   [[ -x "$(homebrew_path)" ]] || needs_sudo=true
   ! macos_login_shell_change_required || needs_sudo=true
   [[ "$needs_sudo" != true ]] || preflight_sudo "$interactive"
-  # First, and before every other check: an unsupported XDG root would have
-  # Stow deploy to a place the rest of the install never reads.
-  preflight_xdg_layout
   preflight_writable_path "$HOME"; preflight_writable_path "$XDG_CONFIG_HOME"
   preflight_writable_path "$XDG_DATA_HOME"; preflight_writable_path "$(profile_state_dir)"
   preflight_disk_space "$XDG_DATA_HOME" "$PREFLIGHT_USER_DATA_MIN_MB"
