@@ -14,7 +14,7 @@
 
 usage_persistent_options() {
   cat <<'EOF'
-  --theme VALUE      Catppuccin flavour: latte, frappe, macchiato, mocha
+  --theme FLAVOUR    Catppuccin flavour: latte, frappe, macchiato, mocha
                      (default: macchiato)
   --kde/--no-kde     KDE integration (default: auto)
   --latex/--no-latex LaTeX toolchain (default: auto)
@@ -45,10 +45,9 @@ usage_persistent_options() {
   --gnhf/--no-gnhf   AI subcomponent: GNHF (default: inherit)
   --backpass/--no-backpass
                      AI subcomponent: backpass (default: inherit)
-  --hardware VALUE   ASUS hardware model: ga402xz, ga402rk
+  --hardware MODEL   ASUS hardware model: ga402xz, ga402rk
   --secure-boot      Require Secure Boot for the selected hardware (default:
                      false)
-  --charge-limit VALUE
-                     ASUS battery charge limit, 40-100
+  --charge-limit N   ASUS battery charge limit, 40-100
 EOF
 }

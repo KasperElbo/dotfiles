@@ -42,6 +42,7 @@ this table.
 |---|---|---|
 | [`docs/reference/capability-matrix.md`](../reference/capability-matrix.md) | `config/capabilities.tsv` | `scripts/render-capability-matrix.py` |
 | [`docs/reference/installer-options.md`](../reference/installer-options.md) | `config/install-options.tsv` | `scripts/render-installer-options.py` |
+| `platforms/fedora/lib/usage-options.sh`, the `--help` listing of persistent options | `config/install-options.tsv` | `scripts/render-installer-usage.py` |
 | [`docs/reference/verifiers.md`](../reference/verifiers.md) | `config/capabilities.tsv` | `scripts/render-verifier-reference.py` |
 | [`docs/supply-chain-sources.md`](../supply-chain-sources.md) | `config/network-sources.tsv` | `scripts/render-supply-chain.py` |
 | The action reference block in [`docs/reference/keybindings.md`](../reference/keybindings.md) | `config/actions.tsv` | `scripts/render-action-reference.py` |
