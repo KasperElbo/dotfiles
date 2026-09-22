@@ -116,7 +116,15 @@ above invokes. It:
 - exits non-zero when any required suite fails;
 - accepts `--fail-fast` for local debugging;
 - accepts explicit suite paths for targeted debugging without requiring
-  unrelated aggregate-only tools.
+  unrelated aggregate-only tools;
+- refuses a suite path that resolves outside this checkout's `tests/`
+  directory, absolute or through `..`, before anything is executed. The runner
+  is a general-purpose executor of the path it is handed, and
+  `.claude/settings.json` pre-approves `./scripts/test.sh tests/...` for agent
+  sessions opened in this repository — a rule an agent matcher reads as a
+  prefix. Without containment the two compose into a standing approval to run
+  any file on the machine, and the refused path is counted as a failed suite
+  rather than credited as a passing one.
 
 `DOTFILES_TEST_REQUIRED_COMMANDS` can be set to request runner-level dependency
 preflight explicitly. Missing commands in that list are a **runner error**, not

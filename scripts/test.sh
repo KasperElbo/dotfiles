@@ -33,6 +33,10 @@ relies on each selected suite to report its own missing dependencies, so it does
 not require the full Linux aggregate toolchain. Set DOTFILES_TEST_REQUIRED_COMMANDS
 explicitly when a targeted run needs runner-level dependency preflight.
 
+A suite argument must resolve to a path inside this checkout's tests/ directory.
+Anything else -- an absolute path, or a traversal out of tests/ -- is refused
+before it is executed and counted as a failed suite.
+
 Dependency policy:
   The default aggregate preflights the normal Linux validation toolchain.
   Commands in DOTFILES_TEST_REQUIRED_COMMANDS are always runner requirements.
@@ -243,10 +247,53 @@ skipped=()
 # rather than refusing to run at all.
 suite_timeout="${DOTFILES_TEST_SUITE_TIMEOUT:-900}"
 
+# The runner executes the path it is handed, and this repository ships an
+# auto-approve rule for `./scripts/test.sh tests/...` in .claude/settings.json.
+# An agent matcher reads that rule as a prefix, so `tests/../../../evil.sh`
+# satisfied it and ran an arbitrary file on the machine with no prompt, counted
+# as a passing suite. A suite is therefore a path inside this checkout's tests/
+# directory, decided before anything is executed.
+#
+# Both sides are resolved with `pwd -P` so the comparison is physical on both:
+# a checkout reached through a symlink resolves its suites the same way it
+# resolves this root, rather than refusing every suite it was asked to run.
+suite_root="$(cd -- "$repo_root/tests" 2>/dev/null && pwd -P)"
+if [[ -z "$suite_root" ]]; then
+  printf 'ERROR: no tests directory under %s\n' "$repo_root" >&2
+  exit 2
+fi
+
+# The canonical path of $1, or the empty string when its directory does not
+# exist -- in which case containment cannot be established and the caller must
+# refuse rather than fall through to the missing-file path.
+# Split in the shell rather than through dirname and basename: targeted mode
+# deliberately runs without the aggregate toolchain, and a suite the runner
+# could not classify because a coreutil was absent would land in the
+# missing-suite path instead of being refused or run.
+canonical_suite_path() {
+  local candidate="$1" directory base
+  base="${candidate##*/}"
+  directory="${candidate%/*}"
+  [[ -n "$directory" ]] || directory=/
+  directory="$(cd -- "$directory" 2>/dev/null && pwd -P)" || return 0
+  [[ -n "$directory" ]] || return 0
+  printf '%s/%s\n' "${directory%/}" "$base"
+}
+
 run_suite() {
   local test_script="$1"
   local test_path="$test_script"
   [[ "$test_path" == /* ]] || test_path="$repo_root/$test_path"
+
+  local canonical
+  canonical="$(canonical_suite_path "$test_path")"
+  if [[ -z "$canonical" || "$canonical" != "$suite_root"/* ]]; then
+    printf 'Refusing to run a suite outside tests/: %s\n' "$test_script" >&2
+    printf 'Policy: the runner executes suites under %s, and nothing else.\n' \
+      "$suite_root" >&2
+    return 2
+  fi
+  test_path="$canonical"
 
   if [[ ! -f "$test_path" ]]; then
     printf 'Missing test suite: %s\n' "$test_script" >&2
