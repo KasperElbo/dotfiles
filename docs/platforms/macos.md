@@ -59,7 +59,9 @@ requires modern Bash. A bootstrap failure therefore writes no misleading
 lifecycle success state. `--help` and `--dry-run` never perform this bootstrap
 mutation; without modern Bash, dry-run reports the prerequisite bootstrap plan
 and explains that rerunning it after the interpreter exists will show the full
-resolved plan.
+resolved plan. `./install.sh --help` (or `-h`) needs no `--platform` on a Mac:
+help that names no platform is answered with this platform's help, through the
+same read-only bootstrap.
 
 Apple's Bash 3.2 is supported for `install.sh` and
 `scripts/bootstrap-macos.sh`. The real installer and direct platform entry

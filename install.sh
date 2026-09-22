@@ -11,10 +11,11 @@ platform_explicit="false"
 rerun="false"
 expect_platform="false"
 subcommand=""
+help_requested="false"
 
-# Inspect only the platform selector, --rerun and the doctor subcommand. Do
-# not shift or rebuild "$@": the exact original argument vector is forwarded
-# across the interpreter boundary.
+# Inspect only the platform selector, --rerun, the help flags and the doctor
+# subcommand. Do not shift or rebuild "$@": the exact original argument vector
+# is forwarded across the interpreter boundary.
 for argument in "$@"; do
   if [ "$expect_platform" = "true" ]; then
     if [ -z "$argument" ]; then
@@ -42,6 +43,9 @@ for argument in "$@"; do
     --rerun)
       rerun="true"
       ;;
+    -h | --help)
+      help_requested="true"
+      ;;
     doctor)
       subcommand="doctor"
       ;;
@@ -65,6 +69,21 @@ fi
 # says so plainly when there is none. It takes no arguments of its own.
 if [ "$subcommand" = "doctor" ]; then
   exec "${BASH:-/bin/bash}" "$repo_root/scripts/doctor.sh"
+fi
+
+# Help that names no platform describes the platform of the machine asking.
+# The fedora default suits an installation, but on a Mac it sends the request
+# to scripts/install-main.sh under Apple's Bash 3.2, whose Bash 4.4 gate then
+# answers with an interpreter error instead of help. The macOS compatibility
+# bootstrap is already the read-only answer for this machine: it shows the
+# real installer's help when a supported Bash exists and its own macOS help
+# otherwise, and --help never installs Homebrew or Bash. The selector is
+# prepended because the bootstrap forwards the vector to the real installer,
+# which would otherwise fall back to fedora itself. An explicit --platform
+# always wins and takes the ordinary dispatch below.
+if [ "$help_requested" = "true" ] && [ "$platform_explicit" = "false" ] &&
+  [ "$(uname -s)" = "Darwin" ]; then
+  exec /bin/bash "$repo_root/scripts/bootstrap-macos.sh" --platform macos "$@"
 fi
 
 # A --rerun that names no platform must still reach the interpreter its

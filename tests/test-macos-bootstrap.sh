@@ -83,6 +83,51 @@ if actual[-1:] == [b""]:
 assert actual == [b"--platform", b"macos"], actual
 PY
 
+# Help that names no platform is answered for the machine asking. On a Mac the
+# plain ./install.sh --help used to reach the real installer under Apple's
+# Bash 3.2 and stop at its Bash 4.4 gate. A fake uname stands in for the
+# kernel, so the routing is proved on every host; the system-Bash run below
+# proves the reported command itself on a Mac.
+help_root="$test_root/help-fixture"
+help_capture="$test_root/help-route"
+mkdir -p "$help_root/scripts" "$help_root/bin"
+cp "$repo_root/install.sh" "$help_root/install.sh"
+for route in bootstrap-macos install-main; do
+  cat >"$help_root/scripts/$route.sh" <<EOF_FIXTURE
+#!/bin/bash
+printf '%s' '$route' >"\$HELP_CAPTURE"
+for argument in "\$@"; do printf ' %s' "\$argument" >>"\$HELP_CAPTURE"; done
+EOF_FIXTURE
+done
+cat >"$help_root/bin/uname" <<'EOF_FIXTURE'
+#!/bin/sh
+printf '%s\n' "$FAKE_KERNEL"
+EOF_FIXTURE
+chmod +x "$help_root/install.sh" "$help_root/scripts/"*.sh "$help_root/bin/uname"
+
+assert_help_route() {
+  local kernel="$1"
+  local expected="$2"
+  shift 2
+  PATH="$help_root/bin:$PATH" FAKE_KERNEL="$kernel" HELP_CAPTURE="$help_capture" \
+    /bin/bash "$help_root/install.sh" "$@"
+  [[ "$(<"$help_capture")" == "$expected" ]] || {
+    printf 'Expected ./install.sh %s on %s to route to %q, got %q.\n' \
+      "$*" "$kernel" "$expected" "$(<"$help_capture")" >&2
+    exit 1
+  }
+}
+
+assert_help_route Darwin 'bootstrap-macos --platform macos --help' --help
+assert_help_route Darwin 'bootstrap-macos --platform macos -h' -h
+assert_help_route Darwin 'bootstrap-macos --platform macos --rerun --help' --rerun --help
+assert_help_route Darwin 'bootstrap-macos --platform macos --help' --platform macos --help
+assert_help_route Darwin 'install-main --platform fedora --help' --platform fedora --help
+assert_help_route Darwin 'install-main --platform=fedora -h' --platform=fedora -h
+assert_help_route Darwin 'install-main --theme mocha' --theme mocha
+assert_help_route Linux 'install-main --help' --help
+printf 'Help without a platform routes to the macOS bootstrap only on a Mac.\n'
+
 # Current main already replaced the old empty system_args/verify_args arrays.
 # Exercise both zero-argument branches behaviorally so nounset cannot regress.
 fake_root="$test_root/fake-root"
@@ -164,6 +209,39 @@ if [[ "$(uname -s)" == Darwin ]]; then
     >"$test_root/system-help" 2>"$trace"
   grep -Fq 'macOS bootstrap: re-executing with /opt/homebrew/' "$trace"
   grep -Fq -- '--dry-run' "$test_root/system-help"
+
+  # The report: plain help under Apple's Bash 3.2, naming no platform. With a
+  # supported Bash it is the real installer's macOS help.
+  for help_flag in --help -h; do
+    PATH=/usr/bin:/bin:/usr/sbin:/sbin HOMEBREW_BIN=/opt/homebrew/bin/brew \
+      /bin/bash "$repo_root/install.sh" "$help_flag" >"$test_root/plain-help"
+    grep -Fq "Options (platform 'macos'):" "$test_root/plain-help"
+  done
+
+  # Without one it is the bootstrap's macOS help, and nothing that could
+  # install Homebrew or Bash runs.
+  help_guard="$test_root/help-guard"
+  mkdir -p "$help_guard"
+  cat >"$help_guard/mutation-guard" <<EOF_FIXTURE
+#!/bin/sh
+printf '%s\n' "\${0##*/}" >>"$test_root/help-mutations"
+exit 97
+EOF_FIXTURE
+  chmod +x "$help_guard/mutation-guard"
+  for command_name in curl sudo brew installer; do
+    ln -s mutation-guard "$help_guard/$command_name"
+  done
+  for help_flag in --help -h; do
+    PATH="$help_guard:/usr/bin:/bin:/usr/sbin:/sbin" \
+      HOMEBREW_BIN="$test_root/missing-brew" \
+      /bin/bash "$repo_root/install.sh" "$help_flag" >"$test_root/bootstrap-help"
+    grep -Fq 'Usage: ./install.sh --platform macos [options]' "$test_root/bootstrap-help"
+    grep -Fq -- '--help never changes the machine' "$test_root/bootstrap-help"
+  done
+  if [[ -e "$test_root/help-mutations" ]]; then
+    printf 'Help ran a mutating command:\n%s\n' "$(<"$test_root/help-mutations")" >&2
+    exit 1
+  fi
 
   if /bin/bash "$repo_root/scripts/install-main.sh" --platform macos --help \
     >"$test_root/old-real" 2>&1; then
