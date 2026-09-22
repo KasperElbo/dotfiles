@@ -33,6 +33,7 @@ import fnmatch
 import os
 import pathlib
 import re
+import subprocess
 import tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -177,9 +178,18 @@ def capability_names(manifest: pathlib.Path | None = None) -> tuple[str, ...]:
 
 
 # The `packages=(…)` array a Stow script iterates, and every `packages+=(…)`
-# append to it, conditional or not.
-STOW_PACKAGES_ARRAY = re.compile(r"^\s*packages=\((?P<names>[^)]*)\)", re.MULTILINE)
-STOW_PACKAGES_APPEND = re.compile(r"^\s*packages\+=\((?P<names>[^)]*)\)", re.MULTILINE)
+# append to it, conditional or not. A declaration keyword may stand in front of
+# either, and used to hide it: `local packages=(…)` matched neither pattern, so
+# a Stow package could be deployed with no capability row owning it.
+STOW_DECLARATION = r"(?:local|declare|typeset|readonly|export)\s+(?:-\w+\s+)*"
+STOW_PACKAGES_ARRAY = re.compile(
+    r"(?:^|[;\s])(?:" + STOW_DECLARATION + r")?packages=\((?P<names>[^)]*)\)",
+    re.MULTILINE,
+)
+STOW_PACKAGES_APPEND = re.compile(
+    r"(?:^|[;\s])(?:" + STOW_DECLARATION + r")?packages\+=\((?P<names>[^)]*)\)",
+    re.MULTILINE,
+)
 
 
 def stow_packages(script: pathlib.Path) -> list[str]:
@@ -236,3 +246,63 @@ def role_pattern_matches(pattern: str, name: str) -> bool:
         fnmatch.fnmatchcase(actual, expected)
         for expected, actual in zip(pattern_parts, name_parts)
     )
+
+
+# A shell interpreter this repository's Bash toolchain can parse. `bash -n` and
+# `shellcheck -s bash` read both dialects; `zsh` is deliberately absent, because
+# neither tool can parse it and the tracked `.zsh` files are Zsh configuration
+# rather than programs.
+SHELL_SHEBANG = re.compile(rb"^#![^\n]*\b(?:ba)?sh\b")
+
+
+def tracked_files(root: pathlib.Path) -> list[str]:
+    """Every tracked file, as the index spells it.
+
+    A filesystem walk is not a substitute: the policies built on this are about
+    what the repository ships, so an unreadable index is an error to report
+    rather than something to paper over with a different file set.
+    """
+    result = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        raise SystemExit(
+            f"cannot list tracked files in {root}: "
+            f"{result.stderr.strip() or f'git exited {result.returncode}'}"
+        )
+    return [name for name in result.stdout.split("\0") if name]
+
+
+def has_shell_shebang(path: pathlib.Path) -> bool:
+    """Does this file announce itself as a Bash or POSIX-sh program?
+
+    Read as bytes and only the first line, so a binary blob or an unreadable
+    file answers "no" instead of raising somewhere further up.
+    """
+    try:
+        with path.open("rb") as stream:
+            first = stream.readline(256)
+    except OSError:
+        return False
+    return SHELL_SHEBANG.match(first) is not None
+
+
+def shell_files(root: pathlib.Path) -> list[str]:
+    """Every tracked file the shell lint gate is responsible for.
+
+    Deriving this set from the `.sh` extension alone is what let fourteen
+    tracked programs -- `bin/.local/bin/theme`, `doctor`, the stowed Sway and
+    WSL interop commands, and `platforms/fedora/assets/dotfiles-sway`, which
+    the display manager runs to start the desktop -- sit outside `bash -n` and
+    ShellCheck entirely. A command on PATH does not carry an extension, so the
+    extension cannot be what decides. The shebang is the file's own statement
+    of what interprets it, and that is what is read here.
+    """
+    names: list[str] = []
+    for name in tracked_files(root):
+        path = root / name
+        if not path.is_file():
+            continue
+        if name.endswith(".sh") or has_shell_shebang(path):
+            names.append(name)
+    return sorted(names)

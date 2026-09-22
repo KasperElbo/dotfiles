@@ -212,8 +212,9 @@ Terra also publishes the per-release key at
 `https://repos.fyralabs.com/terra<releasever>/key.asc`. The installer therefore:
 
 1. fetches that key through the bounded fetch policy;
-2. refuses to import it unless its primary fingerprint matches the value pinned
-   for that Fedora release in [`config/terra-keys.tsv`](../config/terra-keys.tsv);
+2. refuses to import it unless the file carries exactly one key and that key's
+   primary fingerprint matches the value pinned for that Fedora release in
+   [`config/terra-keys.tsv`](../config/terra-keys.tsv);
 3. imports it with `rpm --import`;
 4. installs `terra-release` **with GPG checking enabled** — `--nogpgcheck` is
    gone;
@@ -222,6 +223,15 @@ Terra also publishes the per-release key at
 Pinning the fingerprint is what makes this more than trust-on-first-use: a
 later compromise of the distribution host cannot silently substitute a
 different signing key.
+
+The count is part of the pin, not a detail of it. `rpm --import` trusts every
+key in the file it is handed, so a pin compared against one key in a file that
+holds two says nothing about the other, and the post-install check asks only
+whether the pinned fingerprint is *present* in the keyring — an extra key
+imported alongside it is never reported. A key file that grows a second key is
+therefore refused before anything is imported, with every fingerprint it holds
+named, whether or not the release is pinned and whether or not the extra key
+was acknowledged with `TERRA_TRUST_KEY_FINGERPRINT`.
 
 The bootstrap runs once: a rerun sees `terra-release` installed and stops
 there. What governs every later Terra package is the repository file

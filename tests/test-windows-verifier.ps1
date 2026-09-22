@@ -238,6 +238,42 @@ try {
             -Expected $null `
             -Message 'A command in neither PATH nor the shims directory must not resolve.'
 
+        # The invariant the function owes its callers, which the fixture
+        # above cannot express because it only ever empties PATH: a shim pair
+        # must mean the same file whether or not the shims have reached PATH
+        # yet. Which file that is belongs to PowerShell; that the two branches
+        # agree on it belongs here. The resolved path is invoked as a command,
+        # and a .ps1 shim runs in the caller's PowerShell while a .cmd shim
+        # runs as a child process, so the two branches disagreeing is a real
+        # behavioural difference and not a spelling one.
+        $env:PATH = ''
+        $resolvedWithoutPath = Resolve-ScoopCommand
+        $env:PATH = $shimDirectory
+        $resolvedWithPath = Resolve-ScoopCommand
+        Assert-Equal -Actual $resolvedWithoutPath -Expected $resolvedWithPath `
+            -Message 'A shim pair resolved to a different file once PATH had the shims.'
+        if ($resolvedWithPath -ne (Join-Path $shimDirectory 'scoop.ps1')) {
+            throw ('Scoop did not resolve inside its own shims directory: ' +
+                "$resolvedWithPath")
+        }
+
+        # Neither extension may be the only one the fallback knows: a machine
+        # with one half of the pair still has Scoop installed.
+        foreach ($onlyShim in @('scoop.ps1', 'scoop.cmd')) {
+            $soleProfile = Join-Path $testRoot ('SoleShim-{0}' -f $onlyShim.Replace('.', '-'))
+            $soleDirectory = Join-Path $soleProfile 'scoop\shims'
+            [IO.Directory]::CreateDirectory($soleDirectory) | Out-Null
+            [IO.File]::WriteAllText((Join-Path $soleDirectory $onlyShim), '')
+
+            $env:PATH = ''
+            $env:SCOOP = ''
+            $env:USERPROFILE = $soleProfile
+            Assert-Equal -Actual (Resolve-ScoopCommand) `
+                -Expected (Join-Path $soleDirectory $onlyShim) `
+                -Message "Scoop was not found when only $onlyShim was published."
+        }
+
+        $env:USERPROFILE = $shimProfile
         $env:SCOOP = Join-Path $testRoot 'ExplicitScoop'
         Assert-Equal -Actual (Get-ScoopRoot) `
             -Expected ([IO.Path]::GetFullPath($env:SCOOP)) `

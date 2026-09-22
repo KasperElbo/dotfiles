@@ -68,6 +68,8 @@ arity_case sources network-sources.tsv validate-network-sources.py NETWORK_SOURC
 arity_case floors tool-floors.tsv validate-tool-floors.py TOOL_FLOOR_MANIFEST
 arity_case commands command-providers.tsv validate-command-provider-closure.py \
   COMMAND_PROVIDER_MANIFEST
+arity_case consumers option-consumers.tsv validate-install-options.py \
+  OPTION_CONSUMER_MANIFEST
 
 # --- The two registries addressed by --root instead --------------------------
 

@@ -125,4 +125,165 @@ assert_contains "$TEST_OUTPUT" \
   "macos: platforms/macos/install.sh rejects --sway; list it in REJECTED_FLAGS with the reason"
 printf 'PASS: an undocumented rejection fails, by name\n'
 
+# --- Arm shapes the reader used to walk straight past ------------------------
+
+# A glob arm is how a parser accepts `--jobs=4` in one word. `=` is not a word
+# character, so the pattern half of the old arm regex never lined up with this
+# arm's `)`: the flag was accepted by the installer and invisible here, which
+# is a flag `./install.sh --rerun` can never remember.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_kde_arm" \
+  "$fedora_kde_arm
+  --jobs=*) install_jobs=\"\${1#--jobs=}\"; shift ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "fedora: platforms/fedora/install.sh accepts --jobs=*, which the manifest does not declare"
+printf 'PASS: a glob arm is read, so the flag it accepts is compared\n'
+
+# `;&` falls through to the next arm instead of leaving the case. Reading only
+# `;;` as a terminator let the first body run past it and swallow the pattern
+# of the arm below, so that arm's flags were never seen at all.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_kde_arm" \
+  "  --kde) install_kde=enabled ;& --turbo) install_turbo=true; shift ;; --no-kde) install_kde=disabled; shift ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "fedora: platforms/fedora/install.sh accepts --turbo, which the manifest does not declare"
+printf 'PASS: an arm after a `;&` fallthrough is read like any other\n'
+
+# An arm can match its flag and record nothing: the install runs with KDE
+# selected and the machine remembers no such selection.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_kde_arm" \
+  "  --kde) shift ;; --no-kde) install_kde=disabled; shift ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "fedora: platforms/fedora/install.sh accepts --kde and only shifts past it"
+printf 'PASS: an arm that accepts a persistent flag and only shifts fails\n'
+
+# A rejection is `die`, not a word that starts with it. `die_if_wsl` is a check
+# an arm runs before accepting the flag, and reading it as a refusal reported a
+# supported flag as rejected on the platform that takes it.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_kde_arm" \
+  "  --kde) die_if_wsl; install_kde=enabled; shift ;; --no-kde) install_kde=disabled; shift ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_success
+printf 'PASS: an arm that runs a `die_`-prefixed check still accepts its flag\n'
+
+# An arm shape the reader cannot parse is unknown, not absent: skipping it
+# takes the flag out of the comparison in both directions at once.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_kde_arm" \
+  "  --kde|--kde-\$(hostname)) install_kde=enabled; shift ;; --no-kde) install_kde=disabled; shift ;;"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "an argv arm could not be parsed"
+printf 'PASS: an argv arm the reader cannot parse is a build error\n'
+
+# --- The declared default is the installer's own default --------------------
+
+# The manifest and the generated reference both publish this column as fact,
+# and nothing compared it with the value the installer starts from: flipping
+# the macOS `defaults` row passed every validator, every render gate and every
+# suite while the installer went on defaulting it to true.
+test_new_root
+manifest="$TEST_ROOT/drifted-default.tsv"
+python3 - "$repo_root/config/install-options.tsv" "$manifest" <<'PYTHON'
+import pathlib
+import sys
+
+source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+lines = source.read_text(encoding="utf-8").splitlines()
+for number, line in enumerate(lines):
+    fields = line.split("\t")
+    if fields[:2] == ["macos", "defaults"]:
+        fields[5] = "false"
+        lines[number] = "\t".join(fields)
+        break
+else:
+    raise SystemExit("the macos defaults row this case flips is gone")
+target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PYTHON
+run_capture env "INSTALL_OPTION_MANIFEST=$manifest" \
+  python3 "$repo_root/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "macos: the manifest gives defaults the default 'false', but platforms/macos/install.sh starts with apply_defaults='true'"
+printf 'PASS: a declared default the installer contradicts fails, by name\n'
+
+# The same check from the other side, and through the one indirection the
+# installers use: the flavour default is stated once in a shared library and
+# assigned from there by all four.
+scratch_tree
+replace_line "$tree/common/lib/theme-selection.sh" 'THEME_DEFAULT_FLAVOUR=macchiato' \
+  'THEME_DEFAULT_FLAVOUR=latte'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "fedora: the manifest gives theme the default 'macchiato', but platforms/fedora/install.sh starts with theme='latte'"
+printf 'PASS: a default stated through a shared library is resolved and compared\n'
+
+# --- An enumerated value set is read by something ---------------------------
+
+# `--theme nonsense` was accepted by the installer, recorded, published in the
+# generated reference, and refused by bin/.local/bin/theme at the end of the
+# install: the registry's list and the runtime's case statement were two
+# hand-written lists with no gate between them.
+test_new_root
+manifest="$TEST_ROOT/extra-flavour.tsv"
+sed 's/latte|frappe|macchiato|mocha/latte|frappe|macchiato|mocha|nonsense/' \
+  "$repo_root/config/install-options.tsv" >"$manifest"
+run_capture env "INSTALL_OPTION_MANIFEST=$manifest" \
+  python3 "$repo_root/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest offers theme 'nonsense', which bin/.local/bin/theme does not accept"
+printf 'PASS: a flavour the registry offers and the runtime refuses fails\n'
+
+test_new_root
+manifest="$TEST_ROOT/fewer-flavours.tsv"
+sed 's/latte|frappe|macchiato|mocha/latte|macchiato|mocha/' \
+  "$repo_root/config/install-options.tsv" >"$manifest"
+run_capture env "INSTALL_OPTION_MANIFEST=$manifest" \
+  python3 "$repo_root/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "bin/.local/bin/theme accepts theme 'frappe', which the manifest does not offer"
+printf 'PASS: a flavour the runtime accepts and the registry drops fails\n'
+
+scratch_tree
+replace_line "$tree/bin/.local/bin/theme" '  latte|frappe|macchiato|mocha)' \
+  '  latte|macchiato|mocha)'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest offers theme 'frappe', which bin/.local/bin/theme does not accept"
+printf 'PASS: a flavour deleted from the runtime fails against the registry\n'
+
+# An enumeration nothing is held to is documentation, not a contract, so a
+# consumer row that goes missing fails rather than quietly relaxing the check.
+test_new_root
+consumers="$TEST_ROOT/no-consumers.tsv"
+head -1 "$repo_root/config/option-consumers.tsv" >"$consumers"
+run_capture env "OPTION_CONSUMER_MANIFEST=$consumers" \
+  python3 "$repo_root/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "macos: the manifest enumerates theme values, but"
+assert_contains "$TEST_OUTPUT" "names nothing that reads them"
+printf 'PASS: an enumerated option with no declared consumer fails\n'
+
+# A consumer that no longer branches on the value it is registered for is
+# unreadable, not compliant.
+scratch_tree
+replace_line "$tree/bin/.local/bin/theme" 'case "$flavour" in' 'case "${flavour:-}" in'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'no `case "$flavour" in`'
+printf 'PASS: a consumer whose case this check cannot find fails\n'
+
 printf 'Installer option parser validation passed.\n'

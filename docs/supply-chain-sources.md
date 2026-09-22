@@ -15,6 +15,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `hack-nerd-font` | Hack Nerd Font release archive | Nerd Fonts | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `handy-release` | Handy dictation application release RPM | cjpais | `rpm-package` | `root` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
 | `parrot-boundary-image` | Parrot base image for the CI boundary check (not VM evidence) | Parrot Security | `container-image` | `root` | `latest` | sha256:944b58dad7e74ae4789e5ae9e369109dc5ebb3fe143ec65a5e39ec4132d80469 | `image-digest-pinned` | manual-bump |
+| `smoke-image-busybox` | Podman rootless smoke-test image | Docker Official Images | `container-image` | `user` | `stable` | sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 | `image-digest-pinned` | manual-bump |
 | `terra-signing-key` | Terra repository signing key | Fyra Labs | `gpg-key` | `root` | `per-releasever` | gpg-fingerprint | `gpg-fingerprint-pinned` | per-fedora-release |
 | `validation-image-fedora` | CI and clean-install validation base image | Fedora Project | `container-image` | `root` | `44` | sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 | `image-digest-pinned` | manual-bump |
 
@@ -33,6 +34,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 |---|---|---|---|---|---|---|---|---|
 | `netcoredbg-legacy-release` | netcoredbg x64 build used as a debugger contract control | Samsung | `archive` | `user` | `3.1.3-1062` | release tag | `https-tls` | manual-bump |
 | `opam-repository` | OCaml Platform packages | OCaml | `package-registry` | `user` | `5.5.0 compiler` | opam switch list | `registry-tls` | manual-bump |
+| `psscriptanalyzer` | PSScriptAnalyzer rules for the Windows PowerShell validation job | Microsoft | `package-registry` | `user` | `1.24.0` | 1.24.0 | `registry-tls` | manual-bump |
 
 ## Tier: `version-line`
 
@@ -49,7 +51,6 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `scoop-extras-bucket` | Official Scoop extras bucket (Handy dictation) | ScoopInstaller | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | rolling |
 | `scoop-noctty-bucket` | noctty terminal Scoop bucket | amanthanvi | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | rolling |
 | `smoke-image-alpine` | Podman machine architecture smoke image | Docker Official Images | `container-image` | `user` | `latest` | podman image inspect | `registry-tls` | rolling |
-| `smoke-image-busybox` | Podman rootless smoke-test image | Docker Official Images | `container-image` | `user` | `stable` | podman image inspect | `registry-tls` | rolling |
 
 ## Tier: `os-rolling`
 
@@ -104,13 +105,14 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `parrot-boundary-image` | `docker.io/parrotsec/core:latest` | pin the previous digest | `.github/workflows/real-install.yml` |
 | `parrot-os-repos` | `https://deb.parrot.sh` | sudo apt-get install --reinstall | `platforms/parrot-ctf/scripts/install-system.sh` |
 | `pin-freshness-probe` | `https://github.com` | not-applicable | `scripts/check-pin-freshness.sh` `config/pin-freshness.tsv` |
+| `psscriptanalyzer` | `https://www.powershellgallery.com` | pin the previous version | `.github/workflows/validate.yml` |
 | `rpmfusion-free-release` | `https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-free-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `rpmfusion-nonfree-release` | `https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-nonfree-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `scoop-extras-bucket` | `https://github.com/ScoopInstaller/Extras` | scoop bucket rm extras | `platforms/windows/install.ps1` |
 | `scoop-installer` | `https://get.scoop.sh` | scoop uninstall | `platforms/windows/install.ps1` |
 | `scoop-noctty-bucket` | `https://github.com/amanthanvi/scoop-noctty` | scoop bucket rm noctty | `platforms/windows/install.ps1` |
 | `smoke-image-alpine` | `docker.io/library/alpine:latest` | podman rmi | `platforms/macos/scripts/install-containers.sh` `platforms/macos/scripts/verify.sh` |
-| `smoke-image-busybox` | `docker.io/library/busybox:stable` | podman rmi | `platforms/fedora/scripts/verify-containers.sh` |
+| `smoke-image-busybox` | `docker.io/library/busybox:stable` | pin the previous digest | `platforms/fedora/scripts/verify-containers.sh` |
 | `starship-installer` | `https://starship.rs/install.sh` | rm ~/.local/bin/starship and rerun | `platforms/fedora-wsl/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` |
 | `tailscale-repo` | `https://pkgs.tailscale.com/stable/fedora/tailscale.repo` | sudo rm /etc/yum.repos.d/tailscale.repo | `platforms/fedora/lib/tailscale.sh` `platforms/fedora/scripts/install-tailscale.sh` |
 | `terra-repo` | `https://repos.fyralabs.com/terra$releasever` | sudo dnf remove terra-release | `platforms/fedora/install.sh` `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-terra.sh` `platforms/fedora/scripts/install-asus-hardware.sh` |

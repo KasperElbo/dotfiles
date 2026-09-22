@@ -97,10 +97,20 @@ terra_pinned_fingerprint() {
     "$TERRA_KEY_MANIFEST" 2>/dev/null || true
 }
 
-# terra_key_fingerprint <path>: primary fingerprint of an ASCII-armoured key.
-terra_key_fingerprint() {
+# terra_key_fingerprints <path>: the primary fingerprint of every key in an
+# ASCII-armoured key file, one per line, upper case.
+#
+# Reading only the first one is not a shortcut, it is the whole trust hole: a
+# key file carries as many keys as whoever served it chose to put in it, and
+# `rpm --import` trusts all of them. A pin checked against the first block
+# establishes nothing about the second. This is the same pub/fpr pairing
+# rpm_keyring_fingerprints below does, for the same reason.
+terra_key_fingerprints() {
   gpg --show-keys --with-colons -- "$1" 2>/dev/null |
-    awk -F: '$1 == "fpr" { print $10; exit }'
+    awk -F: '
+      $1 == "pub" { primary = 1; next }
+      $1 == "fpr" && primary { print toupper($10); primary = 0 }
+    '
 }
 
 # terra_release_installed: true when this machine already has the Terra
@@ -121,6 +131,7 @@ terra_release_installed() {
 # TERRA_TRUST_KEY_FINGERPRINT, or confirmed interactively.
 ensure_terra_repository() {
   local releasever key_url repo_url staged pinned observed work_dir
+  local -a observed_keys=()
 
   if terra_release_installed; then
     info "Terra repository already installed"
@@ -147,9 +158,17 @@ ensure_terra_repository() {
   # network-source: terra-signing-key
   fetch_to_file "$key_url" "$staged" "the Terra $releasever signing key"
 
-  observed="$(terra_key_fingerprint "$staged")"
-  [[ -n "$observed" ]] ||
+  # Every key in the file, because the import below trusts every key in the
+  # file. One primary key is what a Terra release key.asc holds and what both
+  # branches below are able to reason about: a second key is either a change
+  # upstream made and this repository has not reviewed, or a substitution, and
+  # neither is something to decide from the first block alone.
+  mapfile -t observed_keys < <(terra_key_fingerprints "$staged")
+  ((${#observed_keys[@]} > 0)) ||
     die "Downloaded Terra key is not a usable OpenPGP public key: $key_url"
+  ((${#observed_keys[@]} == 1)) ||
+    die "The Terra $releasever key file carries ${#observed_keys[@]} keys and importing it would trust all of them: ${observed_keys[*]}. Expected exactly one. Review $key_url before continuing."
+  observed="${observed_keys[0]}"
 
   pinned="$(terra_pinned_fingerprint "$releasever")"
   if [[ -n "$pinned" ]]; then

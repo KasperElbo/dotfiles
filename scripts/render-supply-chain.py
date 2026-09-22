@@ -7,6 +7,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
+from generated import check_or_write  # noqa: E402
 from manifests import read_tsv  # noqa: E402
 
 root = pathlib.Path(__file__).resolve().parents[1]
@@ -59,9 +60,12 @@ for row in sorted(rows, key=lambda row: row["id"]):
 
 content = "\n".join(lines) + "\n"
 
-if "--check" in sys.argv:
-    if not target.exists() or target.read_text(encoding="utf-8") != content:
-        print(f"Generated network-source inventory is stale: {target}", file=sys.stderr)
-        raise SystemExit(1)
-else:
-    target.write_text(content, encoding="utf-8")
+raise SystemExit(
+    check_or_write(
+        target,
+        content,
+        sys.argv,
+        stale="Generated network-source inventory is stale",
+        remedy="./scripts/render-supply-chain.py",
+    )
+)

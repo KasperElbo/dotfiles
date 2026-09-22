@@ -683,9 +683,15 @@ missing | corrupt)
   # state, so an unselected machine is still asked whether any of them remain.
   agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
   codex_home="${CODEX_HOME:-$HOME/.codex}"
+  # resolved_link_matches, not a string comparison of the two spellings:
+  # resolve_symlink_target canonicalizes physically while $agents_source is
+  # built from DOTFILES_ROOT, which common.sh builds with a logical cd/pwd and
+  # so keeps the symlinks this invocation walked through. Under any symlinked
+  # checkout the two spellings differ although they name the same file, and
+  # all three symlink probes below silently stopped firing. The installer
+  # already uses the safe helper for this same comparison (issue #398, GAP-08).
   is_agents_symlink() {
-    [[ -L "$1" ]] &&
-      [[ "$(resolve_symlink_target "$1" 2>/dev/null || true)" == "$agents_source" ]]
+    [[ -L "$1" ]] && resolved_link_matches "$1" "$agents_source"
   }
 
   if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" ||

@@ -40,6 +40,81 @@ assert_contains "$TEST_OUTPUT" 'cannot read this plan_add line as a command'
 assert_contains "$TEST_OUTPUT" 'platforms/fedora/install.sh:'
 printf 'PASS: a plan_add line the tokeniser cannot read is a build error\n'
 
+# A step reaches a script through whatever shell the apply function is written
+# in, so the reader has to see the callee wherever it sits. The validator used
+# to find "a word in command position" with a regex whose openers were also
+# candidates for the word itself, so `if helper; then` reported `if` and `then`
+# and never the helper: a script reached that way was never required to be
+# declared, and the preflight never probed the host it downloads from.
+hidden_tree="$test_root/hidden-call-tree"
+mkdir -p "$hidden_tree"
+tar -C "$repo_root" --exclude=.git --exclude=.claude -cf - . |
+  tar -C "$hidden_tree" -xf -
+hide_call_behind() {
+  python3 - "$hidden_tree/platforms/fedora/install.sh" "$1" <<'PYTHON'
+import pathlib
+import sys
+
+installer, wrapping = pathlib.Path(sys.argv[1]), sys.argv[2]
+text = installer.read_text(encoding="utf-8")
+helper = (
+    "fedora_hidden_extra() {\n"
+    '  "$DOTFILES_ROOT/platforms/fedora/scripts/install-tailscale.sh"\n'
+    "}\n\n"
+)
+replaced = text.replace(
+    "apply_local() { plan_command_run fedora_local_command; }",
+    helper + "apply_local() {\n"
+    f"  {wrapping}\n"
+    "  plan_command_run fedora_local_command\n"
+    "}",
+    1,
+)
+if replaced == text:
+    raise SystemExit("the apply_local definition this case rewrites is gone")
+installer.write_text(replaced, encoding="utf-8")
+PYTHON
+  bash -n "$hidden_tree/platforms/fedora/install.sh"
+  run_capture python3 "$repo_root/scripts/validate-plan-network.py" --root "$hidden_tree"
+  cp "$repo_root/platforms/fedora/install.sh" \
+    "$hidden_tree/platforms/fedora/install.sh"
+}
+
+hide_call_behind 'if fedora_hidden_extra; then :; fi'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'step local runs platforms/fedora/scripts/install-tailscale.sh but does not declare it'
+printf 'PASS: a script reached through `if helper; then` must still be declared\n'
+
+hide_call_behind 'if [[ -n "${DOTFILES_EXTRA:-}" ]]; then fedora_hidden_extra; fi'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'step local runs platforms/fedora/scripts/install-tailscale.sh but does not declare it'
+printf 'PASS: a script reached from a one-line if body must still be declared\n'
+
+# Shell the reader cannot parse is unknown, not "declares nothing": an
+# unterminated function used to be read as a file with fewer functions in it.
+python3 - "$hidden_tree/platforms/fedora/install.sh" <<'PYTHON'
+import pathlib
+import sys
+
+installer = pathlib.Path(sys.argv[1])
+text = installer.read_text(encoding="utf-8")
+installer.write_text(
+    text.replace(
+        "apply_local() { plan_command_run fedora_local_command; }",
+        "apply_local() {\n  plan_command_run fedora_local_command\n",
+        1,
+    ),
+    encoding="utf-8",
+)
+PYTHON
+run_capture python3 "$repo_root/scripts/validate-plan-network.py" --root "$hidden_tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'is never closed'
+cp "$repo_root/platforms/fedora/install.sh" "$hidden_tree/platforms/fedora/install.sh"
+printf 'PASS: an installer the reader cannot parse is a build error, not a pass\n'
+
 # Everything the audit named as a trust source is actually registered.
 for source_id in terra-repo terra-signing-key rpmfusion-free-release \
   rpmfusion-nonfree-release tailscale-repo mise-installer starship-installer \
@@ -491,8 +566,12 @@ if (($# == 2)); then
   }'
   exit 0
 fi
-printf 'pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:\n'
-printf 'fpr:::::::::%s:\n' "$MOCK_FPR"
+# MOCK_FPR is a space-separated list, so a served key file can carry more than
+# one key -- which is the shape the pin has to be able to see.
+for fingerprint in $MOCK_FPR; do
+  printf 'pub:-:4096:1:0000000000000000:0:::-:::scESC::::::23::0:\n'
+  printf 'fpr:::::::::%s:\n' "$fingerprint"
+done
 EOF
 cat >"$terra_bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -569,6 +648,26 @@ assert_success
 assert_contains "$TEST_OUTPUT" "caller's explicit acknowledgement"
 assert_file_contains "$terra_log" 'rpm --import'
 printf 'PASS: an acknowledged unpinned key is imported\n'
+
+# GAP-25. `rpm --import` trusts every key in the file it is given, so the pin
+# has to answer for every key in the file. It used to read the first block and
+# stop, which made a file whose first key was Terra's and whose second was
+# anyone else's pass the pin, import in full, and verify clean afterwards --
+# the post-install check only asks whether the pinned fingerprint is present.
+run_terra 90 "$terra_pinned_fpr $terra_other_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'carries 2 keys'
+assert_contains "$TEST_OUTPUT" "$terra_pinned_fpr"
+assert_contains "$TEST_OUTPUT" "$terra_other_fpr"
+assert_file_empty "$terra_log"
+printf 'PASS: a key file carrying a second key is refused before any import\n'
+
+run_terra 91 "$terra_other_fpr $terra_pinned_fpr" \
+  TERRA_TRUST_KEY_FINGERPRINT="$terra_other_fpr"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'carries 2 keys'
+assert_file_empty "$terra_log"
+printf 'PASS: an acknowledgement does not cover a second key in the same file\n'
 
 # --- Terra: the verifier re-asserts the trust root on every run ------------
 

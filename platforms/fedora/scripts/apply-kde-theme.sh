@@ -95,24 +95,25 @@ print(JSON.stringify(result));'
     )"
   fi
 
-  if [[ "$wallpaper_snapshot" != \[*\] ]]; then
-    printf '%s\n' \
-      'KDE wallpaper state could not be read; skipping the global theme to preserve it.' \
-      >&2
-  fi
+  # Applying the global theme replaces the wallpaper, and the snapshot is what
+  # puts it back. Without one there is no way to honour both halves of the
+  # request, so the run fails and says which half to drop. It used to print
+  # this to stderr and carry on: lookandfeeltool never ran, the Plasma global
+  # theme -- the most visible part of the apply -- was not applied, and the
+  # command still exited 0 and recorded the theme as applied.
+  [[ "$wallpaper_snapshot" == \[*\] ]] ||
+    die 'KDE wallpaper state could not be read, so the global theme was not applied. Rerun without --preserve-wallpaper to apply it and take the theme wallpaper with it.'
 fi
 
-if [[ "$preserve_wallpaper" != "true" || "$wallpaper_snapshot" == \[*\] ]]; then
-  if command -v kwriteconfig6 >/dev/null 2>&1; then
-    kwriteconfig6 \
-      --file kwinrc \
-      --group org.kde.kdecoration2 \
-      --key BorderSizeAuto false
-  fi
-  lookandfeeltool --apply "$global_theme"
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+  kwriteconfig6 \
+    --file kwinrc \
+    --group org.kde.kdecoration2 \
+    --key BorderSizeAuto false
 fi
+lookandfeeltool --apply "$global_theme"
 
-if [[ "$preserve_wallpaper" == "true" && "$wallpaper_snapshot" == \[*\] ]]; then
+if [[ "$preserve_wallpaper" == "true" ]]; then
   escaped_snapshot="${wallpaper_snapshot//\\/\\\\}"
   escaped_snapshot="${escaped_snapshot//\'/\\\'}"
   escaped_snapshot="${escaped_snapshot//$'\n'/\\n}"

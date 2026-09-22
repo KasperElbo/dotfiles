@@ -31,6 +31,13 @@ while (($#)); do
   shift
 done
 
+# file(1) is read with -b throughout this file. Without it the output begins
+# with the path that was passed in, so the architecture words below are matched
+# against the question as well as the answer: check_arm64_file's own caller
+# hands it .../tools/netcoredbg/osx-arm64/netcoredbg, where "arm64" is in the
+# path, and the check could not fail for an architecture reason -- an x86_64
+# binary passed, and so did an HTML error page (issue #390, GAP-19). -b is
+# supported by Apple's file(1).
 check_arm64_file() {
   local name="$1"
   local path="$2"
@@ -39,12 +46,63 @@ check_arm64_file() {
     fail "$name is missing: $path"
     return
   fi
-  architecture="$(file -L "$path" 2>/dev/null || true)"
+  architecture="$(file -bL "$path" 2>/dev/null || true)"
   if [[ "$architecture" == *arm64* || "$architecture" == *universal* ]]; then
     pass "$name is arm64/universal: $path"
   else
-    fail "$name does not report arm64 or universal architecture: $architecture"
+    fail "$name does not report arm64 or universal architecture at $path:" \
+      "${architecture:-file(1) reported nothing}"
   fi
+}
+
+# macos_managed_defaults <apply-defaults.sh>: the managed_defaults array's
+# entries, one `domain|key|type|value` row per line, exactly as the installer
+# declares them. macos_managed_screenshot_directory reads the one value that
+# array leaves as a placeholder; $HOME is substituted by name rather than by
+# evaluating the line, so a change to that assignment can add a directory but
+# never a command.
+macos_managed_defaults() {
+  sed -n '/^managed_defaults=($/,/^)$/p' "$1" 2>/dev/null |
+    sed -n "s/^[[:space:]]*'\(.*\)'[[:space:]]*$/\1/p"
+}
+
+macos_managed_screenshot_directory() {
+  local declared
+  declared="$(sed -n 's/^screenshot_directory="\(.*\)"$/\1/p' "$1" 2>/dev/null | head -n 1)"
+  [[ -n "$declared" ]] || return 0
+  printf '%s' "${declared//\$HOME/$HOME}"
+}
+
+# --- The one machine state this verifier can change --------------------------
+#
+# Verification is documented as read-only, and `podman run` on an image the
+# machine does not have pulls it and keeps it, so a routine check left a
+# container image in local storage (issue #372). What the smoke probe
+# introduced is recorded here and undone again on every exit path, including a
+# signal, rather than only on the line after the probe.
+#
+# The variable is empty whenever there is nothing to undo, so the handler is
+# safe to run twice and safe to run when the probe was never reached. Removal
+# is attempted only if the image is really there, so a machine with no usable
+# podman produces no advice about an image it does not have.
+MACOS_INTRODUCED_SMOKE_IMAGE=""
+
+macos_restore_smoke_image() {
+  local image="$MACOS_INTRODUCED_SMOKE_IMAGE"
+
+  MACOS_INTRODUCED_SMOKE_IMAGE=""
+  [[ -n "$image" ]] || return 0
+  podman image inspect "$image" >/dev/null 2>&1 || return 0
+  podman rmi --force "$image" >/dev/null 2>&1 ||
+    warning "Verification pulled $image and could not remove it again;" \
+      "remove it with 'podman rmi $image'"
+}
+
+# Restore, then re-raise so the caller still sees the interruption it sent.
+macos_restore_smoke_image_on_signal() {
+  macos_restore_smoke_image
+  trap - INT TERM HUP EXIT
+  kill -s "$1" "$$"
 }
 
 if ! require_apple_silicon_macos; then
@@ -139,11 +197,12 @@ fi
 for name in brew nvim node python dotnet; do
   path="$(command -v "$name" 2>/dev/null || true)"
   [[ -n "$path" ]] || continue
-  architecture="$(file -L "$path" 2>/dev/null || true)"
+  architecture="$(file -bL "$path" 2>/dev/null || true)"
   if [[ "$architecture" == *arm64* || "$architecture" == *universal* || "$architecture" == *script* || "$architecture" == *text* ]]; then
     pass "$name is native/universal: $path"
   else
-    fail "$name does not report arm64 or universal architecture: $architecture"
+    fail "$name does not report arm64 or universal architecture at $path:" \
+      "${architecture:-file(1) reported nothing}"
   fi
 done
 
@@ -195,6 +254,24 @@ elif [[ "$login_ls" == *"/coreutils/libexec/gnubin/"* ]]; then
   fail "Zsh login shell shadows Apple's coreutils with gnubin: $login_ls"
 else
   pass "Zsh login environment activates Homebrew, Starship, and mise"
+fi
+
+# HOMEBREW_PREFIX is read by common/verify-ocaml.sh and scripts/bootstrap-macos.sh
+# to find Homebrew rather than assume the Apple Silicon path. Both fall back to
+# /opt/homebrew when it is unset, which is correct today and hides the variable
+# never being exported at all, so assert the export itself: a fallback that is
+# always taken proves nothing about the environment it claims to read.
+# The expected value comes from Homebrew itself rather than from the file under
+# test, so this asks whether the login shell agrees with the machine.
+# shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
+login_prefix="$(zsh -lic 'printf "%s" "${HOMEBREW_PREFIX:-}"' 2>/dev/null || true)"
+brew_prefix="$(brew --prefix 2>/dev/null || true)"
+if [[ -z "$brew_prefix" ]]; then
+  fail "Homebrew does not report a prefix, so HOMEBREW_PREFIX cannot be checked"
+elif [[ "$login_prefix" == "$brew_prefix" ]]; then
+  pass "Zsh login environment exports HOMEBREW_PREFIX: $login_prefix"
+else
+  fail "Zsh login environment exports HOMEBREW_PREFIX=${login_prefix:-unset}, but Homebrew reports $brew_prefix"
 fi
 
 # Apple's /bin/zsh and a deliberately selected Homebrew Zsh are both supported,
@@ -376,7 +453,7 @@ macos_ai_check_native_architecture() {
   resolved="$(command -v "$name" 2>/dev/null || true)"
   [[ -n "$resolved" ]] || return 0
   canonical="$(verify_canonical_existing_path "$resolved" 2>/dev/null || printf '%s' "$resolved")"
-  architecture="$(file -L "$canonical" 2>/dev/null || true)"
+  architecture="$(file -bL "$canonical" 2>/dev/null || true)"
   case "$architecture" in
   *arm64* | *universal* | *script* | *text* | *link*)
     pass "$name runs natively on arm64: $canonical"
@@ -503,15 +580,32 @@ fi
 
 if [[ "$verify_defaults" == true ]]; then
   section "Managed macOS defaults"
-  expected_defaults=(
-    'com.apple.dock|autohide|1'
-    'com.apple.dock|show-recents|0'
-    'com.apple.dock|mru-spaces|0'
-    'NSGlobalDomain|AppleShowAllExtensions|1'
-    'com.apple.finder|ShowPathbar|1'
-  )
+  # The expected set is read out of the installer rather than restated. It used
+  # to be a hand-copied five-entry subset of the thirteen keys apply-defaults.sh
+  # writes, so the Dock orientation and tile size, the Finder hidden-file and
+  # status-bar settings, and both the screenshot and key-repeat pairs were named
+  # by this section and by the installer's own plan step -- "Apply reversible
+  # Dock, Finder, screenshot, keyboard, and Mission Control defaults" -- and read
+  # by nothing (issue #396, GAP-22). Deriving it is the discipline
+  # verify_catppuccin_tmux_pin already uses for the tmux theme pin.
+  managed_defaults_source="$DOTFILES_ROOT/platforms/macos/scripts/apply-defaults.sh"
+  mapfile -t expected_defaults < <(macos_managed_defaults "$managed_defaults_source")
+  screenshot_directory="$(macos_managed_screenshot_directory "$managed_defaults_source")"
+  if ((${#expected_defaults[@]} == 0)) || [[ -z "$screenshot_directory" ]]; then
+    fail "Could not read the managed defaults set from $managed_defaults_source"
+  fi
   for item in "${expected_defaults[@]}"; do
-    IFS='|' read -r domain key expected <<<"$item"
+    IFS='|' read -r domain key value_type value <<<"$item"
+    # `defaults read` answers a boolean as 1 or 0 whatever spelling was written,
+    # and the installer substitutes the screenshot directory into its own
+    # placeholder, so both are translated here the same way it translates them.
+    if [[ "$value" == __SCREENSHOT_DIRECTORY__ ]]; then
+      expected="$screenshot_directory"
+    elif [[ "$value_type" == bool ]]; then
+      if [[ "$value" == true ]]; then expected=1; else expected=0; fi
+    else
+      expected="$value"
+    fi
     actual="$(defaults read "$domain" "$key" 2>/dev/null || true)"
     if [[ "$actual" == "$expected" ]]; then
       pass "$domain $key = $expected"
@@ -545,8 +639,30 @@ if [[ "$containers_disposition" == verify || "$containers_disposition" == leftov
   else
     fail "Podman reports rootless=${rootless:-unknown}"
   fi
+  # An image already on this machine is run with --pull=never, so the probe
+  # touches neither the network nor local image storage and the operator's tag
+  # keeps naming the image it named before. One this machine does not have is
+  # pulled, and then removed again. Nothing here reads back what this block
+  # just did -- a check that asserts its own side effect is the shape #398 is
+  # about -- so tests/test-macos-verification.sh asserts the restore from
+  # outside, against the image store itself.
   # network-source: smoke-image-alpine
-  machine_arch="$(podman run --rm docker.io/library/alpine:latest uname -m 2>/dev/null || true)"
+  smoke_image="docker.io/library/alpine:latest"
+  if podman image inspect "$smoke_image" >/dev/null 2>&1; then
+    smoke_pull_policy=never
+  else
+    smoke_pull_policy=missing
+    MACOS_INTRODUCED_SMOKE_IMAGE="$smoke_image"
+    trap 'macos_restore_smoke_image_on_signal INT' INT
+    trap 'macos_restore_smoke_image_on_signal TERM' TERM
+    trap 'macos_restore_smoke_image_on_signal HUP' HUP
+    trap macos_restore_smoke_image EXIT
+  fi
+  machine_arch="$(
+    podman run --rm --pull="$smoke_pull_policy" "$smoke_image" uname -m 2>/dev/null || true
+  )"
+  macos_restore_smoke_image
+  trap - INT TERM HUP EXIT
   if [[ "$machine_arch" == aarch64 ]]; then
     pass "Containers run as ARM64"
   else
@@ -684,8 +800,20 @@ if [[ "$dictation_disposition" != absent ]]; then
   # The pinned disk image is the declared provider. Homebrew publishes no
   # Ghost Pepper cask today; if one appears, a machine must not end up with
   # both, so the duplicate is named here rather than discovered later.
-  dictation_casks="$("$(homebrew_path)" list --cask 2>/dev/null || true)"
-  if grep -Fqi ghost-pepper <<<"$dictation_casks"; then
+  # The status is taken on the failing branch of the assignment, the way the
+  # Tailscale probes above do it. Discarding it made a Homebrew that could not
+  # answer at all indistinguishable from one that answered "no cask": grep on
+  # the empty string does not match, so absence of evidence was reported as
+  # evidence of absence, and this was the one check in the section that did not
+  # fail closed (issue #396, GAP-24).
+  dictation_casks=""
+  dictation_cask_status=0
+  dictation_casks="$("$(homebrew_path)" list --cask 2>/dev/null)" ||
+    dictation_cask_status=$?
+  if ((dictation_cask_status != 0)); then
+    not_observed "Homebrew did not list its casks (exit $dictation_cask_status)," \
+      "so a competing Ghost Pepper cask could not be ruled out"
+  elif grep -Fqi ghost-pepper <<<"$dictation_casks"; then
     fail "A Homebrew cask also provides Ghost Pepper; this profile owns the" \
       "pinned disk image, so remove one of the two copies"
   else

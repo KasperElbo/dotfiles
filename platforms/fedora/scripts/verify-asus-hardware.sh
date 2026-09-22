@@ -141,10 +141,18 @@ if [[ "$model" == "ga402xz" ]]; then
   if [[ "$secure_boot" == "enabled" ]]; then
     mok_certificate="${MOK_CERTIFICATE:-/etc/pki/akmods/certs/public_key.der}"
 
-    if ! privileged_file_exists "$mok_certificate"; then
-      fail "akmods signing certificate is missing"
-    else
-      probe_mok_key "$mok_certificate"
+    # Both probes below read root-owned state, and this script is a verifier:
+    # it runs from timers, plan steps and sessions with no terminal, so it asks
+    # sudo only in its non-interactive spelling. A control it could not read is
+    # not a control that is gone -- reporting the certificate missing because
+    # sudo declined to answer would send someone to re-run the installer over a
+    # machine whose Secure Boot setup is intact.
+    privileged_file_exists_unattended "$mok_certificate"
+    mok_certificate_state=$?
+
+    case "$mok_certificate_state" in
+    0)
+      probe_mok_key_unattended "$mok_certificate"
 
       case "$MOK_KEY_STATE" in
       enrolled)
@@ -159,12 +167,26 @@ if [[ "$model" == "ga402xz" ]]; then
       blocked)
         fail "akmods signing certificate is blocked"
         ;;
+      not-observed)
+        not_observed "whether the akmods signing certificate is enrolled needs" \
+          "a sudo password, so it was not checked: $mok_certificate -- run" \
+          "'sudo -v' first, or run verification as root"
+        ;;
       unknown)
         warning "mokutil returned status $MOK_KEY_STATUS: ${MOK_KEY_OUTPUT:-no diagnostic output}"
         fail "akmods signing certificate state could not be determined"
         ;;
       esac
-    fi
+      ;;
+    1)
+      fail "akmods signing certificate is missing: $mok_certificate"
+      ;;
+    *)
+      not_observed "whether the akmods signing certificate exists needs a sudo" \
+        "password, so it was not checked: $mok_certificate -- run 'sudo -v'" \
+        "first, or run verification as root"
+      ;;
+    esac
   fi
 
   if nvidia-smi >/dev/null 2>&1; then
@@ -212,12 +234,38 @@ else
 fi
 
 if [[ -n "$charge_limit" ]]; then
-  battery_info="$(asusctl battery info 2>/dev/null || true)"
+  # Read the limit itself, rather than searching asusctl's report for the
+  # number. That report also carries the current charge level, and a battery
+  # held at an 80% limit sits at 80%, so an unanchored search passed on exactly
+  # the machines where the limit was recently in force, whatever it is now.
+  #
+  # charge_control_end_threshold is the kernel attribute asusd writes when it
+  # applies the limit, so this is the value in effect rather than a rendering
+  # of it, and it needs no guess about asusctl's field labels.
+  power_supply_root="${POWER_SUPPLY_ROOT:-/sys/class/power_supply}"
+  charge_limit_file=""
 
-  if grep -Eq "${charge_limit}%" <<<"$battery_info"; then
-    pass "Battery charge limit is ${charge_limit}%"
+  for candidate in "$power_supply_root"/BAT*/charge_control_end_threshold; do
+    if [[ -r "$candidate" ]]; then
+      charge_limit_file="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$charge_limit_file" ]]; then
+    not_observed "no battery exposes charge_control_end_threshold under" \
+      "$power_supply_root, so the ${charge_limit}% charge limit was not" \
+      "checked -- confirm it with 'asusctl battery info'"
   else
-    fail "Battery charge limit is not ${charge_limit}%"
+    observed_charge_limit="$(tr -d '[:space:]' <"$charge_limit_file")"
+
+    if [[ "$observed_charge_limit" == "$charge_limit" ]]; then
+      pass "Battery charge limit is ${charge_limit}%"
+    elif [[ -z "$observed_charge_limit" ]]; then
+      fail "Battery charge limit could not be read from $charge_limit_file"
+    else
+      fail "Battery charge limit is ${observed_charge_limit}%, not ${charge_limit}%"
+    fi
   fi
 fi
 

@@ -45,6 +45,8 @@ installing exactly one platform.
      scripts/render-install-flows.py. Do not edit between these markers;
      edit the installer and regenerate. -->
 
+*Generated from the `plan_add` calls in `platforms/*/install.sh` by `scripts/render-install-flows.py`. Anything written by hand between the markers around this section is discarded the next time that runs — edit the source and regenerate.*
+
 ## Per-platform install flow
 
 Every installer builds one ordered execution plan and then runs it. The

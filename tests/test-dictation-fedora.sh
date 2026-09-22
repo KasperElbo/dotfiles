@@ -186,6 +186,18 @@ install_handy_command() {
   RPM_PRESENT="gtk-layer-shell wtype"
 }
 
+# The dictation capability depends on base alone, so it installs on a Plasma
+# machine that has no Sway session. Which key starts a transcription is the one
+# thing that differs, and the installer reads the same signal the verifier does.
+with_sway_config() {
+  mkdir -p "$test_root/xdg/sway"
+  printf 'bindsym $mod+o exec pkill -USR2 -x handy\n' >"$test_root/xdg/sway/config"
+}
+
+without_sway_config() {
+  rm -rf "$test_root/xdg/sway"
+}
+
 base_environment=(
   env
   "HOME=$test_root/home"
@@ -267,6 +279,7 @@ printf 'PASS: the Handy release is pinned by version and artifact name\n'
 
 # --- dry-run changes nothing and states the provider ----------------------
 
+with_sway_config
 run_installer_as_shipped --dry-run
 assert_success
 assert_contains "$TEST_OUTPUT" 'Provider:           pinned upstream release rpm, verified by SHA-256'
@@ -279,6 +292,16 @@ assert_file_empty "$command_log"
 assert_file_empty "$download_log"
 assert_path_missing "$state_file"
 printf 'PASS: --dry-run describes the pinned provider and mutates nothing\n'
+
+# The same plan on a machine with no Sway session must not name a key nothing
+# binds there.
+without_sway_config
+run_installer_as_shipped --dry-run
+assert_success
+assert_contains "$TEST_OUTPUT" 'handy --toggle-transcription'
+assert_not_contains "$TEST_OUTPUT" 'Super+O'
+with_sway_config
+printf 'PASS: --dry-run names the Plasma shortcut when there is no Sway session\n'
 
 # A dry run is also how an operator discovers the pin is missing, so it has to
 # say so rather than printing a plausible-looking plan.
@@ -311,6 +334,28 @@ if ! grep -Eq '^sudo dnf install -y /.*/Handy-[0-9.]+-1\.x86_64\.rpm$' "$command
   _test_die "the verified rpm was not installed:\n$(cat "$command_log")"
 fi
 printf 'PASS: the pinned rpm is downloaded, verified and installed\n'
+
+# The last thing a successful run prints is the key to press. On a Sway session
+# that is Super+O, which the tracked config binds; on Plasma nothing binds a
+# key until one is created by hand, and telling that person to press Super+O
+# and edit ~/.config/sway/local.conf sends them to a file they do not have.
+assert_contains "$TEST_OUTPUT" 'Press Super+O to start and stop dictation'
+assert_not_contains "$TEST_OUTPUT" 'System Settings'
+
+without_sway_config
+reset_logs
+rm -f "$state_file"
+run_installer "$fixture_rpm"
+assert_success
+assert_contains "$TEST_OUTPUT" 'handy --toggle-transcription'
+assert_contains "$TEST_OUTPUT" 'System Settings'
+assert_not_contains "$TEST_OUTPUT" 'local.conf'
+with_sway_config
+reset_logs
+rm -f "$state_file"
+run_installer "$fixture_rpm"
+assert_success
+printf 'PASS: the closing instructions name the key the desktop actually binds\n'
 
 # Installing an artifact dnf cannot check a signature on must never be bought
 # by telling dnf to stop checking signatures. The digest is what stands in for
@@ -658,10 +703,48 @@ assert_contains "$TEST_OUTPUT" 'unobserved check(s)'
 mv "$verify_sway_config.hidden" "$verify_sway_config"
 printf 'PASS: an absent Sway session is unobserved rather than a false failure\n'
 
+# GAP-05. The binding commented out is the shape a substring search cannot see
+# past, and the shape someone leaves behind after turning the key off: Sway
+# ignores the line, the key does nothing, and the old check reported the toggle
+# bound. The case above only replaces the command text, which a substring
+# search does catch, so it could not tell the two predicates apart.
+cp "$verify_sway_config" "$verify_sway_config.pristine"
+sed -i 's/^bindsym \$mod+o exec pkill/# bindsym $mod+o exec pkill/' \
+  "$verify_sway_config"
+assert_file_contains "$verify_sway_config" '# bindsym $mod+o exec pkill -USR2 -x handy'
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'no live dictation binding'
+printf 'PASS: a commented-out dictation binding fails verification\n'
+
+# The anchor has to admit a line Sway accepts. Leading whitespace is legal in a
+# Sway config, so a check that rejected it would trade the false pass above for
+# a false failure.
+cp "$verify_sway_config.pristine" "$verify_sway_config"
+sed -i 's/^bindsym \$mod+o exec pkill/  bindsym $mod+o exec pkill/' \
+  "$verify_sway_config"
+run_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" 'Sway binds the dictation toggle'
+printf 'PASS: an indented dictation binding still verifies\n'
+
+# The pattern is read from config/actions.tsv, so a registry with no such row
+# has to be reported as the repository defect it is. Without this the read
+# could silently answer with nothing and the check would look like a strict one
+# that simply never matched.
+cp "$verify_sway_config.pristine" "$verify_sway_config"
+empty_action_manifest="$test_root/actions-without-dictation.tsv"
+grep -v '^sway\.dictation\.toggle	' "$repo_root/config/actions.tsv" \
+  >"$empty_action_manifest"
+ACTION_MANIFEST="$empty_action_manifest" run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'has no sway.dictation.toggle row'
+printf 'PASS: a registry with no dictation row fails rather than checking nothing\n'
+
 sed -i 's/pkill -USR2 -x handy/true/' "$verify_sway_config"
 run_verifier
 assert_failure
-assert_contains "$TEST_OUTPUT" 'no dictation binding'
+assert_contains "$TEST_OUTPUT" 'no live dictation binding'
 printf 'PASS: a Sway session without the binding fails verification\n'
 
 # --- an unselected profile verifies clean by being absent -----------------

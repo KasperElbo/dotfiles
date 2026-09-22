@@ -1,5 +1,28 @@
+-- Verification starts this configuration to prove it loads, and must leave the
+-- machine exactly as it found it. In that mode a missing lazy.nvim, or a
+-- missing plugin, is the answer -- not a repair. Without this, the verifier
+-- clones what is absent and then credits the state it just created: on a
+-- machine with no plugin tree the Fedora check installed the whole spec and
+-- reported a pass, and because stdpath("config") is the stowed symlink, Lazy
+-- rewrote the tracked lazy-lock.json in the checkout to branch tips.
+--
+-- The shell verifier still owns the verdict. This only makes the startup it
+-- runs observational, so common/lib/verify.sh can judge a machine that was
+-- never touched.
+local verify_only = vim.env.DOTFILES_NVIM_VERIFY == "1"
+
+-- Headless means nobody is at the keyboard, so there is nothing to prompt.
+local interactive = #vim.api.nvim_list_uis() > 0
+
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not (vim.uv or vim.loop).fs_stat(lazypath) then
+  if verify_only then
+    -- Named, immediate, and silent about repair: the verifier reports the
+    -- absence rather than filling it in.
+    io.stderr:write("lazy.nvim is not installed: " .. lazypath .. "\n")
+    os.exit(1)
+  end
+
   local lazyrepo = "https://github.com/folke/lazy.nvim.git"
   -- network-source: lazy-nvim
   local out = vim.fn.system({ "git", "clone", "--filter=blob:none", "--branch=stable", lazyrepo, lazypath })
@@ -7,9 +30,13 @@ if not (vim.uv or vim.loop).fs_stat(lazypath) then
     vim.api.nvim_echo({
       { "Failed to clone lazy.nvim:\n", "ErrorMsg" },
       { out, "WarningMsg" },
-      { "\nPress any key to exit..." },
+      interactive and { "\nPress any key to exit..." } or { "\n" },
     }, true, {})
-    vim.fn.getchar()
+    -- getchar() blocks forever without a UI -- even with stdin on /dev/null --
+    -- so a headless clone failure used to hang until something killed it.
+    if interactive then
+      vim.fn.getchar()
+    end
     os.exit(1)
   end
 end
@@ -34,9 +61,17 @@ require("lazy").setup({
     version = false, -- always use the latest git commit
     -- version = "*", -- try installing the latest stable version for plugins that support semver
   },
-  install = { colorscheme = { "tokyonight", "habamax" } },
+  -- `missing` is the one that matters: with it on, simply starting Neovim
+  -- installs every plugin the spec names and is not on disk, which is how
+  -- verification came to repair the tree it was inspecting.
+  install = { missing = not verify_only, colorscheme = { "tokyonight", "habamax" } },
+  -- Generated help tags and README copies are writes too, and under a
+  -- disposable XDG view they follow symlinks back into the real plugin
+  -- directories.
+  readme = { enabled = not verify_only },
+  change_detection = { enabled = not verify_only },
   checker = {
-    enabled = profile.current().checker_enabled,
+    enabled = not verify_only and profile.current().checker_enabled,
     notify = false, -- notify on update
   }, -- automatically check for plugin updates
   rocks = {
