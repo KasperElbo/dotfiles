@@ -181,6 +181,61 @@ and deprecated aliases are listed in the validator, and so are the flags a
 platform deliberately rejects with an explanation (`--tailscale` on Fedora WSL,
 `--latex` on macOS), whose arms must really `die`.
 
+It also holds two columns to the code that implements them, which the flag
+comparison above does not reach:
+
+- `default` is compared with the value the installer starts from — the
+  `name=value` its argv parser reads, resolved through a shared library when
+  the installers state a default once between them. Flipping the macOS
+  `defaults` row to `false` used to pass every validator, every render gate
+  and every suite while the installer went on defaulting it to `true`, and the
+  generated reference published the wrong answer as fact.
+- `values`, when it enumerates literals rather than stating a pattern, is
+  compared with the accepted set of the code that reads it, in both
+  directions. `config/option-consumers.tsv` says which file that is
+  (`bin/.local/bin/theme` for a flavour, the ASUS installer for a hardware
+  model) and how to read it, because a flavour the registry offers and the
+  runtime refuses is an install that runs every package, Stow and Mason step
+  before failing on its second-to-last plan step.
+
+## `config/option-consumers.tsv`
+
+What reads an option's enumerated values, and how.
+
+| Column | Meaning | Accepted values |
+|---|---|---|
+| `platform` | The platform whose row this consumer reads, or `-` for all of them | as above, or `-` |
+| `option` | The `option` column of the row it reads | a name |
+| `consumer` | The file that accepts or refuses the value, or the path pattern the files sit at | a repository path |
+| `kind` | How its accepted set is read | one of the kinds below |
+| `detail` | What the kind needs to find the set | any, `-` for `file-per-value` |
+| `summary` | Why this file is a consumer | any |
+
+| `kind` | Reads | `detail` |
+|---|---|---|
+| `shell-case` | Every `case "$name" in` over that name, each on its own | the name, or `function:name` for one inside a function |
+| `shell-array` | The words of a `name=( … )` array | the array's name |
+| `shell-word-list` | The words a `for name in …` loop runs over | the loop variable |
+| `lua-table` | The keys a Lua table maps to `true` | the table's name |
+| `powershell-validateset` | The literals of a parameter's `[ValidateSet(…)]` | the parameter's name |
+| `line-pattern` | Every line matching a template, `{value}` standing for the value | the template |
+| `file-per-value` | The files matching the `consumer` path, `{value}` standing for the value | `-` |
+
+Every option row that enumerates literal values has to be named here, so an
+enumeration nothing is held to fails rather than passing as documentation. A
+`values` column that states a pattern instead of a set — `--charge-limit`'s
+`[4-9][0-9]|100` — has no set of words for a consumer to agree with and is
+exempt.
+
+Each site a row points at is compared with the manifest on its own, in both
+directions: a file that branches on a flavour twice enforces the set twice, and
+a second block that has fallen behind is exactly the drift this check exists
+for. A row whose shape is not there any more — a `case` that has been rewritten,
+a kind nothing can read — is a build error rather than a row that passes: a
+consumer whose accepted set cannot be read enforces nothing, and reading that as
+agreement is how the four Catppuccin flavours came to be written out in
+seventeen places that nothing compared.
+
 `--dry-run` stops before preflight, but it still runs the pure
 `capability_validate_selection` check, so a plan is never shown for a
 capability the manifest does not implement.
