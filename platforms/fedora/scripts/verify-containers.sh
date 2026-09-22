@@ -17,8 +17,14 @@ skip_smoke_test="false"
 
 # Overridable so tests can point these at a mocked podman without touching a
 # real registry, port range, or filesystem.
+#
+# The smoke image is pinned by manifest-list digest, not by the :stable tag it
+# was taken from. A tag is a moving reference, so the same verification run
+# could pull different content on two machines, and restoring "the state before
+# the run" would be meaningless when the thing restored is not the thing that
+# was there. A digest makes the pull reproducible and makes the restore exact.
 # network-source: smoke-image-busybox
-smoke_image="${PODMAN_SMOKE_IMAGE:-docker.io/library/busybox:stable}"
+smoke_image="${PODMAN_SMOKE_IMAGE:-docker.io/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662}"
 port_base="${PODMAN_SMOKE_PORT_BASE:-18000}"
 subuid_file="${SUBUID_FILE:-/etc/subuid}"
 subgid_file="${SUBGID_FILE:-/etc/subgid}"
@@ -101,6 +107,7 @@ section "Rootless API socket"
 
 containers_state="${CONTAINERS_STATE_FILE:-$XDG_CONFIG_HOME/dotfiles/containers.conf}"
 api_socket_intent=""
+api_socket_running="false"
 
 user_socket_enabled() {
   systemctl --user is-enabled --quiet podman.socket 2>/dev/null
@@ -116,6 +123,24 @@ user_socket_active() {
 system_socket_present() {
   systemctl is-enabled --quiet podman.socket 2>/dev/null ||
     systemctl is-active --quiet podman.socket 2>/dev/null
+}
+
+# The path the unit actually listens on, read from the unit rather than
+# assumed. A socket unit can be overridden with a different ListenStream, and a
+# check that stats a path the unit does not use would report on a file nobody
+# talks to while the real endpoint went unlooked at.
+user_socket_listen_path() {
+  local line value
+  while IFS= read -r line; do
+    value="${line#Listen=}"
+    [[ "$value" != "$line" ]] || continue
+    # systemd spells this "Listen=/run/user/1000/podman/podman.sock (Stream)".
+    value="${value% (*}"
+    [[ "$value" == /* ]] || continue
+    printf '%s\n' "$value"
+    return 0
+  done < <(systemctl --user show podman.socket --property=Listen 2>/dev/null)
+  return 1
 }
 
 if [[ -e "$containers_state" ]]; then
@@ -170,6 +195,7 @@ enabled)
   else
     pass "podman.socket is enabled and active for the user" \
       "(socket-activated, user-scoped), as recorded"
+    api_socket_running="true"
   fi
   ;;
 disabled)
@@ -186,6 +212,84 @@ disabled)
   fi
   ;;
 esac
+
+# ---------------------------------------------------------------------------
+# API socket ownership and mode
+#
+# The socket this profile enables is the one thing it installs that is
+# equivalent to shell access: anything that can talk to it can run a container
+# with an arbitrary bind mount. Up to here the section reads a systemd unit
+# state, which says the endpoint is running and nothing about the shape it is
+# running in -- the same proxy-instead-of-property gap verify_terra_trust_root
+# and the hardening drop-in checks were changed to close. In the default
+# rootless layout the socket sits under an $XDG_RUNTIME_DIR that systemd
+# creates 0700 and owns, so this is expected to pass everywhere; it is here so
+# that a non-default runtime directory, a unit overridden with another
+# ListenStream or SocketMode, or a distribution change is noticed rather than
+# assumed away. A path that cannot be resolved or stat'd is unobserved, not a
+# failure, the way the rest of this file treats a state it cannot read.
+# ---------------------------------------------------------------------------
+
+if [[ "$api_socket_running" == "true" ]]; then
+  section "API socket ownership and mode"
+
+  # Owner reads have no portable stat spelling the way verify_file_mode gives
+  # the mode one, and this verifier is Fedora's, so GNU stat is the primary
+  # with the BSD form behind it for a shared-library move later.
+  api_socket_owner_of() {
+    stat -c '%U' "$1" 2>/dev/null || stat -f '%Su' "$1" 2>/dev/null || true
+  }
+
+  if api_socket_path="$(user_socket_listen_path)"; then
+    api_socket_path_source="systemctl --user show podman.socket"
+  else
+    api_socket_path="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+    api_socket_path_source="the default rootless layout"
+  fi
+
+  api_socket_owner="$(api_socket_owner_of "$api_socket_path")"
+
+  if [[ ! -S "$api_socket_path" ]]; then
+    not_observed "podman.socket is active but $api_socket_path" \
+      "($api_socket_path_source) is not a socket, so its owner and mode" \
+      "cannot be checked"
+  elif ! api_socket_mode="$(verify_file_mode "$api_socket_path")" ||
+    [[ -z "$api_socket_owner" ]]; then
+    not_observed "podman.socket is active but the owner and mode of" \
+      "$api_socket_path could not be read, so they cannot be checked"
+  else
+    # The owner is compared by name rather than with [[ -O ]] so the check can
+    # say what it saw: a verifier that reports "wrong owner" without naming the
+    # owner leaves the reader to go and run stat themselves.
+    if [[ "$api_socket_owner" != "$current_user" ]]; then
+      fail "$api_socket_path is owned by $api_socket_owner, not" \
+        "$current_user; a rootless API socket this user does not own is not" \
+        "the endpoint this profile enabled"
+    elif ((8#$api_socket_mode & 8#7)); then
+      fail "$api_socket_path is mode $api_socket_mode, which is open to every" \
+        "user on this machine; anything that can reach it can run a container" \
+        "with an arbitrary bind mount -- expected 0660 or narrower"
+    elif (((8#$api_socket_mode & 8#70) > 8#60)); then
+      fail "$api_socket_path is mode $api_socket_mode, which grants its group" \
+        "more than read and write -- expected 0660 or narrower"
+    else
+      pass "$api_socket_path ($api_socket_path_source) is owned by" \
+        "$api_socket_owner, mode $api_socket_mode"
+    fi
+
+    api_socket_dir="$(dirname -- "$api_socket_path")"
+    if ! api_socket_dir_mode="$(verify_file_mode "$api_socket_dir")"; then
+      not_observed "the mode of $api_socket_dir could not be read, so the" \
+        "directory holding the API socket cannot be checked"
+    elif ((8#$api_socket_dir_mode & 8#77)); then
+      fail "$api_socket_dir is mode $api_socket_dir_mode, so users other than" \
+        "$current_user can reach the API socket inside it -- expected 0700"
+    else
+      pass "$api_socket_dir is mode $api_socket_dir_mode, so the API socket" \
+        "is reachable by $current_user only"
+    fi
+  fi
+fi
 
 if ((VERIFY_FAILURES > 0)); then
   finish_verification "Containers verification"
@@ -204,6 +308,13 @@ fi
 # port publishing, container-to-container networking, and Compose. Every
 # resource below is uniquely named per run and removed on exit so repeated
 # runs never leave containers/images/volumes/networks behind.
+#
+# The pinned smoke image is the one resource this run does not name itself, so
+# it gets the only treatment that can leave local image storage as it found it:
+# record whether it was already present, and afterwards remove it only if this
+# run is what introduced it. A machine that already had the image keeps it
+# (removing it would be a mutation in the other direction, and would make the
+# next run pull again); a machine that did not, ends the run without it.
 # ---------------------------------------------------------------------------
 
 run_id="$$-$RANDOM"
@@ -218,6 +329,32 @@ smoke_build_dir=""
 smoke_bind_dir=""
 smoke_compose_dir=""
 
+smoke_image_id() {
+  podman image inspect --format '{{.Id}}' "$smoke_image" 2>/dev/null || true
+}
+
+smoke_image_present() {
+  podman image exists "$smoke_image" >/dev/null 2>&1
+}
+
+# Read before anything is pulled, so the run knows which of the two restores it
+# owes: remove what it introduced, or leave what was already there alone.
+if smoke_image_present; then
+  smoke_image_was_present="true"
+  smoke_image_id_before="$(smoke_image_id)"
+else
+  smoke_image_was_present="false"
+  smoke_image_id_before=""
+fi
+
+# Idempotent: the cleanup trap calls this on every exit path, and the reporting
+# block below calls it once more so the run can say what it restored.
+restore_smoke_image() {
+  [[ "$smoke_image_was_present" == "false" ]] || return 0
+  smoke_image_present || return 0
+  podman rmi -f "$smoke_image" >/dev/null 2>&1 || true
+}
+
 cleanup_smoke_test() {
   podman stop "$smoke_container" >/dev/null 2>&1 || true
   podman stop "$smoke_server" >/dev/null 2>&1 || true
@@ -231,8 +368,27 @@ cleanup_smoke_test() {
   [[ -n "$smoke_build_dir" ]] && rm -rf -- "$smoke_build_dir"
   [[ -n "$smoke_bind_dir" ]] && rm -rf -- "$smoke_bind_dir"
   [[ -n "$smoke_compose_dir" ]] && rm -rf -- "$smoke_compose_dir"
+  restore_smoke_image
+}
+
+# Restore, then re-raise so the caller still sees the interruption it sent.
+# Bash runs an EXIT trap for TERM and HUP too, so those two are named for the
+# same reason platforms/macos/scripts/verify.sh names them: the restore should
+# not rest on that. SIGINT is the one that does not work without a handler --
+# a Ctrl-C reaches the whole foreground process group, the podman it landed on
+# exits on its own, and bash then sees a child that was not killed by SIGINT,
+# discards the interrupt, and runs the rest of the smoke test. Without this an
+# interrupted verification keeps pulling and building and finishes as though
+# nothing had happened.
+on_smoke_signal() {
+  cleanup_smoke_test
+  trap - INT TERM HUP EXIT
+  kill -s "$1" "$$"
 }
 trap cleanup_smoke_test EXIT
+trap 'on_smoke_signal INT' INT
+trap 'on_smoke_signal TERM' TERM
+trap 'on_smoke_signal HUP' HUP
 
 # wait_for_content <times> <expected> <command...>: retries a possibly-not-
 # yet-ready check (a freshly started container's port or network listener)
@@ -254,7 +410,14 @@ wait_for_content() {
 
 section "Rootless smoke test"
 
-if podman pull -q "$smoke_image" >/dev/null 2>&1; then
+# An image this machine already has is not re-fetched: the probe then reaches
+# neither the network nor image storage, which is the strongest way to keep the
+# reference naming the image it named before. Only a machine that does not have
+# it pulls, and that is the pull this run owes a removal for.
+if [[ "$smoke_image_was_present" == "true" ]]; then
+  pass "pull: $smoke_image is already in local image storage and is not" \
+    "re-fetched"
+elif podman pull -q "$smoke_image" >/dev/null 2>&1; then
   pass "pull: $smoke_image"
 else
   fail "pull failed: $smoke_image"
@@ -372,6 +535,46 @@ if podman compose -f "$smoke_compose_dir/compose.yaml" up -d >/dev/null 2>&1; th
   podman compose -f "$smoke_compose_dir/compose.yaml" down -v >/dev/null 2>&1
 else
   fail "podman compose up failed"
+fi
+
+# ---------------------------------------------------------------------------
+# Local image state
+#
+# The restore itself also runs from the cleanup trap, so this section exists to
+# report it: a verifier that quietly puts things back leaves no evidence that it
+# did, and "verification left no trace" is a claim the docs make on this
+# script's behalf. Running it here rather than only in the trap is also what
+# lets a restore that did not work be said out loud, instead of the image
+# quietly staying on the machine.
+# ---------------------------------------------------------------------------
+
+section "Local image state"
+
+restore_smoke_image
+
+if [[ "$smoke_image_was_present" == "true" ]]; then
+  smoke_image_id_after="$(smoke_image_id)"
+  if [[ -z "$smoke_image_id_before" ]]; then
+    not_observed "the smoke image was already present before this run, but its" \
+      "image ID could not be read, so this run cannot show that it is unchanged"
+  elif [[ "$smoke_image_id_after" == "$smoke_image_id_before" ]]; then
+    pass "smoke image was already present and is kept, unchanged at" \
+      "$smoke_image_id_after"
+  else
+    fail "the smoke image was $smoke_image_id_before before this run and is" \
+      "${smoke_image_id_after:-gone} after it; verification was supposed to" \
+      "leave an image it did not introduce alone"
+  fi
+elif smoke_image_present; then
+  # A failure here would be a verdict on the verifier's housekeeping rather
+  # than on the machine's containers profile, which is what this script is
+  # being asked about. The image is still there either way, so say so and name
+  # the command, as platforms/macos/scripts/verify.sh does.
+  warning "verification pulled $smoke_image and could not remove it again;" \
+    "remove it with: podman rmi -f $smoke_image"
+else
+  pass "smoke image was introduced by this run and has been removed again;" \
+    "local image storage is as it was found"
 fi
 
 finish_verification "Containers verification"

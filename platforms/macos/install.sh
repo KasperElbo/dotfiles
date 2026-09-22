@@ -226,33 +226,33 @@ verify_macos() {
     "$install_dictation"
 }
 
-plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' apply preflight_macos apply_system : 'Install native Homebrew at /opt/homebrew, Brewfile machine tools, Ghostty, and AeroSpace. Sets a registered Zsh as the login shell when the account does not already use one.' 'platforms/macos/scripts/install-system.sh'
-[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Homebrew OCaml prerequisites' apply : apply_ocaml_native : 'platforms/macos/scripts/install-ocaml.sh' 'platforms/macos/scripts/install-ocaml.sh'
-[[ "$install_containers" != true ]] || plan_add containers 'Install and start a rootless Podman machine' apply : apply_containers : 'Run an ARM64 smoke test with the Podman machine.' 'platforms/macos/scripts/install-containers.sh'
-[[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale profile (Homebrew cask, interactive login).' apply : apply_tailscale : 'Authentication and Network Extension approval remain interactive.' 'platforms/macos/scripts/install-tailscale.sh'
-[[ "$install_dictation" != true ]] || plan_add dictation 'Install the optional dictation profile (pinned Ghost Pepper disk image).' apply dictation_preflight apply_dictation : 'Microphone and Accessibility approval remain interactive.' 'platforms/macos/scripts/install-dictation.sh'
-plan_add local 'Initialize local Git and theme state' apply : apply_local : "common/setup-local.sh macos $theme" 'common/setup-local.sh'
-plan_add stow 'Deploy shared and macOS configuration' apply : apply_stow : 'platforms/macos/scripts/stow.sh' 'platforms/macos/scripts/stow.sh'
-plan_add mise 'Install mise-managed runtimes' apply : apply_mise : 'common/install-mise.sh' 'common/install-mise.sh'
-plan_add nvim 'Restore LazyVim and Mason tools' apply : apply_nvim : 'common/install-neovim-tools.sh' 'common/install-neovim-tools.sh'
-plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux : 'common/install-tmux-theme.sh' 'common/install-tmux-theme.sh'
-[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and platform tools' apply : apply_ocaml : 'common/install-ocaml.sh' 'common/install-ocaml.sh'
+plan_add system 'Verify native arm64 macOS and install the Homebrew baseline' apply preflight_macos apply_system 'Install native Homebrew at /opt/homebrew, Brewfile machine tools, Ghostty, and AeroSpace. Sets a registered Zsh as the login shell when the account does not already use one.' 'platforms/macos/scripts/install-system.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml-native 'Install Homebrew OCaml prerequisites' apply : apply_ocaml_native 'platforms/macos/scripts/install-ocaml.sh' 'platforms/macos/scripts/install-ocaml.sh'
+[[ "$install_containers" != true ]] || plan_add containers 'Install and start a rootless Podman machine' apply : apply_containers 'Run an ARM64 smoke test with the Podman machine.' 'platforms/macos/scripts/install-containers.sh'
+[[ "$install_tailscale" != true ]] || plan_add tailscale 'Install the optional Tailscale profile (Homebrew cask, interactive login).' apply : apply_tailscale 'Authentication and Network Extension approval remain interactive.' 'platforms/macos/scripts/install-tailscale.sh'
+[[ "$install_dictation" != true ]] || plan_add dictation 'Install the optional dictation profile (pinned Ghost Pepper disk image).' apply dictation_preflight apply_dictation 'Microphone and Accessibility approval remain interactive.' 'platforms/macos/scripts/install-dictation.sh'
+plan_add local 'Initialize local Git and theme state' apply : apply_local "common/setup-local.sh macos $theme" 'common/setup-local.sh'
+plan_add stow 'Deploy shared and macOS configuration' apply : apply_stow 'platforms/macos/scripts/stow.sh' 'platforms/macos/scripts/stow.sh'
+plan_add mise 'Install mise-managed runtimes' apply : apply_mise 'common/install-mise.sh' 'common/install-mise.sh'
+plan_add nvim 'Restore LazyVim and Mason tools' apply : apply_nvim 'common/install-neovim-tools.sh' 'common/install-neovim-tools.sh'
+plan_add tmux 'Install the pinned Catppuccin tmux theme' apply : apply_tmux 'common/install-tmux-theme.sh' 'common/install-tmux-theme.sh'
+[[ "$install_ocaml" != true ]] || plan_add ocaml 'Create the opam-owned OCaml switch and platform tools' apply : apply_ocaml 'common/install-ocaml.sh' 'common/install-ocaml.sh'
 if [[ "$install_ai" == true ]]; then
   # After mise: the shared installer resolves every AI tool through the mise
   # environment this platform has just activated, so macOS adds no Homebrew or
   # global-npm copy of anything.
   ai_note='common/install-ai.sh'
   while IFS= read -r ai_argument; do ai_note+=" $ai_argument"; done < <(macos_ai_args)
-  plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai : "$ai_note" 'common/install-ai.sh'
+  plan_add ai 'Install the optional AI-assisted development profile' apply : apply_ai "$ai_note" 'common/install-ai.sh'
 fi
-[[ "$apply_defaults" != true ]] || plan_add defaults 'Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults' apply : apply_macos_defaults : 'platforms/macos/scripts/apply-defaults.sh' 'platforms/macos/scripts/apply-defaults.sh'
+[[ "$apply_defaults" != true ]] || plan_add defaults 'Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults' apply : apply_macos_defaults 'platforms/macos/scripts/apply-defaults.sh' 'platforms/macos/scripts/apply-defaults.sh'
 if [[ "$run_dev_workflows" == true ]]; then
   dev_workflows_note='scripts/test-dev-workflows.sh --all'; [[ "$install_ocaml" != true ]] || dev_workflows_note+=' --ocaml'
-  plan_add dev-workflows 'Run the disposable development workflow smoke tests' verify : apply_dev_workflows : "$dev_workflows_note" 'scripts/test-dev-workflows.sh'
+  plan_add dev-workflows 'Run the disposable development workflow smoke tests' verify : apply_dev_workflows "$dev_workflows_note" 'scripts/test-dev-workflows.sh'
 fi
-plan_add theme 'Apply the selected theme' apply : apply_theme : "theme $theme" ''
-plan_add aerospace 'Launch AeroSpace' apply : apply_aerospace : 'macOS may request Accessibility access.' ''
-plan_add verify 'Verify installation and native architecture' verify : verify_macos : 'platforms/macos/scripts/verify.sh' 'platforms/macos/scripts/verify.sh'
+plan_add theme 'Apply the selected theme' apply : apply_theme "theme $theme" ''
+plan_add aerospace 'Launch AeroSpace' apply : apply_aerospace 'macOS may request Accessibility access.' ''
+plan_add verify 'Verify installation and native architecture' verify : verify_macos 'platforms/macos/scripts/verify.sh' 'platforms/macos/scripts/verify.sh'
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
