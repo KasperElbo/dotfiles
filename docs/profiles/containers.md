@@ -258,8 +258,7 @@ Verification never enables, starts, or stops the socket.
 
 `verify-containers.sh` checks `podman`/`podman-compose` are present,
 `podman version`, rootless status and network backend from `podman info`,
-the subuid/subgid mapping, and the API socket's state, then runs a smoke
-test: pull, run, build, a `:Z`-labeled bind mount, a named volume, localhost
+the subuid/subgid mapping, and the API socket, then runs a smoke test: pull, run, build, a `:Z`-labeled bind mount, a named volume, localhost
 port publishing, container-to-container networking on a dedicated network,
 and a two-service Compose project. Every smoke-test resource is uniquely
 named per run and removed (containers, the built image, the volume, the
@@ -271,6 +270,31 @@ system check uses this so a routine `./install.sh` run does not repeat the
 smoke test every time. `install-containers.sh` itself always runs the full
 smoke test once, right after installing, so the end-to-end workflow is
 proven immediately.
+
+#### What is checked about the API socket
+
+When `api_socket=enabled` is recorded and the user-scoped unit is enabled and
+active, verification also reads the socket itself rather than stopping at the
+unit's state. Anything that can talk to this socket can run a container with an
+arbitrary bind mount, so a running endpoint is not the same claim as an
+endpoint only you can reach:
+
+- **The path comes from the unit**, `systemctl --user show podman.socket
+  --property=Listen`, falling back to
+  `${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock`. A unit
+  overridden with another `ListenStream` is followed rather than ignored.
+- **The socket must be owned by you** and be no wider than `0660`. A
+  world-accessible socket, or one whose group has more than read and write,
+  is a failure naming the mode.
+- **The directory holding it must be `0700`**, which is what actually keeps
+  other users off a `0660` socket.
+- **Nothing found at the resolved path is unobserved, not a failure.** A socket
+  somewhere this cannot see is not by itself a broken profile.
+
+In the default rootless layout systemd creates `$XDG_RUNTIME_DIR` `0700` and
+owned by you, so this passes on an ordinary machine. It is here so a
+non-default runtime directory, an overridden `SocketMode`, or a change in how
+the distribution ships the unit is noticed rather than assumed away.
 
 The saved local state file is:
 
