@@ -471,4 +471,52 @@ if [[ "$verify_containers" == true ]]; then' "$planted" \
   'the reader did not report both planted single-record gates'
 printf 'PASS: the reader reports a planted state-file gate and a planted flag gate\n'
 
+# --- Part 4: the leftover sweep under a checkout reached through a symlink ----
+#
+# The unselected AI section asks six questions, three of them about symlinks the
+# profile owns. Those three compared a physically resolved target against
+# agents_source, which is built from the logical DOTFILES_ROOT, so a checkout
+# reached through a symlink answered no to all three and a machine carrying only
+# a leftover link reported as one with nothing left behind. The three plain
+# existence probes cannot cover that, so the fixture below leaves exactly one
+# leftover and it is a link. common/install-ai.sh makes the same comparison
+# through resolved_link_matches; this holds the verifiers to it.
+
+record_selection base
+remove_state ai
+mkdir -p "$root/home/.claude"
+ln -s "$repo_root/common/assets/AGENTS.md" "$root/home/.claude/CLAUDE.md"
+
+linked_checkout="$root/linked-checkout"
+ln -s "$repo_root" "$linked_checkout"
+
+assert_leftover_sweep_fires() {
+  run_verifier
+  assert_contains "$verifier_output" \
+    'AI profile is not selected, but AI-owned files remain'
+  assert_not_contains "$verifier_output" 'AI profile is not installed (not selected)'
+}
+
+verifier_summary='Fedora verification'
+verifier_environment=()
+for checkout in "$repo_root" "$linked_checkout"; do
+  verifier_command="$checkout/platforms/fedora/scripts/verify.sh"
+  assert_leftover_sweep_fires
+done
+printf 'PASS: Fedora reports the AI-owned leftover link through either spelling of the checkout\n'
+
+verifier_summary='Fedora WSL verification'
+for checkout in "$repo_root" "$linked_checkout"; do
+  verifier_command="$checkout/platforms/fedora-wsl/scripts/verify.sh"
+  verifier_environment=(
+    "WSL_DISTRO_NAME=FedoraLinux"
+    "OS_RELEASE_FILE=$root/os-release"
+    "PATH=$root/bin:$PATH"
+  )
+  assert_leftover_sweep_fires
+done
+printf 'PASS: Fedora WSL reports the AI-owned leftover link through either spelling of the checkout\n'
+
+rm -f -- "$root/home/.claude/CLAUDE.md"
+
 printf '\nOptional-capability dispatch tests passed.\n'

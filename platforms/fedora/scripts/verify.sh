@@ -683,9 +683,13 @@ missing | corrupt)
   # state, so an unselected machine is still asked whether any of them remain.
   agents_source="$DOTFILES_ROOT/common/assets/AGENTS.md"
   codex_home="${CODEX_HOME:-$HOME/.codex}"
+  # Through the shared helper, not a direct comparison: agents_source is built
+  # from DOTFILES_ROOT, which is logical, while a resolved target is physical,
+  # so under a checkout reached through a symlink the two spellings differ
+  # although they name the same file and the leftover goes unreported.
+  # common/install-ai.sh makes this same comparison through the same helper.
   is_agents_symlink() {
-    [[ -L "$1" ]] &&
-      [[ "$(resolve_symlink_target "$1" 2>/dev/null || true)" == "$agents_source" ]]
+    [[ -L "$1" ]] && resolved_link_matches "$1" "$agents_source"
   }
 
   if [[ -f "$XDG_CONFIG_HOME/mise/conf.d/ai.toml" ||

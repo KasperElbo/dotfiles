@@ -28,10 +28,25 @@ fedora_retired_stow_links() {
   local target_path
 
   local package_dir
+  local resolved_root retired_stow_dir
+
+  # Physical, because the realpath below is. DOTFILES_ROOT is logical, so under
+  # a checkout reached through a symlink the prefix test would never match: no
+  # retired link would be detected, the callers would emit no --replaces
+  # exemption, and preflight_stow_packages would refuse the very machines this
+  # migration exists for. canonical_path_spelling cannot serve here, unlike in
+  # common/lib/preflight.sh, because the retired prefixes name directories this
+  # checkout no longer has; the root is resolved instead and the prefix built
+  # from it.
+  resolved_root="$(resolve_existing_path "$DOTFILES_ROOT" 2>/dev/null || printf '%s' "$DOTFILES_ROOT")"
+  resolved_root="${resolved_root%/}"
+  # FEDORA_STOW_DIR is spelled from the logical root, so re-root it rather than
+  # repeating its path here.
+  retired_stow_dir="$resolved_root/${FEDORA_STOW_DIR#"$DOTFILES_ROOT/"}"
 
   case "$package" in
-  sway | waybar) retired_prefix="$DOTFILES_ROOT/$package/" ;;
-  theme-assets) retired_prefix="$FEDORA_STOW_DIR/sway/.local/share/wallpapers/" ;;
+  sway | waybar) retired_prefix="$resolved_root/$package/" ;;
+  theme-assets) retired_prefix="$retired_stow_dir/sway/.local/share/wallpapers/" ;;
   *) return 0 ;;
   esac
   # Resolved, not assumed: theme-assets is shared and lives at the top of the

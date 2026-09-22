@@ -246,6 +246,70 @@ for retired in 'Stow conflict [sway]' 'Stow conflict [waybar]' \
 done
 printf 'PASS: removing the exemption argument makes that preflight refuse\n'
 
+# The same migration, through a checkout reached by a symlink. The retired
+# prefix is built from DOTFILES_ROOT, which is logical, while the link targets
+# are resolved physically, so the prefix test used to match nothing: no retired
+# link was detected, no exemption was emitted, and the preflight above then
+# refused every old-layout machine the migration exists for. Both spellings of
+# the same checkout must answer identically, which no other suite covers.
+#
+# The count is derived rather than written down, so a file added to either
+# package does not quietly narrow what this asserts.
+retired_full_home="$test_root/retired-full-home"
+stow_dir="$repo_root/platforms/fedora/stow"
+expected_retired=0
+for package in sway waybar; do
+  while IFS= read -r source; do
+    relative="${source#"$stow_dir/$package/"}"
+    mkdir -p "$retired_full_home/$(dirname "$relative")"
+    # Where the old layout put it: a top-level package directory this checkout
+    # no longer has, so the link dangles exactly as it does on a real machine.
+    ln -s "$repo_root/$package/$relative" "$retired_full_home/$relative"
+    expected_retired=$((expected_retired + 1))
+  done < <(find "$stow_dir/$package" \( -type f -o -type l \) -print)
+done
+
+linked_repo="$test_root/linked-repo"
+ln -s "$repo_root" "$linked_repo"
+
+# retired_link_counts <checkout>: "<links> <exemptions> <preflight status>" for
+# that spelling of the checkout. A child process, because DOTFILES_ROOT and the
+# Fedora library's package paths are decided when the libraries are sourced.
+retired_link_counts() {
+  env "HOME=$retired_full_home" bash -c '
+    set -uo pipefail
+    source "$1/common/lib/common.sh"
+    source "$1/common/lib/preflight.sh"
+    source "$1/platforms/fedora/lib/fedora.sh"
+    links=0
+    for package in sway waybar theme-assets; do
+      while IFS= read -r link; do
+        [[ -z "$link" ]] || links=$((links + 1))
+      done < <(fedora_retired_stow_links "$package")
+    done
+    exemptions=()
+    while IFS= read -r exemption; do
+      exemptions+=("$exemption")
+    done < <(fedora_retired_link_exemptions sway waybar theme-assets)
+    specs=()
+    for package in sway waybar theme-assets; do
+      specs+=("$(capability_stow_package_root fedora "$package")::$package")
+    done
+    preflight_stow_packages ${exemptions[@]+"${exemptions[@]}"} "${specs[@]}" \
+      2>/dev/null
+    printf "%d %d %d\n" "$links" "${#exemptions[@]}" "$?"
+  ' _ "$1"
+}
+
+for checkout in "$repo_root" "$linked_repo"; do
+  counts="$(retired_link_counts "$checkout")"
+  printf 'retired links/exemptions/preflight status via %s: %s\n' \
+    "$(basename "$checkout")" "$counts"
+  assert_eq "$expected_retired $((expected_retired * 2)) 0" "$counts" \
+    "retired-link migration through $checkout"
+done
+printf 'PASS: a checkout reached through a symlink detects the retired links\n'
+
 # Each installer resolves its selected capability set in one function, read by
 # the selection check, preflight and the lifecycle record that ./doctor and
 # --rerun trust (issue #243). A second hand-written "$flag:capability" loop
