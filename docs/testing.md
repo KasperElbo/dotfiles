@@ -177,6 +177,30 @@ usual ones, but the list belongs to each suite, not to the library. A stubbed
 command is rejected with status 96 unless the suite explicitly registers its
 complete argument vector with `test_stub_allow`.
 
+A fixture that a suite writes by hand follows the same rule as the shared stub:
+it refuses an invocation it was not taught, with status 96 and a line naming the
+argv it refused. A fixture whose unknown branch falls through to `exit 0`
+answers for a command nobody wrote it for, and does it silently. Every mise
+fixture in `tests/` did this in some degree: `tests/test-fedora-wsl.sh` and
+`tests/test-idempotency.sh` fell off the end of their `if` chains, so adding a
+mise call to the installer returned success and no output and both suites
+stayed green. Inside those two, three real calls were already being answered
+that way -- `--yes install` installed nothing and reported success, bare `mise
+ls` satisfied the Fedora verifier's "mise configuration loads successfully"
+check without loading anything, and `--version` returned an empty string.
+`tests/test-shell-startup.sh` handed its activation script to any argv at all,
+and `tests/test-parrot-verification.sh` ran every `mise exec` target as Neovim,
+so the bounded start's `timeout` options arrived as Neovim's own arguments.
+
+A refusal also has to be distinguishable from an answer. Exiting 1 is what a
+`mise which` fixture says about a tool it does not have, so a bare `exit 1` for
+an unknown verb reads as an ordinary negative; 96 with the argv printed is the
+shared stub's convention and says what actually happened. The one deliberate
+exception in the tree is the recorder in `tests/test-fedora-verification.sh`,
+which answers everything identically because what that case asserts is the
+directory and ceiling each call ran in, read back from its log: an untaught
+call still lands in the log and is still asserted against. It says so in place.
+
 Stateful behavior remains visible in the owning suite. After the shared stub
 has logged and accepted an invocation, it executes an optional handler at
 `$TEST_STUB_ROOT/handlers/<command>`. Handlers may model such things as login

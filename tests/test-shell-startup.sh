@@ -49,6 +49,15 @@ EOF
 # directory the way the real `mise activate zsh` output does.
 cat >"$tool_bin/mise" <<EOF
 #!/usr/bin/env bash
+# Only activation. Answering every argv with the activation script would let a
+# startup file ask this fixture anything at all and be handed shell code to
+# eval, so the one call this stub models is the one it accepts.
+if [[ "\${1:-}" != activate ]]; then
+  printf 'strict mise fixture rejected unsupported argv:' >&2
+  printf ' %q' "\$@" >&2
+  printf '\n' >&2
+  exit 96
+fi
 printf 'export DOTFILES_TEST_MISE_ACTIVATED=1\n'
 printf 'export PATH=%q:\$PATH\n' "$mise_shims"
 EOF

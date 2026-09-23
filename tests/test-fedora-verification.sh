@@ -176,6 +176,11 @@ mise_log="$root/mise-invocations.log"
 mkdir -p "$root/home/.local/bin" "$root/state/dotfiles/mise-context"
 cat >"$root/home/.local/bin/mise" <<'EOF'
 #!/usr/bin/env bash
+# A recorder, not a model of mise: it answers every call the same way because
+# what this case asserts is the directory and ceiling each call ran in, read
+# back from the log. That is why it does not refuse an argv it was never
+# taught, the way the other mise fixtures in this tree do -- here an untaught
+# call still appears in the log and is still asserted against.
 set -u
 printf '%s|%s|%s\n' "$1" "$PWD" "${MISE_CEILING_PATHS:-<unset>}" \
   >>"${MISE_INVOCATION_LOG:?}"
