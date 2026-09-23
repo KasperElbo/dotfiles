@@ -2,8 +2,11 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d)"
-trap 'rm -rf -- "$test_root"' EXIT
+# shellcheck source=lib/test.sh
+source "$repo_root/tests/lib/test.sh"
+test_install_cleanup_trap
+test_new_root
+test_root="$TEST_ROOT"
 
 home="$test_root/home"
 config="$home/.config"
@@ -182,12 +185,39 @@ chmod +x \
   "$mock_bin/systemctl" \
   "$mock_bin/starship"
 
-generic_commands=(
-  apt-get eza fd fdfind fzf gh lazygit pipx python python3 rg sqlite3
-  stow tmux xclip xxd zoxide nmap hashcat john sqlmap gobuster ffuf hydra
-)
-for command_name in "${generic_commands[@]}"; do
-  ln -s /usr/bin/true "$mock_bin/$command_name"
+# The commands the verifier only resolves or asks for a version. They were
+# links to the host's /usr/bin/true, which answers every argv with success, so
+# a probe the verifier had got wrong passed here as readily as the right one.
+# Each is now a link to one strict fixture that answers only the argv written
+# to taught/<name> -- the probe check_command sends -- and refuses anything else
+# with status 96 and the argv. A command taught nothing is only ever resolved,
+# so running it at all is refused.
+command_stub="$test_root/command-stub"
+mkdir -p "$test_root/taught"
+{
+  printf '#!/usr/bin/env bash\ntaught_dir=%q\n' "$test_root/taught"
+  cat <<'EOF'
+name="${0##*/}"
+if [[ -f "$taught_dir/$name" && "$*" == "$(<"$taught_dir/$name")" ]]; then
+  printf '%s (Parrot fixture)\n' "$name"
+  exit 0
+fi
+printf 'strict %s fixture rejected unsupported argv:' "$name" >&2
+printf ' %q' "$@" >&2
+printf '\n' >&2
+exit 96
+EOF
+} >"$command_stub"
+chmod +x "$command_stub"
+
+probed_commands=(eza fd fdfind fzf gh lazygit pipx python python3 rg sqlite3 stow zoxide)
+resolved_commands=(apt-get xclip xxd nmap hashcat john sqlmap gobuster ffuf hydra)
+for command_name in "${probed_commands[@]}"; do
+  printf -- '--version\n' >"$test_root/taught/$command_name"
+done
+printf -- '-V\n' >"$test_root/taught/tmux"
+for command_name in "${probed_commands[@]}" tmux "${resolved_commands[@]}"; do
+  ln -s "$command_stub" "$mock_bin/$command_name"
 done
 ln -s /usr/bin/jq "$mock_bin/jq"
 
@@ -203,8 +233,15 @@ case "$*" in
   [[ "${MOCK_LOGIN_PATH_SILENT:-false}" != true ]] || exit 0
   printf '\n__DOTFILES_VERIFY_PATH__%s\n' "${MOCK_LOGIN_PATH:-}"
   ;;
+'-lic exit 0') ;;
+--version) printf 'zsh 5.9 (x86_64-debian-linux-gnu)\n' ;;
+*)
+  printf 'strict zsh fixture rejected unsupported argv:' >&2
+  printf ' %q' "$@" >&2
+  printf '\n' >&2
+  exit 96
+  ;;
 esac
-exit 0
 EOF
 chmod +x "$mock_bin/zsh"
 
@@ -222,13 +259,41 @@ fi
 if [[ "${1:-}" == -C && "${2:-}" == "$MOCK_LAZY_ROOT"/* ]]; then
   exec /usr/bin/git "$@"
 fi
-exit 0
+if [[ "$*" == --version ]]; then
+  printf 'git version 2.47.0\n'
+  exit 0
+fi
+printf 'strict git fixture rejected unsupported argv:' >&2
+printf ' %q' "$@" >&2
+printf '\n' >&2
+exit 96
 EOF
 chmod +x "$mock_bin/git"
 
-ln -s "$repo_root/platforms/parrot-ctf/stow/mise-ctf/.config/mise/config.toml" \
-  "$config/mise/config.toml"
-ln -s "$repo_root/nvim-lazyvim/.config/nvim/init.lua" "$config/nvim/init.lua"
+# Every link the verifier's Stow section checks, as <link under $HOME> <source
+# in the checkout>, written out rather than derived for the reason the verifier
+# gives. The table is what the no-Stow case below withdraws and then restores.
+parrot_stow_links="\
+.zshenv zsh/.zshenv
+.config/zsh/.zshrc zsh/.config/zsh/.zshrc
+.config/zsh/platform-env.zsh platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform-env.zsh
+.config/zsh/platform.zsh platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh
+.config/git/config git/.config/git/config
+.config/mise/config.toml platforms/parrot-ctf/stow/mise-ctf/.config/mise/config.toml
+.config/nvim/init.lua nvim-lazyvim/.config/nvim/init.lua
+.config/dotfiles/neovim-profile platforms/parrot-ctf/stow/neovim-profile/.config/dotfiles/neovim-profile
+.tmux.conf tmux/.tmux.conf
+.local/bin/bat platforms/parrot-ctf/stow/command-shims/.local/bin/bat
+.local/bin/fd platforms/parrot-ctf/stow/command-shims/.local/bin/fd"
+deploy_stow_links() {
+  local link source
+  while read -r link source; do
+    mkdir -p "$(dirname "$home/$link")"
+    ln -sfn "$repo_root/$source" "$home/$link"
+  done <<<"$parrot_stow_links"
+}
+deploy_stow_links
+
 ln -s "$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/mason-packages.txt" \
   "$config/nvim/profiles/parrot-ctf/mason-packages.txt"
 ln -s "$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/lazy-lock.json" \
@@ -236,8 +301,6 @@ ln -s "$repo_root/nvim-lazyvim/.config/nvim/profiles/parrot-ctf/lazy-lock.json" 
 ln -s "$repo_root/starship/.config/starship/catppuccin-macchiato.toml" \
   "$config/starship/catppuccin-macchiato.toml"
 printf 'macchiato\n' >"$config/dotfiles/theme"
-ln -s "$repo_root/platforms/parrot-ctf/stow/neovim-profile/.config/dotfiles/neovim-profile" \
-  "$config/dotfiles/neovim-profile"
 cat >"$config/dotfiles/parrot-ctf.conf" <<'EOF'
 profile=parrot-ctf
 hypervisor=kvm
@@ -247,17 +310,6 @@ host_secrets=not-shared
 security_tools=parrot-apt-owned
 EOF
 
-ln -s "$repo_root/zsh/.zshenv" "$home/.zshenv"
-mkdir -p "$config/zsh" "$config/git"
-ln -s "$repo_root/zsh/.config/zsh/.zshrc" "$config/zsh/.zshrc"
-ln -s "$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh" \
-  "$config/zsh/platform.zsh"
-ln -s "$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform-env.zsh" \
-  "$config/zsh/platform-env.zsh"
-ln -s "$repo_root/git/.config/git/config" "$config/git/config"
-ln -s "$repo_root/tmux/.tmux.conf" "$home/.tmux.conf"
-ln -s "$repo_root/platforms/parrot-ctf/stow/command-shims/.local/bin/bat" "$local_bin/bat"
-ln -s "$repo_root/platforms/parrot-ctf/stow/command-shims/.local/bin/fd" "$local_bin/fd"
 printf 'font fixture\n' >"$data/fonts/HackNerdFont/$font_pin/HackNerdFontMono-Regular.ttf"
 cat >"$data/konsole/Dotfiles-Parrot-CTF.profile" <<'EOF'
 [General]
@@ -600,7 +652,78 @@ printf 'PASS: a link to another file in the same Stow package fails verification
 ln -sfn "$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh" \
   "$config/zsh/platform.zsh"
 
-ln -s /usr/bin/true "$local_bin/nmap"
+# --- A guest Stow never ran on, with two tools that do not work --------------
+#
+# The Stow links and the command checks had only ever passed here, so nothing
+# showed that any of them could fail. One run answers for all of them rather
+# than one run per check, and the failures are named exactly, so none can hide
+# behind another.
+#
+# The links fail three ways: most are absent, the mise manifest is a copy
+# rather than a link (a hand-copied config, which also leaves the manifest
+# check a file to read), and the fd shim points into a checkout that moved.
+#
+# rg resolves and cannot start, as a binary whose shared library is gone does,
+# so the probed form fails on running rather than on resolving. The plain form
+# can only fail on absence, and absence is the one thing this fixture cannot
+# promise: the verifier appends the host's sbin directories to PATH, and on
+# Fedora those are /usr/bin itself. So the missing tool is whichever of xclip
+# and xxd the host lacks there, and a host with both is told so, not passed.
+missing_command=""
+for candidate in xclip xxd; do
+  if ! (PATH=/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:/snap/bin && command -v "$candidate" >/dev/null); then
+    missing_command="$candidate"
+    break
+  fi
+done
+[[ -n "$missing_command" ]] ||
+  _test_die 'this host provides xclip and xxd on the PATH the Parrot verifier searches, so no fixture here can model a missing command'
+
+broken_rg="$test_root/broken-rg"
+cat >"$broken_rg" <<'EOF'
+#!/usr/bin/env bash
+# A binary whose shared library is gone fails before it reads an argument, but
+# this fixture is taught only the probe, so another call is refused as such.
+if [[ "$*" == --version ]]; then
+  printf 'rg: error while loading shared libraries: libpcre2-8.so.0: cannot open shared object file\n' >&2
+  exit 127
+fi
+printf 'strict rg fixture rejected unsupported argv:' >&2
+printf ' %q' "$@" >&2
+printf '\n' >&2
+exit 96
+EOF
+chmod +x "$broken_rg"
+ln -sfn "$broken_rg" "$mock_bin/rg"
+rm -f -- "$mock_bin/$missing_command"
+
+no_stow_failures=()
+while read -r link source; do
+  rm -f -- "$home/$link"
+  case "$link" in
+  .config/mise/config.toml)
+    cp -- "$repo_root/$source" "$home/$link"
+    no_stow_failures+=("$home/$link is not a symlink; ")
+    ;;
+  .local/bin/fd)
+    ln -s -- "$test_root/moved-checkout/$source" "$home/$link"
+    no_stow_failures+=("$home/$link is a dangling symlink; ")
+    ;;
+  *) no_stow_failures+=("$home/$link is missing; ") ;;
+  esac
+done <<<"$parrot_stow_links"
+
+run_capture "${verify_environment[@]}" "$repo_root/platforms/parrot-ctf/scripts/verify.sh"
+assert_failure
+assert_verifier_failures "$TEST_OUTPUT" "${no_stow_failures[@]}" \
+  "rg resolves to $mock_bin/rg but does not run: 'rg --version' exited 127 (rg: error while loading shared libraries" \
+  "$missing_command not found"
+printf 'PASS: absent Stow links, a tool that cannot start and a missing tool are each reported\n'
+ln -sfn "$command_stub" "$mock_bin/rg"
+ln -s "$command_stub" "$mock_bin/$missing_command"
+deploy_stow_links
+
+ln -s "$command_stub" "$local_bin/nmap"
 if "${verify_environment[@]}" \
   "$repo_root/platforms/parrot-ctf/scripts/verify.sh" \
   >"$test_root/shadowed-tool.log" 2>&1; then
@@ -663,7 +786,7 @@ printf 'PASS: the Parrot verifier reports a contaminated mise context and leaves
 # An earlier case left john unresolvable and nmap shadowed. Restore both, so
 # each run below fails on the one fact it changes rather than on a standing
 # failure that would satisfy any exit-status check.
-ln -s /usr/bin/true "$mock_bin/john"
+ln -s "$command_stub" "$mock_bin/john"
 
 # --- The login PATH is read from the login, not from this verifier's own -----
 #
