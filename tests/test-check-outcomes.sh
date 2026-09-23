@@ -134,6 +134,43 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "platforms/macos/scripts/verify.sh: 1 check_* call site "
 printf 'PASS: a check that can no longer fail is refused\n'
 
+# An exception belongs to one call site, not to its verifier's total. Record a
+# tree with one macOS site uncovered, then cover that site and uncover another:
+# the count is the same, but the check that lost its failing fixture is not
+# the one the ledger excused, so it is refused and named.
+new_scratch
+cover_everything
+lost_line="$(python3 - "$trace" "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path, scratch = pathlib.Path(sys.argv[1]), sys.argv[2]
+verifier = f"{scratch}/platforms/macos/scripts/verify.sh"
+lines = path.read_text(encoding="utf-8").splitlines()
+sites = sorted({int(line.split("\t")[1]) for line in lines if line.startswith(verifier + "\t")})
+if len(sites) < 2:
+    sys.exit("fewer than two macOS call sites, so this case proves nothing")
+excused, lost = sites[0], sites[-1]
+path.write_text(
+    "\n".join(line for line in lines if line != f"{verifier}\t{excused}\tfail") + "\n",
+    encoding="utf-8",
+)
+path.with_suffix(".swapped").write_text(
+    "\n".join(line for line in lines if line != f"{verifier}\t{lost}\tfail") + "\n",
+    encoding="utf-8",
+)
+print(lost)
+PYTHON
+)"
+python3 "$scratch/scripts/validate-check-outcomes.py" --record "$trace" >/dev/null
+validate
+assert_success
+mv "${trace%.tsv}.swapped" "$trace"
+validate
+assert_failure
+assert_contains "$TEST_OUTPUT" "platforms/macos/scripts/verify.sh:$lost_line"
+printf 'PASS: swapping which check is uncovered, at the same count, is refused\n'
+
 # Coverage beyond the recorded number is reported, not refused. The count is
 # measured behaviour: a machine with podman or systemctl drives checks to a
 # verdict that a machine without them reports as not observed, and the Fedora
