@@ -20,16 +20,38 @@ new_clean_tree() {
     "$tree/scripts" "$tree/.github/workflows"
   printf 'MIT License\n' >"$tree/LICENSES/Upstream.txt"
   printf 'vendored\n' >"$tree/vendor/thing.conf"
-  # The secret-scanning gate: a tree without it, or with a workflow that never
-  # runs it, is a defect of its own, so the clean fixture carries both.
-  printf '#!/usr/bin/env bash\n' >"$tree/scripts/scan-secrets.sh"
+  # The gates validate.yml has to run: a tree without one of them, or with a
+  # workflow that does not run it for real, is a defect of its own, so the
+  # clean fixture carries each command and a workflow that runs all four.
+  mkdir -p "$tree/tests"
+  local gate
+  for gate in scripts/scan-secrets.sh scripts/lint.sh scripts/test.sh \
+    tests/test-windows-static-analysis.ps1; do
+    printf '#!/usr/bin/env bash\n' >"$tree/$gate"
+  done
   cat >"$tree/.github/workflows/validate.yml" <<'EOF'
 name: Validate
+on:
+  pull_request:
+  push:
+    branches:
+      - main
 jobs:
   repository:
+    runs-on: ubuntu-latest
     steps:
       - name: Scan for committed credentials
         run: ./scripts/scan-secrets.sh
+      - name: Validate shell scripts
+        run: ./scripts/lint.sh
+      - name: Test bootstrap and installer behavior
+        run: ./scripts/test.sh
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Analyse every tracked PowerShell file
+        shell: pwsh
+        run: ./tests/test-windows-static-analysis.ps1
 EOF
   cat >"$tree/docs/reference/third-party-notices.md" <<'EOF'
 # Third-party notices
@@ -443,7 +465,7 @@ sed -i 's|run: git diff --check .*|run: git diff --check|' \
   "$tree/.github/workflows/example.yml"
 run_capture python3 "$validator" --root "$tree"
 assert_failure
-assert_contains "$TEST_OUTPUT" 'names no commit range'
+assert_contains "$TEST_OUTPUT" 'names no range between two different commits'
 printf 'PASS: a whitespace check with no range is rejected\n'
 
 # The rule is "names a range", not "has an argument". These are the two forms
@@ -451,15 +473,33 @@ printf 'PASS: a whitespace check with no range is rejected\n'
 # compare something a runner cannot dirty: --cached compares the index to HEAD,
 # identical after actions/checkout, and a lone pathspec compares the working
 # tree to the index.
-for vacuous in '--cached' '--staged' '-- .' 'HEAD'; do
+#
+# A range whose two ends are the same commit has the shape and compares
+# nothing, so it is the subtle spelling of the same defect (#506).
+for vacuous in '--cached' '--staged' '-- .' 'HEAD' 'HEAD..HEAD' 'HEAD HEAD' \
+  '"$BEFORE_SHA...$BEFORE_SHA"' '..'; do
   new_workflow_tree
   sed -i "s|run: git diff --check .*|run: git diff --check $vacuous|" \
     "$tree/.github/workflows/example.yml"
   run_capture python3 "$validator" --root "$tree"
   assert_failure
-  assert_contains "$TEST_OUTPUT" 'names no commit range'
+  assert_contains "$TEST_OUTPUT" 'names no range between two different commits'
 done
 printf 'PASS: an argument that compares nothing is rejected as no range\n'
+
+# The call is found as shell words, not as `diff --check` written adjacently:
+# each of these is the bare, unranged command, and the adjacent-text reading
+# accepted every one of them.
+for spelling in 'git diff --exit-code --check' 'git --no-pager diff --check' \
+  'git -C . diff --stat --check' 'git diff --check "$BEFORE_SHA..HEAD" \&\& git diff --check'; do
+  new_workflow_tree
+  sed -i "s|run: git diff --check .*|run: $spelling|" \
+    "$tree/.github/workflows/example.yml"
+  run_capture python3 "$validator" --root "$tree"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" 'names no range between two different commits'
+done
+printf 'PASS: the unranged command is caught however its options are ordered\n'
 
 # And the forms that do name a range are accepted, including a range narrowed
 # by a pathspec, so the rule does not push anyone back to the bare form.
@@ -813,6 +853,51 @@ printf 'PASS: a scanner that is not the pinned version is refused\n'
 
 # --- The gate cannot be removed quietly ------------------------------------
 
+# edit_workflow <old> <new>: one exact replacement in the fixture's
+# validate.yml, refusing if <old> is not there, so a case that stops applying
+# fails instead of silently testing the unmodified workflow.
+edit_workflow() {
+  python3 - "$tree/.github/workflows/validate.yml" "$1" "$2" <<'PYTHON'
+import pathlib
+import sys
+
+workflow, old, new = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+text = workflow.read_text(encoding="utf-8")
+if old not in text:
+    raise SystemExit(f"the fixture workflow has no {old!r} to replace")
+workflow.write_text(text.replace(old, new, 1), encoding="utf-8")
+PYTHON
+}
+
+# drop_step <name>: the named step and nothing else.
+drop_step() {
+  python3 - "$tree/.github/workflows/validate.yml" "$1" <<'PYTHON'
+import pathlib
+import sys
+
+workflow, name = pathlib.Path(sys.argv[1]), sys.argv[2]
+lines = workflow.read_text(encoding="utf-8").splitlines(keepends=True)
+starts = [index for index, line in enumerate(lines) if line.strip() == f"- name: {name}"]
+if len(starts) != 1:
+    raise SystemExit(f"the fixture workflow has {len(starts)} steps named {name!r}")
+start = starts[0]
+indent = len(lines[start]) - len(lines[start].lstrip())
+end = start + 1
+while end < len(lines) and (
+    not lines[end].strip() or len(lines[end]) - len(lines[end].lstrip()) > indent
+):
+    end += 1
+workflow.write_text("".join(lines[:start] + lines[end:]), encoding="utf-8")
+PYTHON
+}
+
+# workflow_line <text>: the line number of <text> in the fixture's workflow,
+# so a case can assert that a refusal names the line that disabled the gate.
+workflow_line() {
+  grep -nF -- "$1" "$tree/.github/workflows/validate.yml" | head -n 1 | cut -d: -f1
+}
+
+
 new_clean_tree
 rm -f "$tree/scripts/scan-secrets.sh"
 run_capture python3 "$validator" --root "$tree"
@@ -821,17 +906,7 @@ assert_contains "$TEST_OUTPUT" 'scripts/scan-secrets.sh is missing'
 printf 'PASS: deleting the scanner is refused\n'
 
 new_clean_tree
-python3 - "$tree/.github/workflows/validate.yml" <<'PYTHON'
-import pathlib
-import sys
-
-workflow = pathlib.Path(sys.argv[1])
-text = workflow.read_text(encoding="utf-8")
-marker = "      - name: Scan for committed credentials\n"
-if marker not in text:
-    raise SystemExit("the fixture workflow has no scanner step to remove")
-workflow.write_text(text[: text.index(marker)], encoding="utf-8")
-PYTHON
+drop_step 'Scan for committed credentials'
 run_capture python3 "$validator" --root "$tree"
 assert_failure
 assert_contains "$TEST_OUTPUT" 'never runs ./scripts/scan-secrets.sh'
@@ -847,5 +922,373 @@ run_capture python3 "$validator" --root "$tree"
 assert_failure
 assert_contains "$TEST_OUTPUT" 'never runs ./scripts/scan-secrets.sh'
 printf 'PASS: commenting the CI step out is refused\n'
+
+
+# --- Every gate validate.yml relies on has to run, not just be named (#506) --
+#
+# Requiring the scanner's command *text* in the workflow left three one-line
+# edits that disabled the step with the text still there: `if: false`,
+# `continue-on-error: true`, and `--help`, which prints usage and exits 0.
+# And the PowerShell analysis step had no requirement at all. Most cases below
+# run against the real validate.yml, copied into the fixture, because a toy
+# workflow that models the defect is the shape that hid it; the fixture's own
+# workflow covers the shapes the real one does not have.
+new_real_workflow_tree() {
+  new_clean_tree
+  cp "$repo_root/.github/workflows/validate.yml" "$tree/.github/workflows/validate.yml"
+}
+
+new_real_workflow_tree
+run_capture python3 "$validator" --root "$tree"
+assert_success
+printf 'PASS: the real validate.yml runs every required gate\n'
+
+# Deleting a step, for each gate: the obvious mutation.
+for gate in 'Scan for committed credentials=./scripts/scan-secrets.sh' \
+  'Validate shell scripts=./scripts/lint.sh' \
+  'Test bootstrap and installer behavior=./scripts/test.sh' \
+  'Analyse every tracked PowerShell file=./tests/test-windows-static-analysis.ps1'; do
+  new_clean_tree
+  drop_step "${gate%%=*}"
+  run_capture python3 "$validator" --root "$tree"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "never runs ${gate#*=}"
+done
+printf 'PASS: deleting any required step is refused, the PowerShell analysis included\n'
+
+new_real_workflow_tree
+drop_step 'Analyse every tracked PowerShell file'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'never runs ./tests/test-windows-static-analysis.ps1'
+printf 'PASS: deleting the real PowerShell analysis step is refused\n'
+
+# The subtle mutations: the step is still there, and still names the command.
+new_real_workflow_tree
+edit_workflow 'run: ./scripts/scan-secrets.sh' 'run: ./scripts/scan-secrets.sh --help'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line 'scan-secrets.sh --help'): the step passes \`--help\`"
+printf 'PASS: a scanner step that only prints its usage is refused, naming the line\n'
+
+new_real_workflow_tree
+edit_workflow '      - name: Scan for committed credentials' \
+  $'      - name: Scan for committed credentials\n        if: false'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line 'if: false'): the step carries \`if: false\`"
+printf 'PASS: a scanner step switched off with if: false is refused, naming the line\n'
+
+new_real_workflow_tree
+edit_workflow '      - name: Scan for committed credentials' \
+  $'      - name: Scan for committed credentials\n        continue-on-error: true'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'carries `continue-on-error: true`, so its failure is not one'
+printf 'PASS: a scanner step whose failure is tolerated is refused\n'
+
+new_real_workflow_tree
+edit_workflow '    runs-on: windows-latest' \
+  $'    runs-on: windows-latest\n    if: github.event_name == \'push\''
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" "its job \`windows\` carries \`if: github.event_name == 'push'\`"
+printf 'PASS: a job that skips pull requests cannot carry a required step\n'
+
+new_real_workflow_tree
+edit_workflow 'run: ./scripts/test.sh' 'run: ./scripts/test.sh || true'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'the step passes `|| true`'
+printf 'PASS: a required command whose status is discarded is refused\n'
+
+new_real_workflow_tree
+edit_workflow '        run: ./scripts/scan-secrets.sh' \
+  $'        run: |\n          exit 0\n          ./scripts/scan-secrets.sh'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'the step runs other commands in the same step'
+printf 'PASS: a required command behind an earlier exit is refused\n'
+
+# A custom shell template runs something else with the step's script as its
+# argument; `true {0}` is a step that is present and does nothing.
+new_real_workflow_tree
+edit_workflow '        run: ./scripts/scan-secrets.sh' \
+  $'        shell: true {0}\n        run: ./scripts/scan-secrets.sh'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'runs under `shell: true {0}`'
+printf 'PASS: a required step under a shell that does not run it is refused\n'
+
+# DOTFILES_GITLEAKS is how a workstation points the scanner at its own copy.
+# In CI it would let any executable that prints the pinned version stand in.
+new_real_workflow_tree
+edit_workflow $'    env:\n      GIT_CONFIG_COUNT' $'    env:\n      DOTFILES_GITLEAKS: /usr/local/bin/gitleaks\n      GIT_CONFIG_COUNT'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '`DOTFILES_GITLEAKS` is set, which replaces what the step runs'
+printf 'PASS: a scanner pointed at another executable in CI is refused\n'
+
+new_real_workflow_tree
+edit_workflow $'  pull_request:\n' $'  pull_request:\n    paths-ignore:\n      - "**"\n'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'filters its pull_request trigger'
+printf 'PASS: a workflow that some pull requests never trigger is refused\n'
+
+new_clean_tree
+edit_workflow $'  windows:\n    runs-on: windows-latest\n' \
+  $'  gate:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - run: exit 0\n  windows:\n    needs: gate\n    runs-on: windows-latest\n'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'its job waits on `gate`, which carries `if: false`'
+printf 'PASS: a required step behind a job that never runs is refused\n'
+
+# What still counts as running it, so the rule pushes nobody into contortions:
+# an explicit `continue-on-error: false`, the scanner's --range, an explicit
+# interpreter, and an ordinary shell.
+new_clean_tree
+edit_workflow '        run: ./scripts/scan-secrets.sh' \
+  $'        continue-on-error: false\n        run: ./scripts/scan-secrets.sh --range main..HEAD'
+edit_workflow '        run: ./scripts/lint.sh' $'        shell: bash\n        run: bash ./scripts/lint.sh'
+run_capture python3 "$validator" --root "$tree"
+assert_success
+printf 'PASS: a required step spelled differently but running for real is accepted\n'
+
+new_clean_tree
+rm -f "$tree/scripts/lint.sh"
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'scripts/lint.sh is missing'
+printf 'PASS: a required step calling a deleted command is refused\n'
+
+# The workflow is read in the YAML subset it is written in, and a shape
+# outside it is refused by line rather than read approximately.
+for unreadable in 'steps: {}' 'steps: &shared'; do
+  new_clean_tree
+  edit_workflow '    steps:' "    $unreadable"
+  run_capture python3 "$validator" --root "$tree"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" 'refuses a shape it cannot read rather than guessing'
+done
+printf 'PASS: a workflow shape the reader cannot read is refused, not guessed at\n'
+
+# --- gitleaks has no allowlist but .gitleaks.toml (#506) --------------------
+#
+# gitleaks also honours a `.gitleaksignore` fingerprint file in the scanned
+# directory and a `gitleaks:allow` comment on a line. Neither is scoped or
+# justified, and nothing in this repository knew either existed. The scanner
+# refuses the file and switches the comment off; these use the same fixture
+# and the same credential as the cases above.
+printf 'aws_access_key_id = "%s%s"\n' 'AKIA' 'QYLPT5RZ2MJKF3WX' \
+  >"$scan_fixture/config.ini"
+printf 'config.ini:aws-access-token:1\n' >"$scan_fixture/.gitleaksignore"
+scan_the_fixture
+assert_failure
+assert_contains "$TEST_OUTPUT" 'Refusing to scan: .gitleaksignore exists'
+rm -f "$scan_fixture/.gitleaksignore"
+printf 'PASS: a .gitleaksignore naming a credential in the tree does not silence it\n'
+
+# The same exemption, spelled as the comment gitleaks honours on the line.
+printf 'aws_access_key_id = "%s%s" # gitleaks:%s\n' 'AKIA' 'QYLPT5RZ2MJKF3WX' 'allow' \
+  >"$scan_fixture/config.ini"
+scan_the_fixture
+assert_failure
+assert_contains "$TEST_OUTPUT" 'A credential was found'
+rm -f "$scan_fixture/config.ini"
+printf 'PASS: a gitleaks:allow comment does not silence a credential\n'
+
+# And lint refuses the file before a scan ever sees it, empty or not, and
+# wherever it is tracked.
+new_clean_tree
+printf 'config.ini:aws-access-token:1\n' >"$tree/.gitleaksignore"
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '.gitleaksignore silences secret-scanner findings by fingerprint'
+printf 'PASS: a .gitleaksignore at the root fails lint\n'
+
+new_clean_tree
+git -C "$tree" init -q
+: >"$tree/docs/.gitleaksignore"
+git -C "$tree" add -A
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'docs/.gitleaksignore silences secret-scanner findings'
+printf 'PASS: an empty .gitleaksignore tracked anywhere fails lint\n'
+
+# --- The scanner's rules are the defaults, all of them (#506) ---------------
+#
+# The credential cases above plant two shapes. Everything else the default
+# rules cover could be allowlisted away in the narrow-looking,
+# comment-justified style .gitleaks.toml prescribes, with every check green.
+# So the real configuration is run over one generated sample per high-value
+# rule family, and each has to be reported by its own rule. Every sample is
+# assembled from parts at run time, for the reason given above.
+drift_samples="$TEST_ROOT/drift-samples"
+mkdir -p "$drift_samples"
+printf 'aws_access_key_id = "%s%s"\n' 'AKIA' 'QYLPT5RZ2MJKF3WX' >"$drift_samples/aws.ini"
+printf -- '-----BEGIN RSA PRIVATE %s-----\n%s\n-----END RSA PRIVATE %s-----\n' \
+  'KEY' 'MIIEpAIBAAKCAQEA4Zx9qT2mVbN7cLrY8wKfDsEoQ1hJiUvXgPnMt6RaBw3ZkSyF' 'KEY' \
+  >"$drift_samples/id_rsa"
+printf 'token = "%s%s"\n' 'ghp_' 'R8kLm2Qw9ZxT4vB7nY1cD5fH3jK6pS0uE2aG' \
+  >"$drift_samples/github.txt"
+printf 'token = "%s%s"\n' 'github_pat_' \
+  '11ABCDEFG0aB3cD5eF7gH9_jK2mN4pQ6rS8tU0vW2xY4zA6bC8dE0fG2hJ4kL6mN8pQ0rS2tU4vW6xY8zA0bC2dE4f' \
+  >"$drift_samples/github-fine-grained.txt"
+printf 'token = "%s%s"\n' 'glpat-' 'x9Qm2Lk7Wv4Rt8Zp1Nc6' >"$drift_samples/gitlab.txt"
+printf 'SLACK_TOKEN = "%s%s"\n' 'xoxb-' '2718281828-3141592653589-Qm7vR2kLx9Tz4WpN8cB5yH1d' \
+  >"$drift_samples/slack.txt"
+printf 'stripe_key = "%s%s"\n' 'sk_live_' '51Hq8vKj2Lm9Wx4Rt7Zp1Nc6Bd3Fg5Hy8Jk' \
+  >"$drift_samples/stripe.txt"
+printf 'api_key = "%s%s"\n' 'AIza' 'SyB9x2Kq7Lm4Wv8Rt1Zp6Nc3Bd5Fg0Hy2Jk' >"$drift_samples/gcp.txt"
+printf 'service_api_key = "%s"\n' 'q8Zr2Lk9Wv4Xt7Mp1Nc6Bd3Fg5Hy0Jk2Ls9' >"$drift_samples/generic.txt"
+drift_rules='aws-access-token gcp-api-key generic-api-key github-fine-grained-pat github-pat gitlab-pat private-key slack-bot-token stripe-access-token'
+
+# unreported_rules <config>: each sampled rule family that <config> no longer
+# reports, space-separated, or nothing when every one is still caught.
+unreported_rules() {
+  local report="$TEST_ROOT/drift-report.json"
+  rm -f "$report"
+  "$gitleaks" dir "$drift_samples" --config "$1" --no-banner --redact \
+    --report-format json --report-path "$report" --exit-code 0 >/dev/null 2>&1 ||
+    _test_die "gitleaks could not scan the rule-family samples with $1"
+  python3 - "$report" "$drift_rules" <<'PYTHON'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as report:
+    found = {finding["RuleID"] for finding in json.load(report)}
+print(" ".join(rule for rule in sys.argv[2].split() if rule not in found))
+PYTHON
+}
+
+assert_eq '' "$(unreported_rules "$repo_root/.gitleaks.toml")" \
+  'the tracked .gitleaks.toml must report every rule family sampled here'
+printf 'PASS: the tracked scanner configuration reports every sampled rule family\n'
+
+# The shape that defeated the gate: a narrow-looking allowlist for one family.
+drifted="$TEST_ROOT/drifted.toml"
+cp "$repo_root/.gitleaks.toml" "$drifted"
+cat >>"$drifted" <<'EOF'
+
+[[allowlists]]
+description = "GitHub tokens in fixtures"
+regexes = ['''ghp_[0-9a-zA-Z]{36}''']
+EOF
+assert_eq 'github-pat' "$(unreported_rules "$drifted")" \
+  'an allowlist for one token shape must be seen to silence that family'
+printf 'PASS: an allowlist that silences a rule family is caught by the drift control\n'
+
+# The subtle one: no allowlist at all, a local rule reusing a default's ID.
+cp "$repo_root/.gitleaks.toml" "$drifted"
+cat >>"$drifted" <<'EOF'
+
+[[rules]]
+id = "slack-bot-token"
+regex = '''x^'''
+EOF
+assert_eq 'slack-bot-token' "$(unreported_rules "$drifted")" \
+  'a local rule overriding a default must be seen to silence that family'
+printf 'PASS: a local rule overriding a default one is caught by the drift control\n'
+
+# And the file's own two rules are executable: an exception is one anchored
+# literal with a description, and nothing else may appear in the file.
+gitleaks_config_case() {
+  new_clean_tree
+  cat >"$tree/.gitleaks.toml"
+  run_capture python3 "$validator" --root "$tree"
+}
+
+gitleaks_config_case <<'EOF'
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "One fixture file and its one literal, neither a credential"
+paths = ['''^tests/fixtures/sample\.txt$''']
+regexes = ['''^not-a-credential-0001$''']
+EOF
+assert_success
+printf 'PASS: an allowlist entry scoped to one literal is accepted\n'
+
+gitleaks_config_case <<'EOF'
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "GitHub tokens in fixtures"
+regexes = ['''ghp_[0-9a-zA-Z]{36}''']
+EOF
+assert_failure
+assert_contains "$TEST_OUTPUT" "regexes entry 'ghp_[0-9a-zA-Z]{36}' matches more than one literal"
+printf 'PASS: an unanchored allowlist pattern fails lint\n'
+
+gitleaks_config_case <<'EOF'
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "GitHub tokens in fixtures"
+regexes = ['''^ghp_[0-9a-zA-Z]{36}$''']
+paths = ['''^tests/fixtures/''']
+EOF
+assert_failure
+assert_contains "$TEST_OUTPUT" "regexes entry '^ghp_[0-9a-zA-Z]{36}\$' matches more than one literal"
+assert_contains "$TEST_OUTPUT" "paths entry '^tests/fixtures/' matches more than one literal"
+printf 'PASS: an anchored pattern class and a whole directory fail lint\n'
+
+gitleaks_config_case <<'EOF'
+[extend]
+useDefault = true
+disabledRules = ["slack-bot-token"]
+
+[[rules]]
+id = "gitlab-pat"
+regex = '''x^'''
+
+[[allowlists]]
+description = "Anything mentioning fixture"
+stopwords = ["fixture"]
+EOF
+assert_failure
+assert_contains "$TEST_OUTPUT" '[extend] must be exactly `useDefault = true`'
+assert_contains "$TEST_OUTPUT" '`rules` is not something'
+assert_contains "$TEST_OUTPUT" 'sets `stopwords`, which is broader than one literal'
+printf 'PASS: a disabled rule, an overriding rule and a stopword each fail lint\n'
+
+# --- PowerShell paths are repository references too (#506) ------------------
+#
+# The reference check never opened a .psd1, and its path pattern ended in
+# sh|py, so PSScriptAnalyzerSettings.psd1 named a suite that did not exist,
+# twice, with lint green. The paths are assembled at run time for the reason
+# the check_symlink cases give.
+missing_suite="$(printf 'tests/%s.ps1' no-such-suite)"
+missing_module="$(printf 'platforms/windows/%s.psm1' no-such-module)"
+
+new_clean_tree
+git -C "$tree" init -q
+printf '@{\n    # Held by %s.\n}\n' "$missing_suite" >"$tree/Settings.psd1"
+git -C "$tree" add -A
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" "Settings.psd1: names a repository path that does not exist: $missing_suite"
+printf 'PASS: a PowerShell settings file naming a missing suite fails lint\n'
+
+new_clean_tree
+git -C "$tree" init -q
+printf 'Import `%s` first.\n' "$missing_module" >"$tree/notes.md"
+git -C "$tree" add -A
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" "notes.md: names a repository path that does not exist: $missing_module"
+printf 'PASS: a missing PowerShell module named in prose fails lint\n'
+
+new_clean_tree
+git -C "$tree" init -q
+printf '@{\n    # Held by %s.\n}\n' 'tests/test-windows-static-analysis.ps1' >"$tree/Settings.psd1"
+git -C "$tree" add -A
+run_capture python3 "$validator" --root "$tree"
+assert_success
+printf 'PASS: a PowerShell path that exists is accepted\n'
 
 printf '\nAll repository hygiene checks passed.\n'

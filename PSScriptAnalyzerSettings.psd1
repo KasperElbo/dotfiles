@@ -1,5 +1,5 @@
 @{
-    # PowerShell's static analysis floor, held by tests/test-powershell-analysis.ps1
+    # PowerShell's static analysis floor, held by tests/test-windows-static-analysis.ps1
     # on the Windows validation job. Editors that support PSScriptAnalyzer read
     # this file from the repository root, so a rule silenced here is silenced in
     # the editor and in CI at once.
@@ -8,7 +8,7 @@
     # opinions and would make the gate a formatter, but ParseError is its own
     # severity rather than an Error: leaving it out reports a file PowerShell
     # cannot even parse as clean, which is the one thing this gate exists to
-    # make impossible. tests/test-powershell-analysis.ps1 proves it fires.
+    # make impossible. tests/test-windows-static-analysis.ps1 proves it fires.
     Severity = @('Warning', 'Error', 'ParseError')
 
     # Each exclusion states why the rule does not apply to this repository, in
