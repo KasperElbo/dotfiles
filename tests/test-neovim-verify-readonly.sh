@@ -212,13 +212,96 @@ source "$repo_root/common/lib/common.sh"
 source "$repo_root/common/lib/verify.sh"
 
 printf 'Every verifier that starts Neovim checks the plugins first\n'
+
+# verifier_code <file>: the file with every comment dropped -- whole-line and
+# trailing -- and every line kept in place, so a line number read from it is a
+# line number in the file. Matched against code, never against prose: these
+# very checks passed a verifier whose start had lost DOTFILES_NVIM_VERIFY
+# because a comment elsewhere in the file mentioned check_neovim_starts, an
+# assertion that could not fail. The ordering check below then made the same
+# mistake by reading the raw file, so a comment naming check_lazy_plugin_state
+# above the start satisfied it with the real call moved after the start or
+# deleted outright (issue #507, V4-12).
+verifier_code() {
+  PYTHONPATH="$repo_root/scripts/lib" python3 -c '
+import sys
+from shell import code_text
+with open(sys.argv[1], encoding="utf-8") as handle:
+    sys.stdout.write(code_text(handle.read()) + "\n")
+' "$1"
+}
+
+# starts_neovim <code>: whether this code starts Neovim itself.
+starts_neovim() {
+  grep -qwE 'check_neovim_starts|nvim --headless' <<<"$1"
+}
+
+# plugin_check_order_problem <file>: what is wrong with the order in which the
+# file checks the plugin tree and starts Neovim, or nothing when the check
+# comes first. Order matters more than presence: a lock-file check that runs
+# after the start reports a tree the start was free to repair, which is how
+# the Parrot guest used to pass.
+plugin_check_order_problem() {
+  local code check_line start_line
+  code="$(verifier_code "$1")" || { printf 'could not be read as shell\n'; return; }
+  check_line="$(grep -nw 'check_lazy_plugin_state' <<<"$code" | head -1 | cut -d: -f1)"
+  start_line="$(grep -nwE 'check_neovim_starts|nvim --headless' <<<"$code" |
+    head -1 | cut -d: -f1)"
+  if [[ -z "$start_line" ]]; then
+    printf 'does not start Neovim\n'
+  elif [[ -z "$check_line" ]]; then
+    printf 'starts Neovim without checking the plugin tree\n'
+  elif ((check_line > start_line)); then
+    printf 'checks the plugin tree after starting Neovim\n'
+  fi
+}
+
+# The ordering check is proved on fixtures before it is trusted on the tree:
+# each problem shape below has to be reported, including the two a comment
+# used to hide, and a correct order has to pass even when prose above the
+# check names the start.
+order_root="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-order.XXXXXX")"
+TEST_ROOTS+=("$order_root")
+order_case() {
+  local name="$1" expected="$2" actual
+  cat >"$order_root/$name.sh"
+  actual="$(plugin_check_order_problem "$order_root/$name.sh")"
+  [[ "$actual" == "$expected" ]] ||
+    _test_die "order fixture $name: expected '${expected:-no problem}', got '${actual:-no problem}'"
+}
+order_case in-order '' <<'EOF'
+# check_neovim_starts runs once the plugin tree below is proved.
+check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
+check_neovim_starts Neovim "$(tool_floor nvim)"
+EOF
+order_case start-first 'checks the plugin tree after starting Neovim' <<'EOF'
+check_neovim_starts Neovim "$(tool_floor nvim)"
+check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
+EOF
+order_case moved-behind-a-comment 'checks the plugin tree after starting Neovim' <<'EOF'
+# check_lazy_plugin_state proves the tree before the start.
+check_neovim_starts Neovim "$(tool_floor nvim)"
+check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
+EOF
+order_case deleted-behind-a-comment 'starts Neovim without checking the plugin tree' <<'EOF'
+# check_lazy_plugin_state proves the tree before the start.
+check_neovim_starts Neovim "$(tool_floor nvim)"
+EOF
+order_case trailing-comment 'starts Neovim without checking the plugin tree' <<'EOF'
+check_mason_inventory "$packages" # then check_lazy_plugin_state
+check_neovim_starts Neovim "$(tool_floor nvim)"
+EOF
+order_case spelled-out-start 'checks the plugin tree after starting Neovim' <<'EOF'
+timeout 60 env DOTFILES_NVIM_VERIFY=1 nvim --headless '+qa'
+check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
+EOF
+printf 'PASS: the ordering check reads code, so a comment satisfies neither presence nor order\n'
+
 starters=()
 while IFS= read -r -d '' verifier; do
-  body="$(cat "$verifier")"
-  case "$body" in
-  *check_neovim_starts* | *'nvim --headless'*) ;;
-  *) continue ;;
-  esac
+  code="$(verifier_code "$verifier")" ||
+    _test_die "could not read ${verifier#"$repo_root/"} as shell"
+  starts_neovim "$code" || continue
   starters+=("$verifier")
 done < <(find "$repo_root/common" "$repo_root/platforms" -type f -name 'verify*.sh' \
   -not -path "$repo_root/common/lib/*" -print0 | sort -z)
@@ -228,13 +311,7 @@ done < <(find "$repo_root/common" "$repo_root/platforms" -type f -name 'verify*.
 
 for verifier in "${starters[@]}"; do
   short="${verifier#"$repo_root/"}"
-  # Matched against code, never against prose. These very checks passed a
-  # verifier whose start had lost DOTFILES_NVIM_VERIFY, because a comment
-  # elsewhere in the file mentioned check_neovim_starts -- an assertion that
-  # could not fail. Whole-line comments are dropped before matching; the
-  # anchors below are function and variable names that no trailing comment in
-  # this tree carries.
-  code="$(grep -v '^[[:space:]]*#' "$verifier")"
+  code="$(verifier_code "$verifier")"
 
   # The start has to be observational. check_neovim_starts sets the flag for
   # its callers; a platform that spells the start out itself has to set it.
@@ -250,16 +327,8 @@ for verifier in "${starters[@]}"; do
   *) _test_die "verifier starts Neovim without a timeout: $short" ;;
   esac
 
-  # Order matters more than presence: a lock-file check that runs after the
-  # start reports a tree the start was free to repair, which is how the Parrot
-  # guest used to pass.
-  check_line="$(grep -n 'check_lazy_plugin_state' "$verifier" | head -1 | cut -d: -f1)"
-  start_line="$(grep -nE 'check_neovim_starts|nvim --headless' "$verifier" |
-    head -1 | cut -d: -f1)"
-  [[ -n "$check_line" ]] ||
-    _test_die "verifier starts Neovim without checking the plugin tree: $short"
-  ((check_line < start_line)) ||
-    _test_die "verifier checks the plugin tree after starting Neovim: $short"
+  problem="$(plugin_check_order_problem "$verifier")"
+  [[ -z "$problem" ]] || _test_die "verifier $problem: $short"
 done
 printf 'PASS: all %d verifiers that start Neovim check the plugins first (%s)\n' \
   "${#starters[@]}" \
