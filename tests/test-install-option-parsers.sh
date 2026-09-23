@@ -322,6 +322,57 @@ assert_contains "$TEST_OUTPUT" \
   "which scripts/update-starship-themes.sh does not cover"
 printf 'PASS: a flavour missing from the Starship generator fails\n'
 
+# A comment is not coverage, in any language a consumer is written in. The
+# shell readers have always dropped comments first; the Lua and line-pattern
+# readers read raw text, so a flavour commented out of Neovim's table or out of
+# the git theme file still counted as covered (#509, V4-21).
+scratch_tree
+replace_line "$tree/nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua" \
+  '    frappe = true,' '    -- frappe = true,'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest offers theme 'frappe', which nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua does not cover"
+printf 'PASS: a flavour commented out of the Neovim table fails\n'
+
+scratch_tree
+replace_line "$tree/nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua" \
+  '    frappe = true,' '    --[[ frappe = true, ]]'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest offers theme 'frappe', which nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua does not cover"
+printf 'PASS: a flavour inside a Lua block comment fails\n'
+
+gitconfig="git/.config/git/themes/catppuccin.gitconfig"
+scratch_tree
+python3 - "$tree/$gitconfig" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").split("\n")
+header = '[delta "catppuccin-frappe"]'
+if lines.count(header) != 1:
+    sys.exit(f"expected exactly one line {header!r} in {path}")
+del lines[lines.index(header)]
+path.write_text("\n".join(lines), encoding="utf-8")
+PYTHON
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "the manifest offers theme 'frappe', which $gitconfig does not cover"
+printf 'PASS: a flavour with no git delta section fails\n'
+
+for comment in '#' ';'; do
+  scratch_tree
+  replace_line "$tree/$gitconfig" '[delta "catppuccin-frappe"]' \
+    "$comment [delta \"catppuccin-frappe\"]"
+  run_capture python3 "$tree/scripts/validate-install-options.py"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "the manifest offers theme 'frappe', which $gitconfig does not cover"
+  printf 'PASS: a git delta section commented out with %s fails\n' "$comment"
+done
+
 scratch_tree
 replace_line "$tree/platforms/macos/scripts/verify.sh" \
   'for flavour in latte frappe macchiato mocha; do' \

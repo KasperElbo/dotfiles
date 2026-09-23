@@ -307,6 +307,55 @@ def loop_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] |
     return sites
 
 
+# A Lua long bracket, `[[` or `[==[`, whose level its closer has to repeat.
+LUA_LONG_BRACKET = re.compile(r"\[(?P<level>=*)\[")
+
+
+def blank_lua_comments(text: str) -> str:
+    """`text` with every Lua comment blanked, its line breaks and strings kept.
+
+    `--` opens a comment to the end of the line, and `--[[ ... ]]` (or
+    `--[==[ ... ]==]`) one that spans lines, except inside a string: quoted
+    strings and long-bracket strings are skipped whole. Blanking rather than
+    deleting keeps every line at its number, so a reported line still points
+    at the line a reader sees.
+    """
+    out = list(text)
+    index = 0
+    length = len(text)
+
+    def blank(start: int, end: int) -> None:
+        for position in range(start, end):
+            if out[position] != "\n":
+                out[position] = " "
+
+    def long_close(start: int, level: str) -> int:
+        closer = text.find("]" + level + "]", start)
+        return length if closer == -1 else closer + len(level) + 2
+
+    while index < length:
+        character = text[index]
+        if text.startswith("--", index):
+            bracket = LUA_LONG_BRACKET.match(text, index + 2)
+            if bracket:
+                end = long_close(bracket.end(), bracket.group("level"))
+            else:
+                newline = text.find("\n", index)
+                end = length if newline == -1 else newline
+            blank(index, end)
+            index = end
+        elif character in {"'", '"'}:
+            index += 1
+            while index < length and text[index] not in {character, "\n"}:
+                index += 2 if text[index] == "\\" else 1
+            index += 1
+        elif (bracket := LUA_LONG_BRACKET.match(text, index)) is not None:
+            index = long_close(bracket.end(), bracket.group("level"))
+        else:
+            index += 1
+    return "".join(out)
+
+
 def lua_table_keys(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] | None:
     """The keys of the Lua table `detail = { ... }`.
 
@@ -315,8 +364,12 @@ def lua_table_keys(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]
     from it is one Neovim silently ignores. The table is a set, so only the
     keys it maps to `true` count: `mocha = false` names the flavour and refuses
     it, which is the same silent fallback with the name still in the file.
+
+    Read as Lua: `-- frappe = true,` is a comment, and a key in one is a
+    flavour the table no longer holds. `valid.frappe` is then nil and Neovim
+    falls back to the default, which is the failure this row exists to catch.
     """
-    text = path.read_text(encoding="utf-8")
+    text = blank_lua_comments(path.read_text(encoding="utf-8"))
     opened = re.compile(r"(?:^|[\s=,{(])" + re.escape(detail) + r"\s*=\s*\{", re.M)
     sites: list[tuple[str, set[str]]] = []
     for match in opened.finditer(text):
@@ -362,8 +415,17 @@ def pattern_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]
     `{value}` stands for the value, so `[delta "catppuccin-{value}"]` reads the
     four Catppuccin sections of a git theme file as the four flavours they
     configure.
+
+    A line that opens with `#` or `;` is a comment in every file this kind
+    reads (git configuration, shell), so it is left out before matching:
+    `# [delta "catppuccin-frappe"]` configures nothing. Worse than nothing,
+    in git's case -- the keys under it join the section above, so latte
+    silently takes frappe's colours.
     """
-    text = path.read_text(encoding="utf-8")
+    text = "\n".join(
+        "" if line.lstrip().startswith(("#", ";")) else line
+        for line in path.read_text(encoding="utf-8").splitlines()
+    )
     pattern = re.compile(
         "".join(
             r"(?P<value>[\w.-]+)" if part == "{value}" else re.escape(part)
