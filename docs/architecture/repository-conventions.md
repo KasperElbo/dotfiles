@@ -99,14 +99,20 @@ the helper was never seen; and a definition counted only with its brace on the
 same line, so the same function moved between "code that runs" and "a function
 nothing calls" depending on where the brace sat. A reserved word is therefore
 never a callee, and the three spellings of a definition -- brace on the line,
-brace below it, whole function on one line -- are one definition.
+brace below it, whole function on one line -- are one definition, as is a
+subshell body. The module also reads a file as a whole rather than a line at a
+time: a heredoc body, the second line of a string and a `case` pattern all sit
+where a command would, and read line by line a `usage()` text listing a
+reader's name satisfied every gate asking whether that reader is called.
 
 **A check that cannot parse its input must error.** Skipping the line it cannot
 read turns a gate into a suggestion, and that line is the one most likely to be
 wrong. `scripts/validate-plan-network.py` names the file and the line and fails
 the build when a `plan_add` call does not tokenise, rather than dropping the
-step from a check that runs in both directions. No validator may `continue`
-past input it was written to check.
+step from a check that runs in both directions, and names the `source` line
+when it cannot tell which file that line reads. `scripts/validate-tool-floors.py`
+reports a stated minimum it cannot attribute to a tool. No validator may
+`continue` past input it was written to check.
 
 ## Entry points, and what `scripts/` actually is
 
