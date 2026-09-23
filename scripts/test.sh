@@ -92,6 +92,7 @@ default_tests=(
   tests/test-tool-floors.sh
   tests/test-install-option-parsers.sh
   tests/test-repository-hygiene.sh
+  tests/test-secret-scanner.sh
   tests/test-lint-file-selection.sh
   tests/test-documentation.sh
   tests/test-acceptance-records.sh
@@ -99,6 +100,7 @@ default_tests=(
   tests/test-command-provider-closure.sh
   tests/test-supply-chain.sh
   tests/test-pin-freshness.sh
+  tests/test-main-evidence.sh
   tests/test-profile-state.sh
   tests/test-execution-plan.sh
   tests/test-cli-contract.sh

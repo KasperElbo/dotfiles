@@ -72,7 +72,7 @@ installers_expose_the_canonical_flag() {
     "$repo_root/platforms/macos/install.sh"; do
     assert_file_contains "$installer" '--dev-workflows)' || return 1
   done
-  assert_file_contains "$repo_root/platforms/macos/bootstrap-help.txt" \
+  assert_file_contains "$repo_root/platforms/macos/lib/usage.sh" \
     '--dev-workflows/--no-dev-workflows' || return 1
   assert_file_contains "$repo_root/docs/workflows/development.md" \
     './install.sh --platform fedora --dev-workflows'

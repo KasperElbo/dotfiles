@@ -168,14 +168,14 @@ printf 'PASS: no script disables Gatekeeper/SIP or embeds a credential\n'
 # --- The installer plan ------------------------------------------------------
 
 default_plan="$("$repo_root/install.sh" --platform macos --dry-run)"
-assert_contains "$default_plan" 'Dictation profile:  false'
+assert_contains "$default_plan" 'Local voice dictation profile: false'
 assert_contains "$default_plan" 'dictation:false'
 assert_not_contains "$default_plan" 'Install the optional dictation profile'
 assert_not_contains "$default_plan" 'install-dictation.sh'
 printf 'PASS: a default macOS install neither plans nor selects dictation\n'
 
 selected_plan="$("$repo_root/install.sh" --platform macos --dry-run --dictation)"
-assert_contains "$selected_plan" 'Dictation profile:  true'
+assert_contains "$selected_plan" 'Local voice dictation profile: true'
 assert_contains "$selected_plan" 'dictation:true'
 assert_contains "$selected_plan" \
   '[dictation] Install the optional dictation profile (pinned Ghost Pepper disk image).'
@@ -186,11 +186,11 @@ printf 'PASS: --dictation appears in the dry-run plan and the rerun selection\n'
 # The flag is remembered as an ordinary persistent option, so --no-dictation
 # after a --dictation install records the removal rather than being ignored.
 off_plan="$("$repo_root/install.sh" --platform macos --dry-run --dictation --no-dictation)"
-assert_contains "$off_plan" 'Dictation profile:  false'
+assert_contains "$off_plan" 'Local voice dictation profile: false'
 assert_not_contains "$off_plan" 'Install the optional dictation profile'
 printf 'PASS: --no-dictation turns the selection back off\n'
 
-assert_file_contains "$repo_root/platforms/macos/bootstrap-help.txt" '--dictation/--no-dictation'
+assert_file_contains "$repo_root/platforms/macos/lib/usage-options.sh" '--dictation/--no-dictation'
 printf 'PASS: the platform help advertises the flag\n'
 
 # The step's preflight is what refuses an account that cannot write to
