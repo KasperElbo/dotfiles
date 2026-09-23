@@ -53,6 +53,15 @@ section() {
 # outside this library, which for a check_* helper is the line in the verifier
 # that called it, and for a bare pass or fail is that line itself.
 #
+# A verifier can define a check_* helper of its own, and then that frame is
+# inside the helper, on its pass or fail line, while the call site the rule
+# counts is the line that called the helper. So while the frame is running a
+# check_* function the verdict is credited one caller further out as well, as
+# far as the calls go. Stopping at the first frame alone credited only the
+# helper's own pass and fail lines, which are not call sites: eighteen checks
+# that suites drove both ways, root SSH login among them, read as never
+# driven, and nothing a fixture did could change that.
+#
 # A trace that cannot be written is dropped rather than failing the run: a
 # verifier's job on a real machine does not depend on it.
 _verify_trace() {
@@ -63,9 +72,14 @@ _verify_trace() {
     case "$frame" in
       */common/lib/verify.sh) index=$((index + 1)) ;;
       *)
-        printf '%s\t%s\t%s\n' "$frame" "${BASH_LINENO[index - 1]}" "$1" \
-          >>"$DOTFILES_VERIFY_TRACE" 2>/dev/null || true
-        return 0
+        while :; do
+          printf '%s\t%s\t%s\n' "${BASH_SOURCE[index]}" \
+            "${BASH_LINENO[index - 1]}" "$1" \
+            >>"$DOTFILES_VERIFY_TRACE" 2>/dev/null || true
+          [[ "${FUNCNAME[index]}" == check_* ]] || return 0
+          index=$((index + 1))
+          ((index < ${#BASH_SOURCE[@]})) || return 0
+        done
         ;;
     esac
   done
