@@ -28,6 +28,18 @@ useDefault = true
 #      "test fixture" is not a reason; "AWS's own published documentation key,
 #      which grants nothing" is.
 #
+# Both are enforced, not only stated. scripts/validate-repository-hygiene.py
+# accepts an [[allowlists]] entry with a `description` and `paths` or
+# `regexes` written as one anchored literal -- `^tests/fixtures/key\.txt$`,
+# every metacharacter escaped -- and refuses anything else in this file: a
+# pattern class, a stopword, a disabled rule, a local rule overriding a
+# default one. tests/test-repository-hygiene.sh runs this file over one
+# generated sample per high-value rule family, so an exception that silences a
+# whole family fails the suite even if it gets past the shape check. And
+# neither `.gitleaksignore` nor a `gitleaks:allow` comment is honoured:
+# scripts/scan-secrets.sh refuses to scan beside the one and switches the
+# other off, so this file stays the only place an exception can live.
+#
 # A test that needs a credential-shaped string should generate it at runtime
 # instead -- tests/test-repository-hygiene.sh builds one from parts, so the
 # suite proves the scanner catches a real match without the repository ever

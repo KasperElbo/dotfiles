@@ -75,8 +75,8 @@ it is built around a few rules that do not bend:
   and never logs them. What you have to set up yourself is listed in
   [docs/workflows/first-run.md](docs/workflows/first-run.md). That claim is
   checked rather than asserted: `./scripts/scan-secrets.sh` scans the working
-  tree and the whole history on every pull request, and removing the step
-  fails lint. See
+  tree and the whole history on every pull request, and removing or
+  disabling the step fails lint. See
   [docs/supply-chain.md](docs/supply-chain.md#the-gate-behind-that-claim).
 - **Optional profiles are opt-in and independent.** A default install adds no
   desktop tools, no containers, no VM stack, no Tailscale, no hardening and no
