@@ -39,6 +39,9 @@ test_stub_allow "$test_root" mise --yes install npm:@anthropic-ai/claude-code
 test_stub_allow "$test_root" mise exec -- claude --version
 test_stub_allow "$test_root" mise exec -- npm config get ignore-scripts
 test_stub_allow "$test_root" mise exec -- npm config get omit
+# The verifier's duplicate-package probe of the mise-managed Node prefix.
+test_stub_allow "$test_root" mise exec -- npm ls --global --depth=0 --parseable
+test_stub_allow "$test_root" mise exec -- npm prefix --global
 test_stub_allow "$test_root" mise uninstall npm:@anthropic-ai/claude-code
 for mise_tool in claude herdr codex gnhf gh-axi chrome-devtools-axi \
   lavish-axi tasks-axi quota-axi backpass acpx; do
@@ -110,7 +113,8 @@ exec)
   [[ "${2:-}" == -- && $# -ge 3 ]] || reject "$@"
   shift 2
   case "$*" in
-  'claude --version' | 'npm config get ignore-scripts' | 'npm config get omit')
+  'claude --version' | 'npm config get ignore-scripts' | 'npm config get omit' | \
+    'npm ls --global --depth=0 --parseable' | 'npm prefix --global')
     PATH="$MISE_SHIMS_DIR:$PATH" exec "$@"
     ;;
   *)
@@ -172,6 +176,24 @@ if [[ $# -eq 3 && "$1" == config && "$2" == get ]]; then
   omit) printf '%s\n' "${MOCK_NPM_OMIT:-}"; exit 0 ;;
   esac
 fi
+# The global prefix, with the same knobs as test_stub_npm_global in
+# tests/lib/test.sh. A run that names no prefix has none modelled, so the
+# listing is refused like any other unmodelled call rather than invented.
+if [[ -n "${TEST_NPM_GLOBAL_PREFIX:-}" ]]; then
+  case "$*" in
+  'ls --global --depth=0 --parseable')
+    printf '%s/lib\n' "$TEST_NPM_GLOBAL_PREFIX"
+    for package in ${TEST_NPM_GLOBAL_PACKAGES:-}; do
+      printf '%s/lib/node_modules/%s\n' "$TEST_NPM_GLOBAL_PREFIX" "$package"
+    done
+    exit 0
+    ;;
+  'prefix --global')
+    printf '%s\n' "$TEST_NPM_GLOBAL_PREFIX"
+    exit 0
+    ;;
+  esac
+fi
 printf 'strict npm fixture rejected unsupported argv: %s\n' "$*" >&2
 exit 96
 EOF
@@ -197,6 +219,28 @@ if [[ $# -eq 2 && "$2" == 'printf "login-path:%s\n" "$PATH"' ]]; then
     exit 0
     ;;
   esac
+fi
+# check_login_environment's probe, answered from the ~/.zshenv this home
+# actually has, which is what a fresh login reads. .zshenv is Zsh and this is
+# Bash, so only its plain `export NAME=value` lines are read; the variable the
+# probe asks about is one of them. A home with no .zshenv is one this suite
+# never deployed the zsh package into, so there is no login to model there and
+# the probe is refused like any other unmodelled call: answering "<unset>"
+# would fail every case that is about something else.
+if [[ $# -eq 2 && "$1" == -lc &&
+  "$2" == "printf 'login-env:%s\n' \"\${"*"-<unset>}\"" &&
+  -r "$HOME/.zshenv" ]]; then
+  name="${2#*\$\{}"
+  name="${name%%-<unset>*}"
+  if [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    assignment="$(grep -E "^export $name=" "$HOME/.zshenv" | tail -n 1)"
+    if [[ -n "$assignment" ]]; then
+      printf 'login-env:%s\n' "${assignment#*=}"
+    else
+      printf 'login-env:<unset>\n'
+    fi
+    exit 0
+  fi
 fi
 printf 'strict zsh fixture rejected unsupported argv: %s\n' "$*" >&2
 exit 96
@@ -400,6 +444,10 @@ test_environment=(
   "MISE_SHIMS_DIR=$mise_shims"
   "MISE_INSTALLS_DIR=$mise_installs"
   "FIRSTMATE_REPO_URL=$firstmate_origin"
+  # A Node prefix carries npm itself, so the healthy listing is not empty and
+  # the duplicate probe is seen to pass over a package it must not flag.
+  "TEST_NPM_GLOBAL_PREFIX=$test_root/node-prefix"
+  "TEST_NPM_GLOBAL_PACKAGES=npm"
 )
 
 # Prove the suite's stateful commands still fail closed at their shared/local
@@ -667,6 +715,10 @@ assert_path_executable "$treehouse_target"
 no_mistakes_target="$home/.local/bin/no-mistakes"
 assert_path_executable "$no_mistakes_target"
 
+# The zsh package as Stow deploys it, so the login-environment probe below is
+# answered from the repository's own .zshenv rather than from the fixture.
+ln -s "$repo_root/zsh/.zshenv" "$home/.zshenv"
+
 if ! verify_full_output="$("${test_environment[@]}" "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf '%s\n' "$verify_full_output" >&2
   printf 'verify-ai.sh (--codex --firstmate --gnhf --backpass) failed\n' >&2
@@ -686,6 +738,73 @@ assert_contains "$verify_full_output" 'tasks-axi is mise-managed'
 assert_contains "$verify_full_output" 'quota-axi is mise-managed'
 assert_contains "$verify_full_output" 'backpass is mise-managed'
 assert_contains "$verify_full_output" 'acpx is mise-managed'
+assert_contains "$verify_full_output" 'DISABLE_UPDATES=1 in a fresh Zsh login'
+assert_contains "$verify_full_output" \
+  'No AI package is duplicated in the active Node prefix'
+
+# --- The same full profile, with everything the verifier owns broken ---------
+#
+# Each ownership check above has to be seen failing as well, or an inverted
+# predicate would still read green. One run breaks all of them at once, because
+# every case here is a whole verifier run, and asserts the exact set of
+# failures so each one is the check failing for the reason given here:
+#
+# - ~/.zshenv is a copy from before it exported DISABLE_UPDATES, rather than
+#   the Stow link that a restow would have refreshed;
+# - Claude Code has a second, unpinned copy in the mise-managed Node prefix,
+#   which is what its own updater writes when nothing stops it;
+# - mise has no installed version behind the optional tools' shims -- a prune,
+#   or an install that failed after reshimming -- so every name still resolves
+#   on PATH and only asking mise tells a tool from a dangling shim;
+# - Treehouse is gone from its command path;
+# - a mise shim named no-mistakes, which PATH puts ahead of ~/.local/bin, runs
+#   instead of the copy the installer recorded.
+#
+# Claude Code, Herdr and Codex keep their installs, so the mise failures are
+# exactly the tools this section is about.
+broken_installs="$test_root/broken-mise-installs"
+mkdir -p "$broken_installs"
+for tool in claude herdr codex; do
+  cp -R "$mise_installs/$tool" "$broken_installs/$tool"
+done
+assert_file_line "$repo_root/zsh/.zshenv" 'export DISABLE_UPDATES=1'
+rm -- "$home/.zshenv"
+grep -v '^export DISABLE_UPDATES=' "$repo_root/zsh/.zshenv" >"$home/.zshenv"
+mv -- "$treehouse_target" "$test_root/treehouse.moved"
+cat >"$mise_shims/no-mistakes" <<'EOF'
+#!/usr/bin/env bash
+printf 'duplicate no-mistakes fixture must never run: %s\n' "$*" >&2
+exit 96
+EOF
+chmod +x "$mise_shims/no-mistakes"
+
+if broken_full_output="$("${test_environment[@]}" \
+  "MISE_INSTALLS_DIR=$broken_installs" \
+  "TEST_NPM_GLOBAL_PACKAGES=npm @anthropic-ai/claude-code" \
+  "$repo_root/common/verify-ai.sh" 2>&1)"; then
+  printf '%s\n' "$broken_full_output" >&2
+  printf 'verify-ai.sh passed a full profile whose ownership is broken\n' >&2
+  exit 1
+fi
+assert_verifier_failures "$broken_full_output" \
+  'DISABLE_UPDATES is unset in a fresh Zsh login' \
+  "@anthropic-ai/claude-code is also installed globally with npm under $test_root/node-prefix" \
+  'gnhf is not backed by an executable reported by mise: <none>' \
+  'gh-axi is not backed by an executable reported by mise: <none>' \
+  'chrome-devtools-axi is not backed by an executable reported by mise: <none>' \
+  'tasks-axi is not backed by an executable reported by mise: <none>' \
+  'quota-axi is not backed by an executable reported by mise: <none>' \
+  'lavish-axi is not backed by an executable reported by mise: <none>' \
+  'backpass is not backed by an executable reported by mise: <none>' \
+  'acpx is not backed by an executable reported by mise: <none>' \
+  "treehouse is missing or not executable: $treehouse_target" \
+  "no-mistakes on PATH ($mise_shims/no-mistakes) is not $no_mistakes_target"
+
+rm -- "$mise_shims/no-mistakes" "$home/.zshenv"
+rm -rf -- "$broken_installs"
+mv -- "$test_root/treehouse.moved" "$treehouse_target"
+ln -s "$repo_root/zsh/.zshenv" "$home/.zshenv"
+printf 'PASS: every ownership check of the full profile fails when its owner is broken\n'
 
 # --- A copy that wins the login mise never activates (issue #396, GAP-33) ---
 #
