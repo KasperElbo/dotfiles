@@ -564,6 +564,17 @@ in place. `tests/test-repository-hygiene.sh` proves both halves: that the gate
 catches a credential using the exact command CI runs, and that the tree is
 refused when the gate is taken away or disabled.
 
+**A scan never runs on a scanner whose installation failed.** The first run
+downloads the release archive, checks it against the pinned SHA-256, extracts
+it without restoring the archive's owner, and asks the binary its version,
+all in a staging directory beside the cache; only a binary that passed every
+step is renamed into place, so the cache never holds one a later run should
+not trust. Each step checks its own exit status rather than relying on
+`set -e`, which Bash switches off inside a command substitution: before #498,
+a tar that extracted gitleaks and then exited non-zero still ended in "No
+credentials found". `tests/test-secret-scanner.sh` drives the real script
+through each of those failures and requires every one to stop before a scan.
+
 **History is scanned on every run, not just a commit range.** A credential
 deleted from the working tree is still a credential, reachable by anyone with
 the repository; scanning only the diff would report the deletion as clean. At

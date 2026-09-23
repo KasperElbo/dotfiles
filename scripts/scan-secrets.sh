@@ -128,22 +128,33 @@ installed_version() {
   "$1" version 2>/dev/null | tr -d '[:space:]'
 }
 
-# gitleaks_executable: the pinned scanner, downloading it once into the cache
-# if it is not already there. Printed on stdout, so every other message in
-# this function goes to stderr.
-gitleaks_executable() {
-  local artifact expected cache binary work_dir
+# The staging directory of a download in progress, removed on every way out of
+# the script. Global rather than local so the EXIT trap still names it when a
+# `die` inside resolve_gitleaks is what ends the run.
+staging=""
 
-  IFS=$'\t' read -r artifact expected < <(platform_artifact)
+# resolve_gitleaks: set `gitleaks` to the pinned scanner, downloading it once
+# into the cache if it is not already there.
+#
+# It sets a variable rather than printing a path for its caller to capture,
+# because a command substitution is where Bash clears errexit: run that way,
+# every step below that relied on `set -e` was carried past on failure, and a
+# tar that extracted the binary and then exited non-zero still ended in
+# "No credentials found" (#498). Each step also checks its own status, so the
+# function stays correct wherever it is called from.
+resolve_gitleaks() {
+  local platform artifact expected cache binary reported
+
+  platform="$(platform_artifact)" || exit 1
+  IFS=$'\t' read -r artifact expected <<<"$platform"
 
   if [[ -n "${DOTFILES_GITLEAKS:-}" ]]; then
     [[ -x "$DOTFILES_GITLEAKS" ]] ||
       die "DOTFILES_GITLEAKS is set to something that is not executable: $DOTFILES_GITLEAKS"
-    local reported
     reported="$(installed_version "$DOTFILES_GITLEAKS")"
     [[ "$reported" == "$version" ]] ||
       die "DOTFILES_GITLEAKS reports version ${reported:-nothing}, but this repository pins $version. Scanning with different rules would make a pass mean something else."
-    printf '%s\n' "$DOTFILES_GITLEAKS"
+    gitleaks="$DOTFILES_GITLEAKS"
     return 0
   fi
 
@@ -151,34 +162,49 @@ gitleaks_executable() {
   binary="$cache/gitleaks"
 
   if [[ -x "$binary" && "$(installed_version "$binary")" == "$version" ]]; then
-    printf '%s\n' "$binary"
+    gitleaks="$binary"
     return 0
   fi
 
-  info "Downloading the pinned gitleaks $version" >&2
-  work_dir="$(mktemp -d)"
-  trap 'rm -rf -- "$work_dir"' EXIT
+  info "Downloading the pinned gitleaks $version"
+  ensure_dir "$cache" || die "Could not create the scanner cache at $cache"
+
+  # Staged beside the cache entry rather than under TMPDIR, so the last step is
+  # a rename within one filesystem: `$binary` either does not exist or is a
+  # binary that has passed every check below, and a later run can never find a
+  # half-copied or unverified one there. The staging name is never looked up.
+  staging="$(mktemp -d "$cache/.download.XXXXXX")" ||
+    die "Could not create a staging directory in $cache"
+  trap 'rm -rf -- "$staging"' EXIT
 
   # network-source: gitleaks-release
   fetch_to_file \
     "https://github.com/gitleaks/gitleaks/releases/download/v$version/$artifact" \
-    "$work_dir/$artifact" "the pinned gitleaks $version"
-  fetch_verify_sha256 "$work_dir/$artifact" "$expected" "the pinned gitleaks $version"
+    "$staging/$artifact" "the pinned gitleaks $version"
+  fetch_verify_sha256 "$staging/$artifact" "$expected" "the pinned gitleaks $version"
 
-  tar -xzf "$work_dir/$artifact" -C "$work_dir" gitleaks
-  ensure_dir "$cache"
-  # Into place in one rename, so a second scan never finds a half-written
-  # binary and a concurrent one never runs it.
-  mv -f "$work_dir/gitleaks" "$binary"
-  chmod 0755 "$binary"
+  # The archive records upstream's build account as the owner. Restoring it
+  # fails as root on a filesystem that cannot represent it, and where it
+  # succeeds it hands the executable this gate trusts to whoever holds that
+  # uid here. GNU tar and macOS's bsdtar both spell the refusal this way.
+  tar --no-same-owner -xzf "$staging/$artifact" -C "$staging" gitleaks ||
+    die "Could not extract gitleaks from $artifact. Nothing was installed; refusing to scan with whatever the extraction left."
+  [[ -f "$staging/gitleaks" && ! -L "$staging/gitleaks" ]] ||
+    die "$artifact has no gitleaks executable in it; refusing to scan."
+  chmod 0755 "$staging/gitleaks" ||
+    die "Could not make the downloaded gitleaks executable."
+  reported="$(installed_version "$staging/gitleaks")"
+  [[ "$reported" == "$version" ]] ||
+    die "The downloaded gitleaks does not report $version (it reports ${reported:-nothing}); refusing to scan with it."
 
-  [[ "$(installed_version "$binary")" == "$version" ]] ||
-    die "The downloaded gitleaks does not report $version; refusing to scan with it."
+  mv -f "$staging/gitleaks" "$binary" ||
+    die "Could not move the downloaded gitleaks into the cache at $binary"
 
-  rm -rf -- "$work_dir"
+  rm -rf -- "$staging"
+  staging=""
   trap - EXIT
 
-  printf '%s\n' "$binary"
+  gitleaks="$binary"
 }
 
 cd "$repo_root"
@@ -207,7 +233,8 @@ EOF
   )"
 fi
 
-gitleaks="$(gitleaks_executable)"
+gitleaks=""
+resolve_gitleaks
 
 failed=0
 
