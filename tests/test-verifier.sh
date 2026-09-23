@@ -411,8 +411,23 @@ check_mise_owned ni-runtime >"$root/ni-shadow.out" 2>&1 || true
 assert_verifier_counts 0 1 0
 assert_file_contains "$root/ni-shadow.out" \
   "ni-runtime resolves outside mise in a login that is not interactive: $ni_system/ni-runtime"
-assert_eq "$ni_home/.local/bin:$ni_system:$ni_base_path" \
-  "${VERIFY_NONINTERACTIVE_LOGIN_PATH:-}" 'the non-interactive login PATH, as Zsh reported it'
+# What that login was asked from, read off its answer. Not compared whole: the
+# host's own startup files take part (macOS's /etc/zprofile runs path_helper,
+# which moves the system directories to the front), so only the entries this
+# fixture controls are asserted.
+case ":${VERIFY_NONINTERACTIVE_LOGIN_PATH:-}:" in
+*":$ni_home/.local/bin:"*) ;;
+*) _test_die "the non-interactive login PATH lacks .zshenv's ~/.local/bin: ${VERIFY_NONINTERACTIVE_LOGIN_PATH:-<unset>}" ;;
+esac
+case ":${VERIFY_NONINTERACTIVE_LOGIN_PATH:-}:" in
+*":$ni_system:"*) ;;
+*) _test_die "the non-interactive login PATH lacks the inherited system directory: ${VERIFY_NONINTERACTIVE_LOGIN_PATH:-<unset>}" ;;
+esac
+case ":$VERIFY_NONINTERACTIVE_LOGIN_PATH:" in
+*":$root/mise-data/shims:"*)
+  _test_die "the non-interactive login was asked from a PATH carrying mise's shims: $VERIFY_NONINTERACTIVE_LOGIN_PATH"
+  ;;
+esac
 
 # The verifier run from a terminal where mise is activated, the ordinary way to
 # run it: that terminal's PATH carries mise's install directory, a fresh login
