@@ -26,6 +26,15 @@
 # `PermitRootLogin no` this profile wrote turns root SSH login back on while
 # every line the profile wrote is still present.
 #
+# The same rule decides the sshd drop-in's name. sshd reads the drop-ins in
+# lexical order and keeps the first value, so the policy only holds if this
+# file sorts before every other one: at 90- it lost to the
+# 01-permitrootlogin.conf Anaconda writes when root SSH login is allowed at
+# installation, and would lose to Fedora's 50-redhat.conf for any keyword
+# that file sets.
+# The others keep 90-: sysctl.d and the rest take the last value, and a
+# deliberate local 99- override winning there is the documented intent.
+#
 # hardening_dropin_path <name>
 hardening_dropin_path() {
   case "$1" in
@@ -33,7 +42,7 @@ hardening_dropin_path() {
   sudo-logfile) printf '/etc/sudoers.d/90-dotfiles-hardening\n' ;;
   auditd-rules) printf '/etc/audit/rules.d/90-dotfiles-hardening.rules\n' ;;
   sysctl) printf '/etc/sysctl.d/90-dotfiles-hardening.conf\n' ;;
-  ssh) printf '/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf\n' ;;
+  ssh) printf '/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf\n' ;;
   *) die "Unknown hardening drop-in: $1" ;;
   esac
 }
@@ -471,6 +480,20 @@ sshd_present() {
     systemctl is-enabled --quiet sshd.service 2>/dev/null
 }
 
+# HARDENING_SSH_LEGACY_DROPIN is where this profile wrote the sshd drop-in
+# before it sorted first. On a machine installed then it is an owned file
+# sshd now reads after the current one, so it changes nothing; it is removed
+# so the machine holds one copy of the policy, not two that could drift.
+HARDENING_SSH_LEGACY_DROPIN=/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+
+remove_legacy_ssh_dropin() {
+  local legacy="${HARDENING_ROOT:-}$HARDENING_SSH_LEGACY_DROPIN"
+
+  sudo test -f "$legacy" || return 0
+  info "Removing the earlier SSH hardening drop-in, now superseded: $legacy"
+  sudo rm -f -- "$legacy"
+}
+
 apply_ssh_hardening() {
   if ! sshd_present; then
     info "sshd is not active/enabled; skipping SSH posture (not installing it)"
@@ -486,6 +509,7 @@ apply_ssh_hardening() {
   if sudo test -f "$path" && sudo cmp -s "$tmp" "$path"; then
     info "SSH hardening drop-in already applied: $path"
     rm -f "$tmp"
+    remove_legacy_ssh_dropin
     return 0
   fi
 
@@ -496,6 +520,8 @@ apply_ssh_hardening() {
     sudo rm -f -- "$path"
     die "sshd -t rejected the generated drop-in; removed it and aborted SSH hardening"
   fi
+
+  remove_legacy_ssh_dropin
 
   if systemctl is-active --quiet sshd.service; then
     info "Reloading sshd"

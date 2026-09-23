@@ -2,4 +2,4 @@ faillock	/etc/security/faillock.conf.d/90-dotfiles-hardening.conf	0644
 sudo-logfile	/etc/sudoers.d/90-dotfiles-hardening	0440
 auditd-rules	/etc/audit/rules.d/90-dotfiles-hardening.rules	0640
 sysctl	/etc/sysctl.d/90-dotfiles-hardening.conf	0644
-ssh	/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf	0644
+ssh	/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf	0644
