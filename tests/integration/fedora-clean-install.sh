@@ -173,24 +173,44 @@ if ! docker exec --user dotfiles --env HOME=/home/dotfiles "$container" \
 fi
 
 # A per-user systemd manager, the last piece a workstation owns. Logging in --
-# at the console, in a desktop session or over SSH -- starts user@<uid>.service
-# through pam_systemd and points XDG_RUNTIME_DIR at it, and `systemctl --user`
-# talks to nothing else. docker exec is not a login, so without this seed every
-# user unit the installer or an upstream enables fails at "Failed to connect to
-# user scope bus". The No Mistakes installer enables one: it runs the push-gate
-# daemon as a systemd user service, and only falls back to a detached process
-# when there is no manager. Seeding the manager keeps this job on the path a
-# real login takes instead of the fallback.
+# at the console, in a desktop session or over SSH -- registers a session with
+# systemd-logind through pam_systemd, and logind starts user@<uid>.service and
+# the /run/user/<uid> runtime directory `systemctl --user` talks through.
+# docker exec is not a login, so without this seed every user unit the
+# installer or an upstream enables fails at "Failed to connect to user scope
+# bus". The No Mistakes installer enables one: it runs the push-gate daemon as
+# a systemd user service, and only falls back to a detached process when there
+# is no manager. Seeding the manager keeps this job on the path a real login
+# takes instead of the fallback.
+#
+# Lingering is how logind is asked for that manager without a login. It is the
+# same logind and the same user@.service; starting user@<uid>.service by hand
+# is not, since only pam_systemd talking to logind gives the manager its
+# XDG_RUNTIME_DIR, and without one it exits at "Trying to run as user
+# instance, but $XDG_RUNTIME_DIR is not set".
 dotfiles_uid="$(docker exec "$container" id -u dotfiles)"
 dotfiles_runtime_dir="/run/user/$dotfiles_uid"
-if ! docker exec "$container" systemctl start "user@$dotfiles_uid.service" ||
-  ! docker exec --user dotfiles --env HOME=/home/dotfiles \
-  --env XDG_RUNTIME_DIR="$dotfiles_runtime_dir" "$container" \
-  systemctl --user show --property=Version >/dev/null; then
+user_manager_ready=false
+if docker exec "$container" systemctl start systemd-logind.service &&
+  docker exec "$container" loginctl enable-linger dotfiles; then
+  for _ in {1..30}; do
+    if docker exec --user dotfiles --env HOME=/home/dotfiles \
+      --env XDG_RUNTIME_DIR="$dotfiles_runtime_dir" "$container" \
+      systemctl --user show --property=Version >/dev/null 2>&1; then
+      user_manager_ready=true
+      break
+    fi
+    sleep 1
+  done
+fi
+if [[ "$user_manager_ready" != true ]]; then
   printf 'Disposable Fedora container has no working systemd user manager for dotfiles.\n' >&2
-  printf 'Container user-manager diagnostics follow.\n' >&2
+  printf 'Container logind and user-manager diagnostics follow.\n' >&2
+  docker exec "$container" systemctl --no-pager --full status systemd-logind.service >&2 || true
+  docker exec "$container" loginctl --no-pager show-user dotfiles >&2 || true
   docker exec "$container" systemctl --no-pager --full status "user@$dotfiles_uid.service" >&2 || true
-  docker exec "$container" journalctl --no-pager -n 50 -u "user@$dotfiles_uid.service" >&2 || true
+  docker exec "$container" journalctl --no-pager -n 50 \
+    -u systemd-logind.service -u "user@$dotfiles_uid.service" >&2 || true
   docker exec "$container" ls -la "$dotfiles_runtime_dir" >&2 || true
   exit 1
 fi
