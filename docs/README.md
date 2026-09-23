@@ -84,6 +84,7 @@ current support contract. A guide never says a capability is "waiting for" or
 - [supply-chain.md](supply-chain.md) — provenance tiers and what is and is not claimed
 - [supply-chain-sources.md](supply-chain-sources.md) — generated network-source inventory
 - [testing.md](testing.md) — verification and installation-testing architecture
+- [testing/manual-acceptance/README.md](testing/manual-acceptance/README.md) — manual acceptance records: checklists and evidence for the hardware and interactive boundaries CI cannot reach
 - [parrot-ctf-shell-audit.md](parrot-ctf-shell-audit.md) — source-by-source Parrot shell classification
 
 ### Troubleshooting

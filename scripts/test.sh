@@ -94,6 +94,7 @@ default_tests=(
   tests/test-repository-hygiene.sh
   tests/test-lint-file-selection.sh
   tests/test-documentation.sh
+  tests/test-acceptance-records.sh
   tests/test-compat-wrappers.sh
   tests/test-command-provider-closure.sh
   tests/test-supply-chain.sh
