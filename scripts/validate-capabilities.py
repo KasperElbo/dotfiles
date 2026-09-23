@@ -956,14 +956,67 @@ def workflow_shell(path: pathlib.Path, keep_annotations: bool = False) -> str:
     return drop_comments(shell, keep_annotations)
 
 
+# The commands that report rather than run. `MESSAGE_COMMAND` above answers a
+# different question -- whether an installer asked for a package -- and there a
+# redirection makes the output content, so `printf` composing a tool list
+# counts. Here nothing a reporting command prints runs, redirected or not, so
+# the word list is the same but the carve-out is the opposite and `printf`
+# joins it.
+REPORTING_COMMAND = re.compile(
+    r"^(?P<indent>\s*)(?:echo|printf|info|note|notice|warn|warning|error|die|"
+    r"fail|pass|skip|step|log|say|summary|usage)\b(?P<rest>.*)$"
+)
+# Where a reporting command ends and a real one begins on the same line. It is
+# looked for in a noise-stripped copy, so an operator the message merely prints
+# does not end it: `echo "a && ./verify.sh"` runs no verifier, and taking the
+# operator as spelled would reopen the hole this closes one character further
+# along. `strip_noise` blanks quoted text in place, so a match in the copy is
+# at the same offset in the line.
+CONTROL_OPERATOR = re.compile(r"(?:&&|\|\||;)")
+
+
+def without_messages(text: str) -> str:
+    """The same shell with what a reporting command prints taken out.
+
+    `echo "skipping ./platforms/macos/scripts/verify.sh for now"` is shell in
+    command position, and it runs nothing. Only the words a reporting command
+    prints are dropped, not the line: `echo done && ./verify.sh` still runs the
+    verifier, and a path inside a string after some other command may be a real
+    invocation -- `bash -lc "cd ... && ./verify.sh"` is how the WSL job runs
+    its verifier.
+
+    A substitution a message expands does run (`echo "$(./verify.sh)"`), and
+    goes with the message here. That is the direction this errs in on purpose:
+    evidence dropped turns the gate red and someone looks, while evidence
+    invented is the silence GAP-18 is about.
+    """
+    kept = []
+    for line in text.splitlines():
+        message = REPORTING_COMMAND.match(line)
+        if message is None:
+            kept.append(line)
+            continue
+        operator = CONTROL_OPERATOR.search(strip_noise(message["rest"]))
+        kept.append(
+            message["indent"] + message["rest"][operator.end():]
+            if operator
+            else message["indent"]
+        )
+    return "\n".join(kept)
+
+
 def real_install_text(keep_annotations: bool = False) -> str:
     """The shell real-install.yml runs, plus every sequence or suite it runs.
 
     `keep_annotations` carries the `# ci-selection:` comments through, for the
     selection walk that has to read them. Every other caller asks a question
-    about what CI runs, where a comment is prose.
+    about what CI runs, where a comment is prose. A reporting command is
+    stripped either way, and never takes an annotation with it: an annotation
+    line is a comment, which is not a command in reporting position.
     """
-    workflow = workflow_shell(REAL_INSTALL_WORKFLOW, keep_annotations)
+    workflow = without_messages(
+        workflow_shell(REAL_INSTALL_WORKFLOW, keep_annotations)
+    )
     texts = [workflow]
     scripts = set(INTEGRATION_SCRIPT.findall(workflow)) | set(
         WINDOWS_SUITE.findall(workflow)
@@ -971,7 +1024,9 @@ def real_install_text(keep_annotations: bool = False) -> str:
     for script in sorted(scripts):
         if (ROOT / script).is_file():
             texts.append(
-                code_text(ROOT / script, keep_annotations).replace("\\", "/")
+                without_messages(
+                    code_text(ROOT / script, keep_annotations)
+                ).replace("\\", "/")
             )
     return "\n".join(texts)
 
