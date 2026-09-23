@@ -789,4 +789,108 @@ assert_path_exists "$foreign_unit"
 verify_ai >/dev/null
 printf 'PASS: removal stops the No Mistakes daemon and removes only its own service\n'
 
+# --- 23. A service definition that cannot be read blocks the removal -------
+#
+# A definition in the daemon's own glob is ours when its program is the owned
+# binary, someone else's when its program is some other path, and neither when
+# its program cannot be read. The third answer used to fall into the second: the
+# removal reported success, recorded no_mistakes=disabled, and left a login
+# service starting a deleted binary. It is a blocker, like every other
+# ownership question this installer cannot prove.
+
+MOCK_NO_MISTAKES_LAYOUT=daemon install_ai --firstmate --non-interactive \
+  >"$test_root/unreadable-install.log" 2>&1 ||
+  { cat "$test_root/unreadable-install.log" >&2; exit 1; }
+no_mistakes_binary="$(cd -P -- "$home/.no-mistakes/bin" && pwd)/no-mistakes"
+assert_path_exists "$unit"
+home_relative_binary="${no_mistakes_binary#"$(cd -P -- "$home" && pwd)/"}"
+
+# Obvious: a definition with no ExecStart at all names no program.
+printf '[Service]\nRestart=always\n' >"$unit"
+unreadable_preview="$(install_ai --no-firstmate --dry-run)"
+assert_contains "$unreadable_preview" "REFUSED, manual action required -- no-mistakes: $unit"
+assert_not_contains "$unreadable_preview" "delete $unit"
+if install_ai --no-firstmate --non-interactive \
+  >"$test_root/unreadable-remove.log" 2>&1; then
+  printf 'install-ai.sh removed No Mistakes past a service it could not read\n' >&2
+  exit 1
+fi
+assert_file_contains "$test_root/unreadable-remove.log" \
+  'Refusing to remove a component whose ownership cannot be proved'
+assert_path_executable "$no_mistakes_binary"
+assert_path_exists "$unit"
+state_says 'no_mistakes=installed'
+
+# Every spelling systemd accepts for the owned binary is claimed as ours:
+# whitespace around '=', the executable prefixes, and the %h specifier.
+for exec_start in \
+  "ExecStart = $no_mistakes_binary daemon run" \
+  "ExecStart=	$no_mistakes_binary daemon run" \
+  "ExecStart=-$no_mistakes_binary daemon run" \
+  "ExecStart=@$no_mistakes_binary no-mistakes-daemon daemon run" \
+  "ExecStart=%h/$home_relative_binary daemon run" \
+  "ExecStart=\"$no_mistakes_binary\" daemon run" \
+  "ExecStart=:+'$no_mistakes_binary' daemon \\
+  run"; do
+  printf '[Service]\n%s\nRestart=always\n' "$exec_start" >"$unit"
+  spelling_preview="$(install_ai --no-firstmate --dry-run)"
+  assert_contains "$spelling_preview" "delete $unit (No Mistakes daemon service)"
+  assert_not_contains "$spelling_preview" 'REFUSED'
+done
+
+# The same spellings naming another install's binary are someone else's, not
+# a blocker.
+printf '[Service]\nExecStart = -%%h/elsewhere/no-mistakes daemon run\n' >"$foreign_unit"
+foreign_preview="$(install_ai --no-firstmate --dry-run)"
+assert_not_contains "$foreign_preview" "$foreign_unit"
+
+# What systemd accepts but this reading cannot evaluate is refused, never
+# guessed: an unsupported specifier, a program found through a search path, a
+# symlinked definition, an ExecStart override in a drop-in, a launch agent
+# whose program is not in its text form, and a definition that runs both the
+# owned binary and something else.
+for exec_start in \
+  "ExecStart=%E/no-mistakes daemon run" \
+  "ExecStart=no-mistakes daemon run" \
+  "Type=oneshot
+ExecStart=$no_mistakes_binary daemon run
+ExecStart=/usr/bin/true"; do
+  printf '[Service]\n%s\n' "$exec_start" >"$unit"
+  blocked_preview="$(install_ai --no-firstmate --dry-run)"
+  assert_contains "$blocked_preview" "REFUSED, manual action required -- no-mistakes: $unit"
+  assert_not_contains "$blocked_preview" "delete $unit"
+done
+
+printf '[Service]\nExecStart=%s daemon run\n' "$no_mistakes_binary" >"$test_root/linked.service"
+ln -sf "$test_root/linked.service" "$unit"
+linked_preview="$(install_ai --no-firstmate --dry-run)"
+assert_contains "$linked_preview" "REFUSED, manual action required -- no-mistakes: $unit"
+rm -f -- "$unit"
+
+printf '[Service]\nExecStart=%s daemon run\n' "$no_mistakes_binary" >"$unit"
+mkdir -p "$unit.d"
+printf '[Service]\nExecStart=\nExecStart=/usr/bin/true\n' >"$unit.d/override.conf"
+dropin_preview="$(install_ai --no-firstmate --dry-run)"
+assert_contains "$dropin_preview" "REFUSED, manual action required -- no-mistakes: $unit"
+rm -rf -- "$unit.d"
+
+cp -- "$agent" "$test_root/agent.plist"
+printf 'bplist00' >"$agent"
+agent_preview="$(install_ai --no-firstmate --dry-run)"
+assert_contains "$agent_preview" "REFUSED, manual action required -- no-mistakes: $agent"
+cp -- "$test_root/agent.plist" "$agent"
+
+# Subtle, and applied: the %h spelling that used to be read as someone else's
+# is removed with the binary it starts.
+printf '[Service]\nExecStart=%%h/%s daemon run --root %%h/.no-mistakes\nRestart=always\n' \
+  "$home_relative_binary" >"$unit"
+install_ai --no-firstmate --non-interactive >"$test_root/specifier-remove.log" 2>&1 ||
+  { cat "$test_root/specifier-remove.log" >&2; exit 1; }
+state_says 'no_mistakes=disabled'
+assert_path_missing "$no_mistakes_binary"
+assert_path_missing "$unit"
+assert_path_missing "$agent"
+assert_path_exists "$foreign_unit"
+printf 'PASS: an unreadable No Mistakes service blocks the removal instead of being disowned\n'
+
 printf 'AI optional-component transition tests passed.\n'
