@@ -908,7 +908,13 @@ since a different build is a different rule set, and requires neither a
 `.gitleaksignore` nor a `gitleaks:allow` comment to silence a finding. It
 also runs the tracked `.gitleaks.toml` over one generated sample per
 high-value rule family, so an exception that silences a whole family fails
-the suite.
+the suite. `tests/test-secret-scanner.sh` covers the download itself, against
+an archive and a network it owns: a wrong digest, an archive without the
+binary, a binary reporting another version, and a tar, mv or chmod that fails
+must each stop the run before anything is scanned and leave nothing in the
+cache that a later run would accept. Its tar fixture extracts the binary and
+then exits non-zero, because one that writes nothing is caught by the version
+check whether or not tar's status is read.
 
 That suite needs the pinned binary and never downloads one, because no suite
 here reaches the network. In CI the scan step runs earlier in the same job and
