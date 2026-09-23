@@ -36,6 +36,9 @@ on:
   push:
     branches:
       - main
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   repository:
     runs-on: ubuntu-latest
@@ -1290,5 +1293,48 @@ git -C "$tree" add -A
 run_capture python3 "$validator" --root "$tree"
 assert_success
 printf 'PASS: a PowerShell path that exists is accepted\n'
+
+# --- A push to main keeps its run (#499) ------------------------------------
+#
+# Keyed on the ref with cancel-in-progress on, the merge that landed next
+# cancelled the previous main commit's run, and 10 of the 40 main pushes
+# up to 23 September 2026 kept only a cancelled one. Each case edits the real
+# workflow, and the first restores the exact block main carried.
+new_real_workflow_tree
+edit_workflow "  group: validate-\${{ github.workflow }}-\${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: \${{ github.event_name == 'pull_request' }}" \
+  "  group: validate-\${{ github.workflow }}-\${{ github.ref }}
+  cancel-in-progress: true"
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line '  group: validate-'): concurrency \`group\` is"
+assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line '  cancel-in-progress: true'): concurrency \`cancel-in-progress\` is \`true\`"
+printf 'PASS: the concurrency block that cancelled main runs is refused\n'
+
+# Turning cancellation off still shares one pending slot per group, and GitHub
+# cancels the pending run it replaces, so a ref-keyed group alone is refused.
+new_real_workflow_tree
+edit_workflow "github.event_name == 'push' && github.sha || github.ref }}" 'github.ref }}'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'concurrency `group` is `validate-${{ github.workflow }}-${{ github.ref }}`'
+assert_not_contains "$TEST_OUTPUT" 'cancel-in-progress'
+printf 'PASS: a ref-keyed group is refused even with cancellation limited to pull requests\n'
+
+new_real_workflow_tree
+edit_workflow '    timeout-minutes: 15' $'    timeout-minutes: 15\n    concurrency: cheatsheets'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line 'concurrency: cheatsheets'): job \`cheatsheets\` sets its own concurrency"
+printf 'PASS: a job-level concurrency group is refused\n'
+
+# A comment carrying the accepted text is not the value.
+new_real_workflow_tree
+edit_workflow "  cancel-in-progress: \${{ github.event_name == 'pull_request' }}" \
+  "  # cancel-in-progress: \${{ github.event_name == 'pull_request' }}"
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'concurrency `cancel-in-progress` is nothing'
+printf 'PASS: the accepted value in a comment does not count\n'
 
 printf '\nAll repository hygiene checks passed.\n'

@@ -41,6 +41,10 @@ diff and expensive to notice later:
    exception may live, each one an anchored literal with a reason; a
    `.gitleaksignore`, a disabled rule, or a pattern that matches more than one
    literal is refused.
+11. A validation workflow that can cancel a push to main. A main commit's own
+   run is the only evidence that its combined tree passed, and a concurrency
+   group keyed on the branch cancelled one whenever the next merge landed
+   while it ran (#499).
 
 Usage:
     scripts/validate-repository-hygiene.py [--root DIR]
@@ -897,6 +901,69 @@ def check_required_steps(root: pathlib.Path, problems: list[str]) -> None:
             )
 
 
+# --- A push to main keeps its run -------------------------------------------
+#
+# The only shape accepted. A group keyed on the ref put every main push in one
+# group, so a merge that landed while the previous merge's run was going
+# cancelled that run, and the previous commit was left with no evidence at all.
+# Turning cancel-in-progress off is not enough on its own: GitHub keeps one
+# pending run per group and cancels the one it replaces. So a push's group is
+# its commit. These are read as the workflow's values, not searched for, so a
+# comment carrying the text satisfies nothing.
+VALIDATION_CONCURRENCY = {
+    "group": "validate-${{ github.workflow }}-"
+             "${{ github.event_name == 'push' && github.sha || github.ref }}",
+    "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+}
+
+
+def check_push_runs_kept(root: pathlib.Path, problems: list[str]) -> None:
+    """validate.yml never cancels, or replaces, the run of a push to main."""
+    name = (WORKFLOWS / VALIDATION_WORKFLOW).as_posix()
+    path = root / WORKFLOWS / VALIDATION_WORKFLOW
+    if not path.is_file():
+        return  # check_required_steps reports the missing workflow.
+    try:
+        workflow = read_workflow(path, name)
+    except UnreadableWorkflow:
+        return  # check_required_steps reports the unreadable workflow.
+    why = (
+        "so a merge that lands while the previous main commit's run is going "
+        "can cancel it and leave that commit with no evidence"
+    )
+    concurrency = workflow.get("concurrency")
+    if concurrency is None or not isinstance(concurrency.value, dict):
+        line = concurrency.line if concurrency is not None else 1
+        problems.append(
+            f"{name}:{line}: the workflow has no concurrency mapping of the "
+            "accepted shape; see VALIDATION_CONCURRENCY in this validator."
+        )
+    else:
+        keys = {key for key, _ in concurrency.items()}
+        for key in sorted(keys - VALIDATION_CONCURRENCY.keys()):
+            problems.append(
+                f"{name}:{concurrency.get(key).line}: concurrency carries `{key}`, "
+                "which this gate does not accept."
+            )
+        for key, expected in VALIDATION_CONCURRENCY.items():
+            value = concurrency.get(key)
+            if value is None or value.value != expected:
+                line = value.line if value is not None else concurrency.line
+                found = "nothing" if value is None else f"`{value.value}`"
+                problems.append(
+                    f"{name}:{line}: concurrency `{key}` is {found}, not "
+                    f"`{expected}`, {why}."
+                )
+    jobs = workflow.get("jobs")
+    for job_name, job in (jobs.items() if jobs is not None else []):
+        job_concurrency = job.get("concurrency")
+        if job_concurrency is not None:
+            problems.append(
+                f"{name}:{job_concurrency.line}: job `{job_name}` sets its own "
+                f"concurrency, {why}."
+            )
+
+
 # gitleaks reads a `.gitleaksignore` from the directory it scans, keyed by a
 # `file:rule:line` fingerprint, with no scoping and no comment: a second
 # allowlist beside `.gitleaks.toml` that nothing reviews. scripts/scan-secrets.sh
@@ -1008,6 +1075,7 @@ def main() -> int:
     check_workflow_action_pins(root, problems)
     check_workflow_whitespace_range(root, problems)
     check_required_steps(root, problems)
+    check_push_runs_kept(root, problems)
     check_gitleaks_ignore(root, problems)
     check_gitleaks_config(root, problems)
 
