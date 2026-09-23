@@ -677,8 +677,8 @@ with `scripts/validate-check-outcomes.py` once the suites are done.
 
 A call site that produced both a pass and a fail is covered: some fixture drove
 it each way, so inverting its predicate takes one of those outcomes away and
-the run turns red naming the line. 88 of the 150 call sites are covered today,
-and the rest are too many to fix in one change, so `config/check-outcomes.tsv`
+the run turns red naming the line. 140 of the 150 call sites are covered today,
+and the rest are uncovered on purpose, so `config/check-outcomes.tsv`
 records how many each verifier still has, as a ceiling: the count may fall but
 never rise, so a new check with no fixture behind it raises its verifier's
 count and is refused.
@@ -709,9 +709,11 @@ driven both ways is accepted — so none of the others can pass because the tree
 was already red.
 
 This is a partial answer to GRADE-03, not the whole of it: it holds every new
-check to the rule from today, and catches an inverted predicate at the 88 call
-sites already covered. The remaining 62 need fixtures, one verifier at a time;
-#383 records which of them are worth one.
+check to the rule from today, and catches an inverted predicate at the 140 call
+sites already covered. The remaining 10 are uncovered on purpose, as #383
+records: themes, VM agents and CPU architecture, where a false pass costs little,
+and two digest checks whose negative outcome is a warning by design, which this
+gate does not count.
 
 ### Every symlink check names its Stow source
 
