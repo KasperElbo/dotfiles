@@ -677,7 +677,7 @@ with `scripts/validate-check-outcomes.py` once the suites are done.
 
 A call site that produced both a pass and a fail is covered: some fixture drove
 it each way, so inverting its predicate takes one of those outcomes away and
-the run turns red naming the line. 140 of the 150 call sites are covered today,
+the run turns red naming the line. 141 of the 151 call sites are covered today,
 and the rest are uncovered on purpose, so `config/check-outcomes.tsv`
 records how many each verifier still has, as a ceiling: the count may fall but
 never rise, so a new check with no fixture behind it raises its verifier's

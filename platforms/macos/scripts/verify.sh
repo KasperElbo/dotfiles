@@ -119,14 +119,49 @@ else
   pass "No Intel Homebrew executable found"
 fi
 
-if csrutil status 2>/dev/null | grep -Fqi enabled; then
+# SIP and Gatekeeper are each read from their status line, never from anywhere
+# in what the command prints. A partly disabled SIP answers "status: unknown
+# (Custom Configuration)." followed by a Configuration block of one
+# enabled/disabled line per sub-protection, so searching the whole output for
+# "enabled" reported SIP on while any single sub-protection still was.
+sip_report="$(csrutil status 2>/dev/null || true)"
+sip_status=""
+sip_disabled=""
+while IFS= read -r sip_line; do
+  case "$sip_line" in
+  "System Integrity Protection status: "*)
+    [[ -n "$sip_status" ]] ||
+      sip_status="${sip_line#System Integrity Protection status: }"
+    ;;
+  # Apple Internal reads disabled on every customer Mac; it is not one of the
+  # protections, so naming it would only hide the ones that are.
+  *"Apple Internal: disabled") ;;
+  *": disabled")
+    sip_line="${sip_line%: disabled}"
+    sip_line="${sip_line#"${sip_line%%[![:space:]]*}"}"
+    sip_disabled+="${sip_disabled:+, }$sip_line"
+    ;;
+  esac
+done <<<"$sip_report"
+if [[ "$sip_status" == enabled. || "$sip_status" == enabled ]]; then
   pass "System Integrity Protection is enabled"
 elif macos_is_github_hosted_runner; then
   not_observed "System Integrity Protection is not observable as enabled on hosted macOS; verify it on a real machine"
+elif [[ "$sip_status" == *"Custom Configuration"* ]]; then
+  fail "System Integrity Protection is only partly enabled (Custom" \
+    "Configuration); disabled: ${sip_disabled:-none listed} -- restore it" \
+    "with 'csrutil enable' from recoveryOS"
 else
-  fail "System Integrity Protection is not enabled"
+  fail "System Integrity Protection is not enabled (status:" \
+    "${sip_status:-unreadable})"
 fi
-if spctl --status 2>/dev/null | grep -Fqi enabled; then pass "Gatekeeper is enabled"; else fail "Gatekeeper is not enabled"; fi
+gatekeeper_status="$(spctl --status 2>/dev/null | head -n1 || true)"
+if [[ "$gatekeeper_status" == "assessments enabled" ]]; then
+  pass "Gatekeeper is enabled"
+else
+  fail "Gatekeeper is not enabled (spctl --status:" \
+    "${gatekeeper_status:-no answer})"
+fi
 
 section "Commands"
 # Activate mise the way .zshrc does, but from an empty directory that is its
