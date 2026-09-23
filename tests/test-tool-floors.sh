@@ -185,10 +185,56 @@ assert_contains "$TEST_OUTPUT" \
 {
   printf -- '- the hardware installer requires a kernel of at least 7.1\n'
   printf -- '- the entry point re-executes with Bash 4.4 or newer\n'
+  printf -- '- the dictation app runs on macOS 14.0+ only\n'
 } >"$requirements"
 git -C "$fixture" add -A
 run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
 assert_success
+
+# A paragraph that states a floor and names no tool used to be skipped without a
+# word, so a floor whose tool was named anywhere but in its own sentence went
+# unchecked (#508, V4-09). The obvious shape: the section heading names the tool.
+{
+  printf -- '## Neovim\n\n'
+  printf -- 'This toolchain requires 0.9 or newer.\n'
+} >"$requirements"
+git -C "$fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'docs/workflows/editor.md:3 states 0.9 as the nvim minimum'
+
+# ...and the right floor under that heading still passes, so the heading is read
+# as the tool it names rather than as a reason to refuse.
+{
+  printf -- '## Neovim\n\n'
+  printf -- 'This toolchain requires 0.12 or newer.\n'
+} >"$requirements"
+git -C "$fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_success
+
+# The subtle shape: the tool is named in a table row, and the sentence below it
+# says only "it". Nothing ties that sentence to the row, so it is reported
+# rather than guessed at either way.
+{
+  printf -- '| Tool | Notes |\n'
+  printf -- '| --- | --- |\n'
+  printf -- '| Neovim (`nvim`) | the editor |\n\n'
+  printf -- 'It requires 0.9 or newer.\n'
+} >"$requirements"
+git -C "$fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'docs/workflows/editor.md:5 states a 0.9 minimum without naming the tool it is for'
+
+# An untracked subject is one written directly before the number. Naming macOS
+# earlier in a sentence about Neovim does not make Neovim's floor macOS's.
+printf -- 'Neovim on macOS requires 0.9 or newer.\n' >"$requirements"
+git -C "$fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'docs/workflows/editor.md:1 states 0.9 as the nvim minimum'
 
 # The one version this repository actually controls is the mise pin, so it is
 # held to the registry too: raising a floor above the pin must fail the build
@@ -464,6 +510,62 @@ assert_success
 # report every one of them as enforcing nothing.
 write_consumer 'check_version_at_least "Neovim" "$(tool_version nvim)" "$(tool_floor nvim)"'
 assert_success
+
+# Help text is not a call. The reader used to have no state across lines, so a
+# `usage()` heredoc listing the reader's name satisfied the check with no real
+# call anywhere, and nearly every script here has that shape (#508, V4-04).
+write_consumer 'usage() {
+  cat <<'"'"'EOF'"'"'
+Usage: enforce.sh
+tool_floor_check nvim   check the Neovim floor by hand
+EOF
+}
+usage'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+# The subtle spellings of the same thing: a heredoc whose delimiter is bare, a
+# string that runs over several lines, and a case arm whose pattern is the
+# reader's name. None of them runs the reader.
+write_consumer 'cat <<EOF
+tool_floor_check nvim
+EOF'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+write_consumer 'printf "%s\n" "Checks:
+tool_floor_check nvim
+done"'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+write_consumer 'case "${1:-}" in
+  tool_floor_check) : ;;
+esac'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+# A subshell body is a definition too, so its floor check does not run on load
+# (#508, V4-08)...
+write_consumer 'never_called() (
+  tool_floor_check nvim
+)
+: done'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
+
+# ...and a comment after a closing brace still closes the function. It used to
+# leave the span open to the next closing brace, so the uncalled function below
+# was swallowed into the called one and its floor check counted as run.
+write_consumer 'called() {
+  :
+} # called
+never_called() {
+  tool_floor_check nvim
+}
+called'
+assert_failure
+assert_contains "$TEST_OUTPUT" "$unenforced_message"
 
 # A consumer the check cannot parse is unknown, not enforced. An unterminated
 # function used to swallow the rest of the file, hiding the real call below it.
