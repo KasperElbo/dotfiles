@@ -238,7 +238,8 @@ printf 'bindsym $mod+Shift+Y exec never-registered\n' \
   >>"$scratch/platforms/fedora/stow/sway/.config/sway/config"
 run_capture python3 "$validator" --root "$scratch"
 assert_failure
-assert_contains "$TEST_OUTPUT" "unregistered custom action"
+assert_contains "$TEST_OUTPUT" \
+  "unregistered custom action: 'bindsym \$mod+Shift+Y exec never-registered'"
 printf 'PASS: an unregistered Sway binding fails\n'
 
 test_new_root
@@ -250,7 +251,8 @@ cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
 printf "\nalias never-registered='true'\n" >>"$scratch/zsh/.config/zsh/.zshrc"
 run_capture python3 "$validator" --root "$scratch"
 assert_failure
-assert_contains "$TEST_OUTPUT" "unregistered custom action"
+assert_contains "$TEST_OUTPUT" \
+  "unregistered custom action: \"alias never-registered='true'\""
 printf 'PASS: an unregistered shell alias fails\n'
 
 test_new_root
@@ -288,6 +290,119 @@ run_capture python3 "$validator" --root "$scratch"
 assert_failure
 assert_contains "$TEST_OUTPUT" "unregistered custom action"
 printf 'PASS: an unregistered Waybar click fails, through a real JSON parse\n'
+
+# --- A registered prefix does not claim what is appended to it --------------
+
+# V4-14 (#509). A row used to claim any line its source_pattern occurred in, and
+# only 13 of 129 patterns were anchored at the end, so a registered binding or
+# alias kept its registration with anything appended to it. Each case below
+# appends to a line the registry does claim, and the validator has to name
+# the text that nobody registered.
+
+sway_config="platforms/fedora/stow/sway/.config/sway/config"
+
+# with_config_edit <file> <line> <replacement>: run the validator against a
+# copy of the tree in which the one line of <file> that reads <line>, past its
+# indentation, now reads <replacement> at the same indentation, and nothing
+# else differs.
+with_config_edit() {
+  local file="$1" line="$2" replacement="$3"
+  test_new_root
+  local scratch="$TEST_ROOT/tree"
+  mkdir -p "$scratch"
+  cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+    "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+    "$scratch/"
+  python3 - "$scratch/$file" "$line" "$replacement" <<'PYTHON'
+import pathlib
+import sys
+
+path, line, replacement = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+lines = path.read_text(encoding="utf-8").split("\n")
+found = [index for index, text in enumerate(lines) if text.strip() == line]
+if len(found) != 1:
+    raise SystemExit(f"{path}: the line this case edits is gone: {line!r}")
+indent = lines[found[0]][: len(lines[found[0]]) - len(lines[found[0]].lstrip())]
+lines[found[0]] = indent + replacement
+path.write_text("\n".join(lines), encoding="utf-8")
+PYTHON
+  run_capture python3 "$validator" --root "$scratch"
+}
+
+# Sway runs a binding's command as a command list: `;` and `,` both start a
+# new command, so the second one is an action of its own and is named as the
+# same key bound to that command. Both are appended to a family row, whose
+# pattern once covered all nine keys by their shared prefix.
+# shellcheck disable=SC2016 # $mod and $ws1 are literal Sway variables.
+with_config_edit "$sway_config" \
+  'bindsym $mod+1 workspace number $ws1' \
+  'bindsym $mod+1 workspace number $ws1; exec notify-send hi'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "unregistered custom action: 'bindsym \$mod+1 exec notify-send hi'"
+printf 'PASS: a command chained onto a registered Sway binding with ; fails\n'
+
+# shellcheck disable=SC2016 # $mod and $ws1 are literal Sway variables.
+with_config_edit "$sway_config" \
+  'bindsym $mod+Shift+1 move container to workspace number $ws1' \
+  'bindsym $mod+Shift+1 move container to workspace number $ws1, workspace number $ws1'
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "unregistered custom action: 'bindsym \$mod+Shift+1 workspace number \$ws1'"
+printf 'PASS: a command chained onto a registered Sway binding with , fails\n'
+
+# Quotes protect a separator, the way Sway reads them: splitting on a quoted
+# `,` or `;` would invent a command the binding never runs. This one changes
+# the registry with the config, so the binding is registered and has to pass.
+test_new_root
+scratch="$TEST_ROOT/quoted-separator"
+mkdir -p "$scratch"
+cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+  "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+  "$scratch/"
+# shellcheck disable=SC2016 # $mod is a literal Sway variable.
+sed -i "s/^bindsym \$mod+n exec makoctl dismiss\$/bindsym \$mod+n exec makoctl dismiss --no-history 'a, b; c'/" \
+  "$scratch/$sway_config"
+# shellcheck disable=SC2016 # \$ and \+ are regular-expression escapes.
+sed -i "s/\tbindsym \\\\\$mod\\\\+n exec makoctl dismiss\t/\tbindsym \\\\\$mod\\\\+n exec makoctl dismiss --no-history 'a, b; c'\t/" \
+  "$scratch/config/actions.tsv"
+grep -Fq "makoctl dismiss --no-history 'a, b; c'" "$scratch/$sway_config" ||
+  _test_die "the quoted-separator case did not edit the Sway config"
+grep -Fq "makoctl dismiss --no-history 'a, b; c'" "$scratch/config/actions.tsv" ||
+  _test_die "the quoted-separator case did not edit the registry"
+run_capture python3 "$validator" --root "$scratch"
+assert_success
+printf 'PASS: a quoted , or ; inside a Sway exec is not a second command\n'
+
+# An alias is its whole value. `cld` is registered as the one flag it passes,
+# so an extra argument is a different command, and the eza family's shared
+# `alias ls='eza` prefix must not claim a second command either.
+with_config_edit zsh/.config/zsh/.zshrc \
+  "alias cld='claude --dangerously-skip-permissions'" \
+  "alias cld='claude --dangerously-skip-permissions --mcp-config /tmp/evil.json'"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "unregistered custom action: \"alias cld='claude --dangerously-skip-permissions --mcp-config /tmp/evil.json'\""
+printf 'PASS: an argument appended to a registered alias fails\n'
+
+with_config_edit zsh/.config/zsh/.zshrc "alias ls='eza'" "alias ls='eza; curl evil'"
+assert_failure
+assert_contains "$TEST_OUTPUT" "unregistered custom action: \"alias ls='eza; curl evil'\""
+printf 'PASS: a command appended to an alias of a registered family fails\n'
+
+# Widening a row to a wildcard would hand back what whole-line matching took
+# away, so a sourced row's pattern may not repeat without an upper bound, in
+# any spelling of it.
+for widened in \
+  "zsh.alias.claude-code|alias cld='claude.*" \
+  "sway.workspace.switch|bindsym \\\$mod\\+[1-9] workspace number[^;]*"; do
+  id="${widened%%|*}"
+  pattern="${widened#*|}"
+  with_registry "by_id['$id']['source_pattern'] = r\"$pattern\""
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "($id): source_pattern has a repetition with no upper bound"
+  printf 'PASS: widening %s to an unbounded pattern fails\n' "$id"
+done
 
 # --- Schema rules -----------------------------------------------------------
 
