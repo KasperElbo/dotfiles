@@ -1424,6 +1424,9 @@ try {
                 }
                 finally {
                     Remove-Item Env:GITHUB_TOKEN, Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+                    # The deliberately failing child leaves its status in
+                    # $LASTEXITCODE, and the Actions pwsh step exits with it.
+                    $global:LASTEXITCODE = 0
                 }
             } $FunctionText ((Get-Process -Id $PID).Path)
         }
