@@ -241,6 +241,89 @@ assert_contains "$planted" '"$mise_command" ls'
 printf 'PASS: the reader reports a planted bare mise invocation\n'
 
 # ---------------------------------------------------------------------------
+# The same checks answered the other way
+# ---------------------------------------------------------------------------
+#
+# Every case above fails the KDE and Sway checks and none passes them, so a
+# check there that could never succeed read exactly like one that works; and
+# check_mise_context was only ever reached with a clean context, so one that
+# could never fail read the same way. One machine turns all of them over: both
+# sessions recorded, every command the two sections locate present, every Sway
+# link where Stow would have put it, and a tool declaration left in the
+# deterministic mise context.
+
+new_machine base,dotnet-debug,kde,sway
+session_bin="$root/session-stubs"
+mkdir -p "$session_bin"
+# The KDE and Sway sections locate these commands and run none of them, so each
+# stub refuses every call: a verifier that started running one is told so
+# rather than answered. jq is left to the closed PATH, because the core section
+# does run it.
+session_commands=(
+  dolphin
+  blueman-manager brightnessctl cliphist dex-autostart fuzzel grim mako
+  nm-connection-editor pavucontrol playerctl slurp sway swaybg swayidle
+  swaylock swappy sway-session-start waybar
+)
+for command_name in "${session_commands[@]}"; do
+  cat >"$session_bin/$command_name" <<'EOF'
+#!/usr/bin/env bash
+printf 'session fixture refused unsupported argv: %s' "${0##*/}" >&2
+printf ' %q' "$@" >&2
+printf '\n' >&2
+exit 96
+EOF
+  chmod +x "$session_bin/$command_name"
+done
+
+# Each link at the file Stow links it to, as link|source.
+sway_package="$repo_root/platforms/fedora/stow/sway"
+waybar_package="$repo_root/platforms/fedora/stow/waybar"
+session_links=(
+  "$root/config/sway/config|$sway_package/.config/sway/config"
+  "$root/config/xdg-desktop-portal/sway-portals.conf|$sway_package/.config/xdg-desktop-portal/sway-portals.conf"
+  "$root/config/waybar/config.jsonc|$waybar_package/.config/waybar/config.jsonc"
+  "$root/config/waybar/style.css|$waybar_package/.config/waybar/style.css"
+  "$root/home/.local/bin/sway-workspace-grid|$sway_package/.local/bin/sway-workspace-grid"
+  "$root/home/.local/bin/sway-output-cycle|$sway_package/.local/bin/sway-output-cycle"
+  "$root/home/.local/bin/sway-session-start|$sway_package/.local/bin/sway-session-start"
+)
+for entry in "${session_links[@]}"; do
+  mkdir -p "$(dirname "${entry%%|*}")"
+  ln -s "${entry#*|}" "${entry%%|*}"
+done
+
+# The stray is the defect; the mise it would reach refuses everything, because
+# run_mise has to stop at the diagnosis and never start it.
+mkdir -p "$root/home/.local/bin" "$root/state/dotfiles/mise-context"
+printf '[tools]\nnode = "22"\n' >"$root/state/dotfiles/mise-context/mise.toml"
+cat >"$root/home/.local/bin/mise" <<'EOF'
+#!/usr/bin/env bash
+printf 'strict mise fixture rejected unsupported argv:' >&2
+printf ' %q' "$@" >&2
+printf '\n' >&2
+exit 96
+EOF
+chmod +x "$root/home/.local/bin/mise"
+
+run_verifier "PATH=$session_bin:$stub_bin:$PATH"
+for command_name in "${session_commands[@]}"; do
+  assert_contains "$verifier_output" "$command_name: $session_bin/$command_name"
+done
+assert_not_contains "$verifier_output" 'fixture refused'
+# check_symlink reports the canonical referent, so the expectation is
+# canonicalized the same way.
+for entry in "${session_links[@]}"; do
+  assert_contains "$verifier_output" \
+    "${entry%%|*} -> $(realpath "${entry#*|}")"
+done
+assert_contains "$verifier_output" \
+  'mise resolution is not deterministic: the deterministic mise context carries tool declarations (mise.toml)'
+assert_contains "$verifier_output" 'mise could not load configured tools'
+assert_not_contains "$verifier_output" 'strict mise fixture rejected'
+printf 'PASS: selected KDE and Sway checks pass on a machine that has them, and a declared mise context fails\n'
+
+# ---------------------------------------------------------------------------
 # #369: a Stow link is checked against the exact file Stow should have linked
 # ---------------------------------------------------------------------------
 #
