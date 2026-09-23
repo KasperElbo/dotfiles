@@ -322,6 +322,57 @@ assert_contains "$TEST_OUTPUT" \
   "which scripts/update-starship-themes.sh does not cover"
 printf 'PASS: a flavour missing from the Starship generator fails\n'
 
+# A comment is not coverage, in any language a consumer is written in. The
+# shell readers have always dropped comments first; the Lua and line-pattern
+# readers read raw text, so a flavour commented out of Neovim's table or out of
+# the git theme file still counted as covered (#509, V4-21).
+scratch_tree
+replace_line "$tree/nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua" \
+  '    frappe = true,' '    -- frappe = true,'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest offers theme 'frappe', which nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua does not cover"
+printf 'PASS: a flavour commented out of the Neovim table fails\n'
+
+scratch_tree
+replace_line "$tree/nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua" \
+  '    frappe = true,' '    --[[ frappe = true, ]]'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest offers theme 'frappe', which nvim-lazyvim/.config/nvim/lua/plugins/colorscheme.lua does not cover"
+printf 'PASS: a flavour inside a Lua block comment fails\n'
+
+gitconfig="git/.config/git/themes/catppuccin.gitconfig"
+scratch_tree
+python3 - "$tree/$gitconfig" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").split("\n")
+header = '[delta "catppuccin-frappe"]'
+if lines.count(header) != 1:
+    sys.exit(f"expected exactly one line {header!r} in {path}")
+del lines[lines.index(header)]
+path.write_text("\n".join(lines), encoding="utf-8")
+PYTHON
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "the manifest offers theme 'frappe', which $gitconfig does not cover"
+printf 'PASS: a flavour with no git delta section fails\n'
+
+for comment in '#' ';'; do
+  scratch_tree
+  replace_line "$tree/$gitconfig" '[delta "catppuccin-frappe"]' \
+    "$comment [delta \"catppuccin-frappe\"]"
+  run_capture python3 "$tree/scripts/validate-install-options.py"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "the manifest offers theme 'frappe', which $gitconfig does not cover"
+  printf 'PASS: a git delta section commented out with %s fails\n' "$comment"
+done
+
 scratch_tree
 replace_line "$tree/platforms/macos/scripts/verify.sh" \
   'for flavour in latte frappe macchiato mocha; do' \
@@ -367,6 +418,65 @@ run_capture python3 "$repo_root/scripts/validate-install-options.py"
 assert_success
 printf 'PASS: two file patterns in one directory read as their own values\n'
 
+# A usage string is a prose copy of the flavour set that nothing ran, so a
+# fifth flavour left it behind while every `case` arm was caught (#509,
+# V4-24). Each is its own site, named by its line.
+scratch_tree
+replace_line "$tree/bin/.local/bin/theme" \
+  'Usage: theme {latte|frappe|macchiato|mocha} [--preserve-wallpaper]' \
+  'Usage: theme {latte|frappe|macchiato} [--preserve-wallpaper]'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest offers theme 'mocha', which bin/.local/bin/theme does not cover in the line matching \`Usage: theme {{values}} [--preserve-wallpaper]\` on line"
+printf 'PASS: a flavour missing from the theme command usage fails\n'
+
+scratch_tree
+sed -i 's/\tlatte|frappe|macchiato|mocha\t/\tlatte|frappe|macchiato|mocha|espresso\t/' \
+  "$tree/config/install-options.tsv"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" "which bin/.local/bin/theme does not cover in the line matching \`Usage: theme {{values}}"
+assert_contains "$TEST_OUTPUT" "which platforms/fedora/scripts/apply-kde-theme.sh does not cover in the line matching \`Usage: \$0 {{values}}\`"
+printf 'PASS: a fifth flavour names both usage strings it leaves behind\n'
+
+# --- A range stated once and held to every site that enforces it -----------
+
+# `--charge-limit` published `[4-9][0-9]|100`, a pattern nothing compared with
+# the ASUS installer's own `((x < 40 || x > 100))`: widening it moved --help and
+# the generated reference while every run still refused the new values
+# (#509, V4-25). The manifest edit alone has to fail now, in both directions.
+for range in 30..100 40..90; do
+  scratch_tree
+  sed -i "s/\t40\.\.100\t/\t$range\t/" "$tree/config/install-options.tsv"
+  grep -q "	$range	" "$tree/config/install-options.tsv"
+  run_capture python3 "$tree/scripts/validate-install-options.py"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" \
+    "the manifest bounds charge-limit to $range, but platforms/fedora/scripts/install-asus-hardware.sh enforces 40..100"
+  printf 'PASS: a manifest range of %s the installer does not enforce fails\n' "$range"
+done
+
+# The same disagreement from the other side: the script's own bound moves and
+# the manifest does not.
+scratch_tree
+replace_line "$tree/platforms/fedora/scripts/install-asus-hardware.sh" \
+  'charge_limit_min=40' 'charge_limit_min=45'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest bounds charge-limit to 40..100, but platforms/fedora/scripts/install-asus-hardware.sh enforces 45..100"
+printf 'PASS: a consumer range that moves without the manifest fails\n'
+
+# A pattern is not a range: it is published as fact and nothing can read it.
+scratch_tree
+sed -i 's/\t40\.\.100\t/\t[4-9][0-9]|100\t/' "$tree/config/install-options.tsv"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "charge-limit states its values as '[4-9][0-9]|100', which is neither an enumeration"
+printf 'PASS: a values pattern that is neither a list nor a range fails\n'
+
 # A kind the check cannot read is an error: a consumer whose shape is unknown
 # enforces nothing, and reading that as agreement is the defect itself.
 test_new_root
@@ -388,7 +498,6 @@ printf 'PASS: a consumer kind this check cannot read fails\n'
 # stayed green.
 
 fedora_selection_set='install_selection_set tailscale "$install_tailscale"'
-fedora_summary_line='Tailscale profile:   $install_tailscale'
 
 scratch_tree
 replace_line "$tree/platforms/fedora/install.sh" "$fedora_selection_set" ''
@@ -438,13 +547,72 @@ assert_contains "$TEST_OUTPUT" 'no `plan_add tailscale` step'
 assert_contains "$TEST_OUTPUT" 'records the choice and installs nothing'
 printf 'PASS: a capability with no execution-plan step fails\n'
 
+# --- The generated --dry-run plan lines --------------------------------------
+#
+# The plan's option lines are generated, each under its manifest summary with
+# the variable its own argv arm records. The hand-written summary they replace
+# was checked only for each variable appearing somewhere, so swapping two
+# variables between their labels passed and a run printed `Sway session: false`
+# above a rerun record saying `sway:true` (#509, V4-22).
+
 scratch_tree
-replace_line "$tree/platforms/fedora/install.sh" "$fedora_summary_line" ''
+replace_line "$tree/platforms/fedora/install.sh" '  plan_persistent_options' ''
 run_capture python3 "$tree/scripts/validate-install-options.py"
 assert_failure
-assert_contains "$TEST_OUTPUT" 'never shows $install_tailscale'
-assert_contains "$TEST_OUTPUT" 'without appearing in the plan the run prints'
-printf 'PASS: an option missing from the --dry-run summary fails\n'
+assert_contains "$TEST_OUTPUT" 'never calls plan_persistent_options'
+printf 'PASS: a --dry-run branch without the generated plan lines fails\n'
+
+# The same swap, written by hand beside the generated lines.
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" '  plan_persistent_options' \
+  '  plan_persistent_options
+  printf '"'"'Sway session:        %s\n'"'"' "$install_hardening"'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'prints $install_hardening in the `--dry-run` plan by hand'
+printf 'PASS: an option line written by hand beside the generated plan fails\n'
+
+# And in the generated file itself, which is the only place left to swap them.
+scratch_tree
+python3 - "$tree/platforms/fedora/lib/usage-options.sh" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+pairs = {
+    "'Sway session:' \"$install_sway\"": "'Sway session:' \"$install_hardening\"",
+    "'Security-hardening profile:' \"$install_hardening\"":
+        "'Security-hardening profile:' \"$install_sway\"",
+}
+for old, new in pairs.items():
+    if text.count(old) != 1:
+        sys.exit(f"expected exactly one {old!r} in {path}")
+    text = text.replace(old, new)
+path.write_text(text, encoding="utf-8")
+PYTHON
+run_capture python3 "$tree/scripts/render-installer-usage.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" 'fedora installer help and plan text is stale'
+printf 'PASS: plan lines swapped in the generated file fail\n'
+
+# A summary edited in the manifest either reaches the plan or fails: the
+# committed file goes stale, and regenerating it relabels the line the run
+# prints.
+fedora_ocaml_row=$'fedora\tocaml\tboolean\t--ocaml\t--no-ocaml\tfalse\t-\tocaml\tOCaml profile'
+scratch_tree
+replace_line "$tree/config/install-options.tsv" "$fedora_ocaml_row" \
+  "${fedora_ocaml_row%OCaml profile}OCaml toolchain and opam switch"
+run_capture python3 "$tree/scripts/render-installer-usage.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" 'fedora installer help and plan text is stale'
+python3 "$tree/scripts/render-installer-usage.py" >/dev/null
+run_capture env "HOME=$TEST_ROOT/home" "XDG_CONFIG_HOME=$TEST_ROOT/config" \
+  "$tree/platforms/fedora/install.sh" --dry-run --non-interactive --ocaml
+assert_success
+assert_contains "$TEST_OUTPUT" 'OCaml toolchain and opam switch: true'
+assert_not_contains "$TEST_OUTPUT" 'OCaml profile:'
+printf 'PASS: a manifest summary change relabels the --dry-run line\n'
 
 # --- The generated --help listing -------------------------------------------
 #
@@ -463,7 +631,7 @@ replace_line "$tree/platforms/fedora/lib/usage-options.sh" \
   '                     Tailscale networking profile, probably (default: false)'
 run_capture python3 "$tree/scripts/render-installer-usage.py" --check
 assert_failure
-assert_contains "$TEST_OUTPUT" 'fedora installer help text is stale'
+assert_contains "$TEST_OUTPUT" 'fedora installer help and plan text is stale'
 printf 'PASS: a hand-edited generated help listing fails\n'
 
 # macOS carries the same summary for its own tailscale row, so the line is
@@ -476,15 +644,53 @@ replace_line "$tree/config/install-options.tsv" "$fedora_tailscale_row" \
   "${fedora_tailscale_row%Tailscale networking profile}Tailscale mesh networking"
 run_capture python3 "$tree/scripts/render-installer-usage.py" --check
 assert_failure
-assert_contains "$TEST_OUTPUT" 'fedora installer help text is stale'
+assert_contains "$TEST_OUTPUT" 'fedora installer help and plan text is stale'
 printf 'PASS: a manifest summary changed without regenerating fails\n'
 
-# A platform whose usage() does not call usage_persistent_options has no
-# generated listing, and asking for one is an error rather than a file written
-# where nothing reads it.
-run_capture python3 "$repo_root/scripts/render-installer-usage.py" --platform macos --check
+# Every platform's listing is generated. The other three used to carry a
+# hand-written copy of the values and default columns that no gate compared
+# with anything (#509, V4-24), so the same edit that fails Fedora's generated
+# listing has to fail theirs.
+for platform in fedora-wsl macos parrot-ctf; do
+  scratch_tree
+  python3 - "$tree/platforms/$platform/lib/usage-options.sh" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+if text.count("(default: macchiato)") != 1:
+    sys.exit(f"expected exactly one '(default: macchiato)' in {path}")
+path.write_text(text.replace("(default: macchiato)", "(default: mocha)"), encoding="utf-8")
+PYTHON
+  run_capture python3 "$tree/scripts/render-installer-usage.py" --check
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "$platform installer help and plan text is stale"
+  printf 'PASS: a hand-edited %s default in the generated listing fails\n' "$platform"
+done
+
+# The listing written back by hand beside the generated call is the copy that
+# drifted, so it fails whatever it says.
+scratch_tree
+replace_line "$tree/platforms/fedora-wsl/install.sh" \
+  '  AI subcomponents are additive: omitting one leaves it installed.' \
+  '  --theme FLAVOUR    latte, frappe, macchiato, or mocha (default: mocha)
+  AI subcomponents are additive: omitting one leaves it installed.'
+run_capture python3 "$tree/scripts/validate-install-options.py"
 assert_failure
-assert_contains "$TEST_OUTPUT" 'not a generated platform: macos'
-printf 'PASS: rendering a listing no installer reads fails\n'
+assert_contains "$TEST_OUTPUT" 'lists --theme in the --help text by hand'
+printf 'PASS: a persistent option listed by hand in the help text fails\n'
+
+scratch_tree
+replace_line "$tree/platforms/macos/lib/usage.sh" '  usage_persistent_options' ''
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'macos: platforms/macos/install.sh never calls usage_persistent_options'
+printf 'PASS: help text that never calls the generated listing fails\n'
+
+run_capture python3 "$repo_root/scripts/render-installer-usage.py" --platform nowhere --check
+assert_failure
+assert_contains "$TEST_OUTPUT" 'declares no options for nowhere'
+printf 'PASS: rendering a platform the manifest does not declare fails\n'
 
 printf 'Installer option parser validation passed.\n'

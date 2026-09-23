@@ -94,12 +94,12 @@ assert_contains "$first_rerun" '--hardware ga402xz'
 assert_contains "$first_rerun" '--secure-boot'
 assert_contains "$first_rerun" '--no-firstmate'
 assert_contains "$first_rerun" '--codex'
-assert_contains "$first_rerun" 'ASUS hardware:       ga402xz'
-assert_contains "$first_rerun" 'Require Secure Boot: true'
-assert_contains "$first_rerun" 'Battery limit:       80'
-assert_contains "$first_rerun" 'AI Codex subcomponent: true'
-assert_contains "$first_rerun" 'AI FirstMate subcomponent: false'
-assert_contains "$first_rerun" 'AI GNHF subcomponent: inherit'
+assert_contains "$first_rerun" 'ASUS hardware model: ga402xz'
+assert_contains "$first_rerun" 'Require Secure Boot for the selected hardware: true'
+assert_contains "$first_rerun" 'ASUS battery charge limit: 80'
+assert_contains "$first_rerun" 'AI subcomponent: Codex CLI: true'
+assert_contains "$first_rerun" 'AI subcomponent: FirstMate toolchain: false'
+assert_contains "$first_rerun" 'AI subcomponent: GNHF: inherit'
 assert_contains "$first_rerun" 'common/install-ai.sh --codex --no-firstmate'
 assert_not_contains "$first_rerun" '--gnhf'
 assert_not_contains "$first_rerun" '--no-gnhf'
@@ -212,7 +212,7 @@ record_success fedora base,dotnet-debug,ocaml "$added_record"
 run_capture "$repo_root/install.sh" --rerun --dry-run
 assert_success
 assert_contains "$TEST_OUTPUT" "option --$last_option was added after this configuration was recorded"
-assert_contains "$TEST_OUTPUT" 'Battery limit:       unchanged'
+assert_contains "$TEST_OUTPUT" 'ASUS battery charge limit: unchanged'
 printf 'PASS: an option added after the record is reported, not silently dropped\n'
 
 # Fedora's kde and latex resolve themselves -- KDE by detecting plasmashell,
@@ -344,19 +344,19 @@ check_platform() {
 }
 
 check_platform fedora-wsl base,dotnet-debug,ocaml,containers \
-  'Containers API socket: true' \
+  'Rootless Podman API socket: true' \
   --theme frappe --ocaml --containers --containers-api-socket
 check_platform macos base,dotnet-debug,tailscale \
-  'Tailscale profile:  true' \
+  'Tailscale networking profile: true' \
   --theme latte --no-defaults --tailscale
 # The configuration the Apple Silicon job replays. Its AI subcomponents are
 # tristates, so this proves they survive the whole path -- installer, record,
 # --rerun, parser -- and not only the selection library in isolation.
 check_platform macos base,dotnet-debug,ocaml,ai,codex,firstmate,gnhf,backpass \
-  'AI GNHF subcomponent:      true' \
+  'AI subcomponent: GNHF: true' \
   --theme mocha --ocaml --no-containers --no-tailscale --defaults \
   --ai --codex --firstmate --gnhf --backpass
-check_platform parrot-ctf base,vm-guest 'Theme:                  mocha' --theme mocha
+check_platform parrot-ctf base,vm-guest 'Catppuccin flavour:  mocha' --theme mocha
 
 # --- Manifest coupling -------------------------------------------------------
 

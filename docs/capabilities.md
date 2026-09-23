@@ -158,7 +158,7 @@ it, so an option that is not here is one the installer rejects.
 | `kind` | What kind of value it carries | `boolean`, `tristate`, `value` |
 | `on_flag` / `off_flag` | How it is turned on and off | a flag, or `-` |
 | `default` | What it resolves to when neither flag is given | `true`, `false`, `auto` (boolean); `true`, `false`, `inherit`, `auto` (tristate); a value or `-` (value) |
-| `values` | The permitted values of a `value` option; the installer and `common/setup-local.sh` read `theme`'s flavours from here | a regex alternation, or `-` |
+| `values` | The permitted values of a `value` option; the installer and `common/setup-local.sh` read `theme`'s flavours from here | literals separated by `\|`, an integer range `LOW..HIGH`, or `-` |
 | `capability` | The capability the option selects | a name, or `-` |
 | `summary` | The one-line description the reference renders | any |
 
@@ -215,17 +215,19 @@ comparison above does not reach:
   `defaults` row to `false` used to pass every validator, every render gate
   and every suite while the installer went on defaulting it to `true`, and the
   generated reference published the wrong answer as fact.
-- `values`, when it enumerates literals rather than stating a pattern, is
-  compared with the accepted set of the code that reads it, in both
-  directions. `config/option-consumers.tsv` says which file that is
+- `values` is compared with the accepted set, or the enforced range, of the
+  code that reads it, in both directions. `config/option-consumers.tsv` says which file that is
   (`bin/.local/bin/theme` for a flavour, the ASUS installer for a hardware
   model) and how to read it, because a flavour the registry offers and the
   runtime refuses is an install that runs every package, Stow and Mason step
   before failing on its second-to-last plan step.
+- `summary` is the label each option's line carries in the generated
+  `--help` listing and `--dry-run` plan, so a line cannot show one option's
+  value beside another's label.
 
 ## `config/option-consumers.tsv`
 
-What reads an option's enumerated values, and how.
+What reads an option's enumerated values or range, and how.
 
 | Column | Meaning | Accepted values |
 |---|---|---|
@@ -243,14 +245,23 @@ What reads an option's enumerated values, and how.
 | `shell-word-list` | The words a `for name in …` loop runs over | the loop variable |
 | `lua-table` | The keys a Lua table maps to `true` | the table's name |
 | `powershell-validateset` | The literals of a parameter's `[ValidateSet(…)]` | the parameter's name |
-| `line-pattern` | Every line matching a template, `{value}` standing for the value | the template |
+| `line-pattern` | Every line matching a template, `{value}` standing for one value; or each line on its own, `{values}` standing for the whole set written `a\|b\|c` | the template |
+| `shell-range` | The bounds of each `((name < LOW \|\| name > HIGH))` test, a bound being a literal or a name the file sets once | the name |
 | `file-per-value` | The files matching the `consumer` path, `{value}` standing for the value | `-` |
 
-Every option row that enumerates literal values has to be named here, so an
-enumeration nothing is held to fails rather than passing as documentation. A
-`values` column that states a pattern instead of a set — `--charge-limit`'s
-`[4-9][0-9]|100` — has no set of words for a consumer to agree with and is
-exempt.
+Every option row that enumerates literal values or states a range has to be
+named here, so a `values` column nothing is held to fails rather than passing
+as documentation. A `values` column is one of those two shapes and nothing
+else: `latte|frappe|macchiato|mocha`, or an integer range such as
+`--charge-limit`'s `40..100`. A regular expression is refused — `[4-9][0-9]|100`
+was published as the range while the installer and the ASUS script each kept
+their own bound, so widening it moved the documentation and nothing else. The
+installers read a range through `install_option_accepts`, so their bound is the
+manifest's; a script that states its own is a `shell-range` consumer.
+
+A comment is not coverage in any kind: the shell kinds read shell as shell, the
+Lua kind blanks Lua comments, and `line-pattern` drops lines that open with `#`
+or `;`.
 
 Each site a row points at is compared with the manifest on its own, in both
 directions: a file that branches on a flavour twice enforces the set twice, and
