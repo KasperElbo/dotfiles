@@ -210,34 +210,45 @@ mason_package_status() {
       # script -- while the report said this package was installed and the
       # installer never queued it for repair.
       #
-      # Mason links an executable as a relative symlink into the package
-      # directory (tests/support/mason-mock-install.sh models the shape
-      # mason.nvim writes at the commit lazy-lock.json pins), so when the entry
-      # is a symlink the question "does it point at what the receipt claims"
-      # has an exact answer. Both sides are canonicalized, so a relative and an
-      # absolute spelling of one file agree and so does a mason root reached
-      # through a symlink.
+      # On macOS and Linux Mason makes every bin entry the same way: a
+      # relative symlink from <root>/bin/<name> to the path the receipt
+      # records under links.bin (mason-core/installer/linker.lua, symlink(),
+      # at the mason.nvim commit lazy-lock.json pins). The packages whose
+      # executable comes through npm:, pyvenv:, dotnet: and the other
+      # delegated schemes are no exception: the wrapper script those schemes
+      # generate is written INSIDE the package directory, and the receipt
+      # records it as the link target (mason-core/installer/compiler/link.lua
+      # and InstallContext:write_shell_exec_wrapper). A real macOS install
+      # agrees: all twenty entries in its bin directory are relative symlinks
+      # into ../packages, debugpy (pyvenv:) and roslyn (dotnet:) to their
+      # wrappers and every npm: package to node_modules/.bin/<exec>. Only
+      # Windows writes a .cmd file in place of a link, and this library never
+      # runs there.
       #
-      # An entry that is NOT a symlink is left as it was. No install in this
-      # repository has produced one, and deciding a generated wrapper would
-      # mean asserting a format this code cannot see; failing it on suspicion
-      # would break every machine that has one. See the pull request for
-      # GAP-34, which records this as the remaining half.
-      if [[ -L "$link_path" ]]; then
-        resolved_link="$(resolve_existing_path "$link_path" 2>/dev/null || true)"
-        resolved_target="$(resolve_existing_path "$package_dir/$link_target" 2>/dev/null || true)"
+      # So an entry that is not a symlink was not made by Mason, whatever it
+      # runs, and the question "does it point at what the receipt claims"
+      # always has an exact answer. Both sides are canonicalized, so a
+      # relative and an absolute spelling of one file agree and so does a
+      # mason root reached through a symlink.
+      if [[ ! -L "$link_path" ]]; then
+        _mason_result incomplete \
+          "$mason_root/bin/$link_name is not a symlink; Mason links every executable into its package, so this is not the link Mason made"
+        return
+      fi
 
-        if [[ -z "$resolved_link" || -z "$resolved_target" ]]; then
-          _mason_result incomplete \
-            "$mason_root/bin/$link_name could not be resolved against the $package_dir/$link_target the receipt claims"
-          return
-        fi
+      resolved_link="$(resolve_existing_path "$link_path" 2>/dev/null || true)"
+      resolved_target="$(resolve_existing_path "$package_dir/$link_target" 2>/dev/null || true)"
 
-        if [[ "$resolved_link" != "$resolved_target" ]]; then
-          _mason_result incomplete \
-            "$mason_root/bin/$link_name resolves to $resolved_link, not the $package_dir/$link_target the receipt claims"
-          return
-        fi
+      if [[ -z "$resolved_link" || -z "$resolved_target" ]]; then
+        _mason_result incomplete \
+          "$mason_root/bin/$link_name could not be resolved against the $package_dir/$link_target the receipt claims"
+        return
+      fi
+
+      if [[ "$resolved_link" != "$resolved_target" ]]; then
+        _mason_result incomplete \
+          "$mason_root/bin/$link_name resolves to $resolved_link, not the $package_dir/$link_target the receipt claims"
+        return
       fi
       ;;
     esac
@@ -251,13 +262,15 @@ EOF
   # reported installed. Reading the links object is therefore a precondition
   # for trusting the rest of the receipt, not a check of its own.
   #
-  # An EMPTY links.bin is deliberately NOT treated the same way. It would
-  # catch one more damage shape, but every package this repository installs
-  # today happens to declare a bin link, and a package that legitimately
-  # linked nothing -- share or opt only, which Mason supports -- would then be
-  # reported unconverged forever. install-neovim-tools.sh dies on an
-  # unconverged package, so that mistake costs a failed install rather than a
-  # noisy check, and nothing here has observed what a real receipt carries.
+  # An EMPTY links.bin is the same damage by another route: no bin row, so no
+  # link check. Mason fills links.bin from the package spec's bin table and
+  # nothing else (compiler/link.lua expand_bin, then linker.lua link), so a
+  # receipt links no executable only when its registry entry declares none.
+  # Every package in both Neovim inventories declares at least one, on every
+  # platform target it ships, so an empty links.bin is not a receipt Mason
+  # wrote for any package this repository installs. A package that links only
+  # share or opt would be reported here by name, which is where to start if
+  # an inventory ever gains one.
   case "$links_state" in
   absent)
     _mason_result incomplete \
@@ -267,6 +280,11 @@ EOF
   no-bin-object)
     _mason_result incomplete \
       "the receipt in $package_dir has a links.bin that is not an object, so the executables it claims cannot be read"
+    return
+    ;;
+  0)
+    _mason_result incomplete \
+      "the receipt in $package_dir links no executables; every package this repository installs declares one, so this receipt is not the one Mason wrote"
     return
     ;;
   esac
