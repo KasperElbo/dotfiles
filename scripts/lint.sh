@@ -81,6 +81,7 @@ python3 ./scripts/validate-symlink-checks.py
 printf 'Checking generated and cross-referenced documentation...\n'
 python3 ./scripts/render-capability-matrix.py --check
 python3 ./scripts/render-installer-options.py --check
+python3 ./scripts/render-installer-usage.py --check
 python3 ./scripts/render-verifier-reference.py --check
 python3 ./scripts/render-action-reference.py --check
 python3 ./scripts/render-package-ownership.py --check
