@@ -38,7 +38,11 @@ three ways that can regress:
    ``0.12 or newer`` or ``at least 0.12`` form, wherever it is written -- must
    state the registry's floor, and ``docs/testing.md`` must state every floor,
    so a new floor cannot be added without documenting it and a documented one
-   cannot drift on a page nobody remembered to update.
+   cannot drift on a page nobody remembered to update. A minimum is attributed
+   to the tool its sentence names, else to the tool its section heading names;
+   one attributable to neither is reported, never skipped, unless the subject
+   written directly before it is something the registry deliberately does not
+   track (``UNTRACKED_SUBJECTS``).
 3. **A pinned version falls below its own floor.** The mise configurations
    this repository provisions are the one place it controls an installed
    version, so a pin for a registry tool must satisfy that tool's floor;
@@ -104,6 +108,34 @@ DOC_FLOOR = re.compile(
 # A tool is named only when it stands alone: `nvim` inside `lazy.nvim` or
 # `nvim-treesitter` is a plugin, not this registry's Neovim.
 MENTION = r"(?<![\w.-])%s(?![\w-])"
+# Minimums the documentation states for something that is not a tool this
+# registry tracks, and why each is outside it. Such a floor is recognised only
+# when the subject is written directly before the number -- `Bash 4.4 or
+# newer`, `a kernel of at least 7.1`, `macOS 14.0+` -- so a sentence that
+# merely mentions macOS before stating Neovim's floor is still read as
+# Neovim's. A floor that belongs to neither this table nor the registry, and
+# names no tool at all, is reported rather than skipped.
+UNTRACKED_SUBJECTS = {
+    "bash": "the interpreter every check runs under, enforced by "
+    "scripts/bootstrap-macos.sh and common/lib/modern-bash.sh before any "
+    "registry reader can start (docs/testing.md)",
+    "kernel": "the distribution's, enforced by "
+    "platforms/fedora/scripts/install-asus-hardware.sh (docs/testing.md)",
+    "macos": "the operating system a third-party application requires, "
+    "which this repository cannot raise",
+}
+UNTRACKED_FLOOR = re.compile(
+    r"(?<![\w.-])(?:" + "|".join(UNTRACKED_SUBJECTS) + r")\s+(?:of\s+)?$",
+    re.IGNORECASE,
+)
+# A compound name written directly before a floor -- `nvim-treesitter 0.25+`,
+# `lazy.nvim 11.0+` -- names the thing the floor is for, and by `MENTION`'s own
+# rule it is not a registry tool even when a tool's name is part of it.
+COMPOUND_SUBJECT = re.compile(r"(?<![\w.-])`?[A-Za-z0-9_]+(?:[.-][A-Za-z0-9_]+)+`?\s+$")
+# A Markdown heading, and a fence opening or closing a code block; a `#` line
+# inside a fence is a shell comment, not a heading.
+HEADING = re.compile(r"^\s{0,3}#{1,6}\s")
+FENCE = re.compile(r"^\s{0,3}(?:```|~~~)")
 TOOLCHAIN_DOC = pathlib.Path("docs") / "testing.md"
 MISE_CONFIG = "*mise/config.toml"
 # A mise key carries neither the spacing nor the major-version word a label
@@ -284,39 +316,84 @@ def blocks(lines: list[str]) -> list[list[tuple[int, str]]]:
     return found
 
 
+def untracked(raw: str, column: int) -> bool:
+    """Whether the floor at `column` is written directly after an untracked subject.
+
+    `at least` belongs to the floor, so `a kernel of at least 7.1` reads the
+    subject from before `at least`, not from before the number.
+    """
+    before = raw[:column]
+    before = re.sub(r"(?:at least|>=)\s*$", "", before, flags=re.IGNORECASE)
+    return (
+        UNTRACKED_FLOOR.search(before) is not None
+        or COMPOUND_SUBJECT.search(before) is not None
+    )
+
+
+def mentioned_tools(raw: str, names: dict[str, str]) -> list[tuple[int, str]]:
+    """Each registry tool this line names, with the column it is named at."""
+    lowered = raw.lower()
+    found = []
+    for tool, label in names.items():
+        for spelling in {tool.lower(), label.lower()}:
+            for match in re.finditer(MENTION % re.escape(spelling), lowered):
+                found.append((match.start(), tool))
+    return sorted(found)
+
+
 def attributed_floors(
-    block: list[tuple[int, str]], names: dict[str, str]
+    block: list[tuple[int, str]], names: dict[str, str], heading: str | None = None
 ) -> tuple[list[tuple[int, str | None, str]], bool]:
     """Each minimum the block states, paired with the tool it is stated for.
 
     A minimum belongs to the nearest tool name or label written before it in
     the same paragraph, so `Neovim 0.12+ and Python 3.11+` states one floor for
-    each of the two tools rather than both numbers for both tools. The owner is
-    ``None`` when no registry tool is named before it; the second return value
-    says whether the paragraph names a registry tool at all, which is how an
-    unattributable floor is told apart from a floor for something the registry
-    does not track, such as a kernel or a system Bash.
+    each of the two tools rather than both numbers for both tools. Failing
+    that, it belongs to the tool the section's heading names: `## Neovim`
+    followed by "This toolchain requires 0.9 or newer." states Neovim's floor
+    as plainly as a sentence that names it, and was the shape that went
+    unchecked. A floor written directly after an untracked subject (see
+    `UNTRACKED_SUBJECTS`) or after a compound name such as a plugin's is left
+    out, because the subject it belongs to is written right there.
+
+    The owner is ``None`` when neither the paragraph before the floor nor the
+    heading names a registry tool; the second return value says whether the
+    paragraph names one anywhere, so the caller can tell "named after the
+    floor" from "named nowhere". Both are reported.
     """
     mentions: list[tuple[tuple[int, int], str]] = []
     floors: list[tuple[tuple[int, int], str]] = []
     for number, raw in block:
-        lowered = raw.lower()
-        for tool, label in names.items():
-            for spelling in {tool.lower(), label.lower()}:
-                for match in re.finditer(MENTION % re.escape(spelling), lowered):
-                    mentions.append(((number, match.start()), tool))
+        for column, tool in mentioned_tools(raw, names):
+            mentions.append(((number, column), tool))
         for column, version in stated_floors(raw):
-            floors.append(((number, column), version))
+            if not untracked(raw, column):
+                floors.append(((number, column), version))
     mentions.sort()
     attributed = []
     for position, version in sorted(floors):
-        owner = None
+        owner = heading
         for start, tool in mentions:
             if start >= position:
                 break
             owner = tool
         attributed.append((position[0], owner, version))
     return attributed, bool(mentions)
+
+
+def sections(lines: list[str], names: dict[str, str]):
+    """Each block of the page with the registry tool its heading names, if any."""
+    heading: str | None = None
+    fenced = False
+    for block in blocks(lines):
+        first = block[0][1]
+        if not fenced and HEADING.match(first):
+            named = mentioned_tools(first, names)
+            heading = named[-1][1] if named else None
+        for _, raw in block:
+            if FENCE.match(raw):
+                fenced = not fenced
+        yield block, heading
 
 
 def fail(message: str) -> None:
@@ -435,16 +512,28 @@ def main() -> int:
     for path in tracked(root, "*.md"):
         page = path.relative_to(root).as_posix()
         lines = path.read_text(encoding="utf-8").splitlines()
-        for block in blocks(lines):
-            attributed, names_a_tool = attributed_floors(block, names)
+        for block, heading in sections(lines, names):
+            attributed, names_a_tool = attributed_floors(block, names, heading)
             for number, tool, stated in attributed:
-                if tool is None:
-                    if not names_a_tool:
-                        continue
+                if tool is None and names_a_tool:
                     fail(
                         f"{page}:{number} states a {stated} minimum before naming the "
                         f"tool it belongs to; name the tool before its floor so the "
                         f"registry can check it"
+                    )
+                    errors += 1
+                    continue
+                if tool is None:
+                    # Skipping this is how a floor for a registry tool went
+                    # unchecked whenever its name sat in a heading or a table
+                    # row rather than in the sentence itself.
+                    untracked_names = ", ".join(sorted(UNTRACKED_SUBJECTS))
+                    fail(
+                        f"{page}:{number} states a {stated} minimum without naming "
+                        f"the tool it is for, so no registry floor can be checked "
+                        f"against it; name the tool in the sentence or its section "
+                        f"heading, or, for a floor the registry does not track, "
+                        f"write the subject directly before it ({untracked_names})"
                     )
                     errors += 1
                     continue

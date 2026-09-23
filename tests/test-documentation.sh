@@ -420,6 +420,56 @@ PYTHON
 done
 printf 'PASS: every render --check gate compares bytes, not normalised text\n'
 
+# The four partial renderers splice a generated region into hand-written prose
+# they read back from the committed page, so that prose is on both sides of the
+# byte comparison and cannot differ. A carriage return in it passed every gate
+# while the module claimed byte-exactness for the whole file (#508, V4-10). It
+# is refused on its own terms now, and named by line: the obvious shape is a
+# CRLF prose line, the subtle one a lone \r in the middle of one.
+spliced_renderers=(
+  "render-action-reference.py docs/reference/keybindings.md"
+  "render-package-ownership.py docs/architecture/package-ownership.md"
+  "render-install-flows.py docs/architecture/installation.md"
+  "render-file-ownership.py docs/architecture/file-ownership.md"
+)
+for mutation in prose-crlf prose-bare-cr; do
+  for entry in "${spliced_renderers[@]}"; do
+    read -r renderer target <<<"$entry"
+    backup="$endings_scratch/$(basename "$target")"
+    cp "$repo_root/$target" "$backup"
+    # Prints the line it changed, so the assertion can hold the gate to it.
+    changed="$(python3 - "$repo_root/$target" "$mutation" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+raw = path.read_bytes()
+marker = raw.find(b"<!-- BEGIN GENERATED")
+if marker == -1:
+    raise SystemExit(f"{path} has no generated region, so it is not spliced")
+# The first line of prose under the page's title, above the region.
+start = raw.index(b"\n") + 1
+while raw[start : start + 1] == b"\n":
+    start += 1
+end = raw.index(b"\n", start)
+if end >= marker:
+    raise SystemExit(f"{path} has no prose above its generated region")
+if sys.argv[2] == "prose-crlf":
+    path.write_bytes(raw[:end] + b"\r" + raw[end:])
+else:
+    middle = raw.index(b" ", start)
+    path.write_bytes(raw[:middle] + b"\r" + raw[middle + 1:])
+print(raw.count(b"\n", 0, start) + 1)
+PYTHON
+)"
+    run_capture python3 "$repo_root/scripts/$renderer" --check
+    cp "$backup" "$repo_root/$target"
+    assert_failure
+    assert_contains "$TEST_OUTPUT" "$target:$changed contains a carriage return"
+  done
+done
+printf 'PASS: a carriage return in the hand-written half of a spliced page fails\n'
+
 # And the write path must not introduce the endings it now rejects: a renderer
 # that wrote through text mode would be rejected by its own gate on a platform
 # whose text mode translates.
