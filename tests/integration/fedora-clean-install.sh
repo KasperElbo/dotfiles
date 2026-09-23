@@ -64,8 +64,16 @@ fi
 # so without D-Bus it could not query any system unit and reported firewalld
 # inactive. firewalld is itself a D-Bus service, so the broker is seeded and
 # started before it.
+#
+# procps-ng (ps, pgrep) is one more. Every Fedora install carries it and the
+# official container image strips it. No Mistakes runs ps itself: its
+# installer finishes with `no-mistakes daemon restart`, and the daemon it
+# starts is identified through `ps -p <pid> -o lstart=`. The 2026-09-23 run,
+# the first to select --ai here, died at "inspect daemon process: exec: \"ps\":
+# executable file not found". The user manager seeded below is the other half
+# of that failure.
 docker exec "$container" dnf --assumeyes install \
-  dbus-broker firewalld git sudo shadow-utils >/dev/null
+  dbus-broker firewalld git procps-ng sudo shadow-utils >/dev/null
 docker exec "$container" systemctl daemon-reload
 docker exec "$container" systemctl enable --now dbus-broker.service >/dev/null
 docker exec "$container" systemctl enable --now firewalld.service >/dev/null
@@ -107,11 +115,17 @@ docker exec "$container" dnf --assumeyes install dolphin >/dev/null
 # installer behavior, so approve container-local accounts from /etc/passwd
 # directly. Authorization is still decided by the real sudoers rules below and
 # the installer still performs every privileged action through real sudo.
+#
+# systemd-user is the PAM stack user@.service opens a session through, and it
+# takes the same account path, so the user manager seeded further down gets
+# the same treatment.
 docker exec "$container" bash -c \
-  'printf "%s\n" "account    sufficient    pam_localuser.so" >/etc/pam.d/sudo.dotfiles-ci &&
-   cat /etc/pam.d/sudo >>/etc/pam.d/sudo.dotfiles-ci &&
-   cat /etc/pam.d/sudo.dotfiles-ci >/etc/pam.d/sudo &&
-   rm -f /etc/pam.d/sudo.dotfiles-ci'
+  'for stack in sudo systemd-user; do
+     printf "%s\n" "account    sufficient    pam_localuser.so" >"/etc/pam.d/$stack.dotfiles-ci" &&
+     cat "/etc/pam.d/$stack" >>"/etc/pam.d/$stack.dotfiles-ci" &&
+     cat "/etc/pam.d/$stack.dotfiles-ci" >"/etc/pam.d/$stack" &&
+     rm -f "/etc/pam.d/$stack.dotfiles-ci" || exit 1
+   done'
 
 create_test_user() {
   local user="$1"
@@ -154,6 +168,28 @@ if ! docker exec --user dotfiles --env HOME=/home/dotfiles "$container" \
   exit 1
 fi
 
+# A per-user systemd manager, the last piece a workstation owns. Logging in --
+# at the console, in a desktop session or over SSH -- starts user@<uid>.service
+# through pam_systemd and points XDG_RUNTIME_DIR at it, and `systemctl --user`
+# talks to nothing else. docker exec is not a login, so without this seed every
+# user unit the installer or an upstream enables fails at "Failed to connect to
+# user scope bus". The No Mistakes installer enables one: it runs the push-gate
+# daemon as a systemd user service, and only falls back to a detached process
+# when there is no manager. Seeding the manager keeps this job on the path a
+# real login takes instead of the fallback.
+dotfiles_uid="$(docker exec "$container" id -u dotfiles)"
+dotfiles_runtime_dir="/run/user/$dotfiles_uid"
+docker exec "$container" systemctl start "user@$dotfiles_uid.service"
+if ! docker exec --user dotfiles --env HOME=/home/dotfiles \
+  --env XDG_RUNTIME_DIR="$dotfiles_runtime_dir" "$container" \
+  systemctl --user show --property=Version >/dev/null; then
+  printf 'Disposable Fedora container has no working systemd user manager for dotfiles.\n' >&2
+  printf 'Container user-manager diagnostics follow.\n' >&2
+  docker exec "$container" systemctl --no-pager --full status "user@$dotfiles_uid.service" >&2 || true
+  docker exec "$container" ls -la "$dotfiles_runtime_dir" >&2 || true
+  exit 1
+fi
+
 docker exec --user dotfiles --env HOME=/home/dotfiles "$container" \
   git config --global --add safe.directory /workspace
 
@@ -169,6 +205,7 @@ run_as_user() {
   docker exec --user dotfiles \
     --env HOME=/home/dotfiles \
     --env USER=dotfiles \
+    --env "XDG_RUNTIME_DIR=$dotfiles_runtime_dir" \
     --env "GITHUB_TOKEN=${GITHUB_TOKEN:-}" \
     --env "GH_TOKEN=${GH_TOKEN:-}" \
     --workdir /workspace \
