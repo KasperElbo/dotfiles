@@ -521,6 +521,18 @@ if [[ "${1:-}" == --yes && "${2:-}" == install ]]; then
   conf="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
   [[ -f "$conf" ]] && make_ai_tool claude
   [[ -f "$conf" ]] && make_ai_tool herdr
+elif [[ "${1:-}" == ls && "${3:-}" == --json ]]; then
+  # The resolved-version lookup, answered from what this stub installed.
+  name="${2#npm:}"
+  name="${name##*/}"
+  [[ "$name" != claude-code ]] || name=claude
+  if [[ -x "$XDG_DATA_HOME/mise/shims/$name" ]]; then
+    printf '[{"version":"1.2.3","requested_version":"latest",'
+    printf '"install_path":"%s/mise/installs/%s/latest",' "$XDG_DATA_HOME" "$name"
+    printf '"installed":true,"active":true}]\n'
+  else
+    printf '[]\n'
+  fi
 elif [[ "${1:-}" == which ]]; then
   candidate="$XDG_DATA_HOME/mise/installs/${2:-}/latest/bin/${2:-}"
   [[ -x "$candidate" ]] || exit 1

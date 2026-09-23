@@ -586,6 +586,92 @@ PYTHON
 expect_scratch_rejected 'an invocation written in a step name selects nothing' \
   'macos/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
 
+# Shell in command position is not the same as shell that runs something. A
+# step that echoes a verifier's path runs nothing, and the run-block reader
+# alone could not tell the two apart, so six macOS rows kept their CI evidence
+# while the verifier was commented out in all but name.
+new_scratch ci-evidence-echoed
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / ".github/workflows/real-install.yml"
+verifier = "./platforms/macos/scripts/verify.sh"
+runs = {verifier, f"{verifier} --defaults"}
+lines = path.read_text(encoding="utf-8").splitlines()
+if not any(line.strip() in runs or line.strip() == f"run: {verifier}" for line in lines):
+    sys.exit("the macOS job no longer runs its verifier, so this case proves nothing")
+kept = []
+for line in lines:
+    stripped = line.strip()
+    if stripped in runs or stripped == f"run: {verifier}":
+        indent = line[: len(line) - len(line.lstrip())]
+        prefix = "run: " if stripped.startswith("run: ") else ""
+        kept.append(f'{indent}{prefix}echo "skipping {verifier} for now"')
+    else:
+        kept.append(line)
+path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'a verifier a step only echoes is not run by CI' \
+  'verifier platforms/macos/scripts/verify.sh is not run by .github/workflows/real-install.yml'
+
+# The same words on a line that also runs something are not the whole line:
+# only what the reporting command prints is dropped, so the real invocation
+# after it still counts. Without this the fix would trade one blind spot for
+# the opposite one.
+new_scratch ci-evidence-echoed-then-run
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / ".github/workflows/real-install.yml"
+verifier = "./platforms/parrot-ctf/scripts/verify.sh"
+lines = path.read_text(encoding="utf-8").splitlines()
+replaced = 0
+kept = []
+for line in lines:
+    if line.strip() == verifier:
+        indent = line[: len(line) - len(line.lstrip())]
+        kept.append(f'{indent}echo "about to run {verifier}" && {verifier}')
+        replaced += 1
+    else:
+        kept.append(line)
+if not replaced:
+    sys.exit("the Parrot job no longer runs its verifier, so this case proves nothing")
+path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+PYTHON
+python3 "$scratch/scripts/validate-capabilities.py" ||
+  _test_die 'an invocation after a message on the same line must still count'
+printf 'PASS: a message before a real invocation does not hide it\n'
+
+# An operator the message merely prints does not end the message. Taking `&&`
+# as spelled would read the rest of the string as code, which reopens the hole
+# one character further along: the echo still runs nothing.
+new_scratch ci-evidence-echoed-operator
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / ".github/workflows/real-install.yml"
+verifier = "./platforms/macos/scripts/verify.sh"
+runs = {verifier, f"{verifier} --defaults"}
+lines = path.read_text(encoding="utf-8").splitlines()
+if not any(line.strip() in runs or line.strip() == f"run: {verifier}" for line in lines):
+    sys.exit("the macOS job no longer runs its verifier, so this case proves nothing")
+kept = []
+for line in lines:
+    stripped = line.strip()
+    if stripped in runs or stripped == f"run: {verifier}":
+        indent = line[: len(line) - len(line.lstrip())]
+        prefix = "run: " if stripped.startswith("run: ") else ""
+        kept.append(f'{indent}{prefix}echo "skipped: would have been && {verifier}"')
+    else:
+        kept.append(line)
+path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'an operator inside a message does not start a command' \
+  'verifier platforms/macos/scripts/verify.sh is not run by .github/workflows/real-install.yml'
+
 # The reader must fail loudly rather than find nothing: a workflow it cannot
 # take a single `run:` block out of would otherwise prove every verifier.
 new_scratch ci-evidence-unreadable
