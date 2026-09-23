@@ -10,33 +10,18 @@
 #
 # Transient execution controls belong to a single invocation rather than to
 # a machine's configuration, so they are not in the manifest and stay
-# hand-written in platforms/fedora/install.sh after this listing.
+# hand-written in platforms/fedora-wsl/install.sh after this listing.
 
 usage_persistent_options() {
   cat <<'EOF'
   --theme FLAVOUR    Catppuccin flavour: latte, frappe, macchiato, mocha
                      (default: macchiato)
-  --kde/--no-kde     KDE integration (default: auto)
-  --latex/--no-latex LaTeX toolchain (default: auto)
   --ocaml/--no-ocaml OCaml profile (default: false)
-  --sway/--no-sway   Sway session (default: false)
-  --vm-host          KVM/QEMU + libvirt host profile (default: false)
-  --vm-guest         Explicit KVM/QEMU guest profile (default: false)
-  --hardening/--no-hardening
-                     Security-hardening profile (default: false)
-  --desktop-tools/--no-desktop-tools
-                     Desktop application profile (default: false)
-  --desktop-tools-force-defaults
-                     Override existing application defaults (default: false)
-  --dictation/--no-dictation
-                     Voice dictation profile (Handy), bound to Super+O by Sway
-                     (default: false)
+  --latex/--no-latex LaTeX toolchain (default: false)
   --containers/--no-containers
                      Rootless Podman profile (default: false)
   --containers-api-socket
                      Rootless Podman API socket (default: false)
-  --tailscale/--no-tailscale
-                     Tailscale networking profile (default: false)
   --ai/--no-ai       AI-assisted development profile (Claude Code and Herdr)
                      (default: false)
   --codex/--no-codex AI subcomponent: Codex CLI (default: inherit)
@@ -45,10 +30,6 @@ usage_persistent_options() {
   --gnhf/--no-gnhf   AI subcomponent: GNHF (default: inherit)
   --backpass/--no-backpass
                      AI subcomponent: backpass (default: inherit)
-  --hardware MODEL   ASUS hardware model: ga402xz, ga402rk
-  --secure-boot      Require Secure Boot for the selected hardware (default:
-                     false)
-  --charge-limit N   ASUS battery charge limit: 40-100
 EOF
 }
 
@@ -59,25 +40,13 @@ plan_persistent_options() {
   # shellcheck disable=SC2154 # The installer that sources this file sets them.
   printf '%-20s %s\n' \
     'Catppuccin flavour:' "$theme" \
-    'KDE integration:' "$bool_kde" \
-    'LaTeX toolchain:' "$bool_latex" \
     'OCaml profile:' "$install_ocaml" \
-    'Sway session:' "$install_sway" \
-    'KVM/QEMU + libvirt host profile:' "$install_vm_host" \
-    'Explicit KVM/QEMU guest profile:' "$install_vm_guest" \
-    'Security-hardening profile:' "$install_hardening" \
-    'Desktop application profile:' "$install_desktop_tools" \
-    'Override existing application defaults:' "$desktop_tools_force_defaults" \
-    'Voice dictation profile (Handy), bound to Super+O by Sway:' "$install_dictation" \
+    'LaTeX toolchain:' "$install_latex" \
     'Rootless Podman profile:' "$install_containers" \
     'Rootless Podman API socket:' "$containers_api_socket" \
-    'Tailscale networking profile:' "$install_tailscale" \
     'AI-assisted development profile (Claude Code and Herdr):' "$install_ai" \
     'AI subcomponent: Codex CLI:' "${ai_codex:-inherit}" \
     'AI subcomponent: FirstMate toolchain:' "${ai_firstmate:-inherit}" \
     'AI subcomponent: GNHF:' "${ai_gnhf:-inherit}" \
-    'AI subcomponent: backpass:' "${ai_backpass:-inherit}" \
-    'ASUS hardware model:' "${hardware_model:-disabled}" \
-    'Require Secure Boot for the selected hardware:' "$hardware_secure_boot" \
-    'ASUS battery charge limit:' "${hardware_charge_limit:-unchanged}"
+    'AI subcomponent: backpass:' "${ai_backpass:-inherit}"
 }

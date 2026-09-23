@@ -38,7 +38,7 @@ Platform guide: [../platforms/fedora.md](../platforms/fedora.md)
 | `backpass` | `--backpass` | `--no-backpass` | `inherit` | — | AI subcomponent: backpass | `backpass` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `hardware` | `--hardware` | — | — | `ga402xz\|ga402rk` | ASUS hardware model | `hardware` | [docs/platforms/fedora.md](../platforms/fedora.md#asus-laptop-hardware) |
 | `secure-boot` | `--secure-boot` | — | `false` | — | Require Secure Boot for the selected hardware | — | — |
-| `charge-limit` | `--charge-limit` | — | — | `[4-9][0-9]\|100` | ASUS battery charge limit, 40-100 | — | — |
+| `charge-limit` | `--charge-limit` | — | — | `40..100` | ASUS battery charge limit | — | — |
 
 ## Fedora on WSL (`--platform fedora-wsl`)
 

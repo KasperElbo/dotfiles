@@ -28,25 +28,25 @@ assert_contains "$dry_run" 'enabled=true'
 assert_contains "$dry_run" 'appendWindowsPath=false'
 
 latex_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
-assert_contains "$latex_off_dry_run" 'LaTeX toolchain:    false'
+assert_contains "$latex_off_dry_run" 'LaTeX toolchain:     false'
 
 latex_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --latex)"
-assert_contains "$latex_dry_run" 'LaTeX toolchain:    true'
+assert_contains "$latex_dry_run" 'LaTeX toolchain:     true'
 assert_contains "$latex_dry_run" 'platforms/fedora/scripts/install-latex.sh'
 assert_contains "$latex_dry_run" 'latexmk, latexindent, Biber'
 assert_contains "$latex_dry_run" 'platforms/fedora-wsl/scripts/verify.sh --latex'
 
 containers_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
-assert_contains "$containers_off_dry_run" 'Containers profile: false'
+assert_contains "$containers_off_dry_run" 'Rootless Podman profile: false'
 
 containers_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --containers)"
-assert_contains "$containers_dry_run" 'Containers profile: true'
+assert_contains "$containers_dry_run" 'Rootless Podman profile: true'
 assert_contains "$containers_dry_run" \
   'platforms/fedora-wsl/scripts/install-containers.sh'
 
 containers_socket_dry_run="$("$repo_root/install.sh" --platform fedora-wsl \
   --dry-run --containers --containers-api-socket)"
-assert_contains "$containers_socket_dry_run" 'Containers API socket: true'
+assert_contains "$containers_socket_dry_run" 'Rootless Podman API socket: true'
 assert_contains "$containers_socket_dry_run" 'install-containers.sh --api-socket'
 
 if "$repo_root/install.sh" --platform fedora-wsl --dry-run \
@@ -71,34 +71,34 @@ grep -Fq 'install Tailscale on the Windows host instead' \
   "$test_root/tailscale-rejected.log"
 
 ai_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ai)"
-assert_contains "$ai_dry_run" 'AI profile:         true'
+assert_contains "$ai_dry_run" 'AI-assisted development profile (Claude Code and Herdr): true'
 assert_contains "$ai_dry_run" 'common/install-ai.sh'
 
 ai_off_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run)"
-assert_contains "$ai_off_dry_run" 'AI profile:         false'
+assert_contains "$ai_off_dry_run" 'AI-assisted development profile (Claude Code and Herdr): false'
 
 ai_full_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run \
   --ai --codex --firstmate --gnhf --backpass)"
-assert_contains "$ai_full_dry_run" 'AI Codex subcomponent:     true'
-assert_contains "$ai_full_dry_run" 'AI FirstMate subcomponent: true'
-assert_contains "$ai_full_dry_run" 'AI GNHF subcomponent:      true'
-assert_contains "$ai_full_dry_run" 'AI backpass subcomponent:  true'
+assert_contains "$ai_full_dry_run" 'AI subcomponent: Codex CLI: true'
+assert_contains "$ai_full_dry_run" 'AI subcomponent: FirstMate toolchain: true'
+assert_contains "$ai_full_dry_run" 'AI subcomponent: GNHF: true'
+assert_contains "$ai_full_dry_run" 'AI subcomponent: backpass: true'
 assert_contains "$ai_full_dry_run" 'common/install-ai.sh --codex --firstmate --gnhf --backpass'
 
 ai_backpass_only_dry_run="$("$repo_root/install.sh" --platform fedora-wsl \
   --dry-run --ai --backpass)"
 # Additive semantics: an omitted --firstmate is "leave it alone", not "remove".
-assert_contains "$ai_backpass_only_dry_run" 'AI FirstMate subcomponent: inherit'
-assert_contains "$ai_backpass_only_dry_run" 'AI backpass subcomponent:  true'
+assert_contains "$ai_backpass_only_dry_run" 'AI subcomponent: FirstMate toolchain: inherit'
+assert_contains "$ai_backpass_only_dry_run" 'AI subcomponent: backpass: true'
 
 # All four sub-flags say "inherit" when omitted (#225, DOC-040): GNHF and
 # backpass used to print an empty value while the recorded selection one line
 # below said inherit.
 ai_inherit_dry_run="$("$repo_root/install.sh" --platform fedora-wsl --dry-run --ai)"
-assert_contains "$ai_inherit_dry_run" 'AI Codex subcomponent:     inherit'
-assert_contains "$ai_inherit_dry_run" 'AI FirstMate subcomponent: inherit'
-assert_contains "$ai_inherit_dry_run" 'AI GNHF subcomponent:      inherit'
-assert_contains "$ai_inherit_dry_run" 'AI backpass subcomponent:  inherit'
+assert_contains "$ai_inherit_dry_run" 'AI subcomponent: Codex CLI: inherit'
+assert_contains "$ai_inherit_dry_run" 'AI subcomponent: FirstMate toolchain: inherit'
+assert_contains "$ai_inherit_dry_run" 'AI subcomponent: GNHF: inherit'
+assert_contains "$ai_inherit_dry_run" 'AI subcomponent: backpass: inherit'
 assert_contains "$ai_inherit_dry_run" \
   'codex:inherit,firstmate:inherit,gnhf:inherit,backpass:inherit'
 assert_contains "$ai_backpass_only_dry_run" 'common/install-ai.sh --backpass'

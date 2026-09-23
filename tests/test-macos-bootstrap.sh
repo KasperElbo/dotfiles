@@ -28,10 +28,11 @@ assert_contains "$dry_run_output" 'No changes were made.'
 # A disposable real-installer fixture records NUL-delimited arguments. This
 # proves re-exec forwards the original vector rather than a joined string.
 fixture_root="$test_root/fixture"
-mkdir -p "$fixture_root/scripts" "$fixture_root/platforms/macos"
+mkdir -p "$fixture_root/scripts" "$fixture_root/platforms/macos/lib"
 cp "$repo_root/install.sh" "$fixture_root/install.sh"
 cp "$repo_root/scripts/bootstrap-macos.sh" "$fixture_root/scripts/bootstrap-macos.sh"
-cp "$repo_root/platforms/macos/bootstrap-help.txt" "$fixture_root/platforms/macos/bootstrap-help.txt"
+cp "$repo_root/platforms/macos/lib/usage.sh" "$repo_root/platforms/macos/lib/usage-options.sh" \
+  "$fixture_root/platforms/macos/lib/"
 cat >"$fixture_root/scripts/install-main.sh" <<'EOF_FIXTURE'
 #!/usr/bin/env bash
 printf '%s\n' "$BASH_VERSION" >"$CAPTURE_VERSION"

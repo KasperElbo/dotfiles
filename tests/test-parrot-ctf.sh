@@ -14,8 +14,8 @@ dry_run="$("$repo_root/install.sh" --platform parrot-ctf --dry-run)"
 assert_contains "$dry_run" 'Parrot Security Edition CTF VM plan'
 assert_contains "$dry_run" 'libvirt default NAT'
 assert_contains "$dry_run" 'Existing Parrot/APT catalogue (unchanged)'
-assert_contains "$dry_run" 'Host secrets:           Not forwarded or mounted'
-assert_contains "$dry_run" 'AI tooling:             Not installed'
+assert_contains "$dry_run" 'Host secrets:        Not forwarded or mounted'
+assert_contains "$dry_run" 'AI tooling:          Not installed'
 assert_contains "$dry_run" 'mise owns uv and pinned Neovim 0.12.5 only'
 assert_contains "$dry_run" 'reduced LazyVim/Mason inventory'
 assert_contains "$dry_run" 'Fedora/DNF/Terra'
@@ -24,14 +24,17 @@ theme_home="$test_root/theme-home"
 mkdir -p "$theme_home/.config/dotfiles"
 fresh_theme="$(HOME="$theme_home" XDG_CONFIG_HOME="$theme_home/.config" \
   "$repo_root/install.sh" --platform parrot-ctf --dry-run)"
-assert_contains "$fresh_theme" 'Theme:                  macchiato (default — first-install default)'
+assert_contains "$fresh_theme" 'Catppuccin flavour:  macchiato'
+assert_contains "$fresh_theme" 'Flavour source:      default — first-install default'
 printf 'mocha\n' >"$theme_home/.config/dotfiles/theme"
 persisted_theme="$(HOME="$theme_home" XDG_CONFIG_HOME="$theme_home/.config" \
   "$repo_root/install.sh" --platform parrot-ctf --dry-run)"
-assert_contains "$persisted_theme" 'Theme:                  mocha (existing — existing choice on this machine'
+assert_contains "$persisted_theme" 'Catppuccin flavour:  mocha'
+assert_contains "$persisted_theme" 'Flavour source:      existing — existing choice on this machine'
 explicit_theme="$(HOME="$theme_home" XDG_CONFIG_HOME="$theme_home/.config" \
   "$repo_root/install.sh" --platform parrot-ctf --dry-run --theme latte)"
-assert_contains "$explicit_theme" 'Theme:                  latte (explicit — explicit --theme on this run)'
+assert_contains "$explicit_theme" 'Catppuccin flavour:  latte'
+assert_contains "$explicit_theme" 'Flavour source:      explicit — explicit --theme on this run'
 
 if "$repo_root/install.sh" --platform parrot-ctf --dry-run --vm-host \
   >"$test_root/fedora-option.log" 2>&1; then

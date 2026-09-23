@@ -1,13 +1,11 @@
-verifier	uncovered	note
-common/verify-ai.sh	2	of 23 check_* call sites
-platforms/fedora-wsl/scripts/verify.sh	0	of 25 check_* call sites
-platforms/fedora/scripts/verify-containers.sh	0	of 1 check_* call site
-platforms/fedora/scripts/verify-desktop-tools.sh	0	of 1 check_* call site
-platforms/fedora/scripts/verify-dictation.sh	0	of 2 check_* call sites
-platforms/fedora/scripts/verify-hardening.sh	0	of 14 check_* call sites
-platforms/fedora/scripts/verify-tailscale.sh	0	of 1 check_* call site
-platforms/fedora/scripts/verify-vm-guest.sh	0	of 2 check_* call sites
-platforms/fedora/scripts/verify-vm-host.sh	0	of 1 check_* call site
-platforms/fedora/scripts/verify.sh	0	of 31 check_* call sites
-platforms/macos/scripts/verify.sh	5	of 31 check_* call sites
-platforms/parrot-ctf/scripts/verify.sh	3	of 22 check_* call sites
+verifier	call	reason
+common/verify-ai.sh	check_recorded_digest Treehouse "$treehouse_target" "$treehouse_target_digest_state"	its negative is a warning by design, because removal already refuses to delete a drifted binary; tests/test-ai-transitions.sh asserts that warning, and this gate counts only fail (left on purpose, #383)
+common/verify-ai.sh	check_recorded_digest "No Mistakes" "$no_mistakes_target" "$no_mistakes_target_digest_state"	its negative is a warning by design, because removal already refuses to delete a drifted binary; tests/test-ai-transitions.sh asserts that warning, and this gate counts only fail (left on purpose, #383)
+platforms/macos/scripts/verify.sh	check_easy_dotnet_debugger osx-arm64	environmental, low harm: a wrong runtime ID for the EasyDotnet debugger costs debugging on this Mac, not safety (left on purpose, #383)
+platforms/macos/scripts/verify.sh	check_symlink "$XDG_CONFIG_HOME/dotfiles/theme-hooks.d/macos.sh" "$macos_stow/theme-hooks" "$macos_stow/theme-hooks/.config/dotfiles/theme-hooks.d/macos.sh"	cosmetic: the macOS theme hook link only changes colours (left on purpose, #383)
+platforms/macos/scripts/verify.sh	check_file_contains "Ghostty local theme override matches" "$XDG_CONFIG_HOME/dotfiles/ghostty.conf" "theme = catppuccin-${current_theme}.conf"	cosmetic: the Ghostty theme override only changes colours (left on purpose, #383)
+platforms/macos/scripts/verify.sh	check_file_contains "tmux local theme override matches" "$XDG_CONFIG_HOME/dotfiles/tmux-theme.conf" "@catppuccin_flavor \"${current_theme}\""	cosmetic: the tmux theme override only changes colours (left on purpose, #383)
+platforms/macos/scripts/verify.sh	check_arm64_file "Ghost Pepper" "$dictation_app/Contents/MacOS/${DICTATION_GHOST_PEPPER_APP%.app}"	environmental, low harm: an Intel Ghost Pepper build costs dictation speed, not safety (left on purpose, #383)
+platforms/parrot-ctf/scripts/verify.sh	check_catppuccin_tmux	cosmetic: the Catppuccin tmux theme only changes colours (left on purpose, #383)
+platforms/parrot-ctf/scripts/verify.sh	check_system_service_active qemu-guest-agent.service	environmental, low harm: a stopped QEMU guest agent costs host integration on the VM, not safety (left on purpose, #383)
+platforms/parrot-ctf/scripts/verify.sh	check_system_service_active spice-vdagentd.socket	environmental, low harm: a stopped SPICE agent costs clipboard sharing with the host, not safety (left on purpose, #383)

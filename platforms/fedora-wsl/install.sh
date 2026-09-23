@@ -17,6 +17,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/wsl.sh"
 # shellcheck source=lib/containers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/containers.sh"
+# The --help listing and the --dry-run lines of the persistent options,
+# generated from config/install-options.tsv by scripts/render-installer-usage.py
+# so a flag the parser accepts cannot go undocumented or be shown mislabelled.
+# shellcheck source=lib/usage-options.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/usage-options.sh"
 
 theme="$THEME_DEFAULT_FLAVOUR"; theme_explicit=false
 install_ocaml=false; install_latex=false
@@ -34,17 +39,14 @@ Usage: ./install.sh --platform fedora-wsl [options]
 Direct entry point: ./platforms/fedora-wsl/install.sh [options]
 
 Options:
-  --theme FLAVOUR    latte, frappe, macchiato, or mocha (default: macchiato)
-  --ocaml/--no-ocaml
-  --latex/--no-latex
-  --containers/--no-containers
-  --containers-api-socket
-  --ai/--no-ai       Optional Claude Code and Herdr profile
-  --codex/--no-codex, --firstmate/--no-firstmate
-  --gnhf/--no-gnhf, --backpass/--no-backpass
-                     AI subcomponents are additive: omitting one leaves it
-                     installed. --no-<component> is the only thing that
-                     removes one, and it confirms first.
+EOF
+  usage_persistent_options
+  cat <<'EOF'
+
+  AI subcomponents are additive: omitting one leaves it installed.
+  --no-<component> is the only thing that removes one, and it confirms first.
+
+Execution controls, for this run only:
   --dev-workflows    Run the disposable development workflow smoke tests
                      (--smoke-test is the deprecated spelling of this)
   --dry-run          Show the resolved plan without changing anything
@@ -214,16 +216,10 @@ if [[ "$dry_run" == true ]]; then
 
 Fedora WSL installation plan
 ----------------------------
-Catppuccin flavour: $theme  (source: $theme_source — $(theme_source_description "$theme_source"))
-OCaml profile:      $install_ocaml
-LaTeX toolchain:    $install_latex
-Containers profile: $install_containers
-Containers API socket: $containers_api_socket
-AI profile:         $install_ai
-AI Codex subcomponent:     ${ai_codex:-inherit}
-AI FirstMate subcomponent: ${ai_firstmate:-inherit}
-AI GNHF subcomponent:      ${ai_gnhf:-inherit}
-AI backpass subcomponent:  ${ai_backpass:-inherit}
+EOF
+  plan_persistent_options
+  cat <<EOF
+Flavour source:      $theme_source — $(theme_source_description "$theme_source")
 Development workflow smoke tests: $run_dev_workflows  (this run only)
 Recorded rerun selection: $install_selection
 Rerun if this run fails: $DOTFILES_RERUN_COMMAND
