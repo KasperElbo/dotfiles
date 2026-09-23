@@ -142,7 +142,8 @@ per-change rollback table in docs/profiles/hardening.md):
 
   6. sshd posture, only if sshd is already active or enabled:
      PermitRootLogin no, MaxAuthTries 3, LoginGraceTime 20
-     /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+     /etc/ssh/sshd_config.d/00-dotfiles-hardening.conf (sorts first: sshd keeps
+     the first value it reads)
 
   7. dnf5-automatic.timer: downloads and reports available updates daily
      (apply_updates=no by default), installs nothing automatically

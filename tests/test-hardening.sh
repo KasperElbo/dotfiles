@@ -45,7 +45,8 @@ run_root_prefix_contract() {
   local contract_path=/etc/dotfiles-hardening-root-contract/owned.conf
   local sysctl_path=/etc/sysctl.d/90-dotfiles-hardening.conf
   local rules_path=/etc/audit/rules.d/90-dotfiles-hardening.rules
-  local ssh_path=/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+  local ssh_path=/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf
+  local legacy_ssh_path=/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
 
   test_new_root
   local test_root="$TEST_ROOT"
@@ -85,6 +86,7 @@ run_root_prefix_contract() {
     "test -f $root$ssh_path"
     "install -D -m 0644 -o root -g root $tmp-5 $root$ssh_path"
     "sshd -t"
+    "test -f $root$legacy_ssh_path"
     "systemctl reload sshd.service"
   )
   local call
@@ -407,6 +409,17 @@ run_scenario() {
       'AuthorizedKeysFile .ssh/authorized_keys' \
       'Subsystem sftp /usr/libexec/openssh/sftp-server' \
       >"$fake_root/etc/ssh/sshd_config"
+    # What Anaconda writes when root SSH login with a password is allowed at
+    # installation, which is how a Fedora machine comes to run sshd at all.
+    # sshd keeps the first value it reads, and this file sorts before a 90-
+    # drop-in, so a profile drop-in sorting after it never takes effect.
+    mkdir -p "$fake_root/etc/ssh/sshd_config.d"
+    printf 'PermitRootLogin yes\n' \
+      >"$fake_root/etc/ssh/sshd_config.d/01-permitrootlogin.conf"
+    # A machine hardened before the drop-in was renamed to sort first still
+    # holds the 90- copy, which the installer supersedes and removes.
+    printf 'PermitRootLogin no\n' \
+      >"$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
   fi
 
   # Package-manager calls use the shared exact-argv stub. The scenario keeps
@@ -457,7 +470,7 @@ run_scenario() {
     /etc/sudoers.d/90-dotfiles-hardening \
     /etc/audit/rules.d/90-dotfiles-hardening.rules \
     /etc/sysctl.d/90-dotfiles-hardening.conf \
-    /etc/ssh/sshd_config.d/90-dotfiles-hardening.conf; do
+    /etc/ssh/sshd_config.d/00-dotfiles-hardening.conf; do
     test_stub_allow "$test_root" sudo -n stat -c '%a' "$fake_root$owned_path"
     test_stub_allow "$test_root" sudo -n cat -- "$fake_root$owned_path"
     test_stub_allow "$test_root" sudo -n test -f "$fake_root$owned_path"
@@ -478,10 +491,10 @@ run_scenario() {
 
   if [[ "$seed_sshd" == "true" ]]; then
     test_stub_allow "$test_root" sudo test -f \
-      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
       "$test_root/state/tmp-7" \
-      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-10" \
       "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-12" \
@@ -491,14 +504,18 @@ run_scenario() {
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-14" \
       "$fake_root"/etc/sysctl.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-15" \
-      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo sshd -t
     test_stub_allow "$test_root" sudo -n sshd -T
+    test_stub_allow "$test_root" sudo test -f \
+      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+    test_stub_allow "$test_root" sudo rm -f -- \
+      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo systemctl reload sshd.service
     test_stub_allow "$test_root" sudo grep -Fqx 'PermitRootLogin no' \
-      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo grep -Fqx 'MaxAuthTries 3' \
-      "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
+      "$fake_root"/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf
   else
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-9" \
       "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
@@ -916,14 +933,19 @@ SUDO_EOF
     'SELINUX=permissive'
 
   if [[ "$seed_sshd" == "true" ]]; then
-    assert_file_line "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf" \
+    assert_file_line "$fake_root/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf" \
       'PermitRootLogin no'
-    assert_file_line "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf" \
+    assert_file_line "$fake_root/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf" \
       'MaxAuthTries 3'
     assert_file_contains "$command_log" 'sudo systemctl reload sshd.service'
     assert_file_line "$state_file" 'ssh=hardened'
-  else
+    # The superseded copy is gone, and Anaconda's file, which is not this
+    # profile's, is left exactly as it was.
     assert_path_missing "$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
+    assert_file_line "$fake_root/etc/ssh/sshd_config.d/01-permitrootlogin.conf" \
+      'PermitRootLogin yes'
+  else
+    assert_path_missing "$fake_root/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf"
     assert_file_line "$state_file" 'ssh=not-present'
   fi
 
@@ -1012,7 +1034,7 @@ SUDO_EOF
     local faillock_dropin="$fake_root/etc/security/faillock.conf.d/90-dotfiles-hardening.conf"
     local sudoers_dropin="$fake_root/etc/sudoers.d/90-dotfiles-hardening"
     local sysctl_dropin="$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf"
-    local ssh_dropin="$fake_root/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf"
+    local ssh_dropin="$fake_root/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf"
     local backup="$test_root/state/mutation-backup"
 
     run_verify() {
@@ -1143,11 +1165,12 @@ SUDO_EOF
     cp -p "$backup" "$sshd_config"
 
     # 6h. The same override from inside the drop-in directory: a file that
-    #     sorts before 90-dotfiles-hardening.conf, such as the
-    #     01-permitrootlogin.conf Anaconda writes when root SSH login is
-    #     allowed at installation, and a zero LoginGraceTime beside it.
+    #     still sorts before 00-dotfiles-hardening.conf, and a zero
+    #     LoginGraceTime beside it. Anaconda's 01-permitrootlogin.conf, which
+    #     this fixture carries throughout, no longer can; a hand-written 00-
+    #     that sorts ahead of it still can, and the verifier names it.
     printf 'PermitRootLogin yes\nLoginGraceTime 0\n' \
-      >"$sshd_dropin_dir/01-permitrootlogin.conf"
+      >"$sshd_dropin_dir/00-admin.conf"
     run_verify
     assert_failure
     assert_contains "$TEST_OUTPUT" \
@@ -1158,9 +1181,8 @@ SUDO_EOF
     # 6i. Control: the same file sorting after this profile's drop-in is
     #     overruled by it, so the policy is in effect and nothing fails. A
     #     check that merely looked for `PermitRootLogin yes` anywhere would
-    #     fail here.
-    mv -- "$sshd_dropin_dir/01-permitrootlogin.conf" \
-      "$sshd_dropin_dir/99-local.conf"
+    #     fail here, and would already fail on Anaconda's file.
+    mv -- "$sshd_dropin_dir/00-admin.conf" "$sshd_dropin_dir/99-local.conf"
     run_verify
     assert_success
     assert_contains "$TEST_OUTPUT" \
