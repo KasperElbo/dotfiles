@@ -8,7 +8,9 @@ set -euo pipefail
 # checks fail identically in every run here. Each case below therefore changes
 # exactly one fact about an otherwise healthy fixture and asserts that the
 # verifier reports exactly one more failure, naming the item that broke, so
-# the environmental failures can never be what a case is proving.
+# the environmental failures can never be what a case is proving. The one case
+# that breaks several facts at once, an install that did not deploy, names the
+# complete set of failures it expects instead.
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/test.sh
@@ -278,10 +280,34 @@ ln -s "$jq_path" "$mock_bin/jq"
 # The verifier checks Neovim against the floor in config/tool-floors.tsv, so
 # this fixture must report a version that parses; /usr/bin/true cannot, and a
 # check that can only fail proves nothing.
+#
+# The start is answered the way the real one is: the floor assertion the
+# verifier hands over is evaluated against the version this Neovim reports, and
+# MOCK_NVIM_START_ERROR is a configuration that does not load. This stub used
+# to exit 0 for anything but --version, so the start check had only ever been
+# seen passing, even for a Neovim below the floor it was asked to assert.
 stub nvim <<'EOF'
 #!/usr/bin/env bash
-[[ "${1:-}" == --version ]] || exit 0
-printf 'NVIM v%s\n' "${MOCK_NVIM_VERSION:-0.12.5}"
+version="${MOCK_NVIM_VERSION:-0.12.5}"
+if [[ "$*" == --version ]]; then
+  printf 'NVIM v%s\n' "$version"
+  exit 0
+fi
+if (($# == 3)) && [[ "$1" == --headless && "$3" == +qa &&
+  "$2" =~ ^\+lua\ if\ vim\.fn\.has\(\"nvim-([0-9]+)\.([0-9]+)\"\) ]]; then
+  if [[ -n "${MOCK_NVIM_START_ERROR:-}" ]]; then
+    printf '%s\n' "$MOCK_NVIM_START_ERROR" >&2
+    exit 1
+  fi
+  IFS=. read -r major minor _ <<<"$version"
+  if ((major < BASH_REMATCH[1] ||
+    (major == BASH_REMATCH[1] && minor < BASH_REMATCH[2]))); then
+    exit 1
+  fi
+  exit 0
+fi
+printf 'nvim stub: unexpected invocation: nvim %s\n' "$*" >&2
+exit 96
 EOF
 stub ssh <<'EOF'
 #!/usr/bin/env bash
@@ -833,10 +859,14 @@ expect_one_more_failure 'a Homebrew dotnet shadowing the mise-managed one fails 
   "dotnet resolves outside mise in the configured login PATH: $homebrew_bin/dotnet"
 
 # A Neovim below the declared floor. It resolves and runs, so the command
-# probe above still passes it; only the floor check catches it.
+# probe above still passes it. The version check catches it, and so does the
+# start, because the start asks Neovim itself to assert the floor.
 run_verifier MOCK_NVIM_VERSION=0.11.9
-expect_one_more_failure 'a Neovim below the declared floor fails verification' \
-  'Neovim 0.11.9 does not satisfy the >= 0.12 baseline'
+assert_eq "$((baseline_failures + 2))" "$failures" \
+  'a Neovim below the declared floor: failure count'
+assert_contains "$TEST_OUTPUT" 'Neovim 0.11.9 does not satisfy the >= 0.12 baseline'
+assert_contains "$TEST_OUTPUT" 'Neovim startup/version check failed (requires >= 0.12)'
+printf 'PASS: a Neovim below the declared floor fails verification\n'
 
 # A command that resolves but cannot start.
 rm "$mock_bin/stow"
@@ -850,6 +880,70 @@ expect_one_more_failure 'a resolvable command that cannot run fails verification
 # other case rather than against one extra standing failure.
 rm "$mock_bin/stow"
 ln -s /usr/bin/true "$mock_bin/stow"
+
+# --- An install that did not deploy ----------------------------------------
+#
+# The AeroSpace command, most of the configuration links and a Neovim that
+# loads had only ever been seen passing here, so inverting any of those checks
+# left the suite green. One run breaks them all, because each is its own fact
+# and a run costs seconds: the links Stow never created, ~/.zshenv linked from
+# another checkout of this repository, no aerospace on PATH, and a start that
+# fails in the configuration rather than on the floor. Each is asserted by its
+# own message, so none of them can be the failure another one was expected to
+# produce.
+#
+# The other checkout carries an identical .zshenv, so the login probes read the
+# same startup file and add no failure of their own. It is compared canonically
+# because the verifier reports it that way, and on macOS the temporary root
+# sits behind /var -> /private/var.
+other_checkout="$root/other-checkout"
+mkdir -p "$other_checkout/zsh"
+cp "$repo_root/zsh/.zshenv" "$other_checkout/zsh/.zshenv"
+other_checkout="$(cd -- "$other_checkout" && pwd -P)"
+undeployed_links=(
+  "$config/zsh/.zshrc"
+  "$config/zsh/platform.zsh"
+  "$config/aerospace/aerospace.toml"
+  "$home/.local/bin/aerospace-workspace-grid"
+  "$config/mise/config.toml"
+  "$config/nvim/init.lua"
+  "$config/nvim/lua/plugins/macos.lua"
+  "$config/ghostty/macos.conf"
+)
+withheld_links="$root/withheld-links"
+mkdir -p "$withheld_links"
+for index in "${!undeployed_links[@]}"; do
+  mv "${undeployed_links[index]}" "$withheld_links/$index"
+done
+mv "$home/.zshenv" "$withheld_links/zshenv"
+ln -s "$other_checkout/zsh/.zshenv" "$home/.zshenv"
+mv "$mock_bin/aerospace" "$root/withheld-aerospace"
+run_verifier 'MOCK_NVIM_START_ERROR=E5113: Error while calling lua chunk: fixture configuration error'
+undeployed_failures=()
+for expected in "${macos_fixture_failures[@]}"; do
+  # With no aerospace to ask, the window manager is reported as unreachable,
+  # which is a warning, so the loaded-configuration check is never reached.
+  [[ "$expected" == 'AeroSpace loaded unexpected config: ' ]] ||
+    undeployed_failures+=("$expected")
+done
+for link in "${undeployed_links[@]}"; do
+  undeployed_failures+=("$link is missing; expected Stow ownership under ")
+done
+undeployed_failures+=(
+  "$home/.zshenv is not owned by the expected package; resolved=$other_checkout/zsh/.zshenv "
+  'aerospace not found'
+  'Neovim startup/version check failed (requires >= '
+)
+assert_verifier_failures "$TEST_OUTPUT" "${undeployed_failures[@]}"
+assert_contains "$TEST_OUTPUT" 'fixture configuration error'
+assert_contains "$TEST_OUTPUT" 'AeroSpace CLI cannot reach the window manager'
+printf 'PASS: undeployed links, a missing aerospace and a Neovim that cannot start fail verification\n'
+for index in "${!undeployed_links[@]}"; do
+  mv "$withheld_links/$index" "${undeployed_links[index]}"
+done
+rm "$home/.zshenv"
+mv "$withheld_links/zshenv" "$home/.zshenv"
+mv "$root/withheld-aerospace" "$mock_bin/aerospace"
 
 # --- A project's mise configuration does not answer the command probes -------
 #

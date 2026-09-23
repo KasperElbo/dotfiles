@@ -866,7 +866,10 @@ installer that runs but produces the wrong target.
   package or Catppuccin tmux plugin, a Homebrew `dotnet` ahead of the mise
   shim, a command that resolves but cannot run) and asserts exactly one more
   failure, naming it. A Catppuccin tmux checkout moved past the pin is the
-  exception: it warns, naming both versions, and adds no failure.
+  exception: it warns, naming both versions, and adds no failure. One run
+  models an install that did not deploy -- Stow links missing or linked from
+  another checkout, no `aerospace` on PATH, a Neovim whose configuration does
+  not load -- and names every failure it expects rather than counting them.
 
 ## Secret scanning
 
