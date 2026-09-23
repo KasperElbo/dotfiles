@@ -801,7 +801,12 @@ the suite proves each direction separately: renaming a tracked binding without
 updating the registry fails, and adding a binding without registering it fails
 — the latter through the real parsers (`tomllib` for AeroSpace, `json` for
 Waybar, Sway's own grammar, the shell's alias and function syntax), not a
-single regex over everything.
+single regex over everything. A row claims an implemented line only when its
+`source_pattern` matches the whole line, so an argument appended to a
+registered alias, or a second command chained onto a Sway binding with `;` or
+`,`, fails as unregistered; a family of lines is spelled out as an
+alternation, and a pattern that repeats without an upper bound (`.*`, `\S+`)
+is refused.
 
 It also pins the distinction the registry exists to make: every registered
 action appears in the generated full reference, every `print=false` action

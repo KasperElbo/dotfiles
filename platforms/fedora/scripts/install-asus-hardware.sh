@@ -15,13 +15,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/power-profiles.sh"
 
 model=""
 charge_limit=""
+# The battery charge limits this script accepts. config/install-options.tsv
+# publishes the same range for the installer's --charge-limit, and
+# config/option-consumers.tsv holds this pair to it.
+charge_limit_min=40
+charge_limit_max=100
 require_secure_boot="false"
 interactive="true"
 dry_run="false"
 preflight_only="false"
 
 usage() {
-  cat <<'EOF'
+  cat <<EOF
 Usage: ./platforms/fedora/scripts/install-asus-hardware.sh --model MODEL [options]
 
 Models:
@@ -29,7 +34,7 @@ Models:
   ga402rk            ROG Zephyrus G14 2022, AMD iGPU + AMD dGPU
 
 Options:
-  --charge-limit N   Set the battery charge limit (40-100 percent)
+  --charge-limit N   Set the battery charge limit ($charge_limit_min-$charge_limit_max percent)
   --secure-boot      Require and verify that Secure Boot is enabled
   --preflight        Validate the machine without making changes
   --dry-run          Show the hardware installation plan only
@@ -100,8 +105,8 @@ esac
 
 if [[ -n "$charge_limit" ]]; then
   if [[ ! "$charge_limit" =~ ^[0-9]+$ ]] ||
-    ((charge_limit < 40 || charge_limit > 100)); then
-    die "--charge-limit must be an integer from 40 to 100"
+    ((10#$charge_limit < charge_limit_min || 10#$charge_limit > charge_limit_max)); then
+    die "--charge-limit must be an integer from $charge_limit_min to $charge_limit_max"
   fi
 fi
 
