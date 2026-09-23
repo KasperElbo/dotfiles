@@ -42,7 +42,7 @@ selected by the profile module rather than LazyVim's own extras manager:
 | Profile | Extras | Lockfile | Mason inventory |
 | --- | --- | --- | --- |
 | `workstation` | dap.core, formatting.prettier, lang.angular, lang.json, lang.markdown, lang.python, lang.tex, lang.yaml, linting.eslint, test.core | `lazy-lock.json` | `mason-packages.txt` |
-| `parrot-ctf` | dap.core, lang.python, test.core (a deliberately reduced set — no JSON/Prettier/Node-based tooling) | `profiles/parrot-ctf/lazy-lock.json` | `profiles/parrot-ctf/mason-packages.txt` |
+| `parrot-ctf` | dap.core, lang.markdown, lang.python, test.core (a deliberately reduced set — no JSON/Prettier/Node-based tooling) | `profiles/parrot-ctf/lazy-lock.json` | `profiles/parrot-ctf/mason-packages.txt` |
 
 [`common/install-neovim-tools.sh`](../../common/install-neovim-tools.sh) does
 the actual bootstrap, headless and in three phases, each run through

@@ -550,10 +550,13 @@ Verify the installed behaviour with:
 
 ## Markdown
 
-Markdown authoring is part of the default shared LazyVim profile. LazyVim owns
-the Markdown extra and its plugins; Mason owns the editor-facing Marksman
-binary. A repository's Prettier, Markdown linter and table-of-contents tooling
-remain project-local.
+Markdown authoring is part of the default shared LazyVim profile, and the
+reduced Parrot CTF profile carries it unchanged, because writeups are part of
+that work. LazyVim owns the Markdown extra and its plugins; Mason owns the
+editor-facing Marksman binary. A repository's Prettier, Markdown linter and
+table-of-contents tooling remain project-local. Parrot installs no Prettier of
+its own, so there a Markdown file is formatted on save only when its project
+provides one.
 
 LazyVim core already provides the `markdown` and `markdown_inline` Tree-sitter
 parsers, including injected highlighting for installed fenced-code languages,

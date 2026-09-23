@@ -23,15 +23,18 @@ local profiles = {
     plugins = "plugins",
     mason_inventory = "mason-packages.txt",
   },
-  -- The reduced CTF profile deliberately stays at Python/Lua scripting. JSON
+  -- The reduced CTF profile deliberately stays at Python/Lua scripting plus
+  -- Markdown, because writeups are part of the work on this guest. JSON
   -- language support and the Prettier toolchain are workstation capabilities:
   -- they would add a language server and a Node-based formatter to a profile
-  -- whose point is to stay small.
+  -- whose point is to stay small. Markdown needs neither: Marksman is a
+  -- self-contained binary and the preview downloads its own prebuilt server.
   ["parrot-ctf"] = {
     checker_enabled = false,
     lockfile = "profiles/parrot-ctf/lazy-lock.json",
     extras = {
       "lazyvim.plugins.extras.dap.core",
+      "lazyvim.plugins.extras.lang.markdown",
       "lazyvim.plugins.extras.lang.python",
       "lazyvim.plugins.extras.test.core",
     },
