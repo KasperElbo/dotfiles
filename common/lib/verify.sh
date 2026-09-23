@@ -966,9 +966,16 @@ check_catppuccin_tmux() {
 # exports HOMEBREW_PREFIX was reported as leaving it unset. A new terminal
 # starts with no ZDOTDIR, so neither does this. Callers asking about one
 # variable unset it too, so an inherited value cannot answer for the login.
+#
+# A new terminal also starts in $HOME, not in the directory the verifier was
+# run from. The login's `mise activate` resolves tools and environment from its
+# working directory, so a probe started inside a project reported that
+# project's mise.toml as the login's own configuration. `builtin cd`, because a
+# verifier that has activated mise has a `cd` function that runs mise's hook.
 verify_login_zsh() {
   (
     unset ZDOTDIR
+    builtin cd -- "$HOME" || exit
     zsh "$@"
   )
 }
