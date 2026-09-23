@@ -117,12 +117,16 @@ docker exec "$container" dnf --assumeyes install dolphin >/dev/null
 # the installer still performs every privileged action through real sudo.
 #
 # systemd-user is the PAM stack user@.service opens a session through, and it
-# takes the same account path, so the user manager seeded further down gets
-# the same treatment.
+# takes the same pam_unix account path, so the user manager seeded further
+# down gets the same treatment. systemd ships that stack in the vendor
+# directory, /usr/lib/pam.d, so the override is written to /etc/pam.d, which
+# takes precedence, from whichever copy exists.
 docker exec "$container" bash -c \
   'for stack in sudo systemd-user; do
+     source_stack="/etc/pam.d/$stack"
+     [[ -f "$source_stack" ]] || source_stack="/usr/lib/pam.d/$stack"
      printf "%s\n" "account    sufficient    pam_localuser.so" >"/etc/pam.d/$stack.dotfiles-ci" &&
-     cat "/etc/pam.d/$stack" >>"/etc/pam.d/$stack.dotfiles-ci" &&
+     cat "$source_stack" >>"/etc/pam.d/$stack.dotfiles-ci" &&
      cat "/etc/pam.d/$stack.dotfiles-ci" >"/etc/pam.d/$stack" &&
      rm -f "/etc/pam.d/$stack.dotfiles-ci" || exit 1
    done'
@@ -179,13 +183,14 @@ fi
 # real login takes instead of the fallback.
 dotfiles_uid="$(docker exec "$container" id -u dotfiles)"
 dotfiles_runtime_dir="/run/user/$dotfiles_uid"
-docker exec "$container" systemctl start "user@$dotfiles_uid.service"
-if ! docker exec --user dotfiles --env HOME=/home/dotfiles \
+if ! docker exec "$container" systemctl start "user@$dotfiles_uid.service" ||
+  ! docker exec --user dotfiles --env HOME=/home/dotfiles \
   --env XDG_RUNTIME_DIR="$dotfiles_runtime_dir" "$container" \
   systemctl --user show --property=Version >/dev/null; then
   printf 'Disposable Fedora container has no working systemd user manager for dotfiles.\n' >&2
   printf 'Container user-manager diagnostics follow.\n' >&2
   docker exec "$container" systemctl --no-pager --full status "user@$dotfiles_uid.service" >&2 || true
+  docker exec "$container" journalctl --no-pager -n 50 -u "user@$dotfiles_uid.service" >&2 || true
   docker exec "$container" ls -la "$dotfiles_runtime_dir" >&2 || true
   exit 1
 fi
