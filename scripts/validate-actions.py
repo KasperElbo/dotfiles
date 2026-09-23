@@ -6,7 +6,7 @@ repository binds, aliases or installs as a user-invocable action. Prose
 documentation and the printable cheat sheets are derived from it or checked
 against it; neither is a second source of truth.
 
-Four independent things are checked, because each catches a different way the
+Five independent things are checked, because each catches a different way the
 registry can quietly stop describing reality:
 
 1. **Schema.** Columns, unique IDs, enumerated values taken from
@@ -30,6 +30,13 @@ registry can quietly stop describing reality:
    `\\csrow` on a sheet must be claimed by a registry row that lists that sheet,
    which is what stops a shared block from advertising a Fedora-only option on
    macOS.
+5. **Agent permission bypass.** A command that starts a coding agent with its
+   permission prompts disabled is a safety decision (#503), so it has to look
+   like one wherever it appears: it must be a shell alias whose name says
+   `unsafe`, its registry row must pin the alias's whole definition rather
+   than a prefix, and the registry and every printed sheet must carry the same
+   `unsafe` warning. A wrapper function or a `bin/` script carrying the flag
+   is refused outright, because nothing here would pin its body.
 
 Usage:
     scripts/validate-actions.py [--root DIR]
@@ -605,6 +612,81 @@ def check_cheat_sheets(root: pathlib.Path, rows: list[dict[str, str]], problems:
             )
 
 
+# Flags that start a coding agent with every permission prompt switched off.
+# See docs/profiles/ai.md, "The permission-bypass command".
+BYPASS_FLAGS = ("--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox")
+BYPASS_WORD = "unsafe"
+BYPASS_ALIAS = re.compile(r"^\s*alias\s+(?P<name>[A-Za-z0-9_-]+)=(?P<body>.*)$")
+
+
+def check_permission_bypass(
+    root: pathlib.Path, rows: list[dict[str, str]], problems: list[str]
+) -> None:
+    """Hold every agent permission-bypass command to the #503 policy."""
+    sheets = {sheet: expanded_sheet(root, sheet) for sheet in sorted(SHEETS)}
+    printed = {
+        sheet: {
+            normalize(match.group("key")): match.group("description")
+            for match in CSROW.finditer(text)
+        }
+        for sheet, text in sheets.items()
+    }
+    shells = shell_files(root)
+    for path in [*shells, *path_commands(root)]:
+        source = path.relative_to(root).as_posix()
+        for number, line in enumerate(code_text(path).splitlines(), 1):
+            if not any(flag in line for flag in BYPASS_FLAGS):
+                continue
+            where = f"{source}:{number}"
+            alias = BYPASS_ALIAS.match(line) if path in shells else None
+            if alias is None:
+                problems.append(
+                    f"{where}: an agent permission bypass may only be defined as a "
+                    f"shell alias, so the registry can pin its whole body: {line.strip()!r}"
+                )
+                continue
+            name = alias.group("name")
+            if BYPASS_WORD not in name:
+                problems.append(
+                    f"{where}: the permission-bypass alias {name!r} must say "
+                    f"{BYPASS_WORD!r} in its name (docs/profiles/ai.md)"
+                )
+            evidence = f"alias {name}={alias.group('body').strip()}"
+            owners = [
+                row for row in rows
+                if row["source"] == source and row["binding"] == name
+            ]
+            if not owners:
+                # check_implementation_is_registered reports the missing row.
+                continue
+            for row in owners:
+                try:
+                    pinned = re.fullmatch(row["source_pattern"], evidence)
+                except re.error:
+                    pinned = None
+                if pinned is None:
+                    problems.append(
+                        f"{row['id']}: source_pattern must match the whole "
+                        f"permission-bypass alias {evidence!r}, not a prefix of it"
+                    )
+                if BYPASS_WORD not in row["action"].lower():
+                    problems.append(
+                        f"{row['id']}: the action must warn that {name!r} is "
+                        f"{BYPASS_WORD!r}"
+                    )
+                if row["print"] != "true":
+                    continue
+                for sheet, is_prose in sheet_claims(row):
+                    description = printed.get(sheet, {}).get(normalize(name))
+                    if is_prose or description is None:
+                        continue
+                    if BYPASS_WORD not in description.lower():
+                        problems.append(
+                            f"{row['id']}: docs/cheatsheets/{sheet}.tex must warn "
+                            f"that {name!r} is {BYPASS_WORD!r}"
+                        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -619,6 +701,7 @@ def main() -> int:
     check_registry_matches_implementation(root, rows, problems)
     check_implementation_is_registered(root, rows, problems)
     check_cheat_sheets(root, rows, problems)
+    check_permission_bypass(root, rows, problems)
 
     for problem in problems:
         print(f"action registry: {problem}", file=sys.stderr)

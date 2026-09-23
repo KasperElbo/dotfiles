@@ -485,7 +485,7 @@ choice with a recorded reason, never an omission.
 
 | Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
 |---|---|---|---|---|---|---|---|
-| `cld` | Claude Code, started with permission prompts disabled | command | repository | `ai` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
+| `claude-unsafe` | Claude Code with every permission prompt disabled (unsafe) | command | repository | `ai` | `shell-integrations` / `--help` | yes | `zsh/.config/zsh/.zshrc` |
 
 ### Fedora workstation
 

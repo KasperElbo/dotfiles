@@ -297,7 +297,7 @@ printf 'PASS: present integrations are activated normally\n'
 # `mise` fake puts on PATH when .zshrc activates it, which is what a real
 # machine looks like. That is deliberate: the gate used to sit with the other
 # aliases, ~100 lines above `mise activate`, so `command -v claude` answered
-# "absent" everywhere and `cld` was never defined.
+# "absent" everywhere and the alias was never defined.
 
 install_state="$root/state/dotfiles/install.conf"
 mkdir -p "${install_state%/*}"
@@ -308,21 +308,28 @@ write_install_state() {
     >>"$install_state"
 }
 
-run_capture run_zsh full xterm-256color 'alias cld'
+run_capture run_zsh full xterm-256color 'alias claude-unsafe'
 assert_status 1
-printf 'PASS: cld is undefined when no install state was ever written\n'
+printf 'PASS: claude-unsafe is undefined when no install state was ever written\n'
 
 # Requested but not observed: asking for the capability is not having it.
 write_install_state base
-run_capture run_zsh full xterm-256color 'alias cld'
+run_capture run_zsh full xterm-256color 'alias claude-unsafe'
 assert_status 1
-printf 'PASS: cld is undefined when the ai capability is not installed\n'
+printf 'PASS: claude-unsafe is undefined when the ai capability is not installed\n'
 
 write_install_state base,ai
-run_capture run_zsh full xterm-256color 'alias cld'
+run_capture run_zsh full xterm-256color 'alias claude-unsafe'
 assert_success
-assert_contains "$TEST_OUTPUT" 'claude --dangerously-skip-permissions'
-printf 'PASS: cld starts Claude Code where the ai capability is installed\n'
+assert_eq "claude-unsafe='claude --dangerously-skip-permissions'" "$TEST_OUTPUT" \
+  'the permission-bypass alias carries exactly the one flag it is named for'
+printf 'PASS: claude-unsafe starts Claude Code where the ai capability is installed\n'
+
+# The bypass is visible at the point of use (#503): the short, ordinary-looking
+# `cld` it used to be called is gone, not kept alongside as a second spelling.
+run_capture run_zsh full xterm-256color 'alias cld'
+assert_status 1
+printf 'PASS: no short alias starts Claude Code with permission prompts disabled\n'
 
 # The regression itself, stated as its own assertion: the only claude on this
 # machine arrives with mise, so a gate asked before activation cannot see it.
@@ -334,15 +341,15 @@ printf 'PASS: the alias is decided after mise has put Claude Code on PATH\n'
 # Recorded, then removed by hand: an alias that resolves to nothing is worse
 # than no alias.
 mv "$mise_shims/claude" "$mise_shims/claude.removed"
-run_capture run_zsh full xterm-256color 'alias cld'
+run_capture run_zsh full xterm-256color 'alias claude-unsafe'
 assert_status 1
-printf 'PASS: cld is undefined when Claude Code is gone from PATH\n'
+printf 'PASS: claude-unsafe is undefined when Claude Code is gone from PATH\n'
 mv "$mise_shims/claude.removed" "$mise_shims/claude"
 
 # No mise at all: nothing activates, so nothing reaches the shims directory.
-run_capture run_zsh bare xterm-256color 'alias cld'
+run_capture run_zsh bare xterm-256color 'alias claude-unsafe'
 assert_status 1
-printf 'PASS: cld is undefined when mise never activated\n'
+printf 'PASS: claude-unsafe is undefined when mise never activated\n'
 
 rm -f "$install_state"
 
