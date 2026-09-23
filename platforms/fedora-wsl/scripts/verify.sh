@@ -212,7 +212,7 @@ fi
 section "Linux-native commands"
 
 login_path="$(
-  zsh -lic \
+  verify_login_zsh -lic \
     'printf "\n__DOTFILES_VERIFY_PATH__%s\n" "$PATH"' 2>/dev/null |
     sed -n 's/^__DOTFILES_VERIFY_PATH__//p' |
     tail -n 1
@@ -245,7 +245,7 @@ if [[ -r "$theme_state" ]]; then
 fi
 expected_starship_config="$XDG_CONFIG_HOME/starship/catppuccin-${selected_theme}.toml"
 starship_config="$(
-  zsh -lic \
+  verify_login_zsh -lic \
     'printf "\n__DOTFILES_VERIFY_STARSHIP__%s\n" "${STARSHIP_CONFIG:-}"' \
     2>/dev/null |
     sed -n 's/^__DOTFILES_VERIFY_STARSHIP__//p' |
@@ -370,7 +370,7 @@ verify | leftover)
   done <"$ai_state"
 
   for command_name in "${ai_login_commands[@]}"; do
-    if zsh -lic 'command -v "$1" >/dev/null' _ "$command_name" \
+    if verify_login_zsh -lic 'command -v "$1" >/dev/null' _ "$command_name" \
       >/dev/null 2>&1; then
       pass "Fresh Zsh login resolves $command_name"
     else
@@ -378,7 +378,7 @@ verify | leftover)
     fi
   done
 
-  if zsh -lic 'claude --version >/dev/null' >/dev/null 2>&1; then
+  if verify_login_zsh -lic 'claude --version >/dev/null' >/dev/null 2>&1; then
     pass "Claude Code starts in a fresh Zsh login"
   else
     fail "Claude Code does not start in a fresh Zsh login"
