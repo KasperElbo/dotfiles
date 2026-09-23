@@ -81,6 +81,14 @@ SHA-256 still matches. If you replaced one of those yourself, the installer
 path to handle by hand. It never deletes credentials, project data, or an
 unowned path that merely looks like an installer target.
 
+No Mistakes leaves more than a binary: its installer starts a background
+daemon and registers it as a login service (a systemd user unit on Linux, a
+LaunchAgent on macOS). Removing it runs `no-mistakes daemon stop` first,
+before anything else changes, and then deletes the service definitions whose
+program is the exact binary being removed. Another install's definition is
+left alone. If the daemon refuses to stop, for example while a pipeline run
+is active, nothing is changed.
+
 `common/verify-ai.sh` fails when an enabled component is missing or broken,
 and reports — rather than silently rewriting — a component that is disabled
 but still present, naming the `--no-<component>` flag that would remove it.
