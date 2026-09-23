@@ -95,7 +95,7 @@ fi
 # line rather than from the whole of stdout.
 # shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
 configured_login_path="$(
-  zsh -lic 'printf "\n__DOTFILES_VERIFY_PATH__%s\n" "$PATH"' 2>/dev/null |
+  verify_login_zsh -lic 'printf "\n__DOTFILES_VERIFY_PATH__%s\n" "$PATH"' 2>/dev/null |
     sed -n 's/^__DOTFILES_VERIFY_PATH__//p' |
     tail -n 1
 )"
@@ -117,7 +117,7 @@ if [[ -n "${SHELL:-}" ]] && shell_paths_match "$SHELL" "$zsh_path"; then
 else
   manual "start a new graphical login session, then confirm SHELL and the Konsole process use $zsh_path"
 fi
-if zsh -lic 'exit 0' >/dev/null 2>&1; then
+if verify_login_zsh -lic 'exit 0' >/dev/null 2>&1; then
   pass "Zsh login startup succeeds"
 else
   fail "Zsh login startup failed"

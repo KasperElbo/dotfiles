@@ -14,6 +14,12 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/test.sh
 source "$repo_root/tests/lib/test.sh"
 
+real_zsh="$(command -v zsh 2>/dev/null || true)"
+[[ -n "$real_zsh" ]] || {
+  printf 'zsh is required for the macOS login environment checks.\n' >&2
+  exit 1
+}
+
 test_install_cleanup_trap
 test_new_root
 root="$TEST_ROOT"
@@ -308,8 +314,17 @@ EOF
 # A fresh Zsh login, reduced to what .zshrc derives from the machine-local
 # theme state. MOCK_LOGIN_PATH_PREFIX models a directory, such as Homebrew's
 # bin, that a real login would put ahead of the mise shims.
+#
+# The HOMEBREW_PREFIX probe is not modelled: it is handed to a real Zsh, which
+# reads the deployed startup files below. What it answers depends on which of
+# them Zsh reads, and that is exactly what a stub would have to guess: with
+# ZDOTDIR already in the environment, Zsh skips ~/.zshenv and never sources
+# platform-env.zsh.
 stub zsh <<'EOF'
 #!/usr/bin/env bash
+case "$*" in
+*HOMEBREW_PREFIX*) exec "$REAL_ZSH" "$@" ;;
+esac
 theme="$(tr -d '[:space:]' <"$XDG_CONFIG_HOME/dotfiles/theme" 2>/dev/null)"
 bat_theme="Catppuccin ${theme^}"
 login_path="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$XDG_DATA_HOME/mise/shims:$PATH"
@@ -517,6 +532,7 @@ verify_environment=(
   "HOMEBREW_BIN=$mock_bin/brew"
   "SHELLS_FILE=$root/shells"
   "MOCK_ZSH=$mock_bin/zsh"
+  "REAL_ZSH=$real_zsh"
   "MOCK_EASY_DOTNET_DEBUGGER=$debugger"
   "MACOS_APPLICATIONS_DIR=$applications"
   "DICTATION_TEAM=$DICTATION_TEAM"
@@ -587,10 +603,8 @@ macos_fixture_failures=(
   'Ghostty application is missing'
   'AeroSpace application is missing'
   'AeroSpace loaded unexpected config: '
-  # MOCK_ZSH is a stub, so a login shell reports neither the activation line
-  # nor a Homebrew prefix.
+  # MOCK_ZSH is a stub, so a login shell does not report the activation line.
   'Zsh login environment does not activate Starship and mise: '
-  'Zsh login environment exports HOMEBREW_PREFIX='
 )
 assert_verifier_failures "$baseline_output" "${macos_fixture_failures[@]}"
 printf 'PASS: a healthy macOS fixture passes the theme, Mason, tmux and mise ownership checks\n'
@@ -626,6 +640,35 @@ expect_one_more_failure() {
   assert_contains "$TEST_OUTPUT" "$2"
   printf 'PASS: %s\n' "$1"
 }
+
+# --- Zsh login environment --------------------------------------------------
+#
+# The installer, and so the verifier, is run from a Zsh, and .zshenv exports
+# ZDOTDIR. A login probe that inherits it reads no ~/.zshenv, so it reported the
+# calling terminal's environment instead of the login's: on a Mac whose
+# terminal was opened before platform-env.zsh began exporting HOMEBREW_PREFIX,
+# the verifier said the login left it unset while a new terminal set it.
+assert_contains "$baseline_output" 'Zsh login environment exports HOMEBREW_PREFIX: /opt/homebrew'
+run_verifier "ZDOTDIR=$config/zsh"
+assert_eq "$baseline_failures" "$failures" 'a verifier started from a Zsh: failure count'
+assert_contains "$TEST_OUTPUT" 'Zsh login environment exports HOMEBREW_PREFIX: /opt/homebrew'
+printf 'PASS: a verifier started from a Zsh still reads the login ~/.zshenv\n'
+
+# The other direction: a login that does not export it fails, even though the
+# calling terminal still carries the value from an older platform-env.zsh. The
+# edited copy replaces a Stow link, so the link check fails with it; that is
+# the second failure, and the only other one.
+rm "$config/zsh/platform-env.zsh"
+grep -v '^export HOMEBREW_PREFIX=' \
+  "$repo_root/platforms/macos/stow/zsh-platform/.config/zsh/platform-env.zsh" \
+  >"$config/zsh/platform-env.zsh"
+run_verifier "ZDOTDIR=$config/zsh" HOMEBREW_PREFIX=/opt/homebrew
+assert_eq "$((baseline_failures + 2))" "$failures" 'a login that stops exporting HOMEBREW_PREFIX: failure count'
+assert_contains "$TEST_OUTPUT" 'Zsh login environment exports HOMEBREW_PREFIX=unset, but Homebrew reports /opt/homebrew'
+assert_contains "$TEST_OUTPUT" "$config/zsh/platform-env.zsh is not a symlink"
+printf 'PASS: a login that stops exporting HOMEBREW_PREFIX fails despite an inherited value\n'
+ln -sfn "$repo_root/platforms/macos/stow/zsh-platform/.config/zsh/platform-env.zsh" \
+  "$config/zsh/platform-env.zsh"
 
 # A plugin the lock file names and the tree does not. This is the case the
 # verify-mode start exists for: before #371 a start that ran first would have
