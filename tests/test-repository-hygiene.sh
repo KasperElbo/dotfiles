@@ -602,6 +602,42 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "$symlink_fixture_root calls check_symlink without an expected source"
 printf 'PASS: a two-argument call site is rejected\n'
 
+# Three arguments are not enough on their own: before #507 (V4-03) the gate
+# counted them and never read the third, so each shape below passed lint while
+# proving no more than the two-argument form. The empty literal is the obvious
+# one; the rest look like a real source at a glance.
+symlink_source_case() {
+  local call="$1" expected="$2"
+  new_symlink_tree
+  printf '#!/usr/bin/env bash\n%s\n' "$call" | write_verifier
+  run_capture python3 "$symlink_validator" --root "$symlink_tree" --migrating ''
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "$symlink_fixture_root:2 $expected"
+}
+symlink_source_case 'check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh" ""' \
+  'passes an empty expected source'
+symlink_source_case 'check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh" "$HOME/.zshenv"' \
+  'passes the link itself as its expected source'
+symlink_source_case 'check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh" "$DOTFILES_ROOT/git/.zshenv"' \
+  'passes an expected source that is not written inside the package it names'
+# A sibling package sharing a name prefix is not inside it.
+symlink_source_case 'check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh" "$DOTFILES_ROOT/zsh-extra/.zshenv"' \
+  'passes an expected source that is not written inside the package it names'
+symlink_source_case 'check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh" "$DOTFILES_ROOT/zsh/.zshenv" "extra"' \
+  'calls check_symlink with 4 argument(s); it takes two or three'
+printf 'PASS: a third argument that names no real source is rejected, not counted\n'
+
+# The package root written with a trailing slash, as the Fedora verifiers
+# write it, still contains its own files.
+new_symlink_tree
+write_verifier <<'EOF'
+#!/usr/bin/env bash
+check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/" "$DOTFILES_ROOT/zsh/.zshenv"
+EOF
+run_capture python3 "$symlink_validator" --root "$symlink_tree" --migrating ''
+assert_success
+printf 'PASS: a package root written with a trailing slash contains its files\n'
+
 # A file still being migrated is exempt up to the exact number of call sites
 # it started with, and no further: a new weak one fails on the commit that
 # adds it rather than being absorbed by the exemption.

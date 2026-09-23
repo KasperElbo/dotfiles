@@ -480,6 +480,12 @@ verify_path_is_within_root() {
 # a relative and an absolute spelling of the same source agree, and so does a
 # checkout reached through a symlink. Call sites that do not pass it keep the
 # weaker containment guarantee and say so by their argument count.
+#
+# The argument count is what decides, not whether the third one is empty. A
+# third argument that expands to nothing is a caller bug -- an unset variable,
+# a typo in its name -- and treating it as "no source given" made
+# `check_symlink "$link" "$root" ""` pass the lint gate and then behave exactly
+# like the two-argument form that gate exists to reject (issue #507, V4-03).
 check_symlink() {
   local link="$1"
   local expected_root="${2%/}"
@@ -487,6 +493,12 @@ check_symlink() {
   local resolved=""
   local canonical_root=""
   local canonical_source=""
+
+  if (($# >= 3)) && [[ -z "$expected_source" ]]; then
+    fail "$link cannot be checked against its Stow source: the expected source" \
+      "was passed empty, so the check would prove only containment in $expected_root"
+    return 1
+  fi
 
   if [[ ! -e "$link" && ! -L "$link" ]]; then
     fail "$link is missing; expected Stow ownership under $expected_root"
@@ -513,7 +525,7 @@ check_symlink() {
     return 1
   fi
 
-  if [[ -n "$expected_source" ]]; then
+  if (($# >= 3)); then
     canonical_source="$(verify_canonical_existing_path "$expected_source" 2>/dev/null || true)"
     if [[ -z "$canonical_source" ]]; then
       fail "$link cannot be checked against its Stow source: $expected_source" \

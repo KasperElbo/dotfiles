@@ -159,6 +159,25 @@ run_capture probe_counts check_symlink "$root/home/exact-absolute" \
 assert_contains "$TEST_OUTPUT" 'does not exist in this checkout'
 assert_probe_counts 0 1 0 0
 
+# A third argument supplied empty is a caller bug, not "no source given":
+# before #507 (V4-03) the helper keyed on the value rather than the argument
+# count, so this was the two-argument form with a spelling the lint gate
+# accepts. The link here points at the wrong file, which that form passed.
+verify_reset
+run_capture probe_counts check_symlink "$root/home/wrong-file-same-package" \
+  "$root/repo/pkg" ""
+assert_contains "$TEST_OUTPUT" 'the expected source was passed empty'
+assert_probe_counts 0 1 0 0
+
+# The subtle shape: a variable that expands to nothing, on a link that is
+# correct. The failure is the call's, so a right link does not rescue it.
+unset missing_source
+verify_reset
+run_capture probe_counts check_symlink "$root/home/exact-absolute" \
+  "$root/repo/pkg" "${missing_source:-}"
+assert_contains "$TEST_OUTPUT" 'the expected source was passed empty'
+assert_probe_counts 0 1 0 0
+
 # The five properties the helper already had keep their verdicts and their
 # wording when the exact source is supplied.
 verify_reset
