@@ -32,10 +32,15 @@ diff and expensive to notice later:
 8. A workflow whitespace check with no range. `git diff --check` alone
    inspects the working tree, which a runner always leaves clean, so the step
    reports success on exactly the damage it exists to catch.
-9. A repository validation workflow that does not run the secret scanner.
-   README.md claims categorically that nothing secret is in this repository,
-   and `./scripts/scan-secrets.sh` is what stands behind that claim; a gate
-   that can be removed by deleting one workflow step is not a gate.
+9. A validation workflow that does not run, for real, a gate this repository
+   relies on: the secret scanner behind README.md's no-secret claim, lint,
+   the suite, and PowerShell's static analysis. A step that is present but
+   carries `if:`, `continue-on-error` or an argument like `--help` is no step,
+   so the workflow is read as YAML rather than searched for the command.
+10. A second secret-scanner allowlist. `.gitleaks.toml` is the only place an
+   exception may live, each one an anchored literal with a reason; a
+   `.gitleaksignore`, a disabled rule, or a pattern that matches more than one
+   literal is refused.
 
 Usage:
     scripts/validate-repository-hygiene.py [--root DIR]
@@ -50,13 +55,19 @@ import re
 import shlex
 import subprocess
 import sys
+import tomllib
 
-REFERENCE_SUFFIXES = (".sh", ".py", ".md", ".yml", ".yaml", ".tex", ".zsh", ".lua", ".toml", ".tsv")
+# PowerShell is read too: PSScriptAnalyzerSettings.psd1 named a suite that did
+# not exist, twice, while this check never opened the file (#506).
+REFERENCE_SUFFIXES = (
+    ".sh", ".py", ".md", ".yml", ".yaml", ".tex", ".zsh", ".lua", ".toml", ".tsv",
+    ".ps1", ".psm1", ".psd1",
+)
 # A path-shaped string naming one of this repository's own executable scripts.
 # Deliberately narrow: runtime paths under ~/.config and documentation links
 # have their own checks, and widening this only produces noise.
 REPOSITORY_PATH = re.compile(
-    r"(?<![\w./-])(?:common|scripts|platforms|tests)/[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:sh|py)"
+    r"(?<![\w./-])(?:common|scripts|platforms|tests)/[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:sh|py|ps1|psm1|psd1)"
 )
 # A documentation page named by a script. Checked only in scripts, where such a
 # path is this repository telling a user where to read: in prose, the same
@@ -95,8 +106,12 @@ COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 # it: `uses: owner/action@<sha> # v7.0.1`.
 PINNED_TAG_COMMENT = re.compile(r"^\s*#\s*\S")
 # `git diff --check` with nothing after it inspects the working tree, which is
-# clean on every runner. Only a range compares what was committed.
-WHITESPACE_CHECK = re.compile(r"git diff --check(?P<arguments>.*)$")
+# clean on every runner. Only a range compares what was committed. The call is
+# found by reading the line as shell words, not by matching `diff --check` as
+# adjacent text: `git diff --exit-code --check` is the same command, and the
+# adjacent-text reading never saw it (#506).
+GIT_GLOBAL_OPTIONS_WITH_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
+SHELL_OPERATORS = frozenset({"&&", "||", ";", "|", "&", "(", ")", ";;"})
 # Options that take no revision operand. A whitespace step spelled with one of
 # these and nothing else compares two things a runner cannot tell apart:
 # `--cached` compares the index to HEAD, identical after actions/checkout, and
@@ -315,34 +330,71 @@ def check_workflow_action_pins(root: pathlib.Path, problems: list[str]) -> None:
                 )
 
 
-def names_a_commit_range(arguments: str) -> bool:
-    """Does this `git diff --check` argument list name two commits to compare?
+def shell_words(line: str) -> list[str]:
+    """One line as shell words, with control operators as words of their own."""
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    try:
+        return list(lexer)
+    except ValueError:
+        # An unbalanced quote is not this check's business to interpret; fall
+        # back to whitespace splitting rather than accepting the line.
+        return line.split()
+
+
+def whitespace_checks(line: str) -> list[list[str]]:
+    """The argument lists of every `git diff` on this line that has `--check`."""
+    words = shell_words(line)
+    found = []
+    for index, word in enumerate(words):
+        if word != "git" and not word.endswith("/git"):
+            continue
+        cursor = index + 1
+        while cursor < len(words) and words[cursor].startswith("-"):
+            cursor += 2 if words[cursor] in GIT_GLOBAL_OPTIONS_WITH_VALUE else 1
+        if cursor >= len(words) or words[cursor] != "diff":
+            continue
+        arguments = []
+        for argument in words[cursor + 1 :]:
+            if argument in SHELL_OPERATORS:
+                break
+            arguments.append(argument)
+        options = arguments[: arguments.index("--")] if "--" in arguments else arguments
+        if "--check" in options:
+            found.append(arguments)
+    return found
+
+
+def names_a_commit_range(arguments: list[str]) -> bool:
+    """Does this `git diff --check` argument list compare two different commits?
 
     The predicate has to be positive. Asking only whether an argument is
     present accepts `--cached` and `-- .`, which are exactly what someone
     reaches for on being told the bare form is not enough, and both compare
     something no runner can dirty.
 
-    A range is a `..` or `...` operand, or two revisions given separately.
-    Anything after a bare `--` is a pathspec, so it narrows a comparison rather
-    than making one.
+    A range is a `..` or `...` operand, or two revisions given separately, and
+    its two ends have to differ as written: `HEAD..HEAD` has the shape of a
+    range and compares a commit with itself, which can never fail either. An
+    empty end means HEAD, as it does to git. Anything after a bare `--` is a
+    pathspec, so it narrows a comparison rather than making one.
     """
-    try:
-        tokens = shlex.split(arguments)
-    except ValueError:
-        # An unbalanced quote is not this check's business to interpret; fall
-        # back to whitespace splitting rather than accepting the line.
-        tokens = arguments.split()
-    if "--" in tokens:
-        tokens = tokens[: tokens.index("--")]
+    tokens = arguments[: arguments.index("--")] if "--" in arguments else arguments
     revisions = [
         token
         for token in tokens
         if not token.startswith("-") and token not in NON_COMPARING_OPTIONS
     ]
-    if any(".." in revision for revision in revisions):
-        return True
-    return len(revisions) >= 2
+    for revision in revisions:
+        separator = "..." if "..." in revision else ".." if ".." in revision else None
+        if separator is None:
+            continue
+        left, _, right = revision.partition(separator)
+        if (left or "HEAD") != (right or "HEAD"):
+            return True
+    plain = [revision for revision in revisions if ".." not in revision]
+    return len(plain) >= 2 and plain[0] != plain[1]
 
 
 def check_workflow_whitespace_range(root: pathlib.Path, problems: list[str]) -> None:
@@ -350,73 +402,589 @@ def check_workflow_whitespace_range(root: pathlib.Path, problems: list[str]) -> 
 
     `git diff --check` with no range inspects the working tree, which every
     runner leaves clean, so the step passed on committed whitespace damage that
-    the ranged form in the same file caught with exit 2. `--cached` and `-- .`
-    are equally vacuous for the same reason, so the predicate below requires a
-    range rather than requiring an argument.
+    the ranged form in the same file caught with exit 2. `--cached`, `-- .`
+    and a range from a commit to itself are equally vacuous, so the predicate
+    below requires a range between two different commits rather than
+    requiring an argument.
     """
     for workflow in sorted(workflow_files(root)):
         for number, line in enumerate(workflow.read_text(encoding="utf-8").splitlines(), 1):
             if line.lstrip().startswith("#"):
                 continue
-            match = WHITESPACE_CHECK.search(line)
-            if not match or names_a_commit_range(match.group("arguments")):
-                continue
-            problems.append(
-                f"{workflow.relative_to(root)}:{number}: `git diff --check` here "
-                "names no commit range, so it inspects the working tree or the "
-                "index against HEAD, both clean on a runner, and this step can "
-                "never fail. Give it the range against the event's base that "
-                "the other jobs use."
-            )
+            for arguments in whitespace_checks(line):
+                if names_a_commit_range(arguments):
+                    continue
+                problems.append(
+                    f"{workflow.relative_to(root)}:{number}: `git diff --check` "
+                    "here names no range between two different commits, so it "
+                    "inspects the working tree, the index against HEAD, or a "
+                    "commit against itself, all clean on a runner, and this "
+                    "step can never fail. Give it the range against the "
+                    "event's base that the other jobs use."
+                )
 
 
-# The scanner, and the workflow that has to run it. Matched as a command
-# rather than as the word "gitleaks", so renaming the tool inside the script
-# does not silently satisfy this, and so a mention in a comment does not.
-SECRET_SCANNER = pathlib.Path("scripts") / "scan-secrets.sh"
-SCANNER_INVOCATION = re.compile(r"(?:^|[\s;&|])\./scripts/scan-secrets\.sh(?![\w./-])")
+# --- What validate.yml has to run --------------------------------------------
+#
+# A gate that one edit to a workflow disables is decorative. Requiring the
+# command's *text* in validate.yml was not enough: `if: false` on the step,
+# `continue-on-error: true`, or `--help` after the command each left the text
+# in place and switched the gate off with lint still green (#506). So the
+# workflow is read as the structure GitHub reads, and each required command
+# has to be a step that runs unconditionally on every pull request, cannot
+# fail quietly, and runs the command as it is.
+
 VALIDATION_WORKFLOW = "validate.yml"
 
 
-def check_secret_scanner(root: pathlib.Path, problems: list[str]) -> None:
-    """The secret-scanning gate exists and the validation workflow runs it.
+class UnreadableWorkflow(Exception):
+    """A workflow in a shape the reader below does not understand."""
 
-    README.md makes a categorical no-secret claim, and this is the only check
-    that covers every tracked path and the whole history. A gate that one
-    deleted workflow step disables is decorative, so the step is required
-    here: removing it turns a silent loss of coverage into a lint failure.
 
-    The script itself is required too, because a workflow line calling a file
-    that does not exist would otherwise satisfy this on a tree where the gate
-    had been removed outright.
+class Node:
+    """One YAML value and the line it starts on, for messages that name it."""
+
+    __slots__ = ("value", "line")
+
+    def __init__(self, value: object, line: int) -> None:
+        self.value = value
+        self.line = line
+
+    def get(self, key: str) -> "Node | None":
+        return self.value.get(key) if isinstance(self.value, dict) else None
+
+    def items(self) -> list[tuple[str, "Node"]]:
+        return list(self.value.items()) if isinstance(self.value, dict) else []
+
+
+YAML_KEY = re.compile(r"(?P<key>[A-Za-z0-9_][A-Za-z0-9_.-]*|<<)[ \t]*:(?:[ \t]+(?P<rest>.*))?$")
+BLOCK_SCALAR_HEADER = re.compile(r"[|>](?:[+-]?[1-9]?|[1-9][+-])")
+TRAILING_COMMENT = re.compile(r"(?:^|[ \t])#.*$")
+FLOW_WORD = re.compile(r"[A-Za-z0-9_./*-]+")
+
+
+class WorkflowReader:
+    """The block-style YAML a GitHub workflow is written in, and nothing more.
+
+    No YAML library is available everywhere lint runs -- neither the Fedora
+    validation image nor a contributor's Homebrew Python has one, and lint
+    has to work offline -- so this reads the subset the workflows use: block
+    mappings and sequences, `|` and `>` block scalars, one-line quoted and
+    plain scalars, and flow sequences of plain words. Anything else -- a flow
+    mapping, an anchor, an alias, a tag, a merge key, a scalar continued onto
+    the next line -- is refused by line rather than read approximately,
+    because a reader that guesses is how a disabled step comes to look like a
+    running one.
     """
-    if not (root / SECRET_SCANNER).is_file():
-        problems.append(
-            f"{SECRET_SCANNER.as_posix()} is missing, so nothing checks the "
-            "README's claim that no credential is committed here."
-        )
-        return
 
-    workflow = root / WORKFLOWS / VALIDATION_WORKFLOW
-    if not workflow.is_file():
-        problems.append(
-            f"{(WORKFLOWS / VALIDATION_WORKFLOW).as_posix()} is missing, so "
-            f"{SECRET_SCANNER.as_posix()} runs nowhere in CI."
-        )
-        return
+    def __init__(self, text: str, name: str) -> None:
+        self.name = name
+        self.lines = text.splitlines()
+        for number, line in enumerate(self.lines, 1):
+            if "\t" in line[: len(line) - len(line.lstrip())]:
+                self.refuse(number, "is indented with a tab")
 
-    for line in workflow.read_text(encoding="utf-8").splitlines():
-        if line.lstrip().startswith("#"):
+    def refuse(self, number: int, why: str) -> None:
+        raise UnreadableWorkflow(f"{self.name}:{number}: {why}")
+
+    def skip(self, index: int) -> int:
+        """The index of the next line that carries content."""
+        while index < len(self.lines):
+            stripped = self.lines[index].strip()
+            if stripped and not stripped.startswith("#"):
+                if stripped == "---" and index == 0:
+                    index += 1
+                    continue
+                return index
+            index += 1
+        return index
+
+    @staticmethod
+    def width(line: str) -> int:
+        return len(line) - len(line.lstrip(" "))
+
+    @staticmethod
+    def is_item(line: str) -> bool:
+        stripped = line.strip()
+        return stripped == "-" or stripped.startswith("- ")
+
+    def read(self) -> Node:
+        index = self.skip(0)
+        if index >= len(self.lines) or self.is_item(self.lines[index]):
+            self.refuse(index + 1, "is not a mapping at the top level")
+        node, index = self.mapping(index, self.width(self.lines[index]))
+        index = self.skip(index)
+        if index < len(self.lines):
+            self.refuse(index + 1, "is outdented past the top level")
+        return node
+
+    def block(self, index: int, parent: int) -> tuple[Node | None, int]:
+        """The value on the lines after a key or a dash, or None if empty."""
+        index = self.skip(index)
+        if index >= len(self.lines) or self.width(self.lines[index]) <= parent:
+            return None, index
+        line = self.lines[index]
+        if self.is_item(line):
+            return self.sequence(index, self.width(line))
+        return self.mapping(index, self.width(line))
+
+    def sequence(self, index: int, width: int) -> tuple[Node, int]:
+        items: list[Node] = []
+        first = index + 1
+        while True:
+            index = self.skip(index)
+            if index >= len(self.lines):
+                break
+            line = self.lines[index]
+            if self.width(line) != width or not self.is_item(line):
+                if self.width(line) > width:
+                    self.refuse(index + 1, "is indented past the sequence item above it")
+                break
+            content = line.strip()[1:].lstrip(" ")
+            if not content or content.startswith("#"):
+                child, index = self.block(index + 1, width)
+                items.append(child or Node(None, index + 1))
+                continue
+            if YAML_KEY.match(content) or self.is_item(content):
+                # `- key: value` opens a mapping at the column of `key`.
+                # Blanking the dash makes it an ordinary line of that mapping.
+                column = len(line) - len(content)
+                self.lines[index] = " " * column + content
+                child, index = self.block(index, width)
+                items.append(child)
+                continue
+            items.append(Node(self.scalar(content, index), index + 1))
+            index = self.end_of_scalar(index + 1, width)
+        return Node(items, first), index
+
+    def mapping(self, index: int, width: int) -> tuple[Node, int]:
+        entries: dict[str, Node] = {}
+        first = index + 1
+        while True:
+            index = self.skip(index)
+            if index >= len(self.lines):
+                break
+            line = self.lines[index]
+            if self.width(line) < width or self.is_item(line):
+                break
+            if self.width(line) > width:
+                self.refuse(index + 1, "is indented past the mapping it belongs to")
+            match = YAML_KEY.match(line.strip())
+            if not match:
+                self.refuse(index + 1, f"is not a `key: value` line: {line.strip()}")
+            key, rest = match["key"], TRAILING_COMMENT.sub("", match["rest"] or "").strip()
+            number = index + 1
+            if key == "<<":
+                self.refuse(number, "uses a merge key")
+            if key in entries:
+                self.refuse(number, f"repeats the key `{key}`")
+            if rest[:1] in ("&", "*", "!"):
+                self.refuse(number, "uses an anchor, an alias or a tag")
+            if not rest:
+                following = self.skip(index + 1)
+                if (
+                    following < len(self.lines)
+                    and self.width(self.lines[following]) == width
+                    and self.is_item(self.lines[following])
+                ):
+                    child, index = self.sequence(following, width)
+                else:
+                    child, index = self.block(index + 1, width)
+                entries[key] = Node(child.value if child else None, number)
+            elif BLOCK_SCALAR_HEADER.fullmatch(rest):
+                body, index = self.block_scalar(index + 1, width, rest)
+                entries[key] = Node(body, number)
+            else:
+                entries[key] = Node(self.scalar(match["rest"].strip(), index), number)
+                index = self.end_of_scalar(index + 1, width)
+        return Node(entries, first), index
+
+    def scalar(self, text: str, index: int) -> object:
+        if text[:1] in ("&", "*", "!"):
+            self.refuse(index + 1, "uses an anchor, an alias or a tag")
+        if text[:1] in ("'", '"'):
+            quote = text[0]
+            end = text.find(quote, 1)
+            while quote == "'" and end != -1 and text[end + 1 : end + 2] == "'":
+                end = text.find(quote, end + 2)
+            while quote == '"' and end != -1 and text[end - 1] == "\\":
+                end = text.find(quote, end + 1)
+            if end == -1 or TRAILING_COMMENT.sub("", text[end + 1 :]).strip():
+                self.refuse(index + 1, "has a quoted scalar this reader cannot close on one line")
+            body = text[1:end]
+            return body.replace("''", "'") if quote == "'" else body.replace('\\"', '"')
+        text = TRAILING_COMMENT.sub("", text).strip()
+        if text.startswith("{"):
+            self.refuse(index + 1, "uses a flow mapping; write it as a block mapping")
+        if text.startswith("["):
+            inner = text[1:-1].strip() if text.endswith("]") else None
+            words = [word.strip() for word in inner.split(",")] if inner else []
+            if inner is None or not all(FLOW_WORD.fullmatch(word) for word in words):
+                self.refuse(index + 1, "uses a flow sequence of something other than plain words")
+            return [Node(word, index + 1) for word in words]
+        return text
+
+    def end_of_scalar(self, index: int, width: int) -> int:
+        following = self.skip(index)
+        if following < len(self.lines) and self.width(self.lines[following]) > width:
+            self.refuse(following + 1, "continues a scalar onto another line")
+        return following
+
+    def block_scalar(self, index: int, width: int, header: str) -> tuple[str, int]:
+        body: list[str] = []
+        margin = None
+        while index < len(self.lines):
+            line = self.lines[index]
+            if line.strip():
+                if self.width(line) <= width:
+                    break
+                margin = self.width(line) if margin is None else min(margin, self.width(line))
+            body.append(line)
+            index += 1
+        while body and not body[-1].strip():
+            body.pop()
+        lines = [line[margin or 0 :] for line in body]
+        if header.startswith(">"):
+            return " ".join(line.strip() for line in lines if line.strip()), index
+        return "\n".join(lines), index
+
+
+def read_workflow(path: pathlib.Path, name: str) -> Node:
+    return WorkflowReader(path.read_text(encoding="utf-8"), name).read()
+
+
+class RequiredStep:
+    """A command validate.yml must run, and what is lost if it does not."""
+
+    def __init__(self, command: str, loses: str, options: tuple[str, ...] = (),
+                 forbidden_env: tuple[str, ...] = ()) -> None:
+        self.command = command
+        self.path = pathlib.Path(command.removeprefix("./"))
+        self.loses = loses
+        # Options that take one value and leave the command doing its job.
+        self.options = options
+        # Variables that would swap what the command runs for something else.
+        self.forbidden_env = forbidden_env
+
+
+REQUIRED_STEPS = (
+    RequiredStep(
+        "./scripts/scan-secrets.sh",
+        "a committed credential reaches main with every check green. Restore "
+        "the step, or delete the README's no-secret claim along with it",
+        options=("--range",),
+        # An executable that reports the pinned version and exits 0 is a
+        # scanner that finds nothing.
+        forbidden_env=("DOTFILES_GITLEAKS",),
+    ),
+    RequiredStep(
+        "./scripts/lint.sh",
+        "ShellCheck and every repository validator, this one included, stop "
+        "running in CI",
+    ),
+    RequiredStep(
+        "./scripts/test.sh",
+        "the regression suite stops running in CI",
+    ),
+    RequiredStep(
+        "./tests/test-windows-static-analysis.ps1",
+        "no tracked PowerShell file is statically analysed in CI",
+    ),
+)
+
+# The shells a `run:` step can name that still run the command it is given.
+# A custom template (`shell: true {0}`) runs something else with the step's
+# script as an argument, which is a step that is present and does nothing.
+RUNNING_SHELLS = frozenset({"bash", "sh", "pwsh", "powershell"})
+# An interpreter in front of the command runs the same file.
+INTERPRETER = re.compile(r"(?:.*/)?(?:bash|sh|pwsh)")
+UNCONDITIONAL = frozenset({"", "false"})
+
+
+def step_words(run: str) -> list[list[str]]:
+    """Each non-empty line of a step's script, as shell words."""
+    lines = []
+    for line in run.splitlines():
+        try:
+            words = shlex.split(line, comments=True)
+        except ValueError:
+            words = line.split()
+        if words:
+            lines.append(words)
+    return lines
+
+
+def runs_as_given(required: RequiredStep, run: str) -> str | None:
+    """None when the script is exactly the command, else what is wrong."""
+    lines = step_words(run)
+    if len(lines) != 1:
+        return "runs other commands in the same step"
+    words = lines[0]
+    if words and words[0] != required.command and INTERPRETER.fullmatch(words[0]):
+        words = words[1:]
+    if not words or words[0] != required.command:
+        return "runs something in front of it"
+    rest = words[1:]
+    while rest:
+        if rest[0] in required.options and len(rest) >= 2 and not rest[1].startswith("-"):
+            rest = rest[2:]
             continue
-        if SCANNER_INVOCATION.search(line):
-            return
+        return f"passes `{' '.join(rest)}`, which this gate does not accept"
+    return None
 
-    problems.append(
-        f"{(WORKFLOWS / VALIDATION_WORKFLOW).as_posix()} never runs "
-        f"./{SECRET_SCANNER.as_posix()}, so a committed credential reaches "
-        "main with every check green. Restore the step, or delete the "
-        "README's no-secret claim along with it."
-    )
+
+def pull_request_reason(workflow: Node) -> str | None:
+    """None when every pull request triggers the workflow, else why not."""
+    trigger = workflow.get("on")
+    if trigger is None:
+        return "has no `on:` trigger"
+    value = trigger.value
+    if isinstance(value, str):
+        return None if value == "pull_request" else f"is not triggered by pull_request (line {trigger.line})"
+    if isinstance(value, list):
+        names = [item.value for item in value]
+        return None if "pull_request" in names else f"is not triggered by pull_request (line {trigger.line})"
+    event = trigger.get("pull_request")
+    if event is None:
+        return f"is not triggered by pull_request (line {trigger.line})"
+    if event.value not in (None, {}):
+        return (
+            f"filters its pull_request trigger (line {event.line}), so some "
+            "pull requests never run it"
+        )
+    return None
+
+
+def gate_reasons(node: Node, what: str) -> list[tuple[int, str]]:
+    reasons = []
+    condition = node.get("if")
+    if condition is not None:
+        reasons.append((condition.line, f"{what} carries `if: {condition.value}`, so it can be skipped"))
+    tolerant = node.get("continue-on-error")
+    if tolerant is not None and str(tolerant.value).strip() not in UNCONDITIONAL:
+        reasons.append((
+            tolerant.line,
+            f"{what} carries `continue-on-error: {tolerant.value}`, so its failure is not one",
+        ))
+    return reasons
+
+
+def run_shell(*scopes: Node | None) -> Node | None:
+    """The `shell:` a step runs under: its own, else the nearest default."""
+    for scope in scopes:
+        if scope is None:
+            continue
+        if scope.get("shell") is not None:
+            return scope.get("shell")
+        defaults = scope.get("defaults")
+        run = defaults.get("run") if defaults is not None else None
+        if run is not None and run.get("shell") is not None:
+            return run.get("shell")
+    return None
+
+
+def step_problems(required: RequiredStep, workflow: Node, jobs: Node, job_name: str,
+                  job: Node, step: Node) -> list[tuple[int, str]]:
+    problems = []
+    run = step.get("run")
+    shape = runs_as_given(required, run.value if isinstance(run.value, str) else "")
+    if shape:
+        problems.append((run.line, f"the step {shape}"))
+    problems.extend(gate_reasons(step, "the step"))
+    problems.extend(gate_reasons(job, f"its job `{job_name}`"))
+    seen = {job_name}
+    pending = [job]
+    while pending:
+        needs = pending.pop().get("needs")
+        if needs is None:
+            continue
+        if isinstance(needs.value, str):
+            names = [needs.value]
+        elif isinstance(needs.value, list):
+            names = [str(item.value) for item in needs.value]
+        else:
+            problems.append((needs.line, "its job's `needs:` is not a job name or a list of them"))
+            continue
+        for name in names:
+            if name in seen:
+                continue
+            seen.add(name)
+            needed = jobs.get(name)
+            if needed is None:
+                problems.append((needs.line, f"its job needs `{name}`, which does not exist"))
+                continue
+            condition = needed.get("if")
+            if condition is not None:
+                problems.append((
+                    condition.line,
+                    f"its job waits on `{name}`, which carries `if: {condition.value}`",
+                ))
+            pending.append(needed)
+    shell = run_shell(step, job, workflow)
+    if shell is not None and str(shell.value).strip() not in RUNNING_SHELLS:
+        problems.append((shell.line, f"the step runs under `shell: {shell.value}`, which is not a shell that runs it"))
+    for scope in (step, job, workflow):
+        env = scope.get("env")
+        for name in required.forbidden_env:
+            if env is not None and env.get(name) is not None:
+                problems.append((env.get(name).line, f"`{name}` is set, which replaces what the step runs"))
+    return problems
+
+
+def check_required_steps(root: pathlib.Path, problems: list[str]) -> None:
+    """validate.yml runs every gate this repository relies on, for real.
+
+    README.md's no-secret claim, the shell and repository validators, the
+    regression suite and PowerShell's static analysis each rest on one step.
+    For each command in REQUIRED_STEPS, a step has to exist that runs exactly
+    that command, with no `if:` on it, its job or a job it waits on, no
+    `continue-on-error`, under a shell that runs it, in a workflow every pull
+    request triggers. The command's file is required too, so a step calling
+    something that was deleted does not satisfy this on a tree where the gate
+    was removed outright.
+    """
+    name = (WORKFLOWS / VALIDATION_WORKFLOW).as_posix()
+    for required in REQUIRED_STEPS:
+        if not (root / required.path).is_file():
+            problems.append(
+                f"{required.path.as_posix()} is missing, so {required.loses}."
+            )
+
+    path = root / WORKFLOWS / VALIDATION_WORKFLOW
+    if not path.is_file():
+        problems.append(f"{name} is missing, so nothing this repository gates on runs in CI.")
+        return
+    try:
+        workflow = read_workflow(path, name)
+    except UnreadableWorkflow as error:
+        problems.append(
+            f"{error}. This gate reads {name} to prove its required steps run "
+            "and refuses a shape it cannot read rather than guessing."
+        )
+        return
+
+    trigger = pull_request_reason(workflow)
+    if trigger:
+        problems.append(
+            f"{name}: the workflow {trigger}, and every step this repository "
+            "gates on has to run on every pull request."
+        )
+    jobs = workflow.get("jobs")
+    for required in REQUIRED_STEPS:
+        found: list[tuple[int, str]] = []
+        satisfied = False
+        for job_name, job in (jobs.items() if jobs is not None else []):
+            steps = job.get("steps")
+            for step in (steps.value if steps is not None and isinstance(steps.value, list) else []):
+                run = step.get("run")
+                if run is None or not isinstance(run.value, str):
+                    continue
+                if not any(required.command in words for words in step_words(run.value)):
+                    continue
+                reasons = step_problems(required, workflow, jobs, job_name, job, step)
+                if not reasons:
+                    satisfied = True
+                found.extend(reasons)
+        if satisfied:
+            continue
+        if not found:
+            problems.append(f"{name} never runs {required.command}, so {required.loses}.")
+            continue
+        for line, reason in found:
+            problems.append(
+                f"{name}:{line}: {reason}. {required.command} has to run on "
+                f"every pull request, or {required.loses}."
+            )
+
+
+# gitleaks reads a `.gitleaksignore` from the directory it scans, keyed by a
+# `file:rule:line` fingerprint, with no scoping and no comment: a second
+# allowlist beside `.gitleaks.toml` that nothing reviews. scripts/scan-secrets.sh
+# refuses to scan beside one; this refuses to track one anywhere.
+GITLEAKS_IGNORE = ".gitleaksignore"
+GITLEAKS_CONFIG = pathlib.Path(".gitleaks.toml")
+
+
+def check_gitleaks_ignore(root: pathlib.Path, problems: list[str]) -> None:
+    names = set()
+    if (root / GITLEAKS_IGNORE).exists() or (root / GITLEAKS_IGNORE).is_symlink():
+        names.add(GITLEAKS_IGNORE)
+    try:
+        listing = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        names.update(
+            entry for entry in listing.split("\0")
+            if entry == GITLEAKS_IGNORE or entry.endswith("/" + GITLEAKS_IGNORE)
+        )
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    for name in sorted(names):
+        problems.append(
+            f"{name} silences secret-scanner findings by fingerprint, with no "
+            f"scope and no reason. Every exception lives in {GITLEAKS_CONFIG}, "
+            "scoped to one literal and justified in a comment; remove this file."
+        )
+
+
+# What .gitleaks.toml may say. The file's own rules -- scope an exception to
+# one literal, never a directory, never a rule -- were prose; these make them
+# executable. Anything not listed is refused, so a new way to switch detection
+# off (a disabled rule, a local rule overriding a default one, a stopword)
+# fails here rather than being skipped.
+ALLOWLIST_KEYS = frozenset({"description", "paths", "regexes"})
+# A literal: anchored at both ends, every metacharacter escaped.
+ANCHORED_LITERAL = re.compile(r"\^(?:[^\\.^$*+?()\[\]{}|]|\\.)+\$")
+
+
+def check_gitleaks_config(root: pathlib.Path, problems: list[str]) -> None:
+    path = root / GITLEAKS_CONFIG
+    if not path.is_file():
+        return
+    name = GITLEAKS_CONFIG.as_posix()
+    try:
+        config = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
+        problems.append(f"{name} cannot be read: {error}")
+        return
+
+    extend = config.get("extend")
+    if extend != {"useDefault": True}:
+        problems.append(
+            f"{name}: [extend] must be exactly `useDefault = true`; found "
+            f"{extend!r}. Disabling a default rule or extending another file "
+            "switches detection off for every real credential of that shape."
+        )
+    for key in sorted(set(config) - {"extend", "allowlists"}):
+        problems.append(
+            f"{name}: `{key}` is not something this repository's scanner "
+            "configuration may set. The default rules are used as published, "
+            "and exceptions are [[allowlists]] entries scoped to one literal."
+        )
+    allowlists = config.get("allowlists", [])
+    if not isinstance(allowlists, list):
+        problems.append(f"{name}: `allowlists` must be an array of tables")
+        allowlists = []
+    for number, entry in enumerate(allowlists, 1):
+        where = f"{name}: allowlist {number}"
+        for key in sorted(set(entry) - ALLOWLIST_KEYS):
+            problems.append(
+                f"{where} sets `{key}`, which is broader than one literal. "
+                "An exception is a `paths` entry for one file or a `regexes` "
+                "entry for one literal, and nothing else."
+            )
+        if not str(entry.get("description", "")).strip():
+            problems.append(f"{where} has no description saying why its literal cannot be a credential")
+        for key in ("paths", "regexes"):
+            for pattern in entry.get(key, []):
+                if not ANCHORED_LITERAL.fullmatch(str(pattern)):
+                    problems.append(
+                        f"{where}: {key} entry {pattern!r} matches more than one "
+                        "literal. Anchor it with ^ and $ and escape every "
+                        "metacharacter, so it names exactly one "
+                        + ("file." if key == "paths" else "value.")
+                    )
 
 
 def main() -> int:
@@ -439,7 +1007,9 @@ def main() -> int:
     check_python_bytecode(root, problems)
     check_workflow_action_pins(root, problems)
     check_workflow_whitespace_range(root, problems)
-    check_secret_scanner(root, problems)
+    check_required_steps(root, problems)
+    check_gitleaks_ignore(root, problems)
+    check_gitleaks_config(root, problems)
 
     for problem in problems:
         print(f"Repository hygiene: {problem}", file=sys.stderr)

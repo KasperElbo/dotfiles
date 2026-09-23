@@ -58,8 +58,9 @@ jobs:
       # scripts/lint.sh because lint must stay runnable with no network,
       # and it runs before lint because a committed credential is worth
       # knowing about before anything else about the change.
-      # scripts/validate-repository-hygiene.py requires this step to exist,
-      # so deleting it fails lint rather than quietly removing the gate.
+      # scripts/validate-repository-hygiene.py requires this step to run the
+      # scanner as it is, on every pull request: deleting it, or keeping it
+      # with `if:`, `continue-on-error` or an extra argument, fails lint.
       - name: Scan for committed credentials
         run: ./scripts/scan-secrets.sh
 
@@ -151,6 +152,8 @@ jobs:
         # network-source: psscriptanalyzer
         run: Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Repository PSGallery -Scope CurrentUser -Force
 
+      # Required by scripts/validate-repository-hygiene.py the same way the
+      # secret scan is, so this analysis cannot be dropped with lint green.
       - name: Analyse every tracked PowerShell file
         shell: pwsh
         run: ./tests/test-windows-static-analysis.ps1

@@ -886,14 +886,20 @@ covers, why history is scanned every time and how to bump the pin are in
 
 Two things make it a gate rather than a habit.
 `scripts/validate-repository-hygiene.py` refuses a tree whose validation
-workflow does not invoke the scanner, so the step cannot be deleted or
-commented out without failing lint. And `tests/test-repository-hygiene.sh`
-drives the real script over a fixture checkout: it requires a planted access
-key and a planted private key to be caught, requires a credential that was
-committed and then deleted to still be caught from history, requires the
-report not to reprint the matched value, and requires a scanner that is not
-the pinned version to be refused outright, since a different build is a
-different rule set.
+workflow does not run the scanner for real, so the step cannot be deleted,
+commented out, or kept and switched off with `if:`, `continue-on-error` or
+`--help`, without failing lint; the same rule covers `./scripts/lint.sh`,
+`./scripts/test.sh` and `tests/test-windows-static-analysis.ps1`. And
+`tests/test-repository-hygiene.sh` drives the real script over a fixture
+checkout: it requires a planted access key and a planted private key to be
+caught, requires a credential that was committed and then deleted to still be
+caught from history, requires the report not to reprint the matched value,
+requires a scanner that is not the pinned version to be refused outright,
+since a different build is a different rule set, and requires neither a
+`.gitleaksignore` nor a `gitleaks:allow` comment to silence a finding. It
+also runs the tracked `.gitleaks.toml` over one generated sample per
+high-value rule family, so an exception that silences a whole family fails
+the suite.
 
 That suite needs the pinned binary and never downloads one, because no suite
 here reaches the network. In CI the scan step runs earlier in the same job and
