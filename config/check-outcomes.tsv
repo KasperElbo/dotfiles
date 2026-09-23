@@ -9,5 +9,5 @@ platforms/fedora/scripts/verify-tailscale.sh	0	of 1 check_* call site
 platforms/fedora/scripts/verify-vm-guest.sh	0	of 2 check_* call sites
 platforms/fedora/scripts/verify-vm-host.sh	0	of 1 check_* call site
 platforms/fedora/scripts/verify.sh	12	of 29 check_* call sites
-platforms/macos/scripts/verify.sh	21	of 30 check_* call sites
+platforms/macos/scripts/verify.sh	20	of 30 check_* call sites
 platforms/parrot-ctf/scripts/verify.sh	15	of 20 check_* call sites

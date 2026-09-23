@@ -954,6 +954,25 @@ check_catppuccin_tmux() {
   fi
 }
 
+# verify_login_zsh ARGS...: zsh started the way a new terminal starts it, for
+# every probe that asks what a login configures.
+#
+# .zshenv exports ZDOTDIR and keeps no .zshenv inside it, so a Zsh that finds
+# ZDOTDIR already in its environment reads no ~/.zshenv at all and never
+# sources platform-env.zsh. The verifier's own environment always has it: the
+# installer is run from a Zsh. A bare `zsh -l` probe therefore reported what
+# the calling terminal inherited rather than what a login sets, and a terminal
+# opened before the startup files changed answered for them: a login that
+# exports HOMEBREW_PREFIX was reported as leaving it unset. A new terminal
+# starts with no ZDOTDIR, so neither does this. Callers asking about one
+# variable unset it too, so an inherited value cannot answer for the login.
+verify_login_zsh() {
+  (
+    unset ZDOTDIR
+    zsh "$@"
+  )
+}
+
 # Shared mise ownership check. Callers that mutate PATH after sourcing should
 # set VERIFY_CALLER_PATH to the original PATH first. VERIFY_MISE_COMMAND may be
 # supplied by a verifier; otherwise the normal repository resolver is used.
@@ -988,7 +1007,8 @@ check_login_environment() {
   fi
 
   answer="$(
-    zsh -lc "printf 'login-env:%s\n' \"\${$name-<unset>}\"" 2>/dev/null |
+    unset "$name"
+    verify_login_zsh -lc "printf 'login-env:%s\n' \"\${$name-<unset>}\"" 2>/dev/null |
       sed -n 's/.*login-env://p' | tail -n 1
   )"
 
@@ -1169,11 +1189,11 @@ verify_login_path() {
   command_exists zsh || return 1
   case "$mode" in
   interactive)
-    answer="$(zsh -lic 'printf "login-path:%s\n" "$PATH"' 2>/dev/null |
+    answer="$(verify_login_zsh -lic 'printf "login-path:%s\n" "$PATH"' 2>/dev/null |
       sed -n 's/.*login-path://p' | tail -n 1)"
     ;;
   non-interactive)
-    answer="$(zsh -lc 'printf "login-path:%s\n" "$PATH"' 2>/dev/null |
+    answer="$(verify_login_zsh -lc 'printf "login-path:%s\n" "$PATH"' 2>/dev/null |
       sed -n 's/.*login-path://p' | tail -n 1)"
     ;;
   *) return 1 ;;
@@ -1226,7 +1246,7 @@ check_mise_owned() {
   elif [[ -n "${VERIFY_CALLER_PATH+x}" ]]; then
     configured_path="$VERIFY_CALLER_PATH"
   elif command_exists zsh; then
-    configured_path="$(zsh -lic 'printf "%s\\n" "$PATH"' 2>/dev/null || true)"
+    configured_path="$(verify_login_zsh -lic 'printf "%s\\n" "$PATH"' 2>/dev/null || true)"
   else
     configured_path="${PATH:-}"
   fi

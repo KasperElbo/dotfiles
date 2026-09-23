@@ -1172,4 +1172,31 @@ assert_contains "$TEST_OUTPUT" 'npm produced no output under mise'
 assert_probe_counts 0 0 0 1
 printf 'PASS: npm that could not run at all is still unobserved\n'
 
+# Every login probe goes through verify_login_zsh. A bare `zsh -l` inherits
+# the ZDOTDIR the calling Zsh exported, reads no ~/.zshenv, and reports the
+# calling terminal's environment as if a login had set it; a verifier run from
+# a terminal opened before platform-env.zsh changed then failed a login that
+# was correct. Comments are dropped before looking, so prose may name it.
+bare_login_probes="$(
+  PYTHONPATH="$repo_root/scripts/lib" python3 - "$repo_root" <<'PYTHON'
+import pathlib
+import re
+import sys
+
+from shell import code_text
+
+root = pathlib.Path(sys.argv[1])
+files = [root / "common/lib/verify.sh", *sorted(root.glob("common/verify-*.sh")),
+         *sorted(root.glob("platforms/*/scripts/verify*.sh"))]
+probe = re.compile(r"(^|[\s;&|(!`])zsh\s+-l")
+for path in files:
+    for number, line in enumerate(code_text(path.read_text()).splitlines(), 1):
+        if probe.search(line):
+            print(f"{path.relative_to(root)}:{number}: {line.strip()}")
+PYTHON
+)"
+[[ -z "$bare_login_probes" ]] ||
+  _test_die "a verifier starts a login Zsh without verify_login_zsh:"$'\n'"$bare_login_probes"
+printf 'PASS: every verifier login probe goes through verify_login_zsh\n'
+
 printf 'Shared verifier tests passed.\n'

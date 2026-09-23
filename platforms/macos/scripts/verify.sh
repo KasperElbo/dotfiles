@@ -147,7 +147,7 @@ section "mise-owned runtimes"
 # mise-managed one in the PATH a fresh Zsh login configures, not merely exist.
 # shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
 VERIFY_CONFIGURED_LOGIN_PATH="$(
-  zsh -lic 'printf "\n__DOTFILES_VERIFY_PATH__%s\n" "$PATH"' 2>/dev/null |
+  verify_login_zsh -lic 'printf "\n__DOTFILES_VERIFY_PATH__%s\n" "$PATH"' 2>/dev/null |
     sed -n 's/^__DOTFILES_VERIFY_PATH__//p' |
     tail -n 1
 )"
@@ -247,7 +247,7 @@ fi
 # front; the provider is not asserted either, since any Homebrew path may
 # supply timeout as long as it is the GNU one.
 # shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
-login_check="$(zsh -lic 'printf "%s|%s|%s" "$(timeout --version 2>/dev/null | head -n1)" "$(command -v ls)" "$(starship --version >/dev/null && mise --version >/dev/null && printf ready)"' 2>/dev/null || true)"
+login_check="$(verify_login_zsh -lic 'printf "%s|%s|%s" "$(timeout --version 2>/dev/null | head -n1)" "$(command -v ls)" "$(starship --version >/dev/null && mise --version >/dev/null && printf ready)"' 2>/dev/null || true)"
 login_timeout="${login_check%%|*}"
 login_rest="${login_check#*|}"
 login_ls="${login_rest%%|*}"
@@ -270,7 +270,10 @@ fi
 # The expected value comes from Homebrew itself rather than from the file under
 # test, so this asks whether the login shell agrees with the machine.
 # shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
-login_prefix="$(zsh -lic 'printf "%s" "${HOMEBREW_PREFIX:-}"' 2>/dev/null || true)"
+login_prefix="$(
+  unset HOMEBREW_PREFIX
+  verify_login_zsh -lic 'printf "%s" "${HOMEBREW_PREFIX:-}"' 2>/dev/null || true
+)"
 brew_prefix="$(brew --prefix 2>/dev/null || true)"
 if [[ -z "$brew_prefix" ]]; then
   fail "Homebrew does not report a prefix, so HOMEBREW_PREFIX cannot be checked"
@@ -425,7 +428,7 @@ if [[ -n "$current_theme" ]]; then
 
   # shellcheck disable=SC2016 # Expansion belongs to the child Zsh process.
   login_theme="$(
-    zsh -lic 'printf "\n__DOTFILES_VERIFY_THEME__%s|%s\n" "${STARSHIP_CONFIG:-}" "${BAT_THEME:-}"' \
+    verify_login_zsh -lic 'printf "\n__DOTFILES_VERIFY_THEME__%s|%s\n" "${STARSHIP_CONFIG:-}" "${BAT_THEME:-}"' \
       2>/dev/null |
       sed -n 's/^__DOTFILES_VERIFY_THEME__//p' |
       tail -n 1
@@ -567,13 +570,13 @@ verify | leftover)
   # A command that only works because this verifier's process activated mise is
   # not actually installed for the user. Prove it resolves in a fresh login.
   for name in "${ai_commands[@]}"; do
-    if zsh -lic 'command -v "$1" >/dev/null' _ "$name" >/dev/null 2>&1; then
+    if verify_login_zsh -lic 'command -v "$1" >/dev/null' _ "$name" >/dev/null 2>&1; then
       pass "Fresh Zsh login resolves $name"
     else
       fail "Fresh Zsh login does not resolve $name"
     fi
   done
-  if zsh -lic 'claude --version >/dev/null' >/dev/null 2>&1; then
+  if verify_login_zsh -lic 'claude --version >/dev/null' >/dev/null 2>&1; then
     pass "Claude Code starts in a fresh Zsh login"
   else
     fail "Claude Code does not start in a fresh Zsh login"
