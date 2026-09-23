@@ -725,6 +725,51 @@ fi
 run_mise "$mise_command" --yes install
 establish_user_tool_environment
 
+# What "latest" resolved to. Every other component of this profile records the
+# artefact it installed -- firstmate_commit, treehouse_digest -- while the mise
+# packages recorded only the mechanism. Without the resolved version there is
+# no recorded good version to pin back to after a bad release, and no way to
+# tell from the state file afterwards whether this machine ever ran one.
+#
+# Asked per spec rather than reading one whole-config listing, so the lookup
+# goes through mise's own argument resolution instead of depending on how mise
+# spells a tool's key in that listing.
+mise_state_key() {
+  local key="${1#npm:}"
+  key="${key##*/}"
+  printf '%s' "${key//-/_}"
+}
+
+mise_resolved_version() {
+  local listing
+  listing="$(run_mise "$mise_command" ls "$1" --json)" || return 1
+  # An installed entry only; prefer the active one. A tool declared but not
+  # installed still appears in the listing, and must not answer this question.
+  printf '%s' "$listing" |
+    jq -er 'map(select(.installed)) | (map(select(.active)) + .) | .[0].version' 2>/dev/null
+}
+
+declare -A mise_resolved_versions=()
+unresolved_mise_specs=()
+while IFS= read -r mise_spec; do
+  mise_spec="${mise_spec#\"}"
+  mise_spec="${mise_spec%\"}"
+  [[ -n "$mise_spec" ]] || continue
+  if resolved_version="$(mise_resolved_version "$mise_spec")" &&
+    [[ -n "$resolved_version" ]]; then
+    mise_resolved_versions["$mise_spec"]="$resolved_version"
+  else
+    unresolved_mise_specs+=("$mise_spec")
+  fi
+done < <(mise_specs_for_selection)
+
+if ((${#unresolved_mise_specs[@]} > 0)); then
+  for mise_spec in "${unresolved_mise_specs[@]}"; do
+    warn "mise reported no installed version for $mise_spec"
+  done
+  die "Refusing to record an install whose versions are unknown. Every package declared in $conf_file has to report an installed version, so the profile records what ran rather than what was asked for."
+fi
+
 claude_health_check() {
   run_mise "$mise_command" exec -- claude --version
 }
@@ -1203,6 +1248,16 @@ write_ai_state() {
       printf 'backpass=disabled\n'
       printf 'acpx=disabled\n'
     fi
+    # One line per declared package, keyed the same way as the mechanism
+    # lines above, so a twelfth package cannot be added without recording
+    # what it resolved to.
+    while IFS= read -r spec; do
+      spec="${spec#\"}"
+      spec="${spec%\"}"
+      [[ -n "$spec" ]] || continue
+      printf '%s_version=%s\n' \
+        "$(mise_state_key "$spec")" "${mise_resolved_versions[$spec]}"
+    done < <(mise_specs_for_selection)
   } | profile_state_write_content "$state_file" ai "$status"
 }
 
