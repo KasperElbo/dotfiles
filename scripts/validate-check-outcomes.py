@@ -13,21 +13,27 @@ suites have run. A call site that produced both a pass and a fail is covered:
 some fixture drove it each way, so inverting its predicate takes one of those
 outcomes away and this turns red.
 
-The remaining call sites are the ones no fixture has driven both ways yet.
-There are too many to fix in one change, so `config/check-outcomes.tsv` records
-how many each verifier still has, as a ceiling: the count may fall but never
-rise, so a new check with no fixture behind it raises its verifier's count and
-is refused.
+The remaining call sites are the ones no fixture has driven both ways yet, and
+`config/check-outcomes.tsv` names each of them with the reason it is allowed.
+An exception belongs to one call site, not to its verifier: when it was a count,
+a check could lose its failing fixture while another gained one and the count,
+and the gate, stayed the same (#497). So a call site this run left uncovered is
+refused unless its own row excuses it, and every row carries a reason.
 
-The ceiling is where this parts company with `scripts/validate-symlink-checks.py`,
-which demands its counts exactly. That gate reads files, which are the same
-everywhere. This one reads behaviour, which is not: a machine with `podman` or
-`systemctl` drives checks to a verdict that a machine without them reports as
-not observed, so the Fedora CI container covers two more of the Fedora
-verifier's call sites than a plain Linux container does. Demanding the number
-exactly would fail on whichever machine covers the most. So the recorded number
-is the worst environment's, coverage beyond it is reported rather than refused,
-and `--record` is how a real gain is written down.
+A row names its call by what it says, not by its line. Verifiers change all the
+time, and a line number would move an exception onto whatever call slid into
+its place; the call's text only changes when the call does. The text is the
+whole command, continuation lines joined and whitespace collapsed, without the
+`if`, `while`, `until` or `!` in front of it or the `; then` behind it. A call
+that appears more than once in a verifier is told apart by its occurrence.
+
+A row whose call is now covered is reported rather than refused, because the
+trace reads behaviour, which is not the same everywhere: a machine with
+`podman` or `systemctl` drives checks to a verdict that a machine without them
+reports as not observed. So the rows are the worst environment's, coverage
+beyond them is reported, and `--record` rewrites the rows from a trace, keeping
+the reasons already written. A row naming a call the verifier no longer makes
+is refused: that reads files, which are the same everywhere.
 
 The trace records the path the shell actually sourced, and only the repository's
 own files are counted. A suite that copies the tree somewhere and mutates the
@@ -42,10 +48,11 @@ import collections
 import pathlib
 import re
 import sys
+from typing import NamedTuple
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LEDGER = ROOT / "config" / "check-outcomes.tsv"
-FIELDS = ("verifier", "uncovered", "note")
+FIELDS = ("verifier", "call", "reason")
 
 # A `check_*` call in command position. A verifier writes one bare, behind `if`
 # or negated, and the shared reader is not used here because the trace decides
@@ -75,14 +82,43 @@ def verifiers() -> list[str]:
     return sorted(found)
 
 
-def call_sites(verifier: str) -> list[int]:
-    """The line of every `check_*` call in a verifier, comments dropped."""
+class Site(NamedTuple):
+    """One `check_*` call: where it is today, and what it is."""
+
+    line: int
+    call: str
+
+
+def call_text(lines: list[str], index: int) -> str:
+    """The call starting at `lines[index]`, as a row in the ledger names it."""
+    parts = [lines[index]]
+    while parts[-1].rstrip().endswith("\\") and index + 1 < len(lines):
+        parts[-1] = parts[-1].rstrip()[:-1]
+        index += 1
+        parts.append(lines[index])
+    text = " ".join(" ".join(parts).split())
+    text = re.sub(r"^(?:(?:if|while|until)\s+)?(?:!\s+)?", "", text)
+    return re.sub(r"\s*;\s*(?:then|do)$", "", text)
+
+
+def call_sites(verifier: str) -> list[Site]:
+    """Every `check_*` call in a verifier, comments dropped.
+
+    A call made more than once in one verifier is told apart by its
+    occurrence, counted from the top, so a row can excuse one of them.
+    """
     lines = (ROOT / verifier).read_text(encoding="utf-8").splitlines()
-    return [
-        number
-        for number, line in enumerate(lines, 1)
-        if not line.lstrip().startswith("#") and CHECK_CALL.match(line)
-    ]
+    seen: collections.Counter[str] = collections.Counter()
+    sites = []
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("#") or not CHECK_CALL.match(line):
+            continue
+        call = call_text(lines, index)
+        seen[call] += 1
+        if seen[call] > 1:
+            call = f"{call} (occurrence {seen[call]})"
+        sites.append(Site(index + 1, call))
+    return sites
 
 
 def read_trace(path: pathlib.Path) -> dict[tuple[str, int], set[str]]:
@@ -108,25 +144,67 @@ def read_trace(path: pathlib.Path) -> dict[tuple[str, int], set[str]]:
     return outcomes
 
 
-def read_ledger() -> dict[str, int] | None:
-    rows: dict[str, int] = {}
+def read_ledger() -> dict[tuple[str, str], str] | None:
+    """The excused call sites, each with the reason it is allowed."""
+    rows: dict[tuple[str, str], str] = {}
+    ledger = LEDGER.relative_to(ROOT)
     lines = LEDGER.read_text(encoding="utf-8").splitlines()
     if not lines or lines[0].split("\t") != list(FIELDS):
-        fail(f"{LEDGER.relative_to(ROOT)}: the header must be {chr(9).join(FIELDS)}")
+        fail(f"{ledger}: the header must be {chr(9).join(FIELDS)}")
         return None
+    errors = 0
     for number, line in enumerate(lines[1:], 2):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         cells = line.split("\t")
         if len(cells) != len(FIELDS):
-            fail(f"{LEDGER.relative_to(ROOT)}:{number}: expected {len(FIELDS)} columns")
+            fail(f"{ledger}:{number}: expected {len(FIELDS)} columns")
             return None
-        verifier, uncovered, _ = cells
-        if not uncovered.isdigit():
-            fail(f"{LEDGER.relative_to(ROOT)}:{number}: {uncovered!r} is not a count")
-            return None
-        rows[verifier] = int(uncovered)
-    return rows
+        verifier, call, reason = cells
+        if (verifier, call) in rows:
+            fail(f"{ledger}:{number}: {verifier} `{call}` is already excused above")
+            errors += 1
+        if not reason.strip():
+            fail(
+                f"{ledger}:{number}: {verifier} `{call}` has no reason; an "
+                f"exception to this rule says why the check is allowed to be "
+                f"one no fixture can fail"
+            )
+            errors += 1
+        rows[(verifier, call)] = reason
+    return None if errors else rows
+
+
+def covered(outcomes: dict[tuple[str, int], set[str]], verifier: str, site: Site) -> bool:
+    return {"pass", "fail"} <= outcomes.get((verifier, site.line), set())
+
+
+def record(outcomes: dict[tuple[str, int], set[str]]) -> int:
+    """Rewrite the ledger from a trace, keeping the reasons already written."""
+    reasons: dict[tuple[str, str], str] = {}
+    lines = LEDGER.read_text(encoding="utf-8").splitlines() if LEDGER.exists() else []
+    if lines and lines[0].split("\t") == list(FIELDS):
+        for line in lines[1:]:
+            cells = line.split("\t")
+            if len(cells) == len(FIELDS):
+                reasons[(cells[0], cells[1])] = cells[2]
+    rows = ["\t".join(FIELDS)]
+    unexplained = 0
+    for verifier in verifiers():
+        for site in call_sites(verifier):
+            if covered(outcomes, verifier, site):
+                continue
+            reason = reasons.get((verifier, site.call), "")
+            unexplained += not reason.strip()
+            rows.append(f"{verifier}\t{site.call}\t{reason}")
+    LEDGER.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    print(f"Wrote {LEDGER.relative_to(ROOT)}: {len(rows) - 1} uncovered call sites.")
+    if unexplained:
+        print(
+            f"{unexplained} of them have no reason yet; write one in the "
+            f"reason column, or the next run refuses the row."
+        )
+    return 0
 
 
 def main() -> int:
@@ -157,97 +235,70 @@ def main() -> int:
         return 1
 
     if arguments.record:
-        rows = ["\t".join(FIELDS)]
-        for verifier in verifiers():
-            sites = call_sites(verifier)
-            if not sites:
-                continue
-            uncovered = sum(
-                1
-                for line in sites
-                if not {"pass", "fail"} <= outcomes.get((verifier, line), set())
-            )
-            plural = "" if len(sites) == 1 else "s"
-            rows.append(f"{verifier}\t{uncovered}\tof {len(sites)} check_* call site{plural}")
-        LEDGER.write_text("\n".join(rows) + "\n", encoding="utf-8")
-        print(f"Wrote {LEDGER.relative_to(ROOT)} from {arguments.trace}.")
-        return 0
+        return record(outcomes)
 
-    recorded = read_ledger()
-    if recorded is None:
+    excused = read_ledger()
+    if excused is None:
         return 1
 
     errors = 0
-    for verifier in verifiers():
+    ledger = LEDGER.relative_to(ROOT)
+    sites = {verifier: call_sites(verifier) for verifier in verifiers()}
+    for verifier, found in sites.items():
         lines = (ROOT / verifier).read_text(encoding="utf-8").splitlines()
-        for line in call_sites(verifier):
-            if SPLIT_CALL.match(lines[line - 1]):
+        for site in found:
+            if SPLIT_CALL.match(lines[site.line - 1]):
                 fail(
-                    f"{verifier}:{line}: the call's first argument is on the "
-                    f"next line, and bash credits the call to that line, so "
-                    f"no fixture can cover this one; start its arguments on "
+                    f"{verifier}:{site.line}: the call's first argument is on "
+                    f"the next line, and bash credits the call to that line, "
+                    f"so no fixture can cover this one; start its arguments on "
                     f"the line that names the check"
                 )
                 errors += 1
-    gained: list[tuple[str, int, int]] = []
-    ledger = LEDGER.relative_to(ROOT)
-    for verifier in verifiers():
-        sites = call_sites(verifier)
-        if not sites:
-            if verifier in recorded:
-                fail(f"{ledger} records {verifier}, which calls no check_*")
+
+    gained: list[tuple[str, Site]] = []
+    for verifier, found in sites.items():
+        for site in found:
+            is_excused = (verifier, site.call) in excused
+            if covered(outcomes, verifier, site):
+                if is_excused:
+                    gained.append((verifier, site))
+            elif not is_excused:
+                fail(
+                    f"{verifier}:{site.line}: `{site.call}` was never driven to "
+                    f"both a pass and a fail by the default suites, and "
+                    f"{ledger} does not excuse it. A check no fixture can fail "
+                    f"proves nothing. Give it a failing fixture, or add a row "
+                    f"for it with the reason"
+                )
                 errors += 1
-            continue
-        if verifier not in recorded:
-            fail(
-                f"{verifier} calls check_* {len(sites)} time"
-                f"{'' if len(sites) == 1 else 's'} but {ledger} does "
-                f"not record it; every verifier answers to this rule"
-            )
-            errors += 1
-            continue
-        uncovered = [
-            line
-            for line in sites
-            if not {"pass", "fail"} <= outcomes.get((verifier, line), set())
-        ]
-        allowed = recorded[verifier]
-        if len(uncovered) > allowed:
-            listed = ", ".join(f"{verifier}:{line}" for line in uncovered)
-            fail(
-                f"{verifier}: {len(uncovered)} check_* call site"
-                f"{'' if len(uncovered) == 1 else 's'} "
-                f"{'was' if len(uncovered) == 1 else 'were'} never driven to "
-                f"both a pass and a fail by the default suites, and "
-                f"{ledger} allows {allowed}. A check no fixture can fail proves "
-                f"nothing. Give the new one a failing fixture, or raise the "
-                f"count with the reason. The sites are: {listed}"
-            )
-            errors += 1
-        elif len(uncovered) < allowed:
-            gained.append((verifier, len(uncovered), allowed))
-    for verifier in sorted(set(recorded) - set(verifiers())):
-        fail(f"{ledger} records {verifier}, which is not a verifier in this tree")
+
+    calls = {(verifier, site.call) for verifier, found in sites.items() for site in found}
+    for verifier, call in sorted(set(excused) - calls):
+        fail(
+            f"{ledger} excuses `{call}` in {verifier}, which makes no such "
+            f"call; the call was changed, moved or removed, so change or "
+            f"delete its row"
+        )
         errors += 1
 
     if errors:
         return 1
 
-    for verifier, uncovered, allowed in gained:
+    for verifier, site in gained:
         print(
-            f"check outcomes: {verifier} is down to {uncovered} uncovered call "
-            f"sites from the {allowed} {ledger} allows; re-record with "
-            f"--record to keep the gain"
+            f"check outcomes: {verifier}:{site.line}: `{site.call}` was driven "
+            f"to both a pass and a fail, but {ledger} still excuses it; delete "
+            f"its row, or re-record with --record, to keep the gain"
         )
 
-    covered = sum(
-        1
-        for verifier in verifiers()
-        for line in call_sites(verifier)
-        if {"pass", "fail"} <= outcomes.get((verifier, line), set())
+    total = sum(len(found) for found in sites.values())
+    count = sum(
+        covered(outcomes, verifier, site)
+        for verifier, found in sites.items()
+        for site in found
     )
-    total = sum(len(call_sites(verifier)) for verifier in verifiers())
-    print(f"Check-outcome coverage: {covered} of {total} check_* call sites "
+    print(f"Check-outcome coverage: {count} of {total} check_* call sites "
           f"were driven to both a pass and a fail.")
     return 0
 
