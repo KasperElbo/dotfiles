@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a platform installer's persistent-option help text from its manifest.
+"""Render each platform installer's persistent-option text from its manifest.
 
 Adding a capability to an installer means editing nine coupled places in
 `platforms/<platform>/install.sh`, and two of them are prose: the `--help`
@@ -10,12 +10,25 @@ both halves of it: the flag is real, its help line carries no description at
 all, and `config/install-options.tsv` has had "Tailscale networking profile"
 for that row the whole time.
 
-So the listing is generated from the manifest the parser already reads. The
-generated function lives in its own file rather than spliced into the usage
+So both are generated from the manifest the parser already reads, for every
+platform that declares options:
+
+* `usage_persistent_options` prints the `--help` listing. Fedora was the only
+  platform generated at first; the other three kept a hand-written restatement
+  of the `values` and `default` columns that no gate compared with anything, so
+  `(default: macchiato)` edited to `(default: mocha)` passed while the installer
+  went on defaulting to macchiato.
+* `plan_persistent_options` prints the `--dry-run` lines, each option under its
+  manifest summary and showing the variable its own argv arm records. The
+  hand-written summary was checked only for each variable appearing somewhere,
+  so two variables swapped between their labels passed and the plan printed
+  `Sway session: false` above a rerun record saying `sway:true`.
+
+The generated functions live in their own file rather than spliced into a
 heredoc, because a heredoc has no comments: `# BEGIN GENERATED` inside one
-would print in `--help` output. A whole generated file also means the drift gate
-compares the whole file, which is the exact comparison the other eight
-`render --check` gates make.
+would print. A whole generated file also means the drift gate compares the
+whole file, which is the exact comparison the other `render --check` gates
+make.
 
 Transient execution controls --- `--dry-run`, `--non-interactive`, `--help` and
 the platform's own one-run flags --- are deliberately not in that manifest, so
@@ -30,20 +43,18 @@ from __future__ import annotations
 
 import pathlib
 import re
+import shlex
 import sys
 import textwrap
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from generated import check_or_write  # noqa: E402
+from installer_argv import UnreadableParser, parser_flags, recorded_variable  # noqa: E402
 from manifests import read_tsv  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPTIONS = ROOT / "config" / "install-options.tsv"
 
-# The installers whose help text is generated. A platform is added here once
-# its `usage()` calls `usage_persistent_options`; until then its listing stays
-# hand-written, which is visible rather than silently half-migrated.
-GENERATED_PLATFORMS = ["fedora"]
 
 # `--help` is read in a terminal, so the listing is wrapped rather than left to
 # the terminal's own folding, which would break the flag column.
@@ -59,11 +70,12 @@ def target_for(platform: str) -> pathlib.Path:
     return ROOT / "platforms" / platform / "lib" / "usage-options.sh"
 
 
-# An enumerated `values` column a reader can use as-is: lower-case words
-# separated by `|`, as `latte|frappe|macchiato|mocha` and `ga402xz|ga402rk` are.
-# `[4-9][0-9]|100` is a pattern for the parser to match, not a list to read, so
-# it is excluded and the row states its range in the summary instead.
-LITERAL_VALUES = re.compile(r"^[a-z0-9][a-z0-9.+-]*(?:\|[a-z0-9][a-z0-9.+-]*)*$")
+# The two shapes a `values` column takes: lower-case words separated by `|`, as
+# `latte|frappe|macchiato|mocha` and `ga402xz|ga402rk` are, or an integer range,
+# `40..100`. Both are listed from the column itself, so the help text states
+# the range the installer and the recorded selection read rather than a copy.
+LITERAL_VALUES = re.compile(r"^[a-z0-9][a-z0-9+-]*(?:\|[a-z0-9][a-z0-9+-]*)*$")
+RANGE_VALUES = re.compile(r"^(?P<low>\d+)\.\.(?P<high>\d+)$")
 
 
 # What a `value` option's argument is called in the listing. The manifest says
@@ -74,14 +86,29 @@ LITERAL_VALUES = re.compile(r"^[a-z0-9][a-z0-9.+-]*(?:\|[a-z0-9][a-z0-9.+-]*)*$"
 # rather than a silent `VALUE` --- adding a value option should require the
 # choice, not default past it.
 VALUE_PLACEHOLDERS = {
-    ("fedora", "theme"): "FLAVOUR",
-    ("fedora", "hardware"): "MODEL",
-    ("fedora", "charge-limit"): "N",
+    "theme": "FLAVOUR",
+    "hardware": "MODEL",
+    "charge-limit": "N",
 }
+
+# What the `--dry-run` plan prints for an option the run leaves unset. A
+# default of `inherit` is its own word; a default of `-` means "not given",
+# which reads differently per option -- no hardware profile is `disabled`, no
+# charge limit leaves the firmware's `unchanged` -- so it is named here, and an
+# option missing from this table is an error for the same reason as above.
+UNSET_WORDS = {
+    "hardware": "disabled",
+    "charge-limit": "unchanged",
+}
+
+# Where the `--dry-run` values start: a label that fits is padded to this
+# width, the column the Fedora plan has always used, and a longer one is
+# followed by a single space.
+PLAN_LABEL_WIDTH = 20
 
 
 class MissingPlaceholder(Exception):
-    """A `value` option with no word for its argument."""
+    """A `value` option with no word for its argument, or its absence."""
 
 
 def flag_spec(platform: str, row: dict[str, str]) -> str:
@@ -89,7 +116,7 @@ def flag_spec(platform: str, row: dict[str, str]) -> str:
     on_flag = row["on_flag"]
     off_flag = row["off_flag"]
     if row["kind"] == "value":
-        placeholder = VALUE_PLACEHOLDERS.get((platform, row["option"]))
+        placeholder = VALUE_PLACEHOLDERS.get(row["option"])
         if placeholder is None:
             raise MissingPlaceholder(
                 f"{platform}: {row['option']} takes a value, and no word for it is "
@@ -111,7 +138,10 @@ def summary_text(row: dict[str, str]) -> str:
     """
     parts = [row["summary"]]
     values = row["values"]
-    if values and values != "-" and LITERAL_VALUES.match(values):
+    bounds = RANGE_VALUES.match(values or "")
+    if bounds:
+        parts.append(f": {bounds.group('low')}-{bounds.group('high')}")
+    elif values and values != "-" and LITERAL_VALUES.match(values):
         parts.append(": " + ", ".join(values.split("|")))
     default = row["default"]
     if default and default != "-":
@@ -139,8 +169,64 @@ def render_lines(platform: str, rows: list[dict[str, str]]) -> list[str]:
     return lines
 
 
+def installer_for(platform: str) -> pathlib.Path:
+    return ROOT / "platforms" / platform / "install.sh"
+
+
+class UnplannedOption(Exception):
+    """An option the dry-run plan cannot show, because no arm records it."""
+
+
+def plan_expression(platform: str, row: dict[str, str], variable: str) -> str:
+    """The shell word the plan prints for one option's resolved value."""
+    default = row["default"]
+    if default == "inherit":
+        return f'"${{{variable}:-inherit}}"'
+    if default == "-":
+        word = UNSET_WORDS.get(row["option"])
+        if word is None:
+            raise MissingPlaceholder(
+                f"{platform}: {row['option']} is unset unless given, and what the "
+                f"plan prints then is not named in UNSET_WORDS in "
+                f"scripts/render-installer-usage.py"
+            )
+        return f'"${{{variable}:-{word}}}"'
+    return f'"${variable}"'
+
+
+def plan_lines(platform: str, rows: list[dict[str, str]]) -> list[str]:
+    """The `printf` arguments the plan prints, one label and value per option.
+
+    The variable is read from the installer's own argv arm for the option's
+    flag, so the line labelled with an option's summary shows what that
+    option's flag set, by construction rather than by a hand-kept pairing.
+    """
+    parsed = parser_flags(installer_for(platform))
+    if parsed is None:
+        raise UnplannedOption(
+            f"platforms/{platform}/install.sh: no `while (($#)); do case \"$1\" in` "
+            f"argv parser found, so no option can be tied to what it records"
+        )
+    _, _, bodies = parsed
+    lines = []
+    for row in rows:
+        variable = recorded_variable(platform, row, bodies)
+        if variable is None:
+            raise UnplannedOption(
+                f"platforms/{platform}/install.sh: the {row['on_flag']} arm assigns "
+                f"nothing, so the plan has no value to show for {row['option']}"
+            )
+        label = shlex.quote(f"{row['summary']}:")
+        lines.append(f"    {label} {plan_expression(platform, row, variable)}")
+    return [
+        line + (" \\" if index < len(lines) - 1 else "")
+        for index, line in enumerate(lines)
+    ]
+
+
 def render(platform: str, rows: list[dict[str, str]]) -> str:
     listing = render_lines(platform, rows)
+    plan = plan_lines(platform, rows)
     body = [
         "#!/usr/bin/env bash",
         "# Generated by scripts/render-installer-usage.py from",
@@ -162,6 +248,15 @@ def render(platform: str, rows: list[dict[str, str]]) -> str:
         "EOF",
         "}",
         "",
+        "# The same options as the --dry-run plan shows them: each under its manifest",
+        "# summary, with the value of the variable its own argv arm records, so a line",
+        "# cannot show one option's value beside another option's label.",
+        "plan_persistent_options() {",
+        "  # shellcheck disable=SC2154 # The installer that sources this file sets them.",
+        f"  printf '%-{PLAN_LABEL_WIDTH}s %s\\n' \\",
+        *plan,
+        "}",
+        "",
     ]
     return "\n".join(body)
 
@@ -177,16 +272,11 @@ def main() -> int:
         platform = argv[index + 1]
 
     rows = read_tsv(OPTIONS)
-    platforms = [platform] if platform else GENERATED_PLATFORMS
-    unknown = [name for name in platforms if name not in GENERATED_PLATFORMS]
-    if unknown:
-        print(
-            f"not a generated platform: {', '.join(unknown)}; "
-            f"add it to GENERATED_PLATFORMS once its usage() calls "
-            f"usage_persistent_options",
-            file=sys.stderr,
-        )
-        return 2
+    # Every platform the manifest declares options for, in manifest order: a
+    # platform whose text is hand-written is one whose values and defaults no
+    # gate compares with anything.
+    declared = list(dict.fromkeys(row["platform"] for row in rows))
+    platforms = [platform] if platform else declared
 
     status = 0
     for name in platforms:
@@ -200,14 +290,18 @@ def main() -> int:
             return 1
         try:
             content = render(name, platform_rows)
-        except MissingPlaceholder as missing:
+        except (MissingPlaceholder, UnplannedOption) as missing:
             print(missing, file=sys.stderr)
+            return 1
+        except UnreadableParser as unreadable:
+            print(f"platforms/{name}/install.sh: an argv arm could not be parsed: "
+                  f"{unreadable}", file=sys.stderr)
             return 1
         status |= check_or_write(
             target_for(name),
             content,
             argv,
-            stale=f"Generated {name} installer help text is stale",
+            stale=f"Generated {name} installer help and plan text is stale",
             remedy=f"./scripts/render-installer-usage.py --platform {name}",
         )
     return status

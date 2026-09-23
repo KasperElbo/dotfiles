@@ -677,22 +677,27 @@ with `scripts/validate-check-outcomes.py` once the suites are done.
 
 A call site that produced both a pass and a fail is covered: some fixture drove
 it each way, so inverting its predicate takes one of those outcomes away and
-the run turns red naming the line. 141 of the 151 call sites are covered today,
-and the rest are uncovered on purpose, so `config/check-outcomes.tsv`
-records how many each verifier still has, as a ceiling: the count may fall but
-never rise, so a new check with no fixture behind it raises its verifier's
-count and is refused.
+the run turns red naming the line. The rest are uncovered on purpose, and
+`config/check-outcomes.tsv` names each one with the reason it is allowed. Any
+other uncovered call site is refused, however many the verifier had before: when
+the file held a count per verifier, one check could lose its failing fixture
+while another gained one and the gate never noticed (#497).
 
-A ceiling, where the symlink gate below demands its counts exactly, because the
-two rules read different things. That gate reads files, which are identical on
-every machine. This one reads behaviour, which is not: a machine with `podman`
-or `systemctl` drives checks to a verdict that a machine without them reports
-as not observed, and the Fedora CI container covers two more of the Fedora
-verifier's call sites than a plain Linux container does. Demanding the number
-exactly would fail on whichever machine covers the most, so the recorded number
-is the worst environment's, and coverage beyond it is reported rather than
-refused. `--record` writes the file from a trace, which is how a real gain is
-written down rather than counted by hand.
+A row names its call by what it says, not by its line, so a change elsewhere in
+the verifier cannot move an exception onto a different check. The text is the
+whole command with continuation lines joined and whitespace collapsed, without
+the `if`, `while`, `until` or `!` in front or the `; then` behind; a call made
+twice in one verifier gets `(occurrence 2)`. A row whose call is gone is refused,
+and so is a row with no reason.
+
+A row whose call is now covered is reported, not refused, because the two rules
+read different things. The symlink gate below reads files, which are identical
+on every machine. This one reads behaviour, which is not: a machine with
+`podman` or `systemctl` drives checks to a verdict that a machine without them
+reports as not observed. So the rows are the worst environment's, and coverage
+beyond them is reported with the instruction to delete the row. `--record`
+rewrites the file from a trace, keeping the reasons already written; a row it
+adds has none, and the next run refuses it until someone writes one.
 
 Only the repository's own files count. A suite that copies the tree and mutates
 the copy is proving something about the mutation, so its verdicts must not make
@@ -700,9 +705,11 @@ the real call site look covered — otherwise a check could be "covered" by a
 fixture that had edited it first.
 
 `tests/test-check-outcomes.sh` proves the gate can fail, against traces it
-writes itself: a new check no fixture drives, a call site that lost its fail, a
-recorded allowance larger than the real gap, a verifier missing from the
-ledger, an empty trace, a missing trace, verdicts recorded against a copy of
+writes itself: a new check no fixture drives, a new verifier, a call site that
+lost its fail, an excused site swapped for another at the same count, an
+excused call moved by unrelated lines, one of two identical calls excused, an
+excused call now covered, a row with no reason, a row for a call that is gone,
+an empty trace, a missing trace, verdicts recorded against a copy of
 the tree, and a verifier-local `check_*` helper that must credit its caller.
 Its first case is the control — a tree whose every call site was
 driven both ways is accepted — so none of the others can pass because the tree
@@ -794,7 +801,12 @@ the suite proves each direction separately: renaming a tracked binding without
 updating the registry fails, and adding a binding without registering it fails
 — the latter through the real parsers (`tomllib` for AeroSpace, `json` for
 Waybar, Sway's own grammar, the shell's alias and function syntax), not a
-single regex over everything.
+single regex over everything. A row claims an implemented line only when its
+`source_pattern` matches the whole line, so an argument appended to a
+registered alias, or a second command chained onto a Sway binding with `;` or
+`,`, fails as unregistered; a family of lines is spelled out as an
+alternation, and a pattern that repeats without an upper bound (`.*`, `\S+`)
+is refused.
 
 It also pins the distinction the registry exists to make: every registered
 action appears in the generated full reference, every `print=false` action
@@ -960,7 +972,13 @@ since a different build is a different rule set, and requires neither a
 `.gitleaksignore` nor a `gitleaks:allow` comment to silence a finding. It
 also runs the tracked `.gitleaks.toml` over one generated sample per
 high-value rule family, so an exception that silences a whole family fails
-the suite.
+the suite. `tests/test-secret-scanner.sh` covers the download itself, against
+an archive and a network it owns: a wrong digest, an archive without the
+binary, a binary reporting another version, and a tar, mv or chmod that fails
+must each stop the run before anything is scanned and leave nothing in the
+cache that a later run would accept. Its tar fixture extracts the binary and
+then exits non-zero, because one that writes nothing is caught by the version
+check whether or not tar's status is read.
 
 That suite needs the pinned binary and never downloads one, because no suite
 here reaches the network. In CI the scan step runs earlier in the same job and

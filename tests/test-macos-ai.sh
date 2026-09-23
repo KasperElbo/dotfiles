@@ -40,7 +40,7 @@ while IFS=$'\t' read -r capability platform _ cli_flag _ _ _ _ _ _ _ _ _ _ _ sta
   [[ "$platform" == macos ]] || continue
   case "$capability" in ai | codex | firstmate | gnhf | backpass) ;; *) continue ;; esac
   [[ "$status" == implemented ]] || continue
-  grep -Fq -- "$cli_flag" "$macos_root/bootstrap-help.txt" ||
+  grep -Fq -- "$cli_flag" "$macos_root/lib/usage-options.sh" ||
     _test_die "macOS help does not advertise the implemented $cli_flag"
   grep -Fq -- "  $cli_flag)" "$macos_root/install.sh" ||
     _test_die "macOS parser does not accept the implemented $cli_flag"
@@ -52,35 +52,35 @@ printf 'PASS: manifest, help and parser advertise the same AI options\n'
 # ---------------------------------------------------------------------------
 
 dry_run
-assert_contains "$TEST_OUTPUT" 'AI tooling profile: false'
+assert_contains "$TEST_OUTPUT" 'AI-assisted development profile (Claude Code and Herdr): false'
 assert_not_contains "$TEST_OUTPUT" 'common/install-ai.sh'
 assert_not_contains "$TEST_OUTPUT" '[ai]'
 printf 'PASS: an unselected AI profile plans no AI mutation at all\n'
 
 dry_run --ai
-assert_contains "$TEST_OUTPUT" 'AI tooling profile: true'
+assert_contains "$TEST_OUTPUT" 'AI-assisted development profile (Claude Code and Herdr): true'
 assert_contains "$TEST_OUTPUT" 'common/install-ai.sh'
 # Omitting every sub-flag must pass no sub-flag at all: the shared installer
 # reads that as "keep whatever is installed", which an explicit --no-<component>
 # would silently turn into a removal.
 assert_not_contains "$TEST_OUTPUT" 'install-ai.sh --no-'
-assert_contains "$TEST_OUTPUT" 'AI Codex subcomponent:     inherit'
+assert_contains "$TEST_OUTPUT" 'AI subcomponent: Codex CLI: inherit'
 printf 'PASS: --ai alone reaches the shared installer with additive defaults\n'
 
 dry_run --ai --codex --firstmate --gnhf --backpass
 assert_contains "$TEST_OUTPUT" 'common/install-ai.sh --codex --firstmate --gnhf --backpass'
-assert_contains "$TEST_OUTPUT" 'AI Codex subcomponent:     true'
-assert_contains "$TEST_OUTPUT" 'AI FirstMate subcomponent: true'
-assert_contains "$TEST_OUTPUT" 'AI GNHF subcomponent:      true'
-assert_contains "$TEST_OUTPUT" 'AI backpass subcomponent:  true'
+assert_contains "$TEST_OUTPUT" 'AI subcomponent: Codex CLI: true'
+assert_contains "$TEST_OUTPUT" 'AI subcomponent: FirstMate toolchain: true'
+assert_contains "$TEST_OUTPUT" 'AI subcomponent: GNHF: true'
+assert_contains "$TEST_OUTPUT" 'AI subcomponent: backpass: true'
 printf 'PASS: every selected subcomponent reaches the shared installer\n'
 
 # Additive semantics: an omitted sub-flag must stay distinguishable from an
 # explicit removal, all the way into the argument vector.
 dry_run --ai --codex --no-firstmate
 assert_contains "$TEST_OUTPUT" 'common/install-ai.sh --codex --no-firstmate'
-assert_contains "$TEST_OUTPUT" 'AI FirstMate subcomponent: false'
-assert_contains "$TEST_OUTPUT" 'AI GNHF subcomponent:      inherit'
+assert_contains "$TEST_OUTPUT" 'AI subcomponent: FirstMate toolchain: false'
+assert_contains "$TEST_OUTPUT" 'AI subcomponent: GNHF: inherit'
 printf 'PASS: omitted and explicitly removed subcomponents stay distinguishable\n'
 
 # The AI step must run after mise: the shared installer resolves every tool

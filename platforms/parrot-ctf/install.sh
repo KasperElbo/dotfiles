@@ -15,6 +15,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
 # shellcheck source=lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/parrot.sh"
+# The --help listing and the --dry-run lines of the persistent options,
+# generated from config/install-options.tsv by scripts/render-installer-usage.py
+# so a flag the parser accepts cannot go undocumented or be shown mislabelled.
+# shellcheck source=lib/usage-options.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/usage-options.sh"
 
 theme="$THEME_DEFAULT_FLAVOUR"
 theme_explicit=false
@@ -28,7 +33,11 @@ Usage: ./install.sh --platform parrot-ctf [options]
 Direct entry point: ./platforms/parrot-ctf/install.sh [options]
 
 Options:
-  --theme FLAVOUR    latte, frappe, macchiato, or mocha (default: macchiato)
+EOF
+  usage_persistent_options
+  cat <<'EOF'
+
+Execution controls, for this run only:
   --dry-run          Show the resolved plan without changing anything
   --non-interactive  Never prompt; resolve every choice from the given
                      options and their defaults. Requires cached sudo
@@ -145,15 +154,18 @@ if [[ "$dry_run" == true ]]; then
 
 Parrot Security Edition CTF VM plan
 -----------------------------------
-Theme:                  $theme ($theme_source — $(theme_source_description "$theme_source"))
-Hypervisor:             KVM/QEMU through qemu:///system
-Normal network:         libvirt default NAT
-Security tools:         Existing Parrot/APT catalogue (unchanged)
-Python:                 Parrot Python + venv/pipx; never mise-managed
-Portable tools:         mise owns uv and pinned Neovim 0.12.5 only
-Host secrets:           Not forwarded or mounted
-Shared folders:         Disabled unless configured manually
-AI tooling:             Not installed
+EOF
+  plan_persistent_options
+  cat <<EOF
+Flavour source:      $theme_source — $(theme_source_description "$theme_source")
+Hypervisor:          KVM/QEMU through qemu:///system
+Normal network:      libvirt default NAT
+Security tools:      Existing Parrot/APT catalogue (unchanged)
+Python:              Parrot Python + venv/pipx; never mise-managed
+Portable tools:      mise owns uv and pinned Neovim 0.12.5 only
+Host secrets:        Not forwarded or mounted
+Shared folders:      Disabled unless configured manually
+AI tooling:          Not installed
 Recorded rerun selection: $install_selection
 Rerun if this run fails: $DOTFILES_RERUN_COMMAND
 
