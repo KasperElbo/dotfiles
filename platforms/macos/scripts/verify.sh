@@ -129,7 +129,25 @@ fi
 if spctl --status 2>/dev/null | grep -Fqi enabled; then pass "Gatekeeper is enabled"; else fail "Gatekeeper is not enabled"; fi
 
 section "Commands"
+# Activate mise the way .zshrc does, but from an empty directory that is its
+# own MISE_CEILING_PATHS, and run the probes from there too. Both halves of
+# activation read the directory configuration at and above the working
+# directory: the hook's one `mise hook-env` call puts what it selects on PATH,
+# and every shim resolves again each time it runs. Started inside a project, the
+# verifier would otherwise pass a probe on a tool only that project's mise.toml
+# supplies (issue #462). `builtin cd`, because activation replaces `cd` with a
+# function that runs the hook again in the directory it moves to.
 mise_command="$(command -v mise 2>/dev/null || true)"
+commands_origin="$PWD"
+commands_ceiling_was_set="${MISE_CEILING_PATHS+set}"
+commands_ceiling="${MISE_CEILING_PATHS-}"
+commands_directory="$(mktemp -d)" || commands_directory=""
+if [[ -n "$commands_directory" ]] && builtin cd -- "$commands_directory"; then
+  export MISE_CEILING_PATHS="$commands_directory"
+else
+  fail "Cannot probe commands from an empty directory; they resolve from" \
+    "$commands_origin, whose mise configuration may answer for them"
+fi
 if [[ -n "$mise_command" ]]; then
   eval "$("$mise_command" activate bash)"
 fi
@@ -140,6 +158,13 @@ fi
 commands=(bat delta eza fd fzf gh git jq mise nvim rg scp sftp shellcheck sqlite3 ssh starship stow tmux zoxide zsh)
 for name in "${commands[@]}"; do check_command "$name" --probe; done
 check_command aerospace
+builtin cd -- "$commands_origin" || exit 1
+if [[ -n "$commands_ceiling_was_set" ]]; then
+  export MISE_CEILING_PATHS="$commands_ceiling"
+else
+  unset MISE_CEILING_PATHS
+fi
+[[ -z "$commands_directory" ]] || rmdir -- "$commands_directory"
 
 section "mise-owned runtimes"
 # mise owns these runtimes on every platform. On macOS a Homebrew formula of
