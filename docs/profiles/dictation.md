@@ -232,9 +232,13 @@ Handy, opens a microphone, downloads a model or reads a transcription. It
 checks that `handy` and `wtype` are present, that the declared Fedora packages
 are installed, that `handy` is owned by an rpm and is not shadowed by a
 duplicate Flatpak installation, that the recorded state names a
-digest-verified artifact and the `wtype` backend, that the Sway config carries
-the dictation binding, and that no Handy state has appeared inside the
-checkout. `./platforms/fedora/scripts/verify.sh` runs it automatically when
+digest-verified artifact and the `wtype` backend, that the Sway
+configuration binds the dictation key to the toggle, and that no Handy state
+has appeared inside the checkout. The binding is read the way Sway loads it,
+with `include`d files such as `~/.config/sway/local.conf` expanded in place,
+and Sway keeps the last binding of a key: a `local.conf` that rebinds or
+unbinds `$mod+o` fails verification, and one that carries the toggle itself
+passes. `./platforms/fedora/scripts/verify.sh` runs it automatically when
 the profile's state file exists, so an unselected profile verifies clean by
 being absent.
 
