@@ -64,8 +64,16 @@ fi
 # so without D-Bus it could not query any system unit and reported firewalld
 # inactive. firewalld is itself a D-Bus service, so the broker is seeded and
 # started before it.
+#
+# procps-ng (ps, pgrep) is one more. Every Fedora install carries it and the
+# official container image strips it. No Mistakes runs ps itself: its
+# installer finishes with `no-mistakes daemon restart`, and the daemon it
+# starts is identified through `ps -p <pid> -o lstart=`. The 2026-09-23 run,
+# the first to select --ai here, died at "inspect daemon process: exec: \"ps\":
+# executable file not found". The user manager seeded below is the other half
+# of that failure.
 docker exec "$container" dnf --assumeyes install \
-  dbus-broker firewalld git sudo shadow-utils >/dev/null
+  dbus-broker firewalld git procps-ng sudo shadow-utils >/dev/null
 docker exec "$container" systemctl daemon-reload
 docker exec "$container" systemctl enable --now dbus-broker.service >/dev/null
 docker exec "$container" systemctl enable --now firewalld.service >/dev/null
@@ -107,11 +115,21 @@ docker exec "$container" dnf --assumeyes install dolphin >/dev/null
 # installer behavior, so approve container-local accounts from /etc/passwd
 # directly. Authorization is still decided by the real sudoers rules below and
 # the installer still performs every privileged action through real sudo.
+#
+# systemd-user is the PAM stack user@.service opens a session through, and it
+# takes the same pam_unix account path, so the user manager seeded further
+# down gets the same treatment. systemd ships that stack in the vendor
+# directory, /usr/lib/pam.d, so the override is written to /etc/pam.d, which
+# takes precedence, from whichever copy exists.
 docker exec "$container" bash -c \
-  'printf "%s\n" "account    sufficient    pam_localuser.so" >/etc/pam.d/sudo.dotfiles-ci &&
-   cat /etc/pam.d/sudo >>/etc/pam.d/sudo.dotfiles-ci &&
-   cat /etc/pam.d/sudo.dotfiles-ci >/etc/pam.d/sudo &&
-   rm -f /etc/pam.d/sudo.dotfiles-ci'
+  'for stack in sudo systemd-user; do
+     source_stack="/etc/pam.d/$stack"
+     [[ -f "$source_stack" ]] || source_stack="/usr/lib/pam.d/$stack"
+     printf "%s\n" "account    sufficient    pam_localuser.so" >"/etc/pam.d/$stack.dotfiles-ci" &&
+     cat "$source_stack" >>"/etc/pam.d/$stack.dotfiles-ci" &&
+     cat "/etc/pam.d/$stack.dotfiles-ci" >"/etc/pam.d/$stack" &&
+     rm -f "/etc/pam.d/$stack.dotfiles-ci" || exit 1
+   done'
 
 create_test_user() {
   local user="$1"
@@ -154,6 +172,61 @@ if ! docker exec --user dotfiles --env HOME=/home/dotfiles "$container" \
   exit 1
 fi
 
+# A per-user systemd manager, the last piece a workstation owns. Logging in --
+# at the console, in a desktop session or over SSH -- registers a session with
+# systemd-logind through pam_systemd, and logind starts user@<uid>.service and
+# the /run/user/<uid> runtime directory `systemctl --user` talks through.
+# docker exec is not a login, so without this seed every user unit the
+# installer or an upstream enables fails at "Failed to connect to user scope
+# bus". The No Mistakes installer enables one: it runs the push-gate daemon as
+# a systemd user service, and only falls back to a detached process when there
+# is no manager. Seeding the manager keeps this job on the path a real login
+# takes instead of the fallback.
+#
+# Lingering is how logind is asked for that manager without a login: it
+# creates the runtime directory and starts the same user@.service. logind
+# itself failed at boot, before D-Bus was seeded, so it is reset and started
+# first.
+#
+# One piece is still missing afterwards. The manager learns its
+# XDG_RUNTIME_DIR from pam_systemd in the systemd-user PAM stack, and in this
+# container that hand-off does not happen, so it exits at "Trying to run as
+# user instance, but $XDG_RUNTIME_DIR is not set" with /run/user/<uid>
+# already in place. A drop-in supplies the value pam_systemd would have: the
+# directory logind just created.
+dotfiles_uid="$(docker exec "$container" id -u dotfiles)"
+dotfiles_runtime_dir="/run/user/$dotfiles_uid"
+docker exec "$container" bash -c \
+  'mkdir -p /etc/systemd/system/user@.service.d &&
+   printf "%s\n" "[Service]" "Environment=XDG_RUNTIME_DIR=/run/user/%i" \
+     >/etc/systemd/system/user@.service.d/50-dotfiles-ci-runtime-dir.conf &&
+   systemctl daemon-reload'
+user_manager_ready=false
+docker exec "$container" systemctl reset-failed systemd-logind.service || true
+if docker exec "$container" systemctl start systemd-logind.service &&
+  docker exec "$container" loginctl enable-linger dotfiles; then
+  for _ in {1..30}; do
+    if docker exec --user dotfiles --env HOME=/home/dotfiles \
+      --env XDG_RUNTIME_DIR="$dotfiles_runtime_dir" "$container" \
+      systemctl --user show --property=Version >/dev/null 2>&1; then
+      user_manager_ready=true
+      break
+    fi
+    sleep 1
+  done
+fi
+if [[ "$user_manager_ready" != true ]]; then
+  printf 'Disposable Fedora container has no working systemd user manager for dotfiles.\n' >&2
+  printf 'Container logind and user-manager diagnostics follow.\n' >&2
+  docker exec "$container" systemctl --no-pager --full status systemd-logind.service >&2 || true
+  docker exec "$container" loginctl --no-pager show-user dotfiles >&2 || true
+  docker exec "$container" systemctl --no-pager --full status "user@$dotfiles_uid.service" >&2 || true
+  docker exec "$container" journalctl --no-pager -n 50 \
+    -u systemd-logind.service -u "user@$dotfiles_uid.service" >&2 || true
+  docker exec "$container" ls -la "$dotfiles_runtime_dir" >&2 || true
+  exit 1
+fi
+
 docker exec --user dotfiles --env HOME=/home/dotfiles "$container" \
   git config --global --add safe.directory /workspace
 
@@ -169,6 +242,7 @@ run_as_user() {
   docker exec --user dotfiles \
     --env HOME=/home/dotfiles \
     --env USER=dotfiles \
+    --env "XDG_RUNTIME_DIR=$dotfiles_runtime_dir" \
     --env "GITHUB_TOKEN=${GITHUB_TOKEN:-}" \
     --env "GH_TOKEN=${GH_TOKEN:-}" \
     --workdir /workspace \
