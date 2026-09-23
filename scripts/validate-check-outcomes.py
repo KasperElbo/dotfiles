@@ -49,8 +49,12 @@ FIELDS = ("verifier", "uncovered", "note")
 
 # A `check_*` call in command position. A verifier writes one bare, behind `if`
 # or negated, and the shared reader is not used here because the trace decides
-# what is covered; this only has to find the call sites to count them.
-CHECK_CALL = re.compile(r"^\s*(?:(?:if|while|until)\s+)?(?:!\s+)?(check_[a-z0-9_]+)\b")
+# what is covered; this only has to find the call sites to count them. A line
+# defining a verifier's own check_* helper is not a call: nothing is ever
+# traced to it, so counting it held ten sites uncovered for good.
+CHECK_CALL = re.compile(
+    r"^\s*(?:(?:if|while|until)\s+)?(?:!\s+)?(check_[a-z0-9_]+)\b(?!\s*\(\))"
+)
 
 VERIFIER_GLOBS = ("platforms/*/scripts/verify*.sh", "common/verify-*.sh")
 

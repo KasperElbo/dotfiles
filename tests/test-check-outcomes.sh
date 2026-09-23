@@ -46,7 +46,7 @@ import re
 import sys
 
 scratch, trace = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-call = re.compile(r"^\s*(?:(?:if|while|until)\s+)?(?:!\s+)?check_[a-z0-9_]+\b")
+call = re.compile(r"^\s*(?:(?:if|while|until)\s+)?(?:!\s+)?check_[a-z0-9_]+\b(?!\s*\(\))")
 lines = []
 for pattern in ("platforms/*/scripts/verify*.sh", "common/verify-*.sh"):
     for path in scratch.glob(pattern):
@@ -69,7 +69,7 @@ new_scratch
 cover_everything
 validate
 assert_success
-assert_contains "$TEST_OUTPUT" "160 check_* call sites"
+assert_contains "$TEST_OUTPUT" "150 check_* call sites"
 printf 'PASS: a tree whose every check was driven both ways is accepted\n'
 
 # GRADE-03's second acceptance criterion: a brand-new check with no fixture
@@ -201,5 +201,45 @@ validate
 assert_failure
 assert_contains "$TEST_OUTPUT" "names no call site in any verifier"
 printf 'PASS: verdicts from a copy of the tree do not count as coverage\n'
+
+# A verifier's own check_* helper credits the line that called it. The trace
+# used to stop at the first frame outside the library, which for such a helper
+# is its own pass or fail line, so the call site the rule counts was never
+# credited however often a suite drove it: the hardening verifier's drop-in,
+# sysctl and key-mode checks all read as never driven. The verifier here runs
+# in its own bash process, as a real one does, and the nested case keeps the
+# library helper's own line credited too, since that is a call site as well.
+local_verifier="$root/local-helper-verify.sh"
+cat >"$local_verifier" <<SHELL
+#!/usr/bin/env bash
+set -u
+source "$repo_root/common/lib/verify.sh"
+check_local() {
+  if [[ "\$1" == yes ]]; then
+    pass "local helper passed"
+  else
+    fail "local helper failed"
+  fi
+}
+check_outer() {
+  check_command dotfiles-no-such-command-for-this-case
+}
+check_local yes
+check_local no
+check_outer
+exit 0
+SHELL
+local_trace="$root/local-helper-trace.tsv"
+: >"$local_trace"
+run_capture env DOTFILES_VERIFY_TRACE="$local_trace" bash "$local_verifier"
+assert_success
+local_recorded="$(cat "$local_trace")"
+[[ -n "$local_recorded" ]] ||
+  _test_die "the local-helper verifier traced nothing, so this case proves nothing"
+assert_contains "$local_recorded" "$local_verifier	14	pass"
+assert_contains "$local_recorded" "$local_verifier	15	fail"
+assert_contains "$local_recorded" "$local_verifier	12	fail"
+assert_contains "$local_recorded" "$local_verifier	16	fail"
+printf 'PASS: a check_* helper defined in a verifier credits the line that called it\n'
 
 printf 'Check-outcome gate tests passed.\n'

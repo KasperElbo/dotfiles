@@ -664,14 +664,18 @@ shellcheck, every validator and the suites all green (GRADE-03 of #393).
 So `common/lib/verify.sh` records, for each verdict it prints, the call site
 that produced it, whenever `DOTFILES_VERIFY_TRACE` names a file to append to.
 The call site is the first frame outside the library, which for a `check_*`
-helper is the line in the verifier that called it. `./scripts/test.sh` arms
+helper is the line in the verifier that called it. A verifier may define a
+`check_*` helper of its own, and then that first frame is the helper's own
+`pass` or `fail` line, so while the frame is running a `check_*` function the
+verdict is credited to its caller too, as far out as the calls go. A line that
+only defines such a helper is not a call site. `./scripts/test.sh` arms
 that trace for the aggregate run only — a targeted run reaches a fraction of
 the call sites and would report every other one as uncovered — and reads it
 with `scripts/validate-check-outcomes.py` once the suites are done.
 
 A call site that produced both a pass and a fail is covered: some fixture drove
 it each way, so inverting its predicate takes one of those outcomes away and
-the run turns red naming the line. 65 of the 156 call sites are covered today,
+the run turns red naming the line. 88 of the 150 call sites are covered today,
 and the rest are too many to fix in one change, so `config/check-outcomes.tsv`
 records how many each verifier still has, as a ceiling: the count may fall but
 never rise, so a new check with no fixture behind it raises its verifier's
@@ -696,14 +700,16 @@ fixture that had edited it first.
 `tests/test-check-outcomes.sh` proves the gate can fail, against traces it
 writes itself: a new check no fixture drives, a call site that lost its fail, a
 recorded allowance larger than the real gap, a verifier missing from the
-ledger, an empty trace, a missing trace, and verdicts recorded against a copy
-of the tree. Its first case is the control — a tree whose every call site was
+ledger, an empty trace, a missing trace, verdicts recorded against a copy of
+the tree, and a verifier-local `check_*` helper that must credit its caller.
+Its first case is the control — a tree whose every call site was
 driven both ways is accepted — so none of the others can pass because the tree
 was already red.
 
 This is a partial answer to GRADE-03, not the whole of it: it holds every new
-check to the rule from today, and catches an inverted predicate at the 65 call
-sites already covered. The remaining 91 need fixtures, one verifier at a time.
+check to the rule from today, and catches an inverted predicate at the 88 call
+sites already covered. The remaining 62 need fixtures, one verifier at a time;
+#383 records which of them are worth one.
 
 ### Every symlink check names its Stow source
 
