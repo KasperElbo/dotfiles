@@ -92,6 +92,7 @@ default_tests=(
   tests/test-tool-floors.sh
   tests/test-install-option-parsers.sh
   tests/test-repository-hygiene.sh
+  tests/test-secret-scanner.sh
   tests/test-lint-file-selection.sh
   tests/test-documentation.sh
   tests/test-compat-wrappers.sh

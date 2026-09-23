@@ -82,6 +82,17 @@ jobs:
           fetch-depth: 0
 
       - name: Clean baseline installation
+        # mise verifies the GitHub artifact attestations of the runtimes it
+        # installs, python among them, through api.github.com. Anonymously
+        # that is the runner address's shared 60 requests an hour, and on
+        # 23 September this step failed at `API rate limit exceeded for
+        # 13.105.117.126` with nothing wrong on its own side (#500). This
+        # selection runs no staged third-party installer, so the token reaches
+        # mise and Homebrew only. See docs/supply-chain.md, "Authenticating
+        # the rate-limited API".
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: >-
           ./install.sh --platform macos --theme macchiato
           --no-ocaml --no-containers --no-tailscale --no-defaults
@@ -102,6 +113,10 @@ jobs:
         run: zsh -lic './scripts/test-dev-workflows.sh --all'
 
       - name: Idempotent rerun
+        # The same selection as the baseline, and the same reason for the token.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: >-
           ./install.sh --platform macos --theme macchiato
           --no-ocaml --no-containers --no-tailscale --no-defaults

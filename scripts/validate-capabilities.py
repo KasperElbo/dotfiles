@@ -290,7 +290,31 @@ def check_state_profiles(rows: list[dict[str, str]]) -> int:
 
 
 def check_option_manifest(rows: list[dict[str, str]]) -> int:
-    """Every flagged capability must have an option row that agrees with it."""
+    """Every flagged capability must have exactly one option row that agrees with it.
+
+    The two manifests are joined on the flag: a capability row's `cli_flag` is
+    an option row's `on_flag`. Agreeing on the flag is not enough, though. The
+    option's `capability` cell is what the installer wiring gates in
+    `scripts/validate-install-options.py` key on -- "lists it among the
+    selected capabilities", "has a plan_add step" -- and those gates skip a
+    row whose cell is `-`, because a handful of rows (the theme, the charge
+    limit and the other plain settings) legitimately select no capability. A
+    `-` written into the row of a real capability would therefore switch its
+    gates off there, and nothing in that file can tell the difference: only
+    this registry knows that `--sway` is a capability. So the loop is closed
+    from this side, in both directions:
+
+    - a flagged capability is selected by exactly one option row on its
+      platform, whose `on_flag` is the flag *and* whose `capability` cell names
+      the capability -- a matching flag whose cell is `-` or names another
+      capability fails, naming both;
+    - an option row whose `capability` cell is `-` has no capability row on
+      its platform claiming its `on_flag`;
+    - an option row that names a capability carries that capability's flag,
+      and no two option rows on a platform share an `on_flag` or name the same
+      capability. Duplicates are reported rather than collapsed, because a
+      lookup keyed on the flag would keep one of them and hide the other.
+    """
     errors = 0
     try:
         options = read_tsv(OPTION_MANIFEST, OPTION_FIELDS)
@@ -315,26 +339,102 @@ def check_option_manifest(rows: list[dict[str, str]]) -> int:
             )
             errors += 1
 
-    by_flag = {(row["platform"], row["on_flag"]): row for row in options}
+    # Every option row per flag and per selected capability, kept as lists so
+    # a second row is reported instead of silently replacing the first.
+    by_flag: dict[tuple[str, str], list[dict[str, str]]] = {}
+    by_capability: dict[tuple[str, str], list[dict[str, str]]] = {}
+    for option in options:
+        if option["on_flag"] not in {"", "-"}:
+            by_flag.setdefault((option["platform"], option["on_flag"]), []).append(option)
+        if option["capability"] not in {"", "-"}:
+            by_capability.setdefault(
+                (option["platform"], option["capability"]), []
+            ).append(option)
+    for (platform, flag), matches in by_flag.items():
+        if len(matches) > 1:
+            fail_options(
+                f"{platform}: {flag} is the on_flag of more than one option "
+                f"({', '.join(option['option'] for option in matches)})"
+            )
+            errors += 1
+    for (platform, capability), matches in by_capability.items():
+        if len(matches) > 1:
+            fail_options(
+                f"{platform}: capability {capability} is selected by more than one "
+                f"option ({', '.join(option['option'] for option in matches)})"
+            )
+            errors += 1
+
+    # The flag each capability row claims, whatever its status: a row that is
+    # not implemented yet but names a flag still says what that flag means, so
+    # an option row answering to it cannot select nothing.
+    claims: dict[tuple[str, str], list[dict[str, str]]] = {}
+    for row in rows:
+        if row["cli_flag"] in {"", "-"} or row["platform"] in SELF_RECORDING_PLATFORMS:
+            continue
+        claims.setdefault((row["platform"], row["cli_flag"]), []).append(row)
+    flag_of = {
+        (row["platform"], row["capability"]): row["cli_flag"]
+        for row in rows
+        if row["status"] == "implemented"
+    }
+    for option in options:
+        where = f"{option['platform']}/{option['option']}"
+        if option["capability"] in {"", "-"}:
+            claimants = claims.get((option["platform"], option["on_flag"]), [])
+            if claimants:
+                named = ", ".join(row["capability"] for row in claimants)
+                fail_options(
+                    f"{where}: {option['on_flag']} selects capability {named} in the "
+                    f"capability manifest, but the option's capability cell is "
+                    f"{option['capability']!r}, which turns its installer wiring "
+                    "checks off"
+                )
+                errors += 1
+            continue
+        declared = flag_of.get((option["platform"], option["capability"]))
+        if declared is not None and declared != option["on_flag"]:
+            fail_options(
+                f"{where}: selects capability {option['capability']} with "
+                f"{option['on_flag']}, but the capability manifest gives "
+                f"{option['capability']} the flag {declared!r} on {option['platform']}"
+            )
+            errors += 1
+
     for row in rows:
         if row["status"] != "implemented" or row["cli_flag"] in {"", "-"}:
             continue
         if row["platform"] in SELF_RECORDING_PLATFORMS:
             continue
         where = f"{row['platform']}/{row['capability']}"
+        matches = by_flag.get((row["platform"], row["cli_flag"]), [])
         if row["capability"] in TRANSIENT_CAPABILITIES:
-            if (row["platform"], row["cli_flag"]) in by_flag:
+            if matches:
                 fail_options(
                     f"{where}: {row['cli_flag']} is a transient control and must not "
                     "be a persistent option"
                 )
                 errors += 1
             continue
-        option = by_flag.get((row["platform"], row["cli_flag"]))
-        if option is None:
+        if not matches:
             fail_options(
                 f"{where}: no persistent option declares {row['cli_flag']} on "
                 f"{row['platform']}"
+            )
+            errors += 1
+            continue
+        if len(matches) > 1:
+            # Reported above; which of the rows is meant cannot be told.
+            continue
+        option = matches[0]
+        if option["capability"] in {"", "-"}:
+            # Reported above from the option's side, naming this capability.
+            continue
+        if option["capability"] != row["capability"]:
+            fail_options(
+                f"{row['platform']}/{option['option']}: {row['cli_flag']} selects "
+                f"capability {row['capability']} in the capability manifest, but "
+                f"the option's capability cell names {option['capability']}"
             )
             errors += 1
             continue

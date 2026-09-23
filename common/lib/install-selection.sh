@@ -60,13 +60,35 @@ install_option_exists() {
 # The permitted values of a value-kind option, one per line: its values
 # column split on "|". For an enumeration such as theme this is the list every
 # runtime check reads, so the manifest cannot document a value the installer
-# rejects. A pattern such as charge-limit's comes back as its branches, which
-# only install_selection_value_is_valid can interpret.
+# rejects. A range such as charge-limit's 40..100 comes back as itself, which
+# only install_option_accepts can interpret.
 install_option_values() {
   local platform="$1" option="$2" values
   values="$(install_option_field "$platform" "$option" values)" || return 1
   [[ "$values" != - ]] || return 1
   tr '|' '\n' <<<"$values"
+}
+
+# Whether VALUE is one a value-kind option accepts. The values column is either
+# an enumeration such as latte|frappe|macchiato|mocha, or an integer range written
+# LOW..HIGH, and nothing else: a range is what the installer, the recorded
+# selection and the generated documentation all read, so the bound is stated
+# once rather than once per site that enforces it.
+install_option_accepts() {
+  local platform="$1" option="$2" value="$3" values low high
+  values="$(install_option_field "$platform" "$option" values)" || return 1
+  [[ "$values" != - ]] || return 1
+  if [[ "$values" =~ ^([0-9]+)\.\.([0-9]+)$ ]]; then
+    low="${BASH_REMATCH[1]}"
+    high="${BASH_REMATCH[2]}"
+    [[ "$value" =~ ^[0-9]+$ ]] || return 1
+    # Base 10 explicitly: a leading zero would otherwise read as octal.
+    if ((10#$value >= 10#$low && 10#$value <= 10#$high)); then
+      return 0
+    fi
+    return 1
+  fi
+  [[ "$value" =~ ^($values)$ ]]
 }
 
 # Whether a *recorded* value is one this checkout can still interpret.
@@ -76,16 +98,14 @@ install_option_values() {
 # it names an option the installer resolves for itself, by detecting or by
 # asking -- and is handled where defaults are read, not here.
 install_selection_value_is_valid() {
-  local platform="$1" option="$2" value="$3" kind pattern
+  local platform="$1" option="$2" value="$3" kind
   kind="$(install_option_field "$platform" "$option" kind)" || return 1
   case "$kind" in
   boolean) [[ "$value" == true || "$value" == false ]] ;;
   tristate) [[ "$value" == true || "$value" == false || "$value" == inherit ]] ;;
   value)
     [[ "$value" != - ]] || return 0
-    pattern="$(install_option_field "$platform" "$option" values)"
-    [[ "$pattern" != - ]] || return 1
-    [[ "$value" =~ ^($pattern)$ ]]
+    install_option_accepts "$platform" "$option" "$value"
     ;;
   *) return 1 ;;
   esac
