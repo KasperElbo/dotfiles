@@ -279,6 +279,7 @@ printf 'PASS: a cached scanner is reused without a download\n'
 clear_cache
 scan TAR_STATUS=2
 assert_stopped_before_scanning 'tar failed after extracting'
+assert_contains "$TEST_OUTPUT" 'Could not extract gitleaks'
 printf 'PASS: tar exiting non-zero after extracting gitleaks stops the scan\n'
 
 # And nothing from that run is taken for the pinned scanner later: offline,
@@ -303,13 +304,23 @@ clear_cache
 pin_archive "$release/empty.tar.gz"
 scan SERVE_ARCHIVE="$release/empty.tar.gz"
 assert_stopped_before_scanning 'empty archive'
+assert_contains "$TEST_OUTPUT" 'Could not extract gitleaks'
 printf 'PASS: an empty archive stops the scan\n'
 
 clear_cache
 pin_archive "$release/no-binary.tar.gz"
 scan SERVE_ARCHIVE="$release/no-binary.tar.gz"
 assert_stopped_before_scanning 'archive without gitleaks'
+assert_contains "$TEST_OUTPUT" 'Could not extract gitleaks'
 printf 'PASS: an archive without gitleaks in it stops the scan\n'
+
+# The same archive under a tar that says it succeeded: what stops the run then
+# is the check that the binary is really there, not tar's word for it.
+clear_cache
+scan SERVE_ARCHIVE="$release/no-binary.tar.gz" TAR_STATUS=0
+assert_stopped_before_scanning 'tar succeeded without gitleaks'
+assert_contains "$TEST_OUTPUT" 'has no gitleaks executable in it'
+printf 'PASS: a tar that reports success without writing gitleaks stops the scan\n'
 
 clear_cache
 pin_archive "$release/wrong-version.tar.gz"
@@ -322,11 +333,13 @@ clear_cache
 pin_archive "$release/good.tar.gz"
 scan FAIL_MV="$binary"
 assert_stopped_before_scanning 'failed move'
+assert_contains "$TEST_OUTPUT" 'Could not move the downloaded gitleaks'
 printf 'PASS: a failed move into the cache stops the scan\n'
 
 clear_cache
 scan FAIL_CHMOD=1
 assert_stopped_before_scanning 'failed chmod'
+assert_contains "$TEST_OUTPUT" 'Could not make the downloaded gitleaks executable'
 printf 'PASS: a failed chmod stops the scan\n'
 
 # An unsupported platform is refused before anything is fetched, rather than
