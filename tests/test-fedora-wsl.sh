@@ -502,6 +502,18 @@ EOF
 
 cat >"$bootstrap_bin/mise" <<'EOF'
 #!/usr/bin/env bash
+# Every call this fixture does not implement is refused. It used to fall off
+# the end of the chain below into a bare `exit 0`, so a mise call added to the
+# installer returned success and no output, and the suite went on green: the
+# fixture answered for a command it had never been taught. A refusal is how a
+# new call announces that this stub has to decide what it means.
+reject() {
+  printf 'strict mise fixture rejected unsupported argv:' >&2
+  printf ' %q' "$@" >&2
+  printf '\n' >&2
+  exit 96
+}
+
 make_ai_tool() {
   name="$1"
   install_bin="$XDG_DATA_HOME/mise/installs/$name/latest/bin/$name"
@@ -517,10 +529,14 @@ make_ai_tool() {
   chmod +x "$shim"
 }
 
-if [[ "${1:-}" == --yes && "${2:-}" == install ]]; then
+if [[ "${1:-}" == --version && $# -eq 1 ]]; then
+  printf '2025.1.0 linux-x64 (fixture)\n'
+  exit 0
+elif [[ "${1:-}" == --yes && "${2:-}" == install ]]; then
   conf="$XDG_CONFIG_HOME/mise/conf.d/ai.toml"
   [[ -f "$conf" ]] && make_ai_tool claude
   [[ -f "$conf" ]] && make_ai_tool herdr
+  exit 0
 elif [[ "${1:-}" == ls && "${3:-}" == --json ]]; then
   # The resolved-version lookup, answered from what this stub installed.
   name="${2#npm:}"
@@ -533,16 +549,18 @@ elif [[ "${1:-}" == ls && "${3:-}" == --json ]]; then
   else
     printf '[]\n'
   fi
-elif [[ "${1:-}" == which ]]; then
-  candidate="$XDG_DATA_HOME/mise/installs/${2:-}/latest/bin/${2:-}"
+  exit 0
+elif [[ "${1:-}" == which && $# -eq 2 ]]; then
+  candidate="$XDG_DATA_HOME/mise/installs/${2}/latest/bin/${2}"
   [[ -x "$candidate" ]] || exit 1
   printf '%s\n' "$candidate"
-elif [[ "${1:-}" == exec && "${2:-}" == -- ]]; then
+  exit 0
+elif [[ "${1:-}" == exec && "${2:-}" == -- && $# -ge 3 ]]; then
   shift 2
   PATH="$XDG_DATA_HOME/mise/shims:$PATH"
   exec "$@"
 fi
-exit 0
+reject "$@"
 EOF
 cat >"$bootstrap_bin/nvim" <<'EOF'
 #!/usr/bin/env bash

@@ -53,6 +53,16 @@ set -u
 
 printf '%s\n' "$PWD" >>"${MISE_CONTEXT_LOG:-/dev/null}"
 
+# A refusal names what it refused. The bare `exit 96` this replaced was
+# indistinguishable from any other failure, so a mise call added to the
+# installer failed the suite without saying which call it was.
+reject() {
+  printf 'strict mise fixture rejected unsupported argv:' >&2
+  printf ' %q' "$@" >&2
+  printf '\n' >&2
+  exit 96
+}
+
 config_files() {
   local directory ceiling fragment
   ceiling="${MISE_CEILING_PATHS:-}"
@@ -102,7 +112,7 @@ make_shim() {
 
 case "${1:-}" in
 --yes)
-  [[ "${2:-}" == install ]] || exit 96
+  [[ "${2:-}" == install && $# -eq 2 ]] || reject "$@"
   mkdir -p "$MISE_SHIMS_DIR"
   : >"${MISE_RESOLVED_LOG:-/dev/null}"
   while IFS= read -r tool; do
@@ -118,7 +128,7 @@ case "${1:-}" in
   exit 0
   ;;
 exec)
-  [[ "${2:-}" == -- ]] || exit 96
+  [[ "${2:-}" == -- && $# -ge 3 ]] || reject "$@"
   shift 2
   PATH="$MISE_SHIMS_DIR:$PATH" exec "$@"
   ;;
@@ -126,7 +136,7 @@ ls)
   # mise ls <spec> --json, the resolved-version lookup. This stub answers
   # from the shims it made, so it reports a version exactly for what it
   # installed.
-  [[ $# -eq 3 && "$3" == --json ]] || exit 96
+  [[ $# -eq 3 && "$3" == --json ]] || reject "$@"
   name="${2#npm:}"
   name="${name##*/}"
   case "$name" in
@@ -142,13 +152,16 @@ ls)
   exit 0
   ;;
 which)
-  [[ $# -eq 2 ]] || exit 96
+  [[ $# -eq 2 ]] || reject "$@"
   install_bin="$MISE_INSTALLS_DIR/$2/latest/bin/$2"
   [[ -x "$install_bin" ]] || exit 1
   printf '%s\n' "$install_bin"
   ;;
-uninstall) exit 0 ;;
-*) exit 96 ;;
+uninstall)
+  [[ $# -eq 2 ]] || reject "$@"
+  exit 0
+  ;;
+*) reject "$@" ;;
 esac
 EOF
 chmod +x "$user_bin/mise"
