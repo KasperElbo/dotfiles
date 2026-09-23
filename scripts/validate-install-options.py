@@ -28,6 +28,7 @@ import re
 import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from manifests import ManifestSchemaError, read_tsv  # noqa: E402
+from generated import read_committed  # noqa: E402
 from shell import function_spans, outside_functions, strip_noise  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -560,6 +561,98 @@ def declared_defaults(installer: pathlib.Path, platform: str) -> dict[str, str]:
     return resolved
 
 
+# The dry-run summary, which every platform installer writes the same way: one
+# unquoted heredoc under the `--dry-run` test, so the option variables expand.
+# The heading differs per platform and the structure does not, so the structure
+# is what this matches.
+DRY_RUN_SUMMARY = re.compile(
+    r'if \[\[ "\$dry_run" == true \]\]; then\s*\n\s*cat <<EOF\n(?P<body>.*?)\nEOF',
+    re.DOTALL,
+)
+# Where a selection is recorded for `--rerun`, and where the installer lists the
+# capabilities it is about to act on.
+SELECTION_SET = re.compile(r"^\s*install_selection_set (?P<option>[\w-]+) ", re.M)
+# A capability a dry-run line shows through a derived display variable rather
+# than the one its arm records, with the reason. `--kde` and `--latex` are
+# tri-valued (enabled, disabled, auto) and the summary prints the answer the run
+# resolved rather than the request, so `$bool_kde` is the honest thing to show.
+# Listing it here is what keeps a deliberate indirection from reading as a
+# missing line.
+DISPLAY_VARIABLES = {
+    ("fedora", "kde"): "bool_kde",
+    ("fedora", "latex"): "bool_latex",
+}
+
+
+def check_installer_wiring(
+    platform: str, relative: str, options: list[dict[str, str]],
+    bodies: dict[str, str], text: str,
+) -> int:
+    """The coupled sites a new capability has to be threaded through by hand.
+
+    Adding one to an installer means editing nine places, and the parser arm and
+    the default are the only two anything compared with the manifest. The rest
+    were prose or plumbing: a capability could be declared, parsed and recorded
+    while no step ever ran it, or be recorded under a name `--rerun` cannot
+    replay, and every gate stayed green. The `--help` listing is generated from
+    the manifest now, so the remaining hand-written sites are held to it here.
+    """
+    errors = 0
+    summary = DRY_RUN_SUMMARY.search(text)
+    if summary is None:
+        fail(f"{relative}: no `--dry-run` summary heredoc found, so the plan it "
+             f"prints cannot be compared with the manifest")
+        return 1
+    body = summary.group("body")
+
+    # A selection is recorded under the option's own name, which is the key
+    # `--rerun` replays it by, so the two sets are exactly each other.
+    declared_options = {option["option"] for option in options}
+    recorded = {match.group("option") for match in SELECTION_SET.finditer(text)}
+    for name in sorted(recorded - declared_options):
+        fail(f"{platform}: {relative} records a {name} selection, which the manifest "
+             f"does not declare as an option of this platform, so ./install.sh "
+             f"--rerun cannot replay it")
+        errors += 1
+
+    for option in options:
+        name = option["option"]
+        capability = option["capability"]
+        if name not in recorded:
+            fail(f"{platform}: {relative} never calls `install_selection_set {name}`, "
+                 f"so the machine does not remember the option and ./install.sh "
+                 f"--rerun forgets the selection")
+            errors += 1
+        if capability not in {"", "-"}:
+            if f':{capability}"' not in text:
+                fail(f"{platform}: {relative} does not list {capability} among the "
+                     f"capabilities it reports as selected, so a run can install it "
+                     f"without saying so")
+                errors += 1
+            # A tristate subcomponent is installed by its parent capability's
+            # step rather than one of its own, so it owns no plan_add.
+            if option["kind"] != "tristate" and not re.search(
+                rf"plan_add {re.escape(capability)}\b", text
+            ):
+                fail(f"{platform}: {relative} has no `plan_add {capability}` step, so "
+                     f"selecting {name} records the choice and installs nothing")
+                errors += 1
+
+        flag = option["on_flag"]
+        if flag in {"", "-"} or flag not in bodies:
+            continue
+        assignment = ARM_ASSIGNMENT.search(bodies[flag])
+        if assignment is None:
+            continue
+        variable = DISPLAY_VARIABLES.get((platform, name)) or assignment.group("name")
+        if f"${variable}" not in body and f"${{{variable}" not in body:
+            fail(f"{platform}: the `--dry-run` summary in {relative} never shows "
+                 f"${variable}, so {name} is resolved and installed without "
+                 f"appearing in the plan the run prints")
+            errors += 1
+    return errors
+
+
 def check_declared_defaults(
     platform: str, relative: str, options: list[dict[str, str]],
     bodies: dict[str, str], defaults: dict[str, str],
@@ -682,12 +775,22 @@ def main() -> int:
                  f"has no case arm that rejects it")
             errors += 1
 
+        platform_options = [
+            option for option in options if option["platform"] == platform
+        ]
         errors += check_declared_defaults(
             platform,
             relative,
-            [option for option in options if option["platform"] == platform],
+            platform_options,
             bodies,
             declared_defaults(installer, platform),
+        )
+        errors += check_installer_wiring(
+            platform,
+            relative,
+            platform_options,
+            bodies,
+            read_committed(installer),
         )
 
     return 1 if errors else 0

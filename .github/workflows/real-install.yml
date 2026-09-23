@@ -371,6 +371,9 @@ jobs:
         run: |
           set -euo pipefail
           set +e
+          # The installer is asserted to refuse this container, so the flags
+          # below select nothing and are not evidence for any parrot-ctf row.
+          # ci-selection: not-an-installation the non-QEMU guest preflight refuses this run
           output="$(docker run --rm --user 65534:65534 \
             -e HOME=/tmp -e XDG_CONFIG_HOME=/tmp/.config \
             -e XDG_DATA_HOME=/tmp/.local/share \

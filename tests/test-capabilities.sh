@@ -480,6 +480,76 @@ sed -i 's/^          \.\/install\.sh --platform macos --theme mocha$/          .
 expect_scratch_rejected 'a bare --rerun is not selection for any platform' \
   'macos/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
 
+# Selecting a flag is not installing it. Two invocations in this workflow pass
+# flags and install nothing, and each was enough on its own to satisfy a row.
+#
+# The first is the Fedora sequence's negative run, whose *failure* is the
+# assertion: an invalid package is injected and the installer has to abort. It
+# passes --kde and --sway, so the positive sequence could stop selecting KDE
+# with fedora/kde still claiming a real installation. Its
+# `# ci-selection: not-an-installation` annotation is what takes it out of the
+# walk, and this case proves the annotation is load-bearing rather than
+# decorative.
+new_scratch selection-expect-failure
+sed -i "s|^install_command='./install.sh --platform fedora --kde --sway --no-latex \\\\$|install_command='./install.sh --platform fedora --sway --no-latex \\\\|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+grep -Fq -- '--kde' "$scratch/tests/integration/fedora-clean-install.sh" ||
+  _test_die 'the negative run must still pass --kde, or this case proves nothing'
+expect_scratch_rejected 'a flag passed only by a run asserted to fail is not evidence' \
+  'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
+
+# The second is a dry run, which resolves the plan and stops. It needs no
+# annotation because --dry-run says it itself.
+new_scratch selection-dry-run
+sed -i "s|^install_command='./install.sh --platform fedora --kde --sway --no-latex \\\\$|install_command='./install.sh --platform fedora --sway --no-latex \\\\|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+sed -i "s|^base_command='.*$|base_command='./install.sh --platform fedora --sway --no-latex --non-interactive'|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+sed -i "s|^printf '\\\\n==> Clean Fedora installation\\\\n'$|run_as_user './install.sh --platform fedora --kde --dry-run'\n\nprintf '\\\\n==> Clean Fedora installation\\\\n'|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+grep -Fq -- '--kde --dry-run' "$scratch/tests/integration/fedora-clean-install.sh" ||
+  _test_die 'the dry run must pass --kde, or this case proves nothing'
+expect_scratch_rejected 'a flag passed only by a dry run is not evidence' \
+  'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
+
+# Carrying the annotations through is what lets the walk see them, and a
+# comment is still not something CI runs. Nothing skips comments here: an
+# annotation fences the line it is written on, so one that quotes an invocation
+# fences that invocation out by the rule that fences the real one below it.
+#
+# Unlike the four above, this one is not a regression: it pins a property of an
+# annotation that did not exist before, so there is nothing for it to have
+# caught, and against the pre-fix tree it passes for an unrelated reason -- the
+# seds leave --kde nowhere at all, which that tree rejects correctly. It earns
+# its place by holding the property once the fence is here, not by having
+# failed beforehand.
+new_scratch selection-annotation-comment
+sed -i "s|^install_command='./install.sh --platform fedora --kde --sway --no-latex \\\\$|install_command='./install.sh --platform fedora --sway --no-latex \\\\|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+sed -i "s|^base_command='.*$|base_command='./install.sh --platform fedora --sway --no-latex --non-interactive'|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+sed -i "s|^# ci-selection: not-an-installation an injected.*$|# ci-selection: not-an-installation ./install.sh --platform fedora --kde would install it|" \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+expect_scratch_rejected 'an invocation quoted inside an annotation is not selection' \
+  'fedora/kde: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --kde'
+
+# A fence is a claim, so a claim this walk cannot act on is a build error
+# rather than a comment it skips: a misspelled one would silently leave the row
+# resting on the run whose failure is asserted.
+new_scratch selection-unknown-claim
+sed -i 's/ci-selection: not-an-installation an injected/ci-selection: not-an-instalation an injected/' \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+expect_scratch_rejected 'an unrecognised ci-selection claim is rejected' \
+  "unknown ci-selection claim 'not-an-instalation'"
+
+# And a fence with no reason is one nobody can review, like a ci_scope
+# exclusion with no why.
+new_scratch selection-unexplained-fence
+sed -i 's/ci-selection: not-an-installation an injected invalid package aborts this run/ci-selection: not-an-installation/' \
+  "$scratch/tests/integration/fedora-clean-install.sh"
+expect_scratch_rejected 'a ci-selection fence with no reason is rejected' \
+  'must say why this invocation installs nothing'
+
 # A package is what an installer asks for, not what it says. Dropping
 # kio-extras from the KDE installer's dnf array and naming it in a message, or
 # in a heredoc body, left the row still claiming to own Dolphin's sftp://
@@ -585,6 +655,92 @@ path.write_text("\n".join(kept) + "\n", encoding="utf-8")
 PYTHON
 expect_scratch_rejected 'an invocation written in a step name selects nothing' \
   'macos/ocaml: no ./install.sh invocation in .github/workflows/real-install.yml, or in a script it runs, passes --ocaml'
+
+# Shell in command position is not the same as shell that runs something. A
+# step that echoes a verifier's path runs nothing, and the run-block reader
+# alone could not tell the two apart, so six macOS rows kept their CI evidence
+# while the verifier was commented out in all but name.
+new_scratch ci-evidence-echoed
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / ".github/workflows/real-install.yml"
+verifier = "./platforms/macos/scripts/verify.sh"
+runs = {verifier, f"{verifier} --defaults"}
+lines = path.read_text(encoding="utf-8").splitlines()
+if not any(line.strip() in runs or line.strip() == f"run: {verifier}" for line in lines):
+    sys.exit("the macOS job no longer runs its verifier, so this case proves nothing")
+kept = []
+for line in lines:
+    stripped = line.strip()
+    if stripped in runs or stripped == f"run: {verifier}":
+        indent = line[: len(line) - len(line.lstrip())]
+        prefix = "run: " if stripped.startswith("run: ") else ""
+        kept.append(f'{indent}{prefix}echo "skipping {verifier} for now"')
+    else:
+        kept.append(line)
+path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'a verifier a step only echoes is not run by CI' \
+  'verifier platforms/macos/scripts/verify.sh is not run by .github/workflows/real-install.yml'
+
+# The same words on a line that also runs something are not the whole line:
+# only what the reporting command prints is dropped, so the real invocation
+# after it still counts. Without this the fix would trade one blind spot for
+# the opposite one.
+new_scratch ci-evidence-echoed-then-run
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / ".github/workflows/real-install.yml"
+verifier = "./platforms/parrot-ctf/scripts/verify.sh"
+lines = path.read_text(encoding="utf-8").splitlines()
+replaced = 0
+kept = []
+for line in lines:
+    if line.strip() == verifier:
+        indent = line[: len(line) - len(line.lstrip())]
+        kept.append(f'{indent}echo "about to run {verifier}" && {verifier}')
+        replaced += 1
+    else:
+        kept.append(line)
+if not replaced:
+    sys.exit("the Parrot job no longer runs its verifier, so this case proves nothing")
+path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+PYTHON
+python3 "$scratch/scripts/validate-capabilities.py" ||
+  _test_die 'an invocation after a message on the same line must still count'
+printf 'PASS: a message before a real invocation does not hide it\n'
+
+# An operator the message merely prints does not end the message. Taking `&&`
+# as spelled would read the rest of the string as code, which reopens the hole
+# one character further along: the echo still runs nothing.
+new_scratch ci-evidence-echoed-operator
+python3 - "$scratch" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / ".github/workflows/real-install.yml"
+verifier = "./platforms/macos/scripts/verify.sh"
+runs = {verifier, f"{verifier} --defaults"}
+lines = path.read_text(encoding="utf-8").splitlines()
+if not any(line.strip() in runs or line.strip() == f"run: {verifier}" for line in lines):
+    sys.exit("the macOS job no longer runs its verifier, so this case proves nothing")
+kept = []
+for line in lines:
+    stripped = line.strip()
+    if stripped in runs or stripped == f"run: {verifier}":
+        indent = line[: len(line) - len(line.lstrip())]
+        prefix = "run: " if stripped.startswith("run: ") else ""
+        kept.append(f'{indent}{prefix}echo "skipped: would have been && {verifier}"')
+    else:
+        kept.append(line)
+path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+PYTHON
+expect_scratch_rejected 'an operator inside a message does not start a command' \
+  'verifier platforms/macos/scripts/verify.sh is not run by .github/workflows/real-install.yml'
 
 # The reader must fail loudly rather than find nothing: a workflow it cannot
 # take a single `run:` block out of would otherwise prove every verifier.

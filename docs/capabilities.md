@@ -57,6 +57,31 @@ whose Podman machine cannot start on a hosted runner, because that runner is
 itself a virtual machine and `vfkit` has no nested virtualisation to use. An
 exclusion the workflow contradicts fails, so it cannot outlive its reason.
 
+Being *selected* is not the same as being *installed*, and two invocations in
+that workflow pass flags while installing nothing. A **dry run** resolves the
+plan and stops; its own `--dry-run` says so, so the selection walk skips it
+without being told. An **expect-failure run** is one whose non-zero exit is
+the assertion — the Fedora sequence proves an injected invalid package aborts
+the installer, and the Parrot job proves a non-QEMU container is refused —
+and nothing in the invocation distinguishes that from a real one. Those carry
+
+```sh
+# ci-selection: not-an-installation <why>
+```
+
+on the invocation's own line or in the comment block directly above it, the
+same adjacency `# network-source:` uses: the block above the construct, ending
+at the first line of code, so an annotation never covers whatever is written
+under the thing it introduces. The reason is required, for the same review
+value as `excluded:<why>`, and a claim the walk does not recognise fails the
+build rather than being skipped.
+
+Without this the flags of a run asserted to fail were evidence like any
+other. The Fedora negative run passes `--kde --sway`, so the positive sequence
+could stop selecting KDE with `fedora/kde` still claiming a real installation
+that no successful run performed. The annotation is what makes a row rest on a
+run that completed.
+
 `state` and `state_profile` are two names for one file and move together. The
 file name belongs to the capability on its platform, so macOS keeps its
 container record in `macos-containers.conf` beside the Fedora one; the schema
@@ -334,12 +359,15 @@ the repository once per rule, proving each one can fail:
   `tests/integration/` sequence or a `tests/*.ps1` suite one of its steps runs.
   Only the shell of the workflow counts: both rules below read the bodies of
   its `run:` keys, in all three shapes YAML writes them, and nothing else. A
-  step's `name:`, an `if:` and a message a step echoes name a script without
-  running it, and a workflow the reader cannot take a single `run:` block out
-  of is an error rather than a file that proves everything. A PowerShell suite
-  spells repository paths with backslashes, which the check normalizes before
-  looking for the verifier it is evidence for. The verifiers of
-  profiles no real-install job installs are listed in `MOCKED_VERIFIERS` with
+  step's `name:` and an `if:` name a script without running it, and a workflow
+  the reader cannot take a single `run:` block out of is an error rather than a
+  file that proves everything. Being shell is not enough either, because a
+  message is shell: what a reporting command prints is dropped before either
+  rule reads the text, so `echo "skipping ./platforms/macos/scripts/verify.sh"`
+  proves nothing while `echo done && ./verify.sh` still runs the verifier. A
+  PowerShell suite spells repository paths with backslashes, which the check
+  normalizes before looking for the verifier it is evidence for. The verifiers
+  of profiles no real-install job installs are listed in `MOCKED_VERIFIERS` with
   the default fast suite that runs them against a mocked machine instead, and
   that suite must be in `scripts/test.sh`'s default tests and run the verifier.
 - **Selected by CI.** Running a verifier is not installing the capability it is

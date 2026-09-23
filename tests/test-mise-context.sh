@@ -122,6 +122,25 @@ exec)
   shift 2
   PATH="$MISE_SHIMS_DIR:$PATH" exec "$@"
   ;;
+ls)
+  # mise ls <spec> --json, the resolved-version lookup. This stub answers
+  # from the shims it made, so it reports a version exactly for what it
+  # installed.
+  [[ $# -eq 3 && "$3" == --json ]] || exit 96
+  name="${2#npm:}"
+  name="${name##*/}"
+  case "$name" in
+  claude-code) name=claude ;;
+  esac
+  if [[ -x "$MISE_SHIMS_DIR/$name" ]]; then
+    printf '[{"version":"1.2.3","requested_version":"latest",'
+    printf '"install_path":"%s/%s/latest",' "$MISE_INSTALLS_DIR" "$name"
+    printf '"installed":true,"active":true}]\n'
+  else
+    printf '[]\n'
+  fi
+  exit 0
+  ;;
 which)
   [[ $# -eq 2 ]] || exit 96
   install_bin="$MISE_INSTALLS_DIR/$2/latest/bin/$2"

@@ -29,9 +29,12 @@ profile_state_allowed_keys() {
   # *_target_path records where that binary actually landed, which is the
   # command path unless the upstream installed into its own directory and left
   # a launcher symlink; a removal deletes the recorded binary, not the link.
+  # The *_version keys record what "latest" resolved to for each declared mise
+  # package, so the profile says what ran rather than only how it was
+  # installed; they are what a rollback after a bad release reads.
   # None of the new keys are required, so state written by an earlier
   # release stays readable and diagnosable instead of failing validation.
-  ai) printf '%s\n' requested claude_code herdr codex firstmate firstmate_source firstmate_commit treehouse treehouse_source treehouse_digest treehouse_target_digest treehouse_target_path no_mistakes no_mistakes_source no_mistakes_digest no_mistakes_target_digest no_mistakes_target_path gh_axi chrome_devtools_axi lavish_axi tasks_axi quota_axi gnhf backpass acpx ;;
+  ai) printf '%s\n' requested claude_code herdr codex firstmate firstmate_source firstmate_commit treehouse treehouse_source treehouse_digest treehouse_target_digest treehouse_target_path no_mistakes no_mistakes_source no_mistakes_digest no_mistakes_target_digest no_mistakes_target_path gh_axi chrome_devtools_axi lavish_axi tasks_axi quota_axi gnhf backpass acpx claude_code_version herdr_version codex_version gh_axi_version chrome_devtools_axi_version lavish_axi_version tasks_axi_version quota_axi_version gnhf_version backpass_version acpx_version ;;
   ocaml) printf '%s\n' switch compiler ;;
   ga402xz | ga402rk) printf '%s\n' secure_boot charge_limit ;;
   containers) printf '%s\n' runtime mode compose_provider api_socket user ;;

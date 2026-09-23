@@ -44,6 +44,12 @@ for mise_tool in claude herdr codex gnhf gh-axi chrome-devtools-axi \
   lavish-axi tasks-axi quota-axi backpass acpx; do
   test_stub_allow "$test_root" mise which "$mise_tool"
 done
+# The resolved-version lookup, asked per declared spec.
+for mise_spec in npm:@anthropic-ai/claude-code herdr npm:@openai/codex \
+  npm:gnhf npm:gh-axi npm:chrome-devtools-axi npm:lavish-axi npm:tasks-axi \
+  npm:quota-axi npm:backpass npm:acpx; do
+  test_stub_allow "$test_root" mise ls "$mise_spec" --json
+done
 
 cat >"$test_root/handlers/mise" <<'EOF'
 #!/usr/bin/env bash
@@ -116,6 +122,24 @@ uninstall)
   [[ $# -eq 2 && "${2:-}" == npm:@anthropic-ai/claude-code ]] || reject "$@"
   printf 'claude-uninstall\n' >>"${MISE_OPERATION_LOG:-/dev/null}"
   rm -rf -- "$MISE_INSTALLS_DIR/claude" "$MISE_SHIMS_DIR/claude"
+  exit 0
+  ;;
+ls)
+  # mise ls <spec> --json: an array of version entries, empty when the tool
+  # was never installed. A shim is what an install here produces.
+  [[ $# -eq 3 && "$3" == --json ]] || reject "$@"
+  name="${2#npm:}"
+  name="${name##*/}"
+  case "$name" in
+  claude-code) name=claude ;;
+  esac
+  if [[ -x "$MISE_SHIMS_DIR/$name" ]]; then
+    printf '[{"version":"1.2.3","requested_version":"latest",'
+    printf '"install_path":"%s/%s/latest",' "$MISE_INSTALLS_DIR" "$name"
+    printf '"installed":true,"active":true}]\n'
+  else
+    printf '[]\n'
+  fi
   exit 0
   ;;
 which)
