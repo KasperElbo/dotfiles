@@ -49,7 +49,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `mason-registry` | Neovim LSP/DAP tooling | Mason registry | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | rolling |
 | `mason-registry-crashdummyy` | Neovim LSP/DAP tooling absent from the official registry (roslyn) | Crashdummyy | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | rolling |
 | `mise-tool-registry` | mise tool registry and backends | mise | `package-registry` | `user` | `config.toml` | mise ls | `registry-tls` | rolling |
-| `npm-registry` | npm packages installed through mise | npm | `package-registry` | `user` | `latest` | mise ls | `registry-tls` | rolling |
+| `npm-registry` | npm packages installed through mise | npm | `package-registry` | `user` | `latest` | <tool>_version in ai state | `registry-tls` | rolling |
 | `scoop-extras-bucket` | Official Scoop extras bucket (Handy dictation) | ScoopInstaller | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | rolling |
 | `scoop-noctty-bucket` | noctty terminal Scoop bucket | amanthanvi | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | rolling |
 | `smoke-image-alpine` | Podman machine architecture smoke image | Docker Official Images | `container-image` | `user` | `latest` | podman image inspect | `registry-tls` | rolling |
@@ -106,7 +106,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `neovim-github-releases` | `https://github.com/neovim/neovim` | mise use -g nvim@<previous version> | `platforms/parrot-ctf/stow/mise-ctf/.config/mise/config.toml` `platforms/parrot-ctf/scripts/verify.sh` |
 | `netcoredbg-legacy-release` | `https://github.com/Samsung/netcoredbg/releases/download/3.1.3-1062/netcoredbg-osx-amd64.tar.gz` | pin the previous release tag | `tests/integration/macos-dotnet-debug.sh` |
 | `no-mistakes-installer` | `https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh` | ./scripts/install-ai.sh --no-firstmate then rerun | `common/install-ai.sh` |
-| `npm-registry` | `https://registry.npmjs.org` | mise uninstall | `common/install-ai.sh` |
+| `npm-registry` | `https://registry.npmjs.org` | mise uninstall, then reinstall at <tool>_version | `common/install-ai.sh` |
 | `opam-repository` | `https://opam.ocaml.org` | opam switch remove | `common/install-ocaml.sh` |
 | `parrot-boundary-image` | `docker.io/parrotsec/core:latest` | pin the previous digest | `.github/workflows/real-install.yml` |
 | `parrot-os-repos` | `https://deb.parrot.sh` | sudo apt-get install --reinstall | `platforms/parrot-ctf/scripts/install-system.sh` |

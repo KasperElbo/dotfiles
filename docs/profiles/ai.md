@@ -342,6 +342,21 @@ registry entry or an OS package). `verify-ai.sh` checks all seven the same
 way it checks everything else in this profile — mise ownership for the
 mise-managed ones, PATH-resolution-to-the-installed-copy for the other two.
 
+### What "installed" means for the mise packages
+
+Every package in the managed `ai.toml` is declared at `latest`, which is
+deliberate for an agent toolchain. `latest` is a request, though, not an
+answer, so the installer records what it resolved to: one
+`<tool>_version=<version>` line per declared package in
+`~/.config/dotfiles/ai.conf`, read back from `mise ls <spec> --json` after
+the install. The key is the package name with any npm scope and the `npm:`
+prefix removed and `-` replaced by `_`, so
+`"npm:@anthropic-ai/claude-code"` is recorded as `claude_code_version`.
+
+That is what a rollback reads after a bad release, and what answers, later,
+whether this machine ever ran one. A package the listing does not report as
+installed fails the run rather than being recorded as installed.
+
 ### What "installed" means for the three non-package tools
 
 FirstMate publishes no releases, and neither Treehouse nor No Mistakes

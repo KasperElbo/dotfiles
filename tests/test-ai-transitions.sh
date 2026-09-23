@@ -105,6 +105,27 @@ uninstall)
   esac
   exit 0
   ;;
+ls)
+  # mise ls <spec> --json answers with an array of version entries. The
+  # fixture reports a version for a tool it actually made a shim for, which
+  # is what an install here produces, and an empty array otherwise.
+  [[ $# -eq 3 && "$3" == --json ]] || reject "$@"
+  spec="$2"
+  name="${spec#npm:}"
+  name="${name##*/}"
+  case "$name" in
+  claude-code) name=claude ;;
+  esac
+  if [[ "${MOCK_MISE_LS_OMIT:-}" == "$spec" || ! -x "$MISE_SHIMS_DIR/$name" ]]; then
+    printf '[]\n'
+    exit 0
+  fi
+  printf '[{"version":"%s","requested_version":"latest",' \
+    "${MOCK_MISE_VERSION:-1.2.3}"
+  printf '"install_path":"%s/%s/latest",' "$MISE_INSTALLS_DIR" "$name"
+  printf '"installed":true,"active":true}]\n'
+  exit 0
+  ;;
 which)
   [[ $# -eq 2 ]] || reject "$@"
   install_bin="$MISE_INSTALLS_DIR/$2/latest/bin/$2"
@@ -207,6 +228,8 @@ install_ai() {
     FIRSTMATE_REPO_URL="$firstmate_origin" \
     MOCK_NO_MISTAKES_LAYOUT="${MOCK_NO_MISTAKES_LAYOUT:-direct}" \
     MOCK_MISE_UNINSTALL_FAIL="${MOCK_MISE_UNINSTALL_FAIL:-}" \
+    MOCK_MISE_LS_OMIT="${MOCK_MISE_LS_OMIT:-}" \
+    MOCK_MISE_VERSION="${MOCK_MISE_VERSION:-}" \
     "$repo_root/common/install-ai.sh" "$@"
 }
 
@@ -604,5 +627,47 @@ assert_path_missing "$mise_shims/codex"
 state_says 'codex=disabled'
 assert_file_not_contains "$conf_file" '"npm:@openai/codex"'
 printf 'PASS: the refused removal is retried and completes on the next run\n'
+
+# --- 20. Every declared package records what "latest" resolved to ----------
+#
+# "latest" is a request, not an answer. The state file recorded only the
+# install mechanism, so after a bad release there was no recorded good version
+# to go back to and no way to tell what this machine had run.
+
+install_ai --codex --gnhf --firstmate --backpass --non-interactive \
+  >"$test_root/versions.log" 2>&1 ||
+  { cat "$test_root/versions.log" >&2; exit 1; }
+
+# Derived from the conf file, so a twelfth package is covered without the
+# test naming it: every declaration has to have a recorded version.
+while IFS= read -r declared; do
+  key="${declared#npm:}"
+  key="${key##*/}"
+  key="${key//-/_}"
+  state_says "${key}_version=1.2.3"
+done < <(sed -n 's/^"\{0,1\}\([^"= ]*\)"\{0,1\}[[:space:]]*=.*/\1/p' "$conf_file")
+printf 'PASS: every declared mise package records its resolved version\n'
+
+# A different resolution is recorded as such, so the line is read from mise
+# rather than printed from a constant.
+MOCK_MISE_VERSION=9.9.9 install_ai --codex --gnhf --firstmate --backpass \
+  --non-interactive >"$test_root/versions-2.log" 2>&1 ||
+  { cat "$test_root/versions-2.log" >&2; exit 1; }
+state_says 'claude_code_version=9.9.9'
+state_says 'codex_version=9.9.9'
+printf 'PASS: the recorded version follows what mise reports\n'
+
+# --- 21. A package mise does not report is refused, not recorded ------------
+
+if MOCK_MISE_LS_OMIT='npm:@openai/codex' install_ai --codex --gnhf --firstmate \
+  --backpass --non-interactive >"$test_root/versions-missing.log" 2>&1; then
+  printf 'install-ai.sh recorded an install for a package mise never listed\n' >&2
+  exit 1
+fi
+assert_file_contains "$test_root/versions-missing.log" \
+  'mise reported no installed version for npm:@openai/codex'
+assert_file_contains "$test_root/versions-missing.log" \
+  'Refusing to record an install whose versions are unknown'
+printf 'PASS: a declared package mise does not report fails the install\n'
 
 printf 'AI optional-component transition tests passed.\n'
