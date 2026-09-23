@@ -480,6 +480,12 @@ verify_path_is_within_root() {
 # a relative and an absolute spelling of the same source agree, and so does a
 # checkout reached through a symlink. Call sites that do not pass it keep the
 # weaker containment guarantee and say so by their argument count.
+#
+# The argument count is what decides, not whether the third one is empty. A
+# third argument that expands to nothing is a caller bug -- an unset variable,
+# a typo in its name -- and treating it as "no source given" made
+# `check_symlink "$link" "$root" ""` pass the lint gate and then behave exactly
+# like the two-argument form that gate exists to reject (issue #507, V4-03).
 check_symlink() {
   local link="$1"
   local expected_root="${2%/}"
@@ -487,6 +493,12 @@ check_symlink() {
   local resolved=""
   local canonical_root=""
   local canonical_source=""
+
+  if (($# >= 3)) && [[ -z "$expected_source" ]]; then
+    fail "$link cannot be checked against its Stow source: the expected source" \
+      "was passed empty, so the check would prove only containment in $expected_root"
+    return 1
+  fi
 
   if [[ ! -e "$link" && ! -L "$link" ]]; then
     fail "$link is missing; expected Stow ownership under $expected_root"
@@ -513,7 +525,7 @@ check_symlink() {
     return 1
   fi
 
-  if [[ -n "$expected_source" ]]; then
+  if (($# >= 3)); then
     canonical_source="$(verify_canonical_existing_path "$expected_source" 2>/dev/null || true)"
     if [[ -z "$canonical_source" ]]; then
       fail "$link cannot be checked against its Stow source: $expected_source" \
@@ -1224,6 +1236,23 @@ verify_login_path() {
   printf '%s\n' "$answer"
 }
 
+# verify_path_without_mise <path> <mise-data-dir> <mise-shims-dir>: the PATH
+# with mise's shims directory and every directory under its installs removed,
+# order otherwise kept. What a terminal where mise is activated has and a
+# fresh login does not.
+verify_path_without_mise() {
+  local path="$1" installs="${2%/}/installs/" shims="${3%/}" entry kept=""
+  local -a entries=()
+
+  IFS=: read -r -a entries <<<"$path"
+  for entry in "${entries[@]}"; do
+    [[ "${entry%/}" != "$shims" ]] || continue
+    [[ "$entry/" != "$installs"* ]] || continue
+    kept="${kept:+$kept:}$entry"
+  done
+  printf '%s\n' "$kept"
+}
+
 check_mise_owned() {
   local name="$1"
   local resolved mise_resolved mise_shim configured_path configured_resolved mise_command
@@ -1297,10 +1326,30 @@ check_mise_owned() {
   # tool there was reported as mise-owned (issue #396, GAP-33).
   #
   # A name that does not resolve at all in that login is the ordinary
-  # shim-only case, not a defect: nothing is said about it. A caller that
-  # supplies VERIFY_CONFIGURED_LOGIN_PATH by hand supplies this one too or
-  # the second probe does not run.
-  if [[ -n "${VERIFY_NONINTERACTIVE_LOGIN_PATH:-}" ]]; then
+  # shim-only case, not a defect: nothing is said about it.
+  #
+  # This probe used to run only when the caller had supplied
+  # VERIFY_NONINTERACTIVE_LOGIN_PATH, which one verifier in four did, so the
+  # Fedora, Fedora WSL and macOS verifiers never looked for the dnf or
+  # Homebrew copy this check exists to catch (issue #507, V4-11). The login is
+  # now asked here, once per run, whoever the caller is. A login inherits
+  # PATH, so it is asked from the caller's PATH as it was before the verifier
+  # added mise's shims to its own process, and with every directory of mise's
+  # own taken out: a verifier started from a terminal where mise is activated
+  # inherits that terminal's install directories, which a fresh login does
+  # not have and which would otherwise sit ahead of the very copy being looked
+  # for. A login that cannot be asked is reported as not observed, never
+  # passed over.
+  if [[ -z "${VERIFY_NONINTERACTIVE_LOGIN_PATH+x}" ]]; then
+    VERIFY_NONINTERACTIVE_LOGIN_PATH="$(
+      PATH="$(verify_path_without_mise "${VERIFY_CALLER_PATH:-$PATH}" \
+        "$mise_data_dir" "$mise_shims_dir")" verify_login_path non-interactive || true
+    )"
+  fi
+  if [[ -z "$VERIFY_NONINTERACTIVE_LOGIN_PATH" ]]; then
+    not_observed "whether a login that is not interactive runs a copy of" \
+      "$name outside mise: zsh did not report that login's PATH"
+  else
     login_resolved="$(PATH="$VERIFY_NONINTERACTIVE_LOGIN_PATH" \
       command -v "$name" 2>/dev/null || true)"
     if [[ -n "$login_resolved" ]] &&

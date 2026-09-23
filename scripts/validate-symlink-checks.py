@@ -17,6 +17,16 @@ output is a tick like any other. This gate is the answer to "is the migration
 finished", and it makes a new weak call site fail lint on the commit that adds
 it rather than years later during an audit.
 
+Counting arguments is not enough on its own. `check_symlink "$link" "$root" ""`
+has three and proves exactly what the two-argument form proves, and so does a
+third argument that spells the link itself, which canonicalises to whatever the
+link points at and so agrees with any referent (issue #507, V4-03). So the
+third argument's text is read too: it must not be an empty literal, must not be
+the first argument over again, and must name a path inside the package the
+second argument names. The helper refuses an empty one at runtime as well,
+because a variable that expands to nothing is the same bug with a spelling no
+static reading can see.
+
 The suites under `tests/` are out of scope. `tests/test-verifier.sh` calls the
 two-argument form on purpose, to prove the containment verdicts the helper
 still owes when no source is given; demanding three arguments there would be
@@ -92,15 +102,17 @@ def logical_lines(text: str) -> list[tuple[int, str]]:
     return joined
 
 
-def call_sites(text: str) -> tuple[list[tuple[int, int]], list[int]]:
-    """Each call's line number and argument count, plus unparseable lines.
+def call_sites(text: str) -> tuple[list[tuple[int, list[str]]], list[int]]:
+    """Each call's line number and argument texts, plus unparseable lines.
+
+    An argument's text is what sits between its double quotes, as written.
 
     A mention of the helper that is neither its definition, nor a comment, nor
     a call this can count is returned as unparseable: a gate that quietly
     skipped what it did not recognise would be a gate the next unusual call
     site walks straight past.
     """
-    counted: list[tuple[int, int]] = []
+    counted: list[tuple[int, list[str]]] = []
     unparseable: list[int] = []
     for number, line in logical_lines(text):
         if not MENTION.search(line):
@@ -116,8 +128,37 @@ def call_sites(text: str) -> tuple[list[tuple[int, int]], list[int]]:
         if ARGUMENT.sub("", arguments).strip():
             unparseable.append(number)
             continue
-        counted.append((number, len(words)))
+        counted.append((number, [word[1:-1] for word in words]))
     return counted, unparseable
+
+
+def source_problem(words: list[str]) -> str | None:
+    """Why a three-argument call's expected source proves nothing, if it does not.
+
+    Read as text, because that is all a static gate has: the variables are the
+    same ones on both sides, so `"$DOTFILES_ROOT/zsh/.zshenv"` is inside
+    `"$DOTFILES_ROOT/zsh"` whatever `$DOTFILES_ROOT` turns out to be. Inside
+    means below a whole path component, so `"$DOTFILES_ROOT/zsh-extra/x"` is
+    not inside `"$DOTFILES_ROOT/zsh"`.
+    """
+    link, root, source = words
+    if not source:
+        return (
+            "passes an empty expected source, which the comparison treats as no "
+            "source at all"
+        )
+    if source == link:
+        return (
+            "passes the link itself as its expected source; it canonicalises to "
+            "whatever the link points at, so it agrees with any referent"
+        )
+    package = root.rstrip("/")
+    if not package or not source.startswith(package + "/"):
+        return (
+            f"passes an expected source that is not written inside the package "
+            f"it names ({source!r} is not below {root!r})"
+        )
+    return None
 
 
 def main() -> int:
@@ -164,13 +205,24 @@ def main() -> int:
                 f"this checker the new shape."
             )
             errors += 1
-        for number, count in counted:
+        for number, words in counted:
             total += 1
-            if count < 2:
-                fail(f"{name}:{number} calls {HELPER} with {count} argument(s); it takes at least two")
+            count = len(words)
+            if count < 2 or count > 3:
+                fail(f"{name}:{number} calls {HELPER} with {count} argument(s); it takes two or three")
                 errors += 1
             elif count == 2:
                 weak.setdefault(name, []).append(number)
+            else:
+                problem = source_problem(words)
+                if problem:
+                    fail(
+                        f"{name}:{number} {problem}. Pass the exact repository "
+                        f"file Stow should have linked, read off the package "
+                        f'layout: check_symlink "$HOME/.zshenv" '
+                        f'"$DOTFILES_ROOT/zsh" "$DOTFILES_ROOT/zsh/.zshenv".'
+                    )
+                    errors += 1
 
     if total == 0:
         fail(f"no {HELPER} call sites were found at all; the check would pass vacuously")

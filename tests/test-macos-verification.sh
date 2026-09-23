@@ -422,7 +422,25 @@ esac
 theme="$(tr -d '[:space:]' <"$XDG_CONFIG_HOME/dotfiles/theme" 2>/dev/null)"
 bat_theme="Catppuccin ${theme^}"
 login_path="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$XDG_DATA_HOME/mise/shims:$PATH"
+# A login that is not interactive reads .zshenv but not .zshrc, so it has
+# ~/.local/bin ahead of what it inherited and no mise shims at all. The host's
+# own /usr/bin and /bin are left out of that answer rather than borrowed: they
+# are the machine running the suite, not the Mac, and a Linux runner's
+# /usr/bin/python would read as a second copy of a mise-owned runtime.
+noninteractive_path="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$HOME/.local/bin"
+IFS=: read -r -a inherited <<<"$PATH"
+for entry in "${inherited[@]}"; do
+  [[ "$entry" == /usr/bin || "$entry" == /bin ]] ||
+    noninteractive_path="$noninteractive_path:$entry"
+done
 case "$*" in
+*login-path:*)
+  if [[ "${1:-}" == -lc ]]; then
+    printf 'login-path:%s\n' "$noninteractive_path"
+  else
+    printf 'login-path:%s\n' "$login_path"
+  fi
+  ;;
 *__DOTFILES_VERIFY_PATH__*) printf '\n__DOTFILES_VERIFY_PATH__%s\n' "$login_path" ;;
 *__DOTFILES_VERIFY_THEME__*)
   printf '\n__DOTFILES_VERIFY_THEME__%s|%s\n' \
@@ -701,6 +719,10 @@ macos_fixture_failures=(
   'Zsh login environment does not activate Starship and mise: '
 )
 assert_verifier_failures "$baseline_output" "${macos_fixture_failures[@]}"
+# The healthy run asked the login that is not interactive, rather than
+# reporting it unobserved: a stub that stopped answering would turn the probe
+# below into a line of NOT OBSERVED and nothing else.
+assert_not_contains "$baseline_output" 'runs a copy of'
 printf 'PASS: a healthy macOS fixture passes the theme, Mason, tmux and mise ownership checks\n'
 
 # The four application checks above are in that list because this fixture holds
@@ -861,6 +883,21 @@ ln -s /usr/bin/true "$homebrew_bin/dotnet"
 run_verifier "MOCK_LOGIN_PATH_PREFIX=$homebrew_bin"
 expect_one_more_failure 'a Homebrew dotnet shadowing the mise-managed one fails verification' \
   "dotnet resolves outside mise in the configured login PATH: $homebrew_bin/dotnet"
+
+# The same Homebrew copy behind the shims instead, on the PATH every login
+# inherits: the interactive login puts mise first and is satisfied, and only a
+# login that is not interactive runs Homebrew's node. This verifier never asked
+# that login before #507 (V4-11).
+brew_behind="$root/homebrew-behind-bin"
+mkdir -p "$brew_behind"
+printf '#!/usr/bin/env bash\n[[ "${1:-}" == -p ]] && printf "arm64\\n"\nexit 0\n' \
+  >"$brew_behind/node"
+chmod +x "$brew_behind/node"
+run_verifier "PATH=$mock_bin:$brew_behind:/usr/bin:/bin"
+expect_one_more_failure 'a Homebrew node only a non-interactive login runs fails verification' \
+  "node resolves outside mise in a login that is not interactive: $brew_behind/node"
+assert_not_contains "$TEST_OUTPUT" 'node resolves outside mise in the configured login PATH'
+rm -r "$brew_behind"
 
 # A Neovim below the declared floor. It resolves and runs, so the command
 # probe above still passes it. The version check catches it, and so does the

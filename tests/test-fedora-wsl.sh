@@ -596,7 +596,9 @@ done
 EOF
 chmod +x "$bootstrap_bin/mise" "$bootstrap_bin/nvim"
 
-test_stub_npm_global "$bootstrap_bin"
+# No npm stub here: npm is a runtime mise owns, reached through its shim like
+# the rest, and an npm on the PATH every login inherits is exactly the non-mise
+# copy the verifier's non-interactive login probe reports.
 
 rm -- "$bootstrap_bin/zsh"
 # MOCK_LOGIN_PATH_PREFIX models a directory a real login would put ahead of
@@ -610,13 +612,18 @@ printf '\033[H\033[2J\033[3J'
 system_path="${MOCK_SYSTEM_PATH_PREFIX:+$MOCK_SYSTEM_PATH_PREFIX:}$PATH"
 PATH="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
 if [[ "$*" == *'login-path:'* ]]; then
-  # The verifier asks both logins for their PATH through this marker. This
-  # fixture answers both with the sanitized login PATH, because what it exists
-  # to model is what the WSL PATH sanitizer produces. The difference between
-  # the two logins -- mise is activated in .zshrc, so only the interactive one
-  # carries the shims -- is what tests/test-ai-profile.sh covers, with a
-  # fixture built for it and a copy in ~/.local/bin as the negative control.
-  printf 'login-path:%s\n' "$PATH"
+  # The verifier asks both logins for their PATH through this marker, and the
+  # two differ the way the real ones do: mise is activated in .zshrc, so only
+  # the interactive login carries the shims. The other gets .zshenv's
+  # ~/.local/bin ahead of the PATH it inherited from the verifier, which is
+  # why the verifier has to start it from the PATH it was itself started with
+  # rather than one it has already put the shims into (issue #507, V4-11).
+  if [[ "${1:-}" == -lc ]]; then
+    printf 'login-path:%s\n' \
+      "${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$HOME/.local/bin:$system_path"
+  else
+    printf 'login-path:%s\n' "$PATH"
+  fi
 elif [[ "$*" == *'__DOTFILES_VERIFY_SYSTEM_PATH__'* ]]; then
   printf '\n__DOTFILES_VERIFY_SYSTEM_PATH__%s\n' "$system_path"
 elif [[ "$*" == *'__DOTFILES_VERIFY_PATH__'* ]]; then
@@ -716,6 +723,35 @@ if grep -Fq 'node resolves outside mise' "$test_root/dnf-shadow.log"; then
   exit 1
 fi
 printf 'PASS: Fedora WSL verification rejects a non-mise runtime shadowing the mise shim\n'
+
+# The same dnf copy placed where dnf actually puts it: on the PATH every login
+# inherits, behind the shims the interactive login adds. Only a login that is
+# not interactive runs it, and this verifier never asked one before #507
+# (V4-11). Asked from its own PATH, after it had added the shims to it, the
+# login would inherit them ahead of the copy and pass.
+if grep -Fq 'runs a copy of' "$test_root/bootstrap.log"; then
+  printf 'Fedora WSL verification could not ask a non-interactive login on a healthy machine:\n' >&2
+  grep -F 'runs a copy of' "$test_root/bootstrap.log" >&2
+  exit 1
+fi
+dnf_system="$test_root/dnf-system-bin"
+mkdir -p "$dnf_system"
+cp "$bootstrap_bin/mock-command" "$dnf_system/node"
+if "${bootstrap_environment[@]}" \
+  "PATH=$bootstrap_home/.local/bin:$bootstrap_bin:$dnf_system:$PATH" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/dnf-system.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a dnf node that a non-interactive login runs.\n' >&2
+  exit 1
+fi
+grep -Fq "node resolves outside mise in a login that is not interactive: $dnf_system/node" \
+  "$test_root/dnf-system.log"
+if grep -Fq 'node resolves outside mise in the configured login PATH' "$test_root/dnf-system.log"; then
+  printf 'The interactive probe caught the dnf copy, so this case proves nothing about the other.\n' >&2
+  exit 1
+fi
+rm -r -- "$dnf_system"
+printf 'PASS: Fedora WSL verification reports a dnf runtime a non-interactive login runs instead of mise\n'
 
 # /etc/wsl.conf's [interop] appendWindowsPath=false is what keeps Windows
 # directories out of PATH in every context that is not an interactive Zsh

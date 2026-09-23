@@ -736,6 +736,15 @@ file fails, and migrating one fails too, with the instruction to lower the
 number — and the entry must go when it reaches zero, so the list cannot outlive
 the migration.
 
+Three arguments are not enough on their own: the checker also reads the third
+argument's text, because `check_symlink "$link" "$root" ""` and a third
+argument that repeats the link each proved no more than the two-argument form
+while passing a count (issue #507). The expected source must not be empty, must
+not be the link over again, and must be written inside the package the second
+argument names, below a whole path component. The helper itself decides on the
+argument count rather than on whether the third one is empty, so a variable
+that expands to nothing fails at runtime instead of skipping the comparison.
+
 The suites under `tests/` are out of scope: `tests/test-verifier.sh` calls the
 two-argument form on purpose, to prove the containment verdicts the helper
 still owes when no source is given.
