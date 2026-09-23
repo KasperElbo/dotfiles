@@ -69,7 +69,7 @@ new_scratch
 cover_everything
 validate
 assert_success
-assert_contains "$TEST_OUTPUT" "156 check_* call sites"
+assert_contains "$TEST_OUTPUT" "160 check_* call sites"
 printf 'PASS: a tree whose every check was driven both ways is accepted\n'
 
 # GRADE-03's second acceptance criterion: a brand-new check with no fixture

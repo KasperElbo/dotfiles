@@ -7,6 +7,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/tool-floors.sh"
 # shellcheck source=lib/mason.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/mason.sh"
+# shellcheck source=lib/markdown-preview.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/markdown-preview.sh"
 
 establish_user_tool_environment
 require_command nvim
@@ -223,6 +225,26 @@ if grep -Eq \
   die "LazyVim restore attempted a competing tree-sitter-cli installation"
 fi
 rm -f -- "$restore_log"
+
+# The Markdown preview runs from a server binary its build downloads, and Lazy
+# builds only on a clone or an update. A machine whose build ran before that
+# build was made synchronous, or failed (upstream's script reports a failed
+# download as success), keeps a checkout at the locked commit and no server, so
+# the preview opens nothing. Repair it here, where a rerun of the installer can.
+preview_plugin="$XDG_DATA_HOME/nvim/lazy/markdown-preview.nvim"
+if [[ -d "$preview_plugin" ]] && ! markdown_preview_server_status "$preview_plugin"; then
+  case "$MARKDOWN_PREVIEW_STATE" in
+  unsupported)
+    warn "Markdown preview unavailable: $MARKDOWN_PREVIEW_DETAIL"
+    ;;
+  *)
+    PATH="$mason_bin:$PATH" run_nvim_phase 0 "Installing the Markdown preview server" \
+      '+Lazy! build markdown-preview.nvim' +qa
+    markdown_preview_server_status "$preview_plugin" ||
+      die "Markdown preview server not installed: $MARKDOWN_PREVIEW_DETAIL"
+    ;;
+  esac
+fi
 
 PATH="$mason_bin:$PATH" run_nvim_phase 0 "Verifying LazyVim headless startup" +qa
 

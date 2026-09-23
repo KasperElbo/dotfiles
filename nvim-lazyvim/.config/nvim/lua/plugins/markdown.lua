@@ -25,6 +25,41 @@ return {
     end,
   },
 
+  -- The preview is served by a prebuilt binary the plugin's build downloads.
+  -- The extra's build calls mkdp#util#install(), which starts that download in
+  -- a terminal job and returns at once, so a headless install quits before it
+  -- finishes and leaves app/bin empty; the preview then opens no browser and
+  -- says nothing. Run upstream's own script to completion instead, at the
+  -- version the locked commit names, and fail the build unless the server it
+  -- should leave behind answers with that version. common/lib/markdown-preview.sh
+  -- holds the same rule for the installer and the verifiers.
+  {
+    "iamcco/markdown-preview.nvim",
+    optional = true,
+    build = function(plugin)
+      require("lazy").load({ plugins = { plugin.name } })
+      local package = vim.json.decode(table.concat(vim.fn.readfile(plugin.dir .. "/package.json"), "\n"))
+      local function ready()
+        return vim.trim(vim.fn["mkdp#util#pre_build_version"]()) == package.version
+      end
+      if ready() then
+        return
+      end
+      -- network-source: markdown-preview-server
+      local result = vim.system({ "./install.sh", "v" .. package.version }, { cwd = plugin.dir .. "/app", text = true }):wait()
+      if result.code ~= 0 or not ready() then
+        error(
+          ("markdown-preview.nvim: the preview server v%s was not installed (install.sh exited %d)\n%s%s"):format(
+            package.version,
+            result.code,
+            result.stdout or "",
+            result.stderr or ""
+          )
+        )
+      end
+    end,
+  },
+
   -- LazyVim's Markdown extra owns highlighting, Marksman, rendering and
   -- browser preview. This addition fills its table-editing gap.
   {
