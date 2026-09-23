@@ -273,12 +273,10 @@ check_symlink "$HOME/.local/bin/theme" \
   "$DOTFILES_ROOT/bin/.local/bin/theme"
 
 for flavour in latte frappe macchiato mocha; do
-  check_symlink \
-    "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}.webp" \
+  check_symlink "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}.webp" \
     "$DOTFILES_ROOT/theme-assets/" \
     "$DOTFILES_ROOT/theme-assets/.local/share/wallpapers/catppuccin-${flavour}.webp"
-  check_symlink \
-    "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}-lock.webp" \
+  check_symlink "$XDG_DATA_HOME/wallpapers/catppuccin-${flavour}-lock.webp" \
     "$DOTFILES_ROOT/theme-assets/" \
     "$DOTFILES_ROOT/theme-assets/.local/share/wallpapers/catppuccin-${flavour}-lock.webp"
 done
@@ -448,8 +446,7 @@ if ((sway_selection_status == 0)) ||
   check_symlink "$XDG_CONFIG_HOME/sway/config" \
     "$DOTFILES_ROOT/platforms/fedora/stow/sway/" \
     "$DOTFILES_ROOT/platforms/fedora/stow/sway/.config/sway/config"
-  check_symlink \
-    "$XDG_CONFIG_HOME/xdg-desktop-portal/sway-portals.conf" \
+  check_symlink "$XDG_CONFIG_HOME/xdg-desktop-portal/sway-portals.conf" \
     "$DOTFILES_ROOT/platforms/fedora/stow/sway/" \
     "$DOTFILES_ROOT/platforms/fedora/stow/sway/.config/xdg-desktop-portal/sway-portals.conf"
   check_symlink "$XDG_CONFIG_HOME/waybar/config.jsonc" \

@@ -903,10 +903,15 @@ windows_shim_dir="$test_root/windows-shim"
 mkdir -p "$windows_shim_dir"
 cp "$bootstrap_bin/mock-command" "$windows_shim_dir/bat.exe"
 ln -s bat.exe "$windows_shim_dir/bat"
+# The LaTeX toolchain is checked for resolution only, so the same shim there is
+# refused without being run. Every run with --latex otherwise had the whole
+# toolchain present, and that loop had never been seen to fail.
+cp "$bootstrap_bin/mock-command" "$windows_shim_dir/pdflatex.exe"
+ln -s pdflatex.exe "$windows_shim_dir/pdflatex"
 
 if "${bootstrap_environment[@]}" \
   "PATH=$windows_shim_dir:$bootstrap_home/.local/bin:$bootstrap_bin:$PATH" \
-  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" --latex \
   >"$test_root/windows-shim.log" 2>&1; then
   printf 'Fedora WSL verification accepted a shim resolving to a Windows executable.\n' >&2
   exit 1
@@ -917,6 +922,14 @@ if grep -Fq "bat runs: $windows_shim_dir/bat" "$test_root/windows-shim.log"; the
   printf 'Fedora WSL verification reported a Windows shim as a working Linux command.\n' >&2
   exit 1
 fi
+# The verifier names the canonical target, so the expectation is canonical too.
+windows_shim_log="$(cat "$test_root/windows-shim.log")"
+assert_contains "$windows_shim_log" \
+  "pdflatex resolves to a Windows executable: $(realpath "$windows_shim_dir/pdflatex.exe")"
+assert_not_contains "$windows_shim_log" "pdflatex: $windows_shim_dir/pdflatex"
+# The rest of the toolchain still resolves, so the loop was reached and judged
+# each command on its own.
+assert_contains "$windows_shim_log" "xelatex: $bootstrap_bin/xelatex"
 printf 'PASS: Fedora WSL verification refuses a Linux-spelled shim that resolves to a .exe\n'
 
 # The same question asked of the AI commands, which report "is Linux-native"

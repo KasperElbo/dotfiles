@@ -857,6 +857,27 @@ SUDO_EOF
     assert_file_line "$state_file" 'ssh=not-present'
   fi
 
+  # Credentials in every place the audit looks, all private, so the happy
+  # path proves each of them is read rather than skipped for being absent.
+  # The public half is left world-readable, as ssh-keygen writes it, and must
+  # never be reported.
+  local test_home="$test_root/home"
+  local credential_files=(
+    "$test_home/.ssh/id_ed25519"
+    "$test_home/.ssh/deploy.pem"
+    "$test_home/.aws/credentials"
+    "$test_home/.config/gh/hosts.yml"
+    "$test_home/.gnupg/private-keys-v1.d/0123456789ABCDEF.key"
+  )
+  local credential_file
+  for credential_file in "${credential_files[@]}"; do
+    mkdir -p "$(dirname "$credential_file")"
+    printf 'fixture secret\n' >"$credential_file"
+    chmod 0600 "$credential_file"
+  done
+  printf 'ssh-ed25519 AAAA fixture\n' >"$test_home/.ssh/id_ed25519.pub"
+  chmod 0644 "$test_home/.ssh/id_ed25519.pub"
+
   local verify_output verify_sudo_calls_before
   verify_sudo_calls_before="$(wc -l <"$command_log")"
   if ! verify_output="$("${test_environment[@]}" \
@@ -886,6 +907,12 @@ SUDO_EOF
   assert_contains "$verify_output" 'kernel.yama.ptrace_scope = 1'
   assert_contains "$verify_output" 'kernel.kptr_restrict = 2'
   assert_contains "$verify_output" 'kernel.dmesg_restrict = 1'
+
+  for credential_file in "${credential_files[@]}"; do
+    assert_contains "$verify_output" \
+      "$credential_file permissions are private (mode 600)"
+  done
+  assert_not_contains "$verify_output" "id_ed25519.pub"
 
   if [[ "$seed_sshd" == "true" ]]; then
     assert_contains "$verify_output" 'sshd hardening drop-in applied'
@@ -1160,6 +1187,23 @@ SUDO_EOF
     run_verify DNF_AUTOMATIC_ROOT="$dnf_root"
     assert_success
     assert_contains "$TEST_OUTPUT" 'sets no apply_updates'
+
+    # 8g. Credentials other users can read. The profile never changes these
+    #     files, but a group- or world-readable private key is a defect the
+    #     audit exists to name, one by one, wherever it looked.
+    for credential_file in "${credential_files[@]}"; do
+      chmod 0644 "$credential_file"
+    done
+    run_verify
+    assert_failure
+    for credential_file in "${credential_files[@]}"; do
+      assert_contains "$TEST_OUTPUT" \
+        "$credential_file is readable by group/other (mode 644)"
+    done
+    assert_not_contains "$TEST_OUTPUT" "id_ed25519.pub"
+    for credential_file in "${credential_files[@]}"; do
+      chmod 0600 "$credential_file"
+    done
 
     # 9. An unmet *recommendation* stays a warning: disabled Secure Boot is
     #    firmware state this profile never touches.

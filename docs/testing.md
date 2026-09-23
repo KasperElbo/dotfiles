@@ -668,15 +668,17 @@ helper is the line in the verifier that called it. A verifier may define a
 `check_*` helper of its own, and then that first frame is the helper's own
 `pass` or `fail` line, so while the frame is running a `check_*` function the
 verdict is credited to its caller too, as far out as the calls go. A line that
-only defines such a helper is not a call site. `./scripts/test.sh` arms
+only defines such a helper is not a call site. A call written as `check_x \`
+with its first argument on the next line is refused outright: bash credits it
+to that next line, so no fixture could ever cover it. `./scripts/test.sh` arms
 that trace for the aggregate run only — a targeted run reaches a fraction of
 the call sites and would report every other one as uncovered — and reads it
 with `scripts/validate-check-outcomes.py` once the suites are done.
 
 A call site that produced both a pass and a fail is covered: some fixture drove
 it each way, so inverting its predicate takes one of those outcomes away and
-the run turns red naming the line. 88 of the 150 call sites are covered today,
-and the rest are too many to fix in one change, so `config/check-outcomes.tsv`
+the run turns red naming the line. 140 of the 150 call sites are covered today,
+and the rest are uncovered on purpose, so `config/check-outcomes.tsv`
 records how many each verifier still has, as a ceiling: the count may fall but
 never rise, so a new check with no fixture behind it raises its verifier's
 count and is refused.
@@ -707,9 +709,11 @@ driven both ways is accepted — so none of the others can pass because the tree
 was already red.
 
 This is a partial answer to GRADE-03, not the whole of it: it holds every new
-check to the rule from today, and catches an inverted predicate at the 88 call
-sites already covered. The remaining 62 need fixtures, one verifier at a time;
-#383 records which of them are worth one.
+check to the rule from today, and catches an inverted predicate at the 140 call
+sites already covered. The remaining 10 are uncovered on purpose, as #383
+records: themes, VM agents and CPU architecture, where a false pass costs little,
+and two digest checks whose negative outcome is a warning by design, which this
+gate does not count.
 
 ### Every symlink check names its Stow source
 
@@ -866,7 +870,10 @@ installer that runs but produces the wrong target.
   package or Catppuccin tmux plugin, a Homebrew `dotnet` ahead of the mise
   shim, a command that resolves but cannot run) and asserts exactly one more
   failure, naming it. A Catppuccin tmux checkout moved past the pin is the
-  exception: it warns, naming both versions, and adds no failure.
+  exception: it warns, naming both versions, and adds no failure. One run
+  models an install that did not deploy -- Stow links missing or linked from
+  another checkout, no `aerospace` on PATH, a Neovim whose configuration does
+  not load -- and names every failure it expects rather than counting them.
 
 ## Secret scanning
 
