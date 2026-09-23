@@ -468,14 +468,40 @@ chmod +x "$mock_bin/dotnet-easydotnet"
 
 cat >"$mock_bin/mise" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == exec && "${2:-}" == -- ]]; then
+# Every call this fixture does not implement is refused. It used to fall off
+# the end of the chain into a bare `exit 0`, which answered three real calls
+# with silence: `--yes install` installed nothing and reported success, bare
+# `mise ls` satisfied the Fedora verifier's "mise configuration loads
+# successfully" check without loading anything, and `--version` returned an
+# empty string. A refusal is how a new call announces that this stub has to
+# decide what it means.
+reject() {
+  printf 'strict mise fixture rejected unsupported argv:' >&2
+  printf ' %q' "$@" >&2
+  printf '\n' >&2
+  exit 96
+}
+
+if [[ "${1:-}" == exec && "${2:-}" == -- && $# -ge 3 ]]; then
   shift 2
   exec "$@"
-elif [[ "${1:-}" == which && -n "${2:-}" ]]; then
+elif [[ "${1:-}" == which && $# -eq 2 ]]; then
   command -v "$2"
   exit $?
+elif [[ "${1:-}" == --version && $# -eq 1 ]]; then
+  printf '2025.1.0 linux-x64 (fixture)\n'
+  exit 0
+elif [[ "${1:-}" == --yes && "${2:-}" == install && $# -eq 2 ]]; then
+  # Deliberately a no-op that says so. This suite is about Stow deployment and
+  # state repeatability, and it resolves tools through `which` off the mock
+  # PATH; tool installation is tests/test-mise-context.sh's subject. Accepting
+  # it here is a decision rather than a fall-through.
+  exit 0
+elif [[ "${1:-}" == ls && $# -eq 1 ]]; then
+  # The Fedora verifier's configuration-loads check reads the status only.
+  exit 0
 fi
-exit 0
+reject "$@"
 EOF
 chmod +x "$mock_bin/mise"
 

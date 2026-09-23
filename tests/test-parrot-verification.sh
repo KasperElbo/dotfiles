@@ -53,7 +53,18 @@ ln -s "$nvim_install" "$data/mise/shims/nvim"
 
 cat >"$local_bin/mise" <<'EOF'
 #!/usr/bin/env bash
-case "$1" in
+# An unsupported call is refused with status 96 and a line saying what it was.
+# It used to exit 1, which is also this stub's honest answer for `which` on a
+# tool it does not have, so a mise call added to the verifier read as an
+# ordinary negative rather than as a fixture that had never been taught it.
+reject() {
+  printf 'strict mise fixture rejected unsupported argv:' >&2
+  printf ' %q' "$@" >&2
+  printf '\n' >&2
+  exit 96
+}
+
+case "${1:-}" in
   which)
     [[ "$2" == nvim ]] || exit 1
     printf '%s\n' "$MOCK_NVIM"
@@ -65,9 +76,29 @@ case "$1" in
       printf 'uv 0.9.0\n'
       exit 0
     fi
-    exec "$MOCK_NVIM" "${@:2}"
+    # This verifier bounds its Neovim start by running timeout *inside* mise
+    # exec, so the command is `timeout <options> <duration> nvim ...`. The
+    # stub used to hand everything after the first word to MOCK_NVIM, so the
+    # timeout options arrived as Neovim's own arguments and the fixture
+    # answered for a command line nobody had asked for. Keep the bound and
+    # substitute only the Neovim executable; anything that is not Neovim is a
+    # tool this stub does not model.
+    bound=()
+    if [[ "$1" == timeout ]]; then
+      bound=("$1")
+      shift
+      while [[ "${1:-}" == -* ]]; do
+        bound+=("$1")
+        shift
+      done
+      bound+=("${1:?the timeout form needs a duration}")
+      shift
+    fi
+    [[ "${1:-}" == nvim ]] || reject exec -- ${bound[@]+"${bound[@]}"} "$@"
+    shift
+    exec ${bound[@]+"${bound[@]}"} "$MOCK_NVIM" "$@"
     ;;
-  *) exit 1 ;;
+  *) reject "$@" ;;
 esac
 EOF
 chmod +x "$local_bin/mise"
