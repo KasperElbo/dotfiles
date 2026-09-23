@@ -59,11 +59,12 @@ def target_for(platform: str) -> pathlib.Path:
     return ROOT / "platforms" / platform / "lib" / "usage-options.sh"
 
 
-# An enumerated `values` column a reader can use as-is: lower-case words
-# separated by `|`, as `latte|frappe|macchiato|mocha` and `ga402xz|ga402rk` are.
-# `[4-9][0-9]|100` is a pattern for the parser to match, not a list to read, so
-# it is excluded and the row states its range in the summary instead.
-LITERAL_VALUES = re.compile(r"^[a-z0-9][a-z0-9.+-]*(?:\|[a-z0-9][a-z0-9.+-]*)*$")
+# The two shapes a `values` column takes: lower-case words separated by `|`, as
+# `latte|frappe|macchiato|mocha` and `ga402xz|ga402rk` are, or an integer range,
+# `40..100`. Both are listed from the column itself, so the help text states
+# the range the installer and the recorded selection read rather than a copy.
+LITERAL_VALUES = re.compile(r"^[a-z0-9][a-z0-9+-]*(?:\|[a-z0-9][a-z0-9+-]*)*$")
+RANGE_VALUES = re.compile(r"^(?P<low>\d+)\.\.(?P<high>\d+)$")
 
 
 # What a `value` option's argument is called in the listing. The manifest says
@@ -111,7 +112,10 @@ def summary_text(row: dict[str, str]) -> str:
     """
     parts = [row["summary"]]
     values = row["values"]
-    if values and values != "-" and LITERAL_VALUES.match(values):
+    bounds = RANGE_VALUES.match(values or "")
+    if bounds:
+        parts.append(f": {bounds.group('low')}-{bounds.group('high')}")
+    elif values and values != "-" and LITERAL_VALUES.match(values):
         parts.append(": " + ", ".join(values.split("|")))
     default = row["default"]
     if default and default != "-":

@@ -317,6 +317,27 @@ run_failure "charge limit without hardware" "--charge-limit requires --hardware"
 run_failure "invalid charge limit" \
   "--charge-limit must be an integer from 40 to 100" \
   ./install.sh --dry-run --hardware ga402xz --charge-limit 101
+run_failure "charge limit below the range" \
+  "--charge-limit must be an integer from 40 to 100" \
+  ./install.sh --dry-run --hardware ga402xz --charge-limit 39
+run_success "charge limit at the bottom of the range" "charge-limit:40" \
+  ./install.sh --dry-run --hardware ga402xz --charge-limit 40
+run_success "charge limit at the top of the range" "charge-limit:100" \
+  ./install.sh --dry-run --hardware ga402xz --charge-limit 100
+
+# The installer reads the range from the manifest rather than keeping its own
+# copy, so the bound --help and the generated reference publish is the bound a
+# run enforces (#509, V4-25).
+wide_manifest="$test_root/wide-charge-limit.tsv"
+sed 's/\t40\.\.100\t/\t30..100\t/' config/install-options.tsv >"$wide_manifest"
+grep -q $'\t30\\.\\.100\t' "$wide_manifest"
+run_success "charge limit follows the manifest's range" "charge-limit:35" \
+  env "INSTALL_OPTION_MANIFEST=$wide_manifest" \
+  ./install.sh --dry-run --hardware ga402xz --charge-limit 35
+run_failure "charge limit refusal states the manifest's range" \
+  "--charge-limit must be an integer from 30 to 100" \
+  env "INSTALL_OPTION_MANIFEST=$wide_manifest" \
+  ./install.sh --dry-run --hardware ga402xz --charge-limit 29
 run_failure "VM host and guest are mutually exclusive" \
   "--vm-host and --vm-guest cannot be combined" \
   ./install.sh --dry-run --vm-host --vm-guest

@@ -48,6 +48,6 @@ usage_persistent_options() {
   --hardware MODEL   ASUS hardware model: ga402xz, ga402rk
   --secure-boot      Require Secure Boot for the selected hardware (default:
                      false)
-  --charge-limit N   ASUS battery charge limit, 40-100
+  --charge-limit N   ASUS battery charge limit: 40-100
 EOF
 }

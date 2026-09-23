@@ -20,3 +20,4 @@ platform	option	consumer	kind	detail	summary
 -	theme	theme-assets/.local/share/wallpapers/catppuccin-{value}.webp	file-per-value	-	One desktop wallpaper per flavour
 -	theme	theme-assets/.local/share/wallpapers/catppuccin-{value}-lock.webp	file-per-value	-	One lock-screen wallpaper per flavour
 fedora	hardware	platforms/fedora/scripts/install-asus-hardware.sh	shell-case	model	The ASUS hardware installer branches on the model it was given
+fedora	charge-limit	platforms/fedora/scripts/install-asus-hardware.sh	shell-range	charge_limit	The ASUS hardware installer refuses a battery charge limit outside its range

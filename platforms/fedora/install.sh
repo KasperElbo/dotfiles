@@ -110,9 +110,11 @@ case "$hardware_model" in '' | ga402xz | ga402rk) ;; *) die "Invalid hardware pr
 [[ "$install_vm_guest" != true || -z "$hardware_model" ]] || die '--vm-guest and --hardware cannot be combined'
 if [[ -n "$hardware_charge_limit" ]]; then
   [[ -n "$hardware_model" ]] || die '--charge-limit requires --hardware'
-  if [[ ! "$hardware_charge_limit" =~ ^[0-9]+$ ]] ||
-    ((hardware_charge_limit < 40 || hardware_charge_limit > 100)); then
-    die '--charge-limit must be an integer from 40 to 100'
+  # The bound is the manifest's, the one --help and the generated reference
+  # publish, rather than a second copy of it here.
+  if ! install_option_accepts fedora charge-limit "$hardware_charge_limit"; then
+    charge_limit_range="$(install_option_field fedora charge-limit values)"
+    die "--charge-limit must be an integer from ${charge_limit_range%..*} to ${charge_limit_range#*..}"
   fi
 fi
 

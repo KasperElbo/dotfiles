@@ -100,10 +100,15 @@ UNSET_DEFAULTS = {"-", "inherit"}
 # The first assignment in an arm's body is the variable that arm records the
 # selection in.
 ARM_ASSIGNMENT = re.compile(r"(?P<name>[A-Za-z_]\w*)=")
-# A `values` column that enumerates literals, as opposed to one that states a
-# pattern: `--charge-limit`'s `[4-9][0-9]|100` is a shape, and there is no set
-# of words for a consumer to agree with.
-LITERAL_VALUES = re.compile(r"^[\w.-]+(?:\|[\w.-]+)*$")
+# The two shapes a `values` column may take. An enumeration of literals,
+# `latte|frappe|macchiato|mocha`, is a set of words each consumer has to agree
+# with; an integer range, `40..100`, is a bound each consumer has to enforce.
+# Nothing else is accepted: `--charge-limit` used to state `[4-9][0-9]|100`, a
+# regular expression nothing compared with the installer's own `((x < 40 ||
+# x > 100))`, so widening it moved the published range while the installer went
+# on refusing it.
+RANGE_VALUES = re.compile(r"^(?P<low>\d+)\.\.(?P<high>\d+)$")
+LITERAL_VALUES = re.compile(r"^[\w-]+(?:\|[\w-]+)*$")
 # One case arm's pattern, at the start of its own line, which is how every
 # consumer in the registry writes one.
 CASE_ARM = re.compile(r"^[ \t]*(?P<pattern>[^()\n]+?)\)")
@@ -409,6 +414,37 @@ def validate_set_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[
     return sites
 
 
+def range_bounds(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] | None:
+    """The bounds each `((detail < LOW || detail > HIGH))` test enforces.
+
+    That arithmetic test is how a script refuses an integer outside its range.
+    A bound may be a literal or a name the file sets once to a literal where it
+    runs, which is how a script states its range once for its test, its message
+    and its usage text. Each test is its own site, read as `LOW..HIGH` so it
+    compares with the manifest's range as one value.
+    """
+    scoped = scoped_lines(path, detail)
+    if scoped is None:
+        return None
+    lines, name, offset = scoped
+    constants = load_time_assignments(path.read_text(encoding="utf-8"))
+    operand = r"(?:10#)?\$?\{?" + re.escape(name) + r"\}?"
+    bound = r"(?P<{}>\w+)"
+    test = re.compile(
+        operand + r"\s*<\s*" + bound.format("low") + r"\s*\|\|\s*"
+        + operand + r"\s*>\s*" + bound.format("high")
+    )
+    sites: list[tuple[str, set[str]]] = []
+    for number, line in enumerate(lines):
+        for match in test.finditer(line):
+            low, high = (
+                constants.get(match.group(side), match.group(side))
+                for side in ("low", "high")
+            )
+            sites.append((f"the range test on line {offset + number + 1}", {f"{low}..{high}"}))
+    return sites
+
+
 def pattern_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] | None:
     """The values named by `detail`, a line this file writes once per value.
 
@@ -480,11 +516,24 @@ def check_value_consumers(options: list[dict[str, str]]) -> int:
             fail(message)
         return 1
 
-    enumerated = {
-        (option["platform"], option["option"]): option
-        for option in options
-        if option["kind"] == "value" and LITERAL_VALUES.match(option["values"] or "")
-    }
+    enumerated: dict[tuple[str, str], dict[str, str]] = {}
+    for option in options:
+        if option["kind"] != "value" or option["values"] in {"", "-"}:
+            continue
+        key = (option["platform"], option["option"])
+        values = option["values"]
+        bounds = RANGE_VALUES.match(values)
+        if bounds and int(bounds.group("low")) > int(bounds.group("high")):
+            fail(f"{key[0]}: {key[1]} states the range {values}, whose low bound is "
+                 f"above its high bound, so it accepts nothing")
+            errors += 1
+        elif not bounds and not LITERAL_VALUES.match(values):
+            fail(f"{key[0]}: {key[1]} states its values as {values!r}, which is neither "
+                 f"an enumeration (a|b|c) nor an integer range (LOW..HIGH); a pattern "
+                 f"is published as fact and enforced nowhere this check can read")
+            errors += 1
+            continue
+        enumerated[key] = option
     covered: set[tuple[str, str]] = set()
     for row in rows:
         matching = [
@@ -531,7 +580,17 @@ def check_value_consumers(options: list[dict[str, str]]) -> int:
             errors += 1
             continue
         for key in matching:
-            declared = {value for value in enumerated[key]["values"].split("|") if value}
+            values = enumerated[key]["values"]
+            if RANGE_VALUES.match(values):
+                for where, accepted in sites:
+                    if accepted != {values}:
+                        fail(f"{key[0]}: the manifest bounds {row['option']} to "
+                             f"{values}, but {row['consumer']} enforces "
+                             f"{', '.join(sorted(accepted))} in {where}; the published "
+                             f"range and the one a run accepts disagree")
+                        errors += 1
+                continue
+            declared = {value for value in values.split("|") if value}
             for where, accepted in sites:
                 for value in sorted(declared - accepted):
                     fail(f"{key[0]}: the manifest offers {row['option']} {value!r}, "
@@ -565,6 +624,7 @@ CONSUMER_READERS = {
     "lua-table": lua_table_keys,
     "powershell-validateset": validate_set_values,
     "line-pattern": pattern_values,
+    "shell-range": range_bounds,
     "file-per-value": None,
 }
 # How each kind reads in a message, so a consumer that has stopped carrying the
@@ -576,6 +636,9 @@ CONSUMER_SHAPES = {
     "lua-table": lambda detail: f"`{detail} = {{` table",
     "powershell-validateset": lambda detail: f"`[ValidateSet(...)]` on `${detail}`",
     "line-pattern": lambda detail: f"line matching `{detail}`",
+    "shell-range": lambda detail: (
+        f"`(({detail.rpartition(':')[2]} < LOW || {detail.rpartition(':')[2]} > HIGH))` test"
+    ),
     "file-per-value": lambda detail: f"file matching `{detail}`",
 }
 

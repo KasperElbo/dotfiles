@@ -418,6 +418,43 @@ run_capture python3 "$repo_root/scripts/validate-install-options.py"
 assert_success
 printf 'PASS: two file patterns in one directory read as their own values\n'
 
+# --- A range stated once and held to every site that enforces it -----------
+
+# `--charge-limit` published `[4-9][0-9]|100`, a pattern nothing compared with
+# the ASUS installer's own `((x < 40 || x > 100))`: widening it moved --help and
+# the generated reference while every run still refused the new values
+# (#509, V4-25). The manifest edit alone has to fail now, in both directions.
+for range in 30..100 40..90; do
+  scratch_tree
+  sed -i "s/\t40\.\.100\t/\t$range\t/" "$tree/config/install-options.tsv"
+  grep -q "	$range	" "$tree/config/install-options.tsv"
+  run_capture python3 "$tree/scripts/validate-install-options.py"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" \
+    "the manifest bounds charge-limit to $range, but platforms/fedora/scripts/install-asus-hardware.sh enforces 40..100"
+  printf 'PASS: a manifest range of %s the installer does not enforce fails\n' "$range"
+done
+
+# The same disagreement from the other side: the script's own bound moves and
+# the manifest does not.
+scratch_tree
+replace_line "$tree/platforms/fedora/scripts/install-asus-hardware.sh" \
+  'charge_limit_min=40' 'charge_limit_min=45'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "the manifest bounds charge-limit to 40..100, but platforms/fedora/scripts/install-asus-hardware.sh enforces 45..100"
+printf 'PASS: a consumer range that moves without the manifest fails\n'
+
+# A pattern is not a range: it is published as fact and nothing can read it.
+scratch_tree
+sed -i 's/\t40\.\.100\t/\t[4-9][0-9]|100\t/' "$tree/config/install-options.tsv"
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "charge-limit states its values as '[4-9][0-9]|100', which is neither an enumeration"
+printf 'PASS: a values pattern that is neither a list nor a range fails\n'
+
 # A kind the check cannot read is an error: a consumer whose shape is unknown
 # enforces nothing, and reading that as agreement is the defect itself.
 test_new_root
