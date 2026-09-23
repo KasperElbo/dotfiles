@@ -668,7 +668,9 @@ helper is the line in the verifier that called it. A verifier may define a
 `check_*` helper of its own, and then that first frame is the helper's own
 `pass` or `fail` line, so while the frame is running a `check_*` function the
 verdict is credited to its caller too, as far out as the calls go. A line that
-only defines such a helper is not a call site. `./scripts/test.sh` arms
+only defines such a helper is not a call site. A call written as `check_x \`
+with its first argument on the next line is refused outright: bash credits it
+to that next line, so no fixture could ever cover it. `./scripts/test.sh` arms
 that trace for the aggregate run only — a targeted run reaches a fraction of
 the call sites and would report every other one as uncovered — and reads it
 with `scripts/validate-check-outcomes.py` once the suites are done.

@@ -56,6 +56,11 @@ CHECK_CALL = re.compile(
     r"^\s*(?:(?:if|while|until)\s+)?(?:!\s+)?(check_[a-z0-9_]+)\b(?!\s*\(\))"
 )
 
+# A call whose first argument starts on the next line. Bash credits such a call
+# to the line its first argument is on, so the trace names a line this gate
+# does not count, and the call site stays uncovered whatever a fixture does.
+SPLIT_CALL = re.compile(r"^\s*(?:(?:if|while|until)\s+)?(?:!\s+)?check_[a-z0-9_]+\s*\\$")
+
 VERIFIER_GLOBS = ("platforms/*/scripts/verify*.sh", "common/verify-*.sh")
 
 
@@ -173,6 +178,17 @@ def main() -> int:
         return 1
 
     errors = 0
+    for verifier in verifiers():
+        lines = (ROOT / verifier).read_text(encoding="utf-8").splitlines()
+        for line in call_sites(verifier):
+            if SPLIT_CALL.match(lines[line - 1]):
+                fail(
+                    f"{verifier}:{line}: the call's first argument is on the "
+                    f"next line, and bash credits the call to that line, so "
+                    f"no fixture can cover this one; start its arguments on "
+                    f"the line that names the check"
+                )
+                errors += 1
     gained: list[tuple[str, int, int]] = []
     ledger = LEDGER.relative_to(ROOT)
     for verifier in verifiers():

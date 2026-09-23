@@ -202,6 +202,32 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "names no call site in any verifier"
 printf 'PASS: verdicts from a copy of the tree do not count as coverage\n'
 
+# A call whose first argument starts on the next line is credited by bash to
+# that next line, so the trace never names the line this gate counts. Three
+# Fedora symlink checks sat uncovered that way while their suites drove them
+# both ways. The case credits the split line itself, so only the refusal can
+# turn it red.
+new_scratch
+verifier="$scratch/platforms/fedora/scripts/verify.sh"
+python3 - "$verifier" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+anchor = next(index for index, line in enumerate(lines) if line.startswith("section "))
+lines[anchor + 1:anchor + 1] = [
+    "  check_file_contains \\",
+    "    /etc/systemd/journald.conf 'Storage=persistent' 'journald keeps logs'",
+]
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PYTHON
+cover_everything
+validate
+assert_failure
+assert_contains "$TEST_OUTPUT" "the call's first argument is on the next line"
+printf 'PASS: a call split before its first argument is refused\n'
+
 # A verifier's own check_* helper credits the line that called it. The trace
 # used to stop at the first frame outside the library, which for such a helper
 # is its own pass or fail line, so the call site the rule counts was never
