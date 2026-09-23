@@ -215,6 +215,56 @@ verify_reset
 check_mise_owned tool
 assert_verifier_counts 1 0 0
 
+# The login probes, run by a real Zsh from inside a project that pins another
+# version of the tool. The login's `mise activate` resolves from the directory
+# the shell starts in, the way mise's hook-env does; a new terminal starts in
+# $HOME, so the project's pin is not the login's. Started from the project, the
+# probe used to report the project's install as the login's own and fail a
+# machine that is fine (the class of issue #462).
+login_home="$root/login-home"
+login_project="$root/login-project"
+mkdir -p "$login_home" "$login_project" "$root/mise-data/installs/tool/9/bin"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$root/mise-data/installs/tool/9/bin/tool"
+chmod +x "$root/mise-data/installs/tool/9/bin/tool"
+printf '[tools]\ntool = "9"\n' >"$login_project/mise.toml"
+cat >"$root/login-mise" <<EOF
+#!/usr/bin/env bash
+# activate zsh: the install the nearest mise.toml at or above the working
+# directory pins for tool goes first on PATH.
+if [[ "\$*" != "activate zsh" ]]; then
+  printf 'login-mise stub: unexpected invocation: mise %s\n' "\$*" >&2
+  exit 96
+fi
+directory="\$PWD"
+while :; do
+  if [[ -f "\$directory/mise.toml" ]]; then
+    version="\$(sed -n 's/^tool = "\\(.*\\)"\$/\\1/p' "\$directory/mise.toml")"
+    printf 'export PATH=%q:"\$PATH"\n' "$root/mise-data/installs/tool/\$version/bin"
+    exit 0
+  fi
+  [[ "\$directory" != / ]] || exit 0
+  directory="\$(dirname "\$directory")"
+done
+EOF
+chmod +x "$root/login-mise"
+printf 'eval "$(%q activate zsh)"\n' "$root/login-mise" >"$login_home/.zshenv"
+login_saved_home="$HOME"
+login_saved_caller_path="$VERIFY_CALLER_PATH"
+unset VERIFY_CALLER_PATH VERIFY_CONFIGURED_LOGIN_PATH
+export HOME="$login_home"
+login_origin="$PWD"
+cd "$login_project"
+verify_reset
+check_mise_owned tool >"$root/login-project.out" 2>&1 || true
+cd "$login_origin"
+export HOME="$login_saved_home"
+VERIFY_CALLER_PATH="$login_saved_caller_path"
+assert_verifier_counts 1 0 0
+assert_file_contains "$root/login-project.out" 'tool is mise-managed'
+rm -r "$login_home" "$login_project" "$root/mise-data/installs" "$root/login-mise" \
+  "$root/login-project.out"
+printf "PASS: a project's mise.toml in the verifier's directory does not answer for a new login\n"
+
 mkdir -p "$root/configured-login-bin"
 VERIFY_CONFIGURED_LOGIN_PATH="$root/configured-login-bin"
 verify_reset
