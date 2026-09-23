@@ -567,20 +567,57 @@ assert_file_contains "$root/mason.out" 'carries no links object'
 assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
 printf 'PASS: a receipt with no links object is not a finished install\n'
 
-# An empty links.bin is deliberately still credited, and this pins that choice
-# rather than leaving it as an accident. Mason supports a package that links
-# only share or opt, and reporting one unconverged would fail the install
-# outright; no receipt from a real install has been read here to say otherwise.
-# The cost is that this one damage shape is not caught, which is the point of
-# writing it down.
+# An empty links.bin cancelled the link check the same way. Mason fills it
+# from the package spec's bin table, and every package this repository
+# installs declares one, so a receipt that links nothing is not Mason's.
 mason_case_begin receipt-with-empty-bin-links
 mason_stylua_receipt="$mason_case_root/nvim/mason/packages/stylua/mason-receipt.json"
 jq '.links.bin = {}' "$mason_stylua_receipt" >"$mason_stylua_receipt.edited"
 mv "$mason_stylua_receipt.edited" "$mason_stylua_receipt"
+rm -f -- "$(mason_stylua_link)"
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" 'links no executables'
+assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
+printf 'PASS: a receipt that links nothing into bin is not a finished install\n'
+
+# On macOS and Linux Mason makes every bin entry a symlink, including for the
+# npm:, pyvenv: and dotnet: packages, whose wrapper lives inside the package.
+# A plain executable of the right name is therefore something else, and it
+# passed every earlier test in the check: it exists, it runs, and the receipt's
+# target is still in place.
+mason_case_begin link-replaced-by-plain-script
+rm -f -- "$(mason_stylua_link)"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$(mason_stylua_link)"
+chmod +x "$(mason_stylua_link)"
+[[ -x "$(mason_stylua_link)" && ! -L "$(mason_stylua_link)" ]] ||
+  _test_die 'the replacement must be an executable non-link, or this case proves nothing'
+mason_case_check
+assert_verifier_counts 1 1 0
+assert_file_contains "$root/mason.out" 'bin/stylua is not a symlink'
+assert_file_contains "$root/mason.out" 'Mason: lua-language-server'
+printf 'PASS: a Mason executable that is not a link is reported\n'
+
+# The npm shape, as a real macOS receipt records it: links.bin names
+# node_modules/.bin/<exec>, which npm itself made a symlink into the module.
+# bin/<exec> is Mason's link to npm's link, so both sides resolve to the
+# module's script and must agree; a check that stopped at the first hop, or
+# that refused a target that is itself a link, would fail every npm package.
+mason_case_begin npm-shaped-link
+mason_npm_dir="$mason_case_root/nvim/mason/packages/stylua"
+mkdir -p "$mason_npm_dir/node_modules/.bin" "$mason_npm_dir/node_modules/stylua/bin"
+printf '#!/usr/bin/env node\n' >"$mason_npm_dir/node_modules/stylua/bin/stylua"
+chmod +x "$mason_npm_dir/node_modules/stylua/bin/stylua"
+ln -sf ../stylua/bin/stylua "$mason_npm_dir/node_modules/.bin/stylua"
+ln -sf ../packages/stylua/node_modules/.bin/stylua "$(mason_stylua_link)"
+mason_stylua_receipt="$mason_npm_dir/mason-receipt.json"
+jq '.links.bin.stylua = "node_modules/.bin/stylua"' "$mason_stylua_receipt" \
+  >"$mason_stylua_receipt.edited"
+mv "$mason_stylua_receipt.edited" "$mason_stylua_receipt"
 mason_case_check
 assert_verifier_counts 2 0 0
 assert_file_contains "$root/mason.out" 'Mason: stylua (installed at 2.1.0)'
-printf 'PASS: a receipt that links nothing into bin is still credited\n'
+printf 'PASS: an npm package linked through node_modules/.bin is installed\n'
 
 # jq is how a receipt is read. There is no way to make it answer "not
 # installed", so this narrows PATH to a base userland without it and requires
