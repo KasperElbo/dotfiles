@@ -402,6 +402,7 @@ grep -Fq 'python3 remains Parrot/APT-owned' <<<"$verification_output"
 grep -Fq 'Neovim 0.12.5 satisfies the >= 0.12 baseline' <<<"$verification_output"
 grep -Fq 'Mason inventory exactly matches the reduced Parrot profile' <<<"$verification_output"
 grep -Fq 'Lazy plugins match ' <<<"$verification_output"
+grep -Fq 'Markdown preview server: ' <<<"$verification_output"
 grep -Fq 'VERIFIED: default route/interface observed' <<<"$verification_output"
 grep -Fq 'NOT OBSERVED: mounted 9p or virtiofs host filesystem' <<<"$verification_output"
 grep -Fq 'MANUAL ASSURANCE REQUIRED:' <<<"$verification_output"
@@ -420,6 +421,20 @@ fi
 grep -Fq "Lazy plugin not installed: $missing_plugin" "$test_root/missing-plugin.log"
 mv "$test_root/withheld-plugin" "$data/nvim/lazy/$missing_plugin"
 printf 'PASS: a locked plugin missing from the tree is reported, not installed\n'
+
+# Writeups need the preview, and a checkout at the locked commit with no server
+# is what a headless install whose build never finished left behind.
+parrot_preview_server="$data/nvim/lazy/markdown-preview.nvim/app/bin/$(bash -c 'source "$1/common/lib/markdown-preview.sh" && markdown_preview_server_name' _ "$repo_root")"
+mv "$parrot_preview_server" "$test_root/withheld-preview-server"
+if "${verify_environment[@]}" \
+  "$repo_root/platforms/parrot-ctf/scripts/verify.sh" \
+  >"$test_root/missing-preview-server.log" 2>&1; then
+  printf 'Parrot verification accepted a Markdown preview with no server.\n' >&2
+  exit 1
+fi
+grep -Fq 'Markdown preview server absent: ' "$test_root/missing-preview-server.log"
+mv "$test_root/withheld-preview-server" "$parrot_preview_server"
+printf 'PASS: a Markdown preview with no server is reported\n'
 
 mkdir -p "$data/nvim/mason/packages/roslyn"
 if "${verify_environment[@]}" \
