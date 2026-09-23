@@ -30,6 +30,15 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 from manifests import ManifestSchemaError, read_tsv  # noqa: E402
 from generated import read_committed  # noqa: E402
 from shell import function_spans, outside_functions, strip_noise  # noqa: E402
+from installer_argv import (  # noqa: E402
+    ARM_ASSIGNMENT,
+    ONLY_SHIFTS,
+    PARSER,
+    REJECTION,
+    UnreadableParser,
+    parser_flags,
+    recorded_variable,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPTION_MANIFEST = pathlib.Path(
@@ -97,9 +106,6 @@ REFERENCE = re.compile(r"^\$\{?(?P<name>[A-Za-z_]\w*)\}?$")
 # empty string so an omitted sub-flag stays distinguishable from an explicit
 # `--no-<component>`.
 UNSET_DEFAULTS = {"-", "inherit"}
-# The first assignment in an arm's body is the variable that arm records the
-# selection in.
-ARM_ASSIGNMENT = re.compile(r"(?P<name>[A-Za-z_]\w*)=")
 # The two shapes a `values` column may take. An enumeration of literals,
 # `latte|frappe|macchiato|mocha`, is a set of words each consumer has to agree
 # with; an integer range, `40..100`, is a bound each consumer has to enforce.
@@ -116,90 +122,10 @@ CASE_ARM = re.compile(r"^[ \t]*(?P<pattern>[^()\n]+?)\)")
 # everything else and for nothing, neither of which names a value.
 CASE_VALUE = re.compile(r"^[\w.-]+$")
 
-PARSER = re.compile(
-    r'while \(\(\$#\)\); do\s*case "\$1" in\n(?P<arms>.*?)\n\s*esac\s*\n\s*done',
-    re.DOTALL,
-)
-# What ends a case arm. `;&` and `;;&` fall through to the next arm rather than
-# leaving the case, and an arm is just as real for ending in one: reading only
-# `;;` let the previous arm's body run past a `;&` and swallow the pattern of
-# the arm after it, which then accepted a flag nothing in this check had seen.
-TERMINATOR = r";;&|;;|;&"
-# One alternative of an arm's pattern: `--kde`, or a glob such as `--jobs=*`,
-# which is how a parser accepts `--jobs=4` in one word. `=` is not a word
-# character, so an arm written that way used to line up with no `)` at all and
-# the flag it accepts went unchecked in both directions.
-ALTERNATIVE = r"-[\w-]*(?:=\*)?"
-# One case arm: a pattern of `-flag | --other` alternatives, then its body up
-# to the terminator that ends it. Arms share lines (`--kde) …; shift ;; --no-kde)
-# …`), so an arm starts at a line start or right after the previous arm's
-# terminator.
-ARM = re.compile(
-    r"(?:^|" + TERMINATOR + r")[ \t]*"
-    r"(?P<pattern>" + ALTERNATIVE + r"(?:[ \t]*\|[ \t]*" + ALTERNATIVE + r")*)"
-    r"\)(?P<body>.*?)(?=" + TERMINATOR + r")",
-    re.DOTALL | re.MULTILINE,
-)
-# Every arm, read only far enough to see the pattern it matches on. This is
-# what makes an arm shape ARM cannot read an error rather than a silent
-# omission: a flag arm the strict pattern skipped is a flag this check never
-# compared against the manifest, in either direction.
-ANY_ARM = re.compile(r"(?:^|" + TERMINATOR + r")[ \t]*(?P<pattern>[^\n)]*)\)", re.MULTILINE)
-# Whether an arm's pattern names a flag at all. `*)` and a bare word arm are
-# not this check's business; anything with a `-word` alternative is.
-FLAG_ALTERNATIVE = re.compile(r"(?:^|\|)\s*-")
-# An arm that refuses its flags rather than accepting them. The word boundary
-# matters: `die_if_wsl` is a check the arm runs before accepting the flag, and
-# reading it as a refusal reported the flag as rejected on a platform that
-# takes it.
-REJECTION = re.compile(r"die\b")
-# What a persistent option's arm does beyond moving past its own argument. An
-# arm that only shifts accepts the flag and records nothing, so the machine
-# forgets the selection and `./install.sh --rerun` silently drops it.
-ONLY_SHIFTS = re.compile(r"^(?:shift(?:\s+\d+)?\s*;?\s*)+$")
 
 
 def fail(message: str) -> None:
     print(f"installer option parser: {message}", file=sys.stderr)
-
-
-class UnreadableParser(Exception):
-    """An argv arm this check cannot read, which is never the same as none."""
-
-
-def parser_flags(
-    installer: pathlib.Path,
-) -> tuple[set[str], set[str], dict[str, str]] | None:
-    """The flags a parser accepts, the flags it rejects, and each arm's body.
-
-    An arm whose pattern this check cannot read raises rather than being
-    skipped. Skipping takes the flag out of the comparison in both directions
-    at once -- the parser accepts it and the manifest is never asked about it
-    -- which is the failure this check exists to prevent.
-    """
-    match = PARSER.search(installer.read_text(encoding="utf-8"))
-    if match is None:
-        return None
-    arms = match.group("arms")
-    accepted: set[str] = set()
-    rejected: set[str] = set()
-    bodies: dict[str, str] = {}
-    read = {arm.start("pattern") for arm in ARM.finditer(arms)}
-    for arm in ANY_ARM.finditer(arms):
-        pattern = arm.group("pattern").strip()
-        if not FLAG_ALTERNATIVE.search(pattern) or arm.start("pattern") in read:
-            continue
-        raise UnreadableParser(pattern)
-    for arm in ARM.finditer(arms):
-        flags = {flag.strip() for flag in arm.group("pattern").split("|")}
-        body = arm.group("body").strip()
-        if REJECTION.match(body):
-            rejected |= flags
-        else:
-            accepted |= flags
-            for flag in flags:
-                bodies[flag] = body
-    return accepted, rejected, bodies
 
 
 def code_line(line: str) -> str:
@@ -446,11 +372,16 @@ def range_bounds(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] 
 
 
 def pattern_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]] | None:
-    """The values named by `detail`, a line this file writes once per value.
+    """The values named by `detail`, a line this file writes.
 
-    `{value}` stands for the value, so `[delta "catppuccin-{value}"]` reads the
-    four Catppuccin sections of a git theme file as the four flavours they
-    configure.
+    `{value}` stands for one value, on a line the file writes once per value,
+    so `[delta "catppuccin-{value}"]` reads the four Catppuccin sections of a
+    git theme file as the four flavours they configure; together those lines
+    are one site. `{values}` stands for the whole set written as `a|b|c` on one
+    line, which is how a usage string states what a command accepts:
+    `Usage: theme {{values}} [--preserve-wallpaper]`. Each such line is a site
+    of its own, named by its line number, because a usage string that has
+    fallen behind its own `case` is the prose copy nothing else reads.
 
     A line that opens with `#` or `;` is a comment in every file this kind
     reads (git configuration, shell), so it is left out before matching:
@@ -458,16 +389,27 @@ def pattern_values(path: pathlib.Path, detail: str) -> list[tuple[str, set[str]]
     in git's case -- the keys under it join the section above, so latte
     silently takes frappe's colours.
     """
-    text = "\n".join(
+    lines = [
         "" if line.lstrip().startswith(("#", ";")) else line
         for line in path.read_text(encoding="utf-8").splitlines()
-    )
+    ]
+    parts = re.split(r"(\{values?\})", detail)
     pattern = re.compile(
         "".join(
-            r"(?P<value>[\w.-]+)" if part == "{value}" else re.escape(part)
-            for part in re.split(r"(\{value\})", detail)
+            r"(?P<value>[\w.-]+)" if part == "{value}"
+            else r"(?P<values>[\w.-]+(?:\|[\w.-]+)*)" if part == "{values}"
+            else re.escape(part)
+            for part in parts
         )
     )
+    if "{values}" in parts:
+        return [
+            (f"the line matching `{detail}` on line {number}",
+             set(match.group("values").split("|")))
+            for number, line in enumerate(lines, 1)
+            for match in pattern.finditer(line)
+        ]
+    text = "\n".join(lines)
     return [(f"the lines matching `{detail}`", {m.group("value") for m in pattern.finditer(text)})]
 
 
@@ -686,28 +628,19 @@ def declared_defaults(installer: pathlib.Path, platform: str) -> dict[str, str]:
     return resolved
 
 
-# The dry-run summary, which every platform installer writes the same way: one
-# unquoted heredoc under the `--dry-run` test, so the option variables expand.
-# The heading differs per platform and the structure does not, so the structure
-# is what this matches.
-DRY_RUN_SUMMARY = re.compile(
-    r'if \[\[ "\$dry_run" == true \]\]; then\s*\n\s*cat <<EOF\n(?P<body>.*?)\nEOF',
-    re.DOTALL,
+# The `--dry-run` branch every platform installer opens the same way, up to the
+# `fi` that closes it at the start of a line. Its persistent-option lines come
+# from `plan_persistent_options`, which scripts/render-installer-usage.py
+# generates from the manifest into lib/usage-options.sh: each under its
+# manifest summary, showing the variable its own argv arm records.
+DRY_RUN_BRANCH = re.compile(
+    r'^if \[\[ "\$dry_run" == true \]\]; then\n(?P<body>.*?)^fi$',
+    re.DOTALL | re.MULTILINE,
 )
+PLAN_CALL = re.compile(r"^[ \t]*plan_persistent_options[ \t]*$", re.MULTILINE)
 # Where a selection is recorded for `--rerun`, and where the installer lists the
 # capabilities it is about to act on.
 SELECTION_SET = re.compile(r"^\s*install_selection_set (?P<option>[\w-]+) ", re.M)
-# A capability a dry-run line shows through a derived display variable rather
-# than the one its arm records, with the reason. `--kde` and `--latex` are
-# tri-valued (enabled, disabled, auto) and the summary prints the answer the run
-# resolved rather than the request, so `$bool_kde` is the honest thing to show.
-# Listing it here is what keeps a deliberate indirection from reading as a
-# missing line.
-DISPLAY_VARIABLES = {
-    ("fedora", "kde"): "bool_kde",
-    ("fedora", "latex"): "bool_latex",
-}
-
 
 def check_installer_wiring(
     platform: str, relative: str, options: list[dict[str, str]],
@@ -721,14 +654,27 @@ def check_installer_wiring(
     while no step ever ran it, or be recorded under a name `--rerun` cannot
     replay, and every gate stayed green. The `--help` listing is generated from
     the manifest now, so the remaining hand-written sites are held to it here.
+
+    The `--dry-run` summary is generated too. It was checked by asking whether
+    each option's variable appeared anywhere in a hand-written heredoc, which
+    never tied a variable to the label printed beside it: swapping two
+    variables between their labels passed, and the plan a user reads before
+    confirming printed `Sway session: false` above a rerun record saying
+    `sway:true`. So the branch has to call the generated lines, and may not
+    print an option's variable by hand beside them.
     """
     errors = 0
-    summary = DRY_RUN_SUMMARY.search(text)
-    if summary is None:
-        fail(f"{relative}: no `--dry-run` summary heredoc found, so the plan it "
-             f"prints cannot be compared with the manifest")
+    branch = DRY_RUN_BRANCH.search(text)
+    if branch is None:
+        fail(f"{relative}: no `if [[ \"$dry_run\" == true ]]; then` branch found, so "
+             f"the plan it prints cannot be compared with the manifest")
         return 1
-    body = summary.group("body")
+    body = branch.group("body")
+    if PLAN_CALL.search(body) is None:
+        fail(f"{platform}: the `--dry-run` branch in {relative} never calls "
+             f"plan_persistent_options, so the persistent options are resolved and "
+             f"installed without the generated plan lines that show them")
+        errors += 1
 
     # A selection is recorded under the option's own name, which is the key
     # `--rerun` replays it by, so the two sets are exactly each other.
@@ -763,18 +709,70 @@ def check_installer_wiring(
                      f"selecting {name} records the choice and installs nothing")
                 errors += 1
 
-        flag = option["on_flag"]
-        if flag in {"", "-"} or flag not in bodies:
+        variable = recorded_variable(platform, option, bodies)
+        if variable is None:
             continue
-        assignment = ARM_ASSIGNMENT.search(bodies[flag])
-        if assignment is None:
-            continue
-        variable = DISPLAY_VARIABLES.get((platform, name)) or assignment.group("name")
-        if f"${variable}" not in body and f"${{{variable}" not in body:
-            fail(f"{platform}: the `--dry-run` summary in {relative} never shows "
-                 f"${variable}, so {name} is resolved and installed without "
-                 f"appearing in the plan the run prints")
+        shown = re.search(r"\$\{?" + re.escape(variable) + r"(?![\w])", body)
+        if shown:
+            line = text.count("\n", 0, branch.start("body") + shown.start()) + 1
+            fail(f"{platform}: {relative}:{line} prints ${variable} in the `--dry-run` "
+                 f"plan by hand; plan_persistent_options already shows {name} under its "
+                 f"manifest summary, and a hand-written copy is the one that can sit "
+                 f"beside the wrong label")
             errors += 1
+    return errors
+
+
+# A line of a hand-written `--help` listing: two spaces, then the flags it
+# documents (`--kde/--no-kde`, `--codex/--no-codex, --firstmate`). An argv arm
+# starts the same way and is told apart by the `)` or `|` that follows.
+HELP_LINE = re.compile(r"^ {2}(?P<flags>--[\w-]+(?:(?:/|,\s*)--[\w-]+)*)(?P<after>.*)$")
+USAGE_CALL = re.compile(r"^[ \t]*usage_persistent_options[ \t]*$", re.MULTILINE)
+
+
+def check_usage_listing(
+    platform: str, relative: str, options: list[dict[str, str]], installer: pathlib.Path,
+) -> int:
+    """The `--help` text lists the persistent options only through the generated call.
+
+    Fedora's listing was generated and the other three platforms kept a
+    hand-written copy of the `values` and `default` columns that nothing
+    compared with anything: `(default: macchiato)` edited to `(default: mocha)`
+    passed every gate while the installer went on defaulting to macchiato. So
+    the help text has to call usage_persistent_options, and may not list a
+    persistent flag by hand beside it. macOS keeps its help in lib/usage.sh,
+    which the Bash 3.2 bootstrap prints too, so that file is read as well.
+    """
+    errors = 0
+    sources = [installer]
+    shared = installer.parent / "lib" / "usage.sh"
+    if shared.is_file():
+        sources.append(shared)
+    persistent = {
+        option[column]
+        for option in options
+        for column in ("on_flag", "off_flag")
+        if option[column] not in {"", "-"}
+    }
+    called = False
+    for source in sources:
+        text = source.read_text(encoding="utf-8")
+        called = called or USAGE_CALL.search(text) is not None
+        where = source.relative_to(ROOT).as_posix()
+        for number, line in enumerate(text.splitlines(), 1):
+            match = HELP_LINE.match(line)
+            if match is None or re.match(r"\s*[|)]", match.group("after")):
+                continue
+            for flag in re.findall(r"--[\w-]+", match.group("flags")):
+                if flag in persistent:
+                    fail(f"{platform}: {where}:{number} lists {flag} in the --help text by "
+                         f"hand; usage_persistent_options already lists it from the "
+                         f"manifest, and a hand-written copy is the one that drifts")
+                    errors += 1
+    if not called:
+        fail(f"{platform}: {relative} never calls usage_persistent_options, so its "
+             f"--help text does not list the persistent options the manifest declares")
+        errors += 1
     return errors
 
 
@@ -910,6 +908,7 @@ def main() -> int:
             bodies,
             declared_defaults(installer, platform),
         )
+        errors += check_usage_listing(platform, relative, platform_options, installer)
         errors += check_installer_wiring(
             platform,
             relative,

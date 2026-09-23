@@ -109,7 +109,7 @@ for platform_name in "${platforms[@]}"; do
     "$platform_name"
 done
 
-run_success "default dry-run" "ASUS hardware:       disabled" \
+run_success "default dry-run" "ASUS hardware model: disabled" \
   ./install.sh --dry-run
 run_success "default login shell dry-run" \
   "Set Zsh as the user's default login shell." \
@@ -140,20 +140,20 @@ run_success "Sway dry-run" "platforms/fedora/scripts/install-sway.sh" \
   ./install.sh --dry-run --sway
 run_success "VM-host dry-run" "platforms/fedora/scripts/install-vm-host.sh" \
   ./install.sh --dry-run --vm-host
-run_success "VM-host remains opt-in" "VM-host profile:     false" \
+run_success "VM-host remains opt-in" "KVM/QEMU + libvirt host profile: false" \
   ./install.sh --dry-run
 run_success "VM-guest dry-run" "platforms/fedora/scripts/install-vm-guest.sh" \
   ./install.sh --dry-run --vm-guest
-run_success "VM-guest remains opt-in" "VM-guest profile:    false" \
+run_success "VM-guest remains opt-in" "Explicit KVM/QEMU guest profile: false" \
   ./install.sh --dry-run
 run_success "Hardening dry-run" "platforms/fedora/scripts/install-hardening.sh" \
   ./install.sh --dry-run --hardening
-run_success "Hardening remains opt-in" "Hardening profile:   false" \
+run_success "Hardening remains opt-in" "Security-hardening profile: false" \
   ./install.sh --dry-run
 run_success "Standalone hardening dry-run" \
   "kernel.yama.ptrace_scope=1, kernel.kptr_restrict=2" \
   ./platforms/fedora/scripts/install-hardening.sh --dry-run
-run_success "Desktop tools remains opt-in" "Desktop tools:       false" \
+run_success "Desktop tools remains opt-in" "Desktop application profile: false" \
   ./install.sh --dry-run
 run_success "Desktop-tools dry-run" \
   "platforms/fedora/scripts/install-desktop-tools.sh" \
@@ -162,12 +162,12 @@ run_success "Desktop-tools dry-run lists reused KDE baseline apps" \
   "reuses Gwenview, Okular, Ark" \
   ./install.sh --dry-run --desktop-tools
 run_success "Desktop-tools force-defaults remains opt-in" \
-  "Force app defaults:  false" \
+  "Override existing application defaults: false" \
   ./install.sh --dry-run --desktop-tools
 run_success "Desktop-tools force-defaults dry-run" \
   "install-desktop-tools.sh --force-defaults" \
   ./install.sh --dry-run --desktop-tools --desktop-tools-force-defaults
-run_success "Dictation remains opt-in" "Dictation profile:   false" \
+run_success "Dictation remains opt-in" "Voice dictation profile (Handy), bound to Super+O by Sway: false" \
   ./install.sh --dry-run
 run_success "Dictation dry-run" \
   "platforms/fedora/scripts/install-dictation.sh" \
@@ -190,7 +190,7 @@ run_success "Standalone dictation dry-run names the Plasma shortcut with no Sway
 run_success "Standalone dictation dry-run configures no cloud transcription" \
   "local only; no account, API key or cloud endpoint" \
   ./platforms/fedora/scripts/install-dictation.sh --dry-run
-run_success "Containers remains opt-in" "Containers profile:  false" \
+run_success "Containers remains opt-in" "Rootless Podman profile: false" \
   ./install.sh --dry-run
 run_success "Containers dry-run" \
   "platforms/fedora/scripts/install-containers.sh" \
@@ -199,7 +199,7 @@ run_success "Containers dry-run documents no Docker Engine/alias" \
   "Docker Engine/alias:   not installed" \
   ./platforms/fedora/scripts/install-containers.sh --dry-run
 run_success "Containers API socket remains opt-in" \
-  "Containers API socket: false" \
+  "Rootless Podman API socket: false" \
   ./install.sh --dry-run --containers
 run_success "Containers API socket dry-run" \
   "install-containers.sh --api-socket" \
@@ -207,7 +207,7 @@ run_success "Containers API socket dry-run" \
 run_success "Standalone containers dry-run" \
   "Rootless API socket:   false" \
   ./platforms/fedora/scripts/install-containers.sh --dry-run
-run_success "Tailscale remains opt-in" "Tailscale profile:   false" \
+run_success "Tailscale remains opt-in" "Tailscale networking profile: false" \
   ./install.sh --dry-run
 run_success "Tailscale dry-run" \
   "platforms/fedora/scripts/install-tailscale.sh" \
@@ -218,29 +218,29 @@ run_success "Tailscale dry-run documents no automated authentication" \
 run_success "Standalone Tailscale dry-run documents no embedded credentials" \
   "none (no auth key, no OAuth secret, no tailnet policy)" \
   ./platforms/fedora/scripts/install-tailscale.sh --dry-run
-run_success "AI remains opt-in" "AI profile:          false" \
+run_success "AI remains opt-in" "AI-assisted development profile (Claude Code and Herdr): false" \
   ./install.sh --dry-run
 run_success "AI dry-run" "common/install-ai.sh" \
   ./install.sh --dry-run --ai
-run_success "AI Codex remains opt-in" "AI Codex subcomponent: inherit" \
+run_success "AI Codex remains opt-in" "AI subcomponent: Codex CLI: inherit" \
   ./install.sh --dry-run --ai
 run_success "AI Codex dry-run" "common/install-ai.sh --codex" \
   ./install.sh --dry-run --ai --codex
-run_success "AI FirstMate remains opt-in" "AI FirstMate subcomponent: inherit" \
+run_success "AI FirstMate remains opt-in" "AI subcomponent: FirstMate toolchain: inherit" \
   ./install.sh --dry-run --ai
 run_success "AI FirstMate dry-run" "common/install-ai.sh --firstmate" \
   ./install.sh --dry-run --ai --firstmate
 run_success "AI Codex and FirstMate together dry-run" \
   "common/install-ai.sh --codex --firstmate" \
   ./install.sh --dry-run --ai --codex --firstmate
-run_success "AI GNHF remains opt-in" "AI GNHF subcomponent: inherit" \
+run_success "AI GNHF remains opt-in" "AI subcomponent: GNHF: inherit" \
   ./install.sh --dry-run --ai
 run_success "AI GNHF dry-run" "common/install-ai.sh --gnhf" \
   ./install.sh --dry-run --ai --gnhf
 run_success "AI Codex, FirstMate and GNHF together dry-run" \
   "common/install-ai.sh --codex --firstmate --gnhf" \
   ./install.sh --dry-run --ai --codex --firstmate --gnhf
-run_success "AI backpass remains opt-in" "AI backpass subcomponent: inherit" \
+run_success "AI backpass remains opt-in" "AI subcomponent: backpass: inherit" \
   ./install.sh --dry-run --ai
 run_success "AI backpass dry-run" "common/install-ai.sh --backpass" \
   ./install.sh --dry-run --ai --backpass
@@ -254,7 +254,7 @@ run_success "AI explicit removal is forwarded, not silently implied" \
   "common/install-ai.sh --no-codex --no-firstmate --no-gnhf --no-backpass" \
   ./install.sh --dry-run --ai --no-codex --no-firstmate --no-gnhf --no-backpass
 run_success "AI explicit removal is reported as a removal" \
-  "AI Codex subcomponent: false" \
+  "AI subcomponent: Codex CLI: false" \
   ./install.sh --dry-run --ai --no-codex
 run_failure "AI removal flags still require the AI profile" \
   "--codex/--no-codex requires --ai" \
@@ -267,7 +267,7 @@ run_success "Sway dry-run forwards local setup" \
 run_success "GA402XZ Sway dry-run forwards hardware to local setup" \
   "platforms/fedora/scripts/setup-local.sh macchiato --sway --hardware ga402xz" \
   ./install.sh --dry-run --sway --hardware ga402xz
-run_success "GA402XZ dry-run" "Require Secure Boot: true" \
+run_success "GA402XZ dry-run" "Require Secure Boot for the selected hardware: true" \
   ./install.sh --dry-run --hardware ga402xz --secure-boot --charge-limit 80
 run_success "GA402RK dry-run" "Graphics:               AMD iGPU + AMD dGPU" \
   ./platforms/fedora/scripts/install-asus-hardware.sh --dry-run --model ga402rk

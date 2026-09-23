@@ -15,9 +15,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/install-lifecycle.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/theme-selection.sh"
 # shellcheck source=lib/fedora.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fedora.sh"
-# The --help listing of persistent options, generated from
-# config/install-options.tsv by scripts/render-installer-usage.py so a flag the
-# parser accepts cannot go undocumented.
+# The --help listing and the --dry-run lines of the persistent options,
+# generated from config/install-options.tsv by scripts/render-installer-usage.py
+# so a flag the parser accepts cannot go undocumented or be shown mislabelled.
 # shellcheck source=lib/usage-options.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/usage-options.sh"
 
@@ -315,28 +315,10 @@ if [[ "$dry_run" == true ]]; then
 
 Dotfiles installation plan
 --------------------------
-Catppuccin flavour:  $theme  (source: $theme_source — $(theme_source_description "$theme_source"))
-KDE integration:     $bool_kde
-LaTeX toolchain:     $bool_latex
-OCaml profile:       $install_ocaml
-Sway session:        $install_sway
-VM-host profile:     $install_vm_host
-VM-guest profile:    $install_vm_guest
-Hardening profile:   $install_hardening
-Desktop tools:       $install_desktop_tools
-Force app defaults:  $desktop_tools_force_defaults
-Dictation profile:   $install_dictation
-Containers profile:  $install_containers
-Containers API socket: $containers_api_socket
-Tailscale profile:   $install_tailscale
-AI profile:          $install_ai
-AI Codex subcomponent: ${ai_codex:-inherit}
-AI FirstMate subcomponent: ${ai_firstmate:-inherit}
-AI GNHF subcomponent: ${ai_gnhf:-inherit}
-AI backpass subcomponent: ${ai_backpass:-inherit}
-ASUS hardware:       ${hardware_model:-disabled}
-Require Secure Boot: $hardware_secure_boot
-Battery limit:       ${hardware_charge_limit:-unchanged}
+EOF
+  plan_persistent_options
+  cat <<EOF
+Flavour source:      $theme_source — $(theme_source_description "$theme_source")
 Development workflow smoke tests: $run_dev_workflows  (this run only)
 Recorded rerun selection: $install_selection
 Rerun if this run fails: $DOTFILES_RERUN_COMMAND

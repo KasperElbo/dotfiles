@@ -420,9 +420,9 @@ hardware_dry_run="$(
   "$repo_root/install.sh" --dry-run --no-kde --no-latex \
     --hardware ga402xz --secure-boot --charge-limit 80
 )"
-[[ "$hardware_dry_run" == *'ASUS hardware:       ga402xz'* ]]
-[[ "$hardware_dry_run" == *'Require Secure Boot: true'* ]]
-[[ "$hardware_dry_run" == *'Battery limit:       80'* ]]
+[[ "$hardware_dry_run" == *'ASUS hardware model: ga402xz'* ]]
+[[ "$hardware_dry_run" == *'Require Secure Boot for the selected hardware: true'* ]]
+[[ "$hardware_dry_run" == *'ASUS battery charge limit: 80'* ]]
 
 grep -Fq 'config/capabilities.tsv' "$repo_root/docs/capabilities.md"
 
