@@ -141,7 +141,7 @@ see [what the shell lint gate checks](../testing.md#what-the-shell-lint-gate-che
 | **Internal implementation** (`internal-executable`) | `common/*.sh`, `scripts/install-main.sh`, `scripts/bootstrap-macos.sh`, `scripts/doctor.sh` | Called by a documented entry point. Individually rerunnable, but not the documented interface — `scripts/doctor.sh` is the implementation `./doctor` execs into, not something to run directly. |
 | **Sourced library** (`sourced-library`) | `common/lib/*.sh`, `platforms/*/lib/*.sh`, `scripts/lib/*.sh`, `tests/lib/*.sh` | Meant to be sourced, never executed. Never carries the executable bit. |
 | **Stowed command** (`stowed-command`) | `bin/.local/bin/*`, `platforms/*/stow/*/.local/bin/*` | Lands on `PATH` once stowed; a real command a user runs by name. |
-| **Stowed config / data** (`stowed-config`, `stowed-data`) | `zsh/.config/zsh/*`, `fzf/.config/fzf/themes/*.sh` | Sourced by an interactive shell or another tool once stowed; never executed directly. |
+| **Stowed config / data** (`stowed-config`, `stowed-data`) | `zsh/.config/zsh/*`, `fzf/.config/fzf/themes/*.sh` | Sourced by a shell (`.zshrc` by an interactive one, `.zprofile` by every login) or another tool once stowed; never executed directly. |
 | **Test entry point** (`test-entrypoint`) | `tests/test-*.sh`, `tests/integration/*.sh` | A test suite, run by `./scripts/test.sh` or directly. |
 | **Installed system command** (`installed-system-command`) | `platforms/fedora/assets/dotfiles-sway` | Installed onto the machine outside `$HOME` by a platform script, which sets the executable bit; the tracked copy stays 644. |
 

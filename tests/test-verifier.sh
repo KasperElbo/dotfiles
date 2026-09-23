@@ -351,14 +351,20 @@ assert_verifier_counts 0 1 0
 # --- The non-interactive login probe (#507, V4-11) ---------------------------
 #
 # The second probe looks for the copy of a runtime that a login which is not
-# interactive runs: .zshenv puts ~/.local/bin in front of the inherited PATH
-# and only .zshrc, which such a login never reads, activates mise. It ran only
+# interactive runs: .zshenv puts ~/.local/bin in front of the inherited PATH,
+# only .zshrc, which such a login never reads, activates mise, and what puts
+# mise's shims on that login's PATH is the zsh package's .zprofile. It ran only
 # when the caller supplied VERIFY_NONINTERACTIVE_LOGIN_PATH, and three of the
 # four callers -- the Fedora, Fedora WSL and macOS verifiers -- never did, so a
 # dnf or Homebrew copy in /usr/bin behind the interactive login's shims was
-# reported as mise-managed. A real Zsh reads the repository's own .zshenv
+# reported as mise-managed. A real Zsh reads the repository's own startup files
 # here; the directory standing in for /usr/bin is part of the PATH the verifier
 # was started with, the one every login inherits.
+#
+# The first cases are a home with .zshenv and no .zprofile: a machine whose zsh
+# package was stowed before .zprofile existed, where that login really does run
+# the system copy. The login inherits mise's data directory from the verifier,
+# so it is exported for this section, as it is on a machine that sets it.
 printf 'Non-interactive login probe\n'
 unset VERIFY_NONINTERACTIVE_LOGIN_PATH VERIFY_CONFIGURED_LOGIN_PATH
 ni_saved_path="$PATH"
@@ -393,6 +399,7 @@ chmod +x "$root/ni-mise" "$ni_installs/ni-runtime" "$ni_system/ni-runtime" \
   "$root/mise-data/shims/ni-runtime"
 
 export HOME="$ni_home"
+export MISE_DATA_DIR MISE_SHIMS_DIR
 export XDG_CONFIG_HOME="$ni_home/.config"
 VERIFY_MISE_COMMAND="$root/ni-mise"
 # The verifier's own PATH once establish_user_tool_environment has run, the
@@ -411,6 +418,9 @@ check_mise_owned ni-runtime >"$root/ni-shadow.out" 2>&1 || true
 assert_verifier_counts 0 1 0
 assert_file_contains "$root/ni-shadow.out" \
   "ni-runtime resolves outside mise in a login that is not interactive: $ni_system/ni-runtime"
+# ...and it names the repair, which is the file that login is missing.
+assert_file_contains "$root/ni-shadow.out" \
+  "that login's PATH has no mise shims directory ($root/mise-data/shims), which $ni_home/.config/zsh/.zprofile adds; restow the zsh package so that file is linked"
 # What that login was asked from, read off its answer. Not compared whole: the
 # host's own startup files take part (macOS's /etc/zprofile runs path_helper,
 # which moves the system directories to the front), so only the entries this
@@ -440,6 +450,77 @@ check_mise_owned ni-runtime >"$root/ni-activated.out" 2>&1 || true
 assert_verifier_counts 0 1 0
 assert_file_contains "$root/ni-activated.out" \
   "ni-runtime resolves outside mise in a login that is not interactive: $ni_system/ni-runtime"
+
+# The same machine with the zsh package's .zprofile linked, as Stow links it:
+# the login now carries mise's shims behind ~/.local/bin and ahead of the
+# system copy, so the shim is what that login runs, and the check passes. This
+# is the shape every real Fedora machine has -- python, node and tree-sitter
+# all exist in /usr/bin there -- and the one the real-install workflow failed
+# on before .zprofile existed (the three "resolves outside mise in a login
+# that is not interactive" failures of run 35924092083).
+mkdir -p "$ni_home/.config/zsh"
+ln -s "$repo_root/zsh/.config/zsh/.zprofile" "$ni_home/.config/zsh/.zprofile"
+unset VERIFY_NONINTERACTIVE_LOGIN_PATH
+VERIFY_CALLER_PATH="$ni_system:$ni_base_path"
+verify_reset
+check_mise_owned ni-runtime >"$root/ni-zprofile.out" 2>&1 || {
+  cat "$root/ni-zprofile.out" >&2
+  _test_die 'a login that .zprofile gives the shims was still reported as running the system copy'
+}
+assert_verifier_counts 1 0 0
+assert_file_contains "$root/ni-zprofile.out" 'ni-runtime is mise-managed via shim'
+# The order, read off the login's own answer: shims behind ~/.local/bin and
+# ahead of the inherited system directory. Only this fixture's entries are
+# compared, since the host's startup files may add their own.
+ni_order="$(tr ':' '\n' <<<"$VERIFY_NONINTERACTIVE_LOGIN_PATH" |
+  grep -Fx -e "$ni_home/.local/bin" -e "$root/mise-data/shims" -e "$ni_system" |
+  paste -sd: -)"
+assert_eq "$ni_home/.local/bin:$root/mise-data/shims:$ni_system" "$ni_order" \
+  'the non-interactive login PATH order with .zprofile'
+
+# The same login from a terminal where mise is activated: the install
+# directory it inherited is still taken out, and the shims .zprofile adds are
+# still what wins.
+unset VERIFY_NONINTERACTIVE_LOGIN_PATH
+VERIFY_CALLER_PATH="$ni_installs:$ni_home/.local/bin:$ni_system:$ni_base_path"
+verify_reset
+check_mise_owned ni-runtime >"$root/ni-zprofile-activated.out" 2>&1 || {
+  cat "$root/ni-zprofile-activated.out" >&2
+  _test_die 'the login from an activated terminal was reported as running the system copy'
+}
+assert_verifier_counts 1 0 0
+
+# A copy in ~/.local/bin is still found: .zprofile keeps ~/.local/bin ahead of
+# the shims, so that copy is what the login runs, and the repair is to that
+# copy, not to the startup files.
+printf '#!/usr/bin/env bash\nexit 0\n' >"$ni_home/.local/bin/ni-runtime"
+chmod +x "$ni_home/.local/bin/ni-runtime"
+unset VERIFY_NONINTERACTIVE_LOGIN_PATH
+VERIFY_CALLER_PATH="$ni_system:$ni_base_path"
+verify_reset
+check_mise_owned ni-runtime >"$root/ni-local-bin.out" 2>&1 || true
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/ni-local-bin.out" \
+  "ni-runtime resolves outside mise in a login that is not interactive: $ni_home/.local/bin/ni-runtime (mise manages $ni_installs/ni-runtime); it sits ahead of mise's shims directory ($root/mise-data/shims) on that login's PATH; remove or rename it"
+rm -- "$ni_home/.local/bin/ni-runtime"
+
+# And a shims directory with no shim for the tool: the login falls through to
+# the system copy, and the repair is mise's, not the startup files'. The
+# interactive login is given mise's install directory first, as activation
+# does, so that probe is satisfied and this one is what answers.
+mv "$root/mise-data/shims/ni-runtime" "$root/ni-withheld-shim"
+unset VERIFY_NONINTERACTIVE_LOGIN_PATH
+VERIFY_CONFIGURED_LOGIN_PATH="$ni_installs:$ni_home/.local/bin:$ni_system:$ni_base_path"
+verify_reset
+check_mise_owned ni-runtime >"$root/ni-no-shim.out" 2>&1 || true
+# Read by check_mise_owned in the cases below.
+# shellcheck disable=SC2034
+VERIFY_CONFIGURED_LOGIN_PATH="$PATH"
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/ni-no-shim.out" \
+  "ni-runtime resolves outside mise in a login that is not interactive: $ni_system/ni-runtime (mise manages $ni_installs/ni-runtime); mise has no shim for ni-runtime in $root/mise-data/shims for that login to run; run mise reshim"
+mv "$root/ni-withheld-shim" "$root/mise-data/shims/ni-runtime"
+rm -- "$ni_home/.config/zsh/.zprofile"
 
 # Asked once per run: every mise-owned tool shares the answer, so a second
 # check starts no second login.
@@ -481,6 +562,7 @@ assert_file_contains "$root/ni-empty.out" \
   "zsh did not report that login's PATH"
 
 export HOME="$ni_saved_home"
+export -n MISE_DATA_DIR MISE_SHIMS_DIR
 if [[ -n "$ni_saved_config" ]]; then
   export XDG_CONFIG_HOME="$ni_saved_config"
 else

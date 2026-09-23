@@ -326,6 +326,22 @@ mise uninstall npm:@anthropic-ai/claude-code
 mise install
 ```
 
+## `<tool> resolves outside mise in a login that is not interactive`
+
+A verifier started a fresh `zsh -lc` and it ran a copy of a mise-owned tool
+that is not mise's. mise is activated in `.zshrc`, which such a login never
+reads; what gives it mise's tools is `~/.config/zsh/.zprofile`, which puts
+mise's shims directory behind `~/.local/bin`. The message ends with the repair
+for what that login was missing:
+
+- **no mise shims directory on that login's PATH** — the machine was stowed
+  before `.zprofile` existed. Restow the `zsh` package by rerunning the
+  installer; the platform verifier also reports the missing
+  `~/.config/zsh/.zprofile` link.
+- **it sits ahead of mise's shims directory** — the copy is in a directory in
+  front of the shims, normally `~/.local/bin`. Remove or rename that copy.
+- **mise has no shim for it** — run `mise reshim`.
+
 ## `verify-ai.sh` reports a possible duplicate install
 
 It found the command on `PATH` at neither mise's shim path nor the executable

@@ -1,6 +1,6 @@
 verifier	uncovered	note
 common/verify-ai.sh	2	of 23 check_* call sites
-platforms/fedora-wsl/scripts/verify.sh	0	of 24 check_* call sites
+platforms/fedora-wsl/scripts/verify.sh	0	of 25 check_* call sites
 platforms/fedora/scripts/verify-containers.sh	0	of 1 check_* call site
 platforms/fedora/scripts/verify-desktop-tools.sh	0	of 1 check_* call site
 platforms/fedora/scripts/verify-dictation.sh	0	of 2 check_* call sites
@@ -8,6 +8,6 @@ platforms/fedora/scripts/verify-hardening.sh	0	of 14 check_* call sites
 platforms/fedora/scripts/verify-tailscale.sh	0	of 1 check_* call site
 platforms/fedora/scripts/verify-vm-guest.sh	0	of 2 check_* call sites
 platforms/fedora/scripts/verify-vm-host.sh	0	of 1 check_* call site
-platforms/fedora/scripts/verify.sh	0	of 30 check_* call sites
-platforms/macos/scripts/verify.sh	5	of 30 check_* call sites
-platforms/parrot-ctf/scripts/verify.sh	3	of 21 check_* call sites
+platforms/fedora/scripts/verify.sh	0	of 31 check_* call sites
+platforms/macos/scripts/verify.sh	5	of 31 check_* call sites
+platforms/parrot-ctf/scripts/verify.sh	3	of 22 check_* call sites

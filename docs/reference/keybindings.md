@@ -76,7 +76,8 @@ Linux/Wayland, `Cmd+C/V` on macOS.
 
 ## Zsh
 
-`zsh/.zshenv` and `zsh/.config/zsh/.zshrc` are the tracked startup files.
+`zsh/.zshenv`, `zsh/.config/zsh/.zprofile` and `zsh/.config/zsh/.zshrc` are
+the tracked startup files.
 Their aliases, functions and key bindings are in the generated table below,
 under `zsh`. Typing a directory name on its own changes into it (`AUTO_CD`),
 and `#` starts an interactive comment so a documented command can be pasted
@@ -148,7 +149,10 @@ PATH`). Sourcing `.zshenv` or `.zshrc` again — as `exec zsh`, a nested shell,
 or `mise`/`opam` activation does — therefore cannot grow `PATH`. Zsh keeps the
 *first* occurrence of a duplicate, so deliberate precedence is preserved and
 nothing is sorted or reordered; the macOS rule that Homebrew's coreutils
-`gnubin` stays last, behind Apple's own tools, is unaffected.
+`gnubin` stays last, behind Apple's own tools, is unaffected. Every login,
+interactive or not, also reads `.zprofile`, which puts mise's shims directory
+behind `~/.local/bin` so a login that never reads `.zshrc` still runs the
+mise-managed runtimes (see [Zsh](../workflows/shell.md)).
 
 zoxide, fzf, mise and Starship are initialized only when they are installed. A
 machine missing one gets that feature disabled and nothing else: the shell

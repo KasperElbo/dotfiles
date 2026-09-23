@@ -241,6 +241,9 @@ check_symlink "$HOME/.zshenv" \
 check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" \
   "$DOTFILES_ROOT/zsh/" \
   "$DOTFILES_ROOT/zsh/.config/zsh/.zshrc"
+check_symlink "$XDG_CONFIG_HOME/zsh/.zprofile" \
+  "$DOTFILES_ROOT/zsh/" \
+  "$DOTFILES_ROOT/zsh/.config/zsh/.zprofile"
 
 # verifies: terminal -- Ghostty is the workstation terminal, installed with the
 # baseline and configured by the portable ghostty Stow package.
