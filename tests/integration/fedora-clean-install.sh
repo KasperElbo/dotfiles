@@ -183,14 +183,26 @@ fi
 # is no manager. Seeding the manager keeps this job on the path a real login
 # takes instead of the fallback.
 #
-# Lingering is how logind is asked for that manager without a login. It is the
-# same logind and the same user@.service; starting user@<uid>.service by hand
-# is not, since only pam_systemd talking to logind gives the manager its
-# XDG_RUNTIME_DIR, and without one it exits at "Trying to run as user
-# instance, but $XDG_RUNTIME_DIR is not set".
+# Lingering is how logind is asked for that manager without a login: it
+# creates the runtime directory and starts the same user@.service. logind
+# itself failed at boot, before D-Bus was seeded, so it is reset and started
+# first.
+#
+# One piece is still missing afterwards. The manager learns its
+# XDG_RUNTIME_DIR from pam_systemd in the systemd-user PAM stack, and in this
+# container that hand-off does not happen, so it exits at "Trying to run as
+# user instance, but $XDG_RUNTIME_DIR is not set" with /run/user/<uid>
+# already in place. A drop-in supplies the value pam_systemd would have: the
+# directory logind just created.
 dotfiles_uid="$(docker exec "$container" id -u dotfiles)"
 dotfiles_runtime_dir="/run/user/$dotfiles_uid"
+docker exec "$container" bash -c \
+  'mkdir -p /etc/systemd/system/user@.service.d &&
+   printf "%s\n" "[Service]" "Environment=XDG_RUNTIME_DIR=/run/user/%i" \
+     >/etc/systemd/system/user@.service.d/50-dotfiles-ci-runtime-dir.conf &&
+   systemctl daemon-reload'
 user_manager_ready=false
+docker exec "$container" systemctl reset-failed systemd-logind.service || true
 if docker exec "$container" systemctl start systemd-logind.service &&
   docker exec "$container" loginctl enable-linger dotfiles; then
   for _ in {1..30}; do
