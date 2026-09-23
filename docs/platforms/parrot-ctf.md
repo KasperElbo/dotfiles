@@ -149,10 +149,15 @@ cannot run the tracked LazyVim baseline. The effective `nvim` must resolve
 through mise; `python`, `python3`, and installed security tools must not.
 
 The Parrot editor profile restores only core LazyVim plus Python testing and
-debugging. Its exact Mason inventory is basedpyright, debugpy,
-lua-language-server, Ruff, Stylua, and the Tree-sitter CLI required by
-LazyVim's core syntax support. It deliberately excludes .NET, Node, Angular,
-TeX, Markdown-preview, and other general workstation integrations.
+debugging, and the workstation's Markdown support, because writeups are part of
+the work: Marksman, rendered Markdown, the browser preview and table editing
+behave exactly as in [Markdown](../workflows/development.md#markdown). Its exact
+Mason inventory is basedpyright, debugpy, lua-language-server, Marksman, Ruff,
+Stylua, and the Tree-sitter CLI required by LazyVim's core syntax support. None
+of that needs Node: Marksman is a self-contained binary and the preview
+downloads its own prebuilt server. It deliberately excludes .NET, Node,
+Prettier, Angular, TeX, and other general workstation integrations, so Markdown
+is formatted on save only when a project brings its own Prettier.
 Its separate tracked lockfile prevents a reduced restore from rewriting the
 workstation plugin lock. After the bootstrap phase, the pinned plugin lock and managed tools support
 offline editor startup; automatic Lazy plugin update checking is disabled for

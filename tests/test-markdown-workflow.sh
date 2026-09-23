@@ -36,12 +36,36 @@ assert_contains "$autocmds" 'pattern = "markdown.mdx"'
 assert_contains "$autocmds" 'vim.opt_local.wrap = true'
 assert_contains "$autocmds" 'vim.opt_local.spell = true'
 
-grep -Fxq marksman "$lazyvim_config/mason-packages.txt" ||
-  fail "Mason package inventory is missing: marksman"
-for project_tool in markdown-toc markdownlint-cli2; do
-  if grep -Fxq "$project_tool" "$lazyvim_config/mason-packages.txt"; then
-    fail "project-local Markdown tool is Mason-managed: $project_tool"
-  fi
+# Writeups are Markdown, so the reduced Parrot guest carries the same Markdown
+# editing as the workstation rather than a profile of its own.
+parrot_markdown="$(
+  cd "$lazyvim_config" &&
+    DOTFILES_NVIM_PROFILE=parrot-ctf nvim --headless -u NONE --cmd 'set rtp^=.' -l /dev/stdin <<'LUA'
+package.path = "lua/?.lua;" .. package.path
+local profile = require("config.profile")
+assert(profile.name() == "parrot-ctf")
+io.write(vim.tbl_contains(profile.current().extras, "lazyvim.plugins.extras.lang.markdown") and "extra" or "no-extra", "\n")
+io.write(require(profile.current().plugins .. ".markdown") == require("plugins.markdown") and "shared" or "separate", "\n")
+LUA
+)" || fail "could not read the Parrot Neovim profile"
+[[ "$parrot_markdown" == $'extra\nshared' ]] ||
+  fail "Parrot must load LazyVim's Markdown extra and the shared Markdown specs, got: ${parrot_markdown//$'\n'/ }"
+
+for inventory in \
+  "$lazyvim_config/mason-packages.txt" \
+  "$lazyvim_config/profiles/parrot-ctf/mason-packages.txt"; do
+  grep -Fxq marksman "$inventory" ||
+    fail "Mason package inventory is missing: marksman ($inventory)"
+  for project_tool in markdown-toc markdownlint-cli2; do
+    if grep -Fxq "$project_tool" "$inventory"; then
+      fail "project-local Markdown tool is Mason-managed: $project_tool ($inventory)"
+    fi
+  done
+done
+for plugin in render-markdown.nvim markdown-preview.nvim table-nvim; do
+  jq -e --arg plugin "$plugin" 'has($plugin)' \
+    "$lazyvim_config/profiles/parrot-ctf/lazy-lock.json" >/dev/null ||
+    fail "Parrot plugin lock does not pin $plugin"
 done
 
 for package_file in \

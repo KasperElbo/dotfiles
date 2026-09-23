@@ -330,13 +330,14 @@ the pin column names one.
 
 #### Parrot CTF profile
 
-6 packages, from `nvim-lazyvim/.config/nvim/profiles/parrot-ctf/mason-packages.txt`:
+7 packages, from `nvim-lazyvim/.config/nvim/profiles/parrot-ctf/mason-packages.txt`:
 
 | Mason package | Pinned version |
 |---|---|
 | `basedpyright` | — |
 | `debugpy` | — |
 | `lua-language-server` | — |
+| `marksman` | — |
 | `ruff` | — |
 | `stylua` | — |
 | `tree-sitter-cli` | — |

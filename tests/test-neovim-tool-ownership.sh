@@ -300,6 +300,7 @@ expected_parrot_mason=(
   basedpyright
   debugpy
   lua-language-server
+  marksman
   ruff
   stylua
   tree-sitter-cli
@@ -307,7 +308,7 @@ expected_parrot_mason=(
 [[ "${parrot_mason_inventory[*]}" == "${expected_parrot_mason[*]}" ]] ||
   fail "Parrot Mason inventory does not match the reduced package set"
 for excluded in angular-language-server eslint-lsp js-debug-adapter json-lsp \
-  marksman netcoredbg prettier pyright roslyn texlab vtsls yaml-language-server; do
+  netcoredbg prettier pyright roslyn texlab vtsls yaml-language-server; do
   if grep -Fxq "$excluded" "$parrot_mason_inventory_file"; then
     fail "workstation Mason package leaked into Parrot profile: $excluded"
   fi
