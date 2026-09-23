@@ -741,6 +741,68 @@ assert_failure
 assert_contains "$TEST_OUTPUT" 'has no sway.dictation.toggle row'
 printf 'PASS: a registry with no dictation row fails rather than checking nothing\n'
 
+# V4-07. The Sway configuration is not one file. The tracked config binds
+# the key and then includes ~/.config/sway/local.conf, a machine-local file
+# setup-local.sh creates, and for two bindings of one key Sway keeps the last
+# one it reads. So the question is which binding of the dictation key is read
+# last, across every include, and not whether the tracked file mentions it.
+cp "$verify_sway_config.pristine" "$verify_sway_config"
+sway_local="$test_root/home/.config/sway/local.conf"
+mkdir -p "$(dirname "$sway_local")"
+
+# Stolen: local.conf binds the same key to something else. The tracked
+# config is untouched, and the key no longer dictates.
+printf 'output * bg #1e1e2e solid_color\nbindsym $mod+o exec firefox\n' \
+  >"$sway_local"
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "Sway rebinds the dictation key later, in $sway_local: 'bindsym \$mod+o exec firefox'"
+printf 'PASS: a dictation key rebound in local.conf fails verification\n'
+
+# The same theft with the modifier spelled out rather than through $mod, and
+# the combination written in another order and case: Sway reads all three as
+# one key.
+printf 'bindsym --no-warn O+Mod4 exec firefox\n' >"$sway_local"
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'Sway rebinds the dictation key later'
+printf 'PASS: a rebinding spelled without $mod is recognised as the same key\n'
+
+# Removed rather than replaced.
+printf 'unbindsym $mod+o\n' >"$sway_local"
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" "'unbindsym \$mod+o'"
+printf 'PASS: a dictation key unbound in local.conf fails verification\n'
+
+# Control: the same key bound inside a mode block belongs to that mode, not
+# to the default one the toggle lives in, so nothing is stolen.
+printf 'mode "launch" {\n    bindsym $mod+o exec firefox\n    bindsym Escape mode "default"\n}\n' \
+  >"$sway_local"
+run_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" 'Sway binds the dictation toggle'
+printf 'PASS: the same key bound inside another mode leaves the toggle alone\n'
+
+# The other direction: a machine that moved the binding into local.conf and
+# out of the tracked file still dictates, and must verify.
+sed -i 's/^bindsym \$mod+o exec pkill/# bindsym $mod+o exec pkill/' \
+  "$verify_sway_config"
+printf 'bindsym $mod+o exec pkill -USR2 -x handy\n' >"$sway_local"
+run_verifier
+assert_success
+assert_contains "$TEST_OUTPUT" 'Sway binds the dictation toggle'
+printf 'PASS: a dictation binding moved into local.conf verifies\n'
+
+# Neither file binding it is still the failure it was.
+: >"$sway_local"
+run_verifier
+assert_failure
+assert_contains "$TEST_OUTPUT" 'no live dictation binding'
+rm -f -- "$sway_local"
+cp "$verify_sway_config.pristine" "$verify_sway_config"
+
 sed -i 's/pkill -USR2 -x handy/true/' "$verify_sway_config"
 run_verifier
 assert_failure

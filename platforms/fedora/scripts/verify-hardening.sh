@@ -154,6 +154,56 @@ check_owned_root_file() {
   pass "$label is present, mode $expected_mode, and unmodified: $path"
 }
 
+# check_sshd_effective_policy
+#
+# A byte-identical drop-in proves what the file says, not what sshd does.
+# sshd_config(5) keeps the first value it reads for a keyword, across Include
+# boundaries too, so a `PermitRootLogin yes` read earlier -- above the Include
+# line in /etc/ssh/sshd_config, or in a drop-in that sorts before this one,
+# like the 01-permitrootlogin.conf Anaconda writes -- wins over this profile's
+# drop-in while the drop-in stays untouched. `sshd -T` prints the
+# configuration sshd resolved, so every directive the drop-in declares is
+# looked up there, the way auditd is checked against the loaded ruleset and
+# sysctl against live values.
+check_sshd_effective_policy() {
+  local effective status=0 keyword value actual in_effect="" failed=0
+
+  if ! hardening_privileged_read_available; then
+    not_observed "reading sshd's effective configuration needs sudo, and" \
+      "verification never asks for a password, so whether the SSH policy is" \
+      "in effect was not checked -- run 'sudo -v' first, or run" \
+      "verification as root"
+    return 0
+  fi
+
+  effective="$(sudo -n sshd -T 2>&1)" || status=$?
+  if ((status != 0)); then
+    not_observed "sshd -T could not report the configuration sshd would run" \
+      "with (exit $status: $(head -n1 <<<"$effective")), so whether the SSH" \
+      "policy is in effect was not checked"
+    return 0
+  fi
+
+  while read -r keyword value; do
+    [[ -n "$keyword" && "$keyword" != \#* ]] || continue
+    # sshd -T prints each keyword lower-cased, once, followed by its value.
+    actual="$(grep -m1 -i "^${keyword} " <<<"$effective" || true)"
+    actual="${actual#* }"
+    if [[ "${actual,,}" != "${value,,}" ]]; then
+      fail "sshd's effective configuration has $keyword ${actual:-unset}," \
+        "but the hardening drop-in declares $keyword $value; a value sshd" \
+        "reads first, in /etc/ssh/sshd_config above its Include line or in a" \
+        "drop-in sorting before $(hardening_dropin_path ssh), overrides it --" \
+        "check: sudo sshd -T | grep -i $keyword"
+      failed=1
+    fi
+    in_effect+="${in_effect:+, }$keyword $value"
+  done < <(hardening_dropin_content ssh)
+
+  ((failed == 0)) || return 1
+  pass "sshd's effective configuration has $in_effect"
+}
+
 # ---------------------------------------------------------------------------
 # SELinux (baseline-required; the installer only ever raises permissive to
 # enforcing, it never lowers the mode)
@@ -268,8 +318,14 @@ else
   section "pam_faillock lockout"
 
   if [[ "$state_faillock" == "true" ]]; then
-    if command_exists authselect &&
-      authselect current 2>/dev/null | grep -q with-faillock; then
+    # `authselect current` lists each enabled feature as its own `- <name>`
+    # line, so the feature is matched as that whole line: a substring match
+    # would take any feature whose name merely contains with-faillock, which a
+    # custom authselect profile is free to define.
+    authselect_features=""
+    ! command_exists authselect ||
+      authselect_features="$(authselect current 2>/dev/null || true)"
+    if grep -Fxq -e '- with-faillock' <<<"$authselect_features"; then
       pass "authselect has with-faillock enabled"
     else
       fail "authselect no longer reports with-faillock enabled, but the" \
@@ -388,6 +444,7 @@ else
   case "$state_ssh" in
   hardened)
     check_owned_root_file "sshd hardening drop-in applied" ssh
+    check_sshd_effective_policy
     ;;
   present-not-hardened)
     warning "sshd was present at installation but could not be hardened" \

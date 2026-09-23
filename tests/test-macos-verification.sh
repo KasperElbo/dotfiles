@@ -61,9 +61,13 @@ case "${1:-} ${2:-}" in
 *) exit 1 ;;
 esac
 EOF
+# MOCK_CSRUTIL_STATUS replaces the whole document csrutil prints, because
+# the shape that defeated the old check is a document: a partly disabled SIP
+# answers with a status line and then one line per sub-protection.
 stub csrutil <<'EOF'
 #!/usr/bin/env bash
-printf 'System Integrity Protection status: enabled.\n'
+[[ "$*" == status ]] || exit 2
+printf '%s\n' "${MOCK_CSRUTIL_STATUS:-System Integrity Protection status: enabled.}"
 EOF
 # Models what the real spctl answers for this bundle rather than a boolean.
 #
@@ -85,7 +89,7 @@ target=""
 while (($#)); do
   case "$1" in
   --status)
-    printf 'assessments enabled\n'
+    printf '%s\n' "${MOCK_SPCTL_STATUS:-assessments enabled}"
     exit 0
     ;;
   --assess) assess=true ;;
@@ -1032,6 +1036,81 @@ expect_one_more_failure 'an HTML error page in place of netcoredbg fails verific
   'EasyDotnet bundled netcoredbg does not report arm64 or universal architecture'
 
 # --- Managed macOS defaults: the whole set the installer writes --------------
+
+# --- System Integrity Protection and Gatekeeper ------------------------------
+#
+# Each is read from its status line, not from anywhere in what the command
+# prints. csrutil answers a partly disabled SIP with a status of "unknown
+# (Custom Configuration)" followed by a Configuration block holding one
+# enabled/disabled line per sub-protection, so any one sub-protection still
+# enabled used to satisfy a search for "enabled" and report the whole of SIP
+# as on.
+#
+# A hosted GitHub runner cannot show SIP enabled, so there the verifier
+# reports it unobserved instead. CI runs this suite on such a runner, so every
+# SIP case says which machine it is: sip_machine is a real Mac, and the hosted
+# arm has a case of its own.
+assert_contains "$baseline_output" 'System Integrity Protection is enabled'
+assert_contains "$baseline_output" 'Gatekeeper is enabled'
+sip_machine=(GITHUB_ACTIONS=false RUNNER_ENVIRONMENT=)
+
+run_verifier "${sip_machine[@]}" \
+  'MOCK_CSRUTIL_STATUS=System Integrity Protection status: disabled.'
+expect_one_more_failure 'a disabled SIP fails verification' \
+  'System Integrity Protection is not enabled (status: disabled.)'
+
+sip_custom_configuration() {
+  printf '%s\n' \
+    'System Integrity Protection status: unknown (Custom Configuration).' \
+    '' \
+    'Configuration:' \
+    '	Apple Internal: disabled' \
+    "	Kext Signing: $1" \
+    "	Filesystem Protections: $2" \
+    "	Debugging Restrictions: $3" \
+    "	DTrace Restrictions: $4" \
+    "	NVRAM Protections: $5" \
+    '	BaseSystem Verification: enabled' \
+    '' \
+    'This is an unsupported configuration, likely to break in the future and leave your machine in an unknown state.'
+}
+
+run_verifier "${sip_machine[@]}" "MOCK_CSRUTIL_STATUS=$(
+  sip_custom_configuration enabled enabled disabled enabled enabled
+)"
+expect_one_more_failure 'a SIP with Debugging Restrictions off fails verification' \
+  'System Integrity Protection is only partly enabled (Custom Configuration); disabled: Debugging Restrictions'
+assert_not_contains "$TEST_OUTPUT" 'System Integrity Protection is enabled'
+# Apple Internal reads disabled on every customer Mac, so it is not named.
+assert_not_contains "$TEST_OUTPUT" 'disabled: Apple Internal'
+
+run_verifier "${sip_machine[@]}" "MOCK_CSRUTIL_STATUS=$(
+  sip_custom_configuration disabled disabled disabled disabled disabled
+)"
+expect_one_more_failure 'a SIP with everything off but BaseSystem Verification fails verification' \
+  'disabled: Kext Signing, Filesystem Protections, Debugging Restrictions, DTrace Restrictions, NVRAM Protections'
+
+# The hosted arm: the same partly disabled SIP is reported unobserved, never
+# passed, and adds no failure.
+run_verifier GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+  "MOCK_CSRUTIL_STATUS=$(
+    sip_custom_configuration enabled enabled disabled enabled enabled
+  )"
+assert_eq "$baseline_failures" "$failures" 'a hosted runner SIP: failure count'
+assert_contains "$TEST_OUTPUT" \
+  'System Integrity Protection is not observable as enabled on hosted macOS'
+assert_not_contains "$TEST_OUTPUT" 'System Integrity Protection is enabled'
+printf 'PASS: a hosted runner reports SIP unobserved rather than passed\n'
+
+run_verifier 'MOCK_SPCTL_STATUS=assessments disabled'
+expect_one_more_failure 'a disabled Gatekeeper fails verification' \
+  'Gatekeeper is not enabled (spctl --status: assessments disabled)'
+
+# Defensive, as with SIP: only the status line spctl prints for an enabled
+# Gatekeeper is accepted, not any answer that contains the word.
+run_verifier 'MOCK_SPCTL_STATUS=assessments not enabled'
+expect_one_more_failure 'a Gatekeeper status other than enabled fails verification' \
+  'Gatekeeper is not enabled (spctl --status: assessments not enabled)'
 
 verifier_flags=(--defaults)
 

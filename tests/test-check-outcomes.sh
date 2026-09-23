@@ -69,7 +69,11 @@ new_scratch
 cover_everything
 validate
 assert_success
-assert_contains "$TEST_OUTPUT" "150 check_* call sites"
+# Covered and total have to agree; the total itself is whatever the tree
+# holds, so adding a verifier check does not break the control.
+[[ "$TEST_OUTPUT" =~ coverage:\ ([0-9]+)\ of\ ([0-9]+)\ check_\*\ call\ sites ]] &&
+  ((BASH_REMATCH[1] == BASH_REMATCH[2] && BASH_REMATCH[2] > 0)) ||
+  _test_die "the fully covered tree did not report every call site covered:\n$TEST_OUTPUT"
 printf 'PASS: a tree whose every check was driven both ways is accepted\n'
 
 # GRADE-03's second acceptance criterion: a brand-new check with no fixture

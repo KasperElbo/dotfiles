@@ -399,6 +399,14 @@ run_scenario() {
   if [[ "$seed_sshd" == "true" ]]; then
     printf 'sshd.service\n' >>"$active_units"
     printf 'sshd.service\n' >>"$enabled_units"
+    # Fedora's own sshd_config puts the Include first, so every drop-in is
+    # read before anything else in this file can set a keyword.
+    mkdir -p "$fake_root/etc/ssh"
+    printf '%s\n' \
+      'Include /etc/ssh/sshd_config.d/*.conf' \
+      'AuthorizedKeysFile .ssh/authorized_keys' \
+      'Subsystem sftp /usr/libexec/openssh/sftp-server' \
+      >"$fake_root/etc/ssh/sshd_config"
   fi
 
   # Package-manager calls use the shared exact-argv stub. The scenario keeps
@@ -485,6 +493,7 @@ run_scenario() {
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-15" \
       "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo sshd -t
+    test_stub_allow "$test_root" sudo -n sshd -T
     test_stub_allow "$test_root" sudo systemctl reload sshd.service
     test_stub_allow "$test_root" sudo grep -Fqx 'PermitRootLogin no' \
       "$fake_root"/etc/ssh/sshd_config.d/90-dotfiles-hardening.conf
@@ -629,10 +638,71 @@ restart)
 esac
 EOF
 
+  # A model of sshd, not a stub that agrees with everything. -t answers the
+  # installer's syntax check. -T resolves the configuration the way
+  # sshd_config(5) describes it -- the first value read for a keyword wins,
+  # Include expands in place in lexical order and is followed across files,
+  # and global settings stop at the first Match -- then prints it as sshd -T
+  # does: one lower-case `keyword value` per line, defaults included. With no
+  # /etc/ssh/sshd_config it fails as sshd does. Any other argv is refused, so
+  # a new sshd call has to be modelled before it can pass.
   cat >"$mock_bin/sshd" <<'EOF'
 #!/usr/bin/env bash
 printf 'sshd %s\n' "$*" >>"$COMMAND_LOG"
-exit 0
+case "$*" in
+-t) exit 0 ;;
+-T) ;;
+*)
+  printf 'strict sshd fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+  ;;
+esac
+
+export LC_ALL=C
+shopt -s nullglob
+declare -A effective=(
+  [permitrootlogin]=prohibit-password
+  [maxauthtries]=6
+  [logingracetime]=120
+)
+declare -A seen=()
+in_match=false
+
+read_config() {
+  local file="$1" line keyword value pattern included patterns
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    read -r keyword value <<<"$line"
+    [[ -n "$keyword" ]] || continue
+    keyword="${keyword,,}"
+    [[ "$keyword" != match ]] || in_match=true
+    ! "$in_match" || continue
+    if [[ "$keyword" == include ]]; then
+      # Split without globbing: the patterns name the fixture's /etc, and
+      # expanding them against the host's would be a different answer.
+      read -r -a patterns <<<"$value"
+      for pattern in "${patterns[@]}"; do
+        [[ "$pattern" == /* ]] || pattern="/etc/ssh/$pattern"
+        for included in "$FAKE_ROOT"$pattern; do
+          read_config "$included"
+        done
+      done
+      continue
+    fi
+    [[ -z "${seen[$keyword]:-}" ]] || continue
+    seen[$keyword]=1
+    effective[$keyword]="${value,,}"
+  done <"$file"
+}
+
+if [[ ! -f "$FAKE_ROOT/etc/ssh/sshd_config" ]]; then
+  printf '/etc/ssh/sshd_config: No such file or directory\n' >&2
+  exit 255
+fi
+read_config "$FAKE_ROOT/etc/ssh/sshd_config"
+for keyword in "${!effective[@]}"; do
+  printf '%s %s\n' "$keyword" "${effective[$keyword]}"
+done | sort
 EOF
 
   cat >"$mock_bin/auditctl" <<'EOF'
@@ -916,6 +986,8 @@ SUDO_EOF
 
   if [[ "$seed_sshd" == "true" ]]; then
     assert_contains "$verify_output" 'sshd hardening drop-in applied'
+    assert_contains "$verify_output" \
+      "sshd's effective configuration has PermitRootLogin no, MaxAuthTries 3, LoginGraceTime 20"
   else
     assert_contains "$verify_output" 'SSH posture is not applicable'
   fi
@@ -1036,6 +1108,77 @@ SUDO_EOF
       "line 2 is 'PermitRootLogin yes', expected 'PermitRootLogin no'"
     cp -p "$backup" "$ssh_dropin"
 
+    # 6f-6j. The drop-in is byte-identical and mode 644 in every case below,
+    #     so each one passes check_owned_root_file; only the configuration
+    #     sshd actually resolved can tell them apart. sshd_config(5) keeps the
+    #     first value it reads for a keyword, and that rule runs across the
+    #     Include boundary.
+    local sshd_config="$fake_root/etc/ssh/sshd_config"
+    local sshd_dropin_dir="$fake_root/etc/ssh/sshd_config.d"
+    cp -p "$sshd_config" "$backup"
+
+    # 6f. The obvious one: an sshd_config that never includes the drop-ins
+    #     and permits root login itself.
+    printf 'PermitRootLogin yes\nSubsystem sftp /usr/libexec/openssh/sftp-server\n' \
+      >"$sshd_config"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'sshd hardening drop-in applied is present, mode 644, and unmodified'
+    assert_contains "$TEST_OUTPUT" \
+      "sshd's effective configuration has PermitRootLogin yes, but the hardening drop-in declares PermitRootLogin no"
+    # Without the Include the drop-in's other two values are not in effect
+    # either, and each is named.
+    assert_contains "$TEST_OUTPUT" 'has MaxAuthTries 6, but'
+    assert_contains "$TEST_OUTPUT" 'has LoginGraceTime 120, but'
+    cp -p "$backup" "$sshd_config"
+
+    # 6g. The shape that passed: one line above the Include.
+    sed -i '1i PermitRootLogin yes' "$sshd_config"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      "sshd's effective configuration has PermitRootLogin yes, but the hardening drop-in declares PermitRootLogin no"
+    assert_not_contains "$TEST_OUTPUT" 'has MaxAuthTries'
+    cp -p "$backup" "$sshd_config"
+
+    # 6h. The same override from inside the drop-in directory: a file that
+    #     sorts before 90-dotfiles-hardening.conf, such as the
+    #     01-permitrootlogin.conf Anaconda writes when root SSH login is
+    #     allowed at installation, and a zero LoginGraceTime beside it.
+    printf 'PermitRootLogin yes\nLoginGraceTime 0\n' \
+      >"$sshd_dropin_dir/01-permitrootlogin.conf"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      "sshd's effective configuration has PermitRootLogin yes, but"
+    assert_contains "$TEST_OUTPUT" \
+      "sshd's effective configuration has LoginGraceTime 0, but the hardening drop-in declares LoginGraceTime 20"
+
+    # 6i. Control: the same file sorting after this profile's drop-in is
+    #     overruled by it, so the policy is in effect and nothing fails. A
+    #     check that merely looked for `PermitRootLogin yes` anywhere would
+    #     fail here.
+    mv -- "$sshd_dropin_dir/01-permitrootlogin.conf" \
+      "$sshd_dropin_dir/99-local.conf"
+    run_verify
+    assert_success
+    assert_contains "$TEST_OUTPUT" \
+      "sshd's effective configuration has PermitRootLogin no, MaxAuthTries 3, LoginGraceTime 20"
+    rm -f -- "$sshd_dropin_dir/99-local.conf"
+
+    # 6j. sshd cannot resolve its configuration at all. That is not a pass:
+    #     nothing about the policy in effect was observed, and the run says
+    #     so by name.
+    rm -f -- "$sshd_config"
+    run_verify
+    assert_success
+    assert_contains "$TEST_OUTPUT" \
+      "sshd -T could not report the configuration sshd would run with"
+    assert_contains "$TEST_OUTPUT" 'No such file or directory'
+    assert_not_contains "$TEST_OUTPUT" "sshd's effective configuration has"
+    cp -p "$backup" "$sshd_config"
+
     # 6c. Every directive commented out. The file still contains the text of
     #     each policy line, and enforces none of them.
     cp -p "$faillock_dropin" "$backup"
@@ -1090,6 +1233,29 @@ SUDO_EOF
     assert_contains "$TEST_OUTPUT" \
       "'-w /etc/shadow -p wa -k dotfiles-identity' is not loaded"
 
+    # 6k. pam_faillock switched off after installation: authselect no longer
+    #     lists the feature, while the faillock drop-in is untouched.
+    local authselect_features="$test_root/state/authselect-features"
+    cp -p "$authselect_features" "$backup"
+    : >"$authselect_features"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'authselect no longer reports with-faillock enabled'
+    assert_contains "$TEST_OUTPUT" \
+      'faillock policy drop-in is present, mode 644, and unmodified'
+
+    # 6l. Defensive, not an output seen in the wild: a feature whose name
+    #     only contains with-faillock. authselect lists enabled features one
+    #     per line and a custom profile may name its own, so the lockout is
+    #     matched as its whole line; a substring match took this for it.
+    printf 'with-faillock-reporting\n' >"$authselect_features"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'authselect no longer reports with-faillock enabled'
+    cp -p "$backup" "$authselect_features"
+
     # 7. An owned timer that was disabled after installation.
     sed -i '/^dnf5-automatic.timer$/d' "$enabled_units"
     run_verify
@@ -1124,6 +1290,8 @@ SUDO_EOF
     assert_contains "$TEST_OUTPUT" \
       'sshd hardening drop-in applied could not be read without a sudo password'
     assert_contains "$TEST_OUTPUT" 'reading the loaded audit rules needs sudo'
+    assert_contains "$TEST_OUTPUT" \
+      "reading sshd's effective configuration needs sudo"
     assert_contains "$TEST_OUTPUT" "run 'sudo -v' first"
     assert_not_contains "$TEST_OUTPUT" 'is missing:'
     assert_not_contains "$TEST_OUTPUT" 'no longer matches the policy'
@@ -1228,6 +1396,106 @@ SUDO_EOF
   printf 'PASS: %s\n' "$scenario_name"
 }
 
+# tests/fixtures/hardening/ is the statement of this profile's policy that
+# is not generated from platforms/fedora/lib/hardening.sh. Both halves of the
+# profile read that table -- the installer to write each drop-in, the verifier
+# to decide whether the one on disk is still it -- so they can never disagree,
+# including when a value in the table is wrong: deleting the watch on
+# /etc/sudoers.d/ and setting LoginGraceTime 0 there left every hardening suite
+# green, the verifier's own "every dotfiles watch rule is loaded" among them.
+# The fixture holds each drop-in's exact bytes, and dropins.tsv its path and
+# mode, written out by hand. A change to the policy therefore has to be made
+# twice, and the second time is the one a reviewer reads.
+#
+# compare_golden_dropins <hardening.sh>: prints one line per difference
+# between that copy of the table and the fixture; silent when they agree.
+compare_golden_dropins() {
+  local library="$1"
+  local golden="$repo_root/tests/fixtures/hardening"
+
+  env DOTFILES_ROOT_DIR="$repo_root" HARDENING_LIBRARY="$library" \
+    GOLDEN="$golden" bash -c '
+      set -euo pipefail
+      source "$DOTFILES_ROOT_DIR/common/lib/common.sh"
+      source "$HARDENING_LIBRARY"
+
+      # The names the table answers for, read from its code rather than from
+      # a list here, so a drop-in added to the table without a fixture is
+      # reported rather than never compared.
+      declared="$(declare -f hardening_dropin_content |
+        sed -n "s/^ *\([a-z][a-z-]*\))\$/\1/p" | sort)"
+      pinned="$(cut -f1 "$GOLDEN/dropins.tsv" | sort)"
+      [[ -n "$declared" ]] || { echo "no drop-in names read from the table"; exit 0; }
+      [[ "$declared" == "$pinned" ]] ||
+        echo "the table declares [$(echo $declared)] but the fixture pins [$(echo $pinned)]"
+
+      while IFS=$'"'"'\t'"'"' read -r name path mode; do
+        actual="$(hardening_dropin_path "$name")"
+        [[ "$actual" == "$path" ]] ||
+          echo "$name: path is $actual, the fixture says $path"
+        actual="$(hardening_dropin_mode "$name")"
+        [[ "$actual" == "$mode" ]] ||
+          echo "$name: mode is $actual, the fixture says $mode"
+        # The sentinel keeps trailing newlines, which command substitution
+        # would otherwise strip from both sides alike.
+        actual="$(hardening_dropin_content "$name"; printf x)"
+        expected="$(cat -- "$GOLDEN/$name"; printf x)"
+        [[ "$actual" == "$expected" ]] ||
+          echo "$name: $(hardening_dropin_difference \
+            "$(cat -- "$GOLDEN/$name")" "$(hardening_dropin_content "$name")")"
+      done <"$GOLDEN/dropins.tsv"
+    '
+}
+
+run_golden_dropin_contract() {
+  test_new_root
+  local scratch="$TEST_ROOT/hardening.sh"
+  local differences
+
+  differences="$(compare_golden_dropins \
+    "$repo_root/platforms/fedora/lib/hardening.sh")"
+  [[ -z "$differences" ]] ||
+    _test_die "the hardening policy table no longer matches tests/fixtures/hardening/ -- change both, deliberately:\n$differences"
+
+  # The comparison has to be able to fail, and to say which value moved. Each
+  # mutation is one literal replacement in a scratch copy of the library.
+  local library
+  library="$(<"$repo_root/platforms/fedora/lib/hardening.sh")"
+  mutate() {
+    local from="$1" to="$2"
+    [[ "$library" == *"$from"* ]] ||
+      _test_die "golden mutation target not found in hardening.sh: $from"
+    printf '%s\n' "${library/"$from"/"$to"}" >"$scratch"
+  }
+
+  # Obvious: a value changed in place.
+  mutate "'LoginGraceTime 20'" "'LoginGraceTime 0'"
+  differences="$(compare_golden_dropins "$scratch")"
+  assert_contains "$differences" \
+    "ssh: line 4 is 'LoginGraceTime 0', expected 'LoginGraceTime 20'"
+
+  # Subtle, and the one that passed every suite: a whole rule deleted, which
+  # leaves every remaining line exactly as it was.
+  mutate $' \\\n      \'-w /etc/sudoers.d/ -p wa -k dotfiles-sudoers\'' ''
+  differences="$(compare_golden_dropins "$scratch")"
+  assert_contains "$differences" \
+    "auditd-rules: line 5 is missing, expected '-w /etc/sudoers.d/ -p wa -k dotfiles-sudoers'"
+
+  # A mode loosened.
+  mutate "sudo-logfile) printf '0440\\n'" "sudo-logfile) printf '0444\\n'"
+  differences="$(compare_golden_dropins "$scratch")"
+  assert_contains "$differences" "sudo-logfile: mode is 0444, the fixture says 0440"
+
+  # A drop-in the fixture has never heard of.
+  mutate $'  ssh)\n    printf \'%s\\n\' \\\n      \'# Managed' \
+    $'  ssh-extra) printf x ;;\n  ssh)\n    printf \'%s\\n\' \\\n      \'# Managed'
+  differences="$(compare_golden_dropins "$scratch")"
+  assert_contains "$differences" \
+    "the table declares [auditd-rules faillock ssh ssh-extra sudo-logfile sysctl]"
+
+  printf 'PASS: the hardening policy table matches its hand-written fixture\n'
+}
+
 # The interactive confirmation is the last point before this profile mutates
 # anything, and it is a step of platforms/fedora/install.sh's plan rather than
 # a top-level installer. Collapsing `confirm`'s three-valued result with
@@ -1319,6 +1587,7 @@ run_confirmation_contract() {
 }
 
 run_confirmation_contract
+run_golden_dropin_contract
 run_root_prefix_contract unset
 run_root_prefix_contract empty
 run_root_prefix_contract prefix

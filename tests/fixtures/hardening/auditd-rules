@@ -1,0 +1,5 @@
+-w /etc/passwd -p wa -k dotfiles-identity
+-w /etc/shadow -p wa -k dotfiles-identity
+-w /etc/group -p wa -k dotfiles-identity
+-w /etc/sudoers -p wa -k dotfiles-sudoers
+-w /etc/sudoers.d/ -p wa -k dotfiles-sudoers

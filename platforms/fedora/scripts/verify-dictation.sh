@@ -211,6 +211,101 @@ fi
 
 section "Sway dictation binding"
 
+# The Sway configuration is not one file: the tracked config includes the
+# theme and the machine-local ~/.config/sway/local.conf, and for two bindings
+# of one key Sway keeps the last one it reads. So the binding is looked for in
+# the configuration as Sway loads it, includes expanded in place, and the last
+# binding of its key is the one that has to be it. This reads what Sway loads
+# on its next start or reload; Sway offers no IPC that lists live bindings.
+#
+# sway_collect_lines <file>: appends every live top-level line of <file> to
+# SWAY_LINES, and the file it came from to SWAY_LINE_FILES, in load order,
+# with each include expanded where it stands. Lines inside a block (a mode,
+# bar or input) are not default-mode bindings and are left out. Comments are
+# dropped, and leading and trailing whitespace, which Sway ignores, trimmed.
+SWAY_LINES=()
+SWAY_LINE_FILES=()
+declare -A SWAY_INCLUDED=()
+
+sway_collect_lines() {
+  local file="$1" line depth=0 target included
+
+  [[ -z "${SWAY_INCLUDED[$file]:-}" && -r "$file" ]] || return 0
+  SWAY_INCLUDED[$file]=1
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -n "$line" && "$line" != \#* ]] || continue
+
+    if ((depth > 0)); then
+      [[ "$line" != *"{" ]] || depth=$((depth + 1))
+      [[ "$line" != "}" ]] || depth=$((depth - 1))
+      continue
+    fi
+    if [[ "$line" == *"{" ]]; then
+      depth=1
+      continue
+    fi
+
+    if [[ "$line" =~ ^include[[:space:]]+(.+)$ ]]; then
+      # Sway expands an include with wordexp(3): a leading ~, and a path
+      # relative to the including file's directory, both glob-expanded.
+      target="${BASH_REMATCH[1]}"
+      target="${target#[\"\']}"
+      target="${target%[\"\']}"
+      # shellcheck disable=SC2088 # A literal ~ in the config, expanded here.
+      [[ "$target" != "~/"* ]] || target="$HOME/${target#"~/"}"
+      [[ "$target" == /* ]] || target="$(dirname -- "$file")/$target"
+      while IFS= read -r included; do
+        [[ -z "$included" ]] || sway_collect_lines "$included"
+      done < <(compgen -G "$target" || true)
+      continue
+    fi
+
+    SWAY_LINES+=("$line")
+    SWAY_LINE_FILES+=("$file")
+  done <"$file"
+}
+
+# sway_binding_keys: fills SWAY_KEYS with the key each line of SWAY_LINES
+# binds or unbinds, empty for any other line, normalised the way Sway
+# compares them: each variable substituted as `set` had it at that line
+# (longest name first, so $mod never eats $mod2), case folded, and the
+# +-separated parts in a fixed order.
+SWAY_KEYS=()
+
+sway_binding_keys() {
+  local -A variables=()
+  local -a words
+  local index word name key
+
+  for index in "${!SWAY_LINES[@]}"; do
+    SWAY_KEYS[index]=""
+    read -r -a words <<<"${SWAY_LINES[index]}"
+    case "${words[0]:-}" in
+    set)
+      [[ "${words[1]:-}" != \$* ]] || variables[${words[1]}]="${words[2]:-}"
+      continue
+      ;;
+    bindsym | unbindsym) ;;
+    *) continue ;;
+    esac
+
+    for word in "${words[@]:1}"; do
+      [[ "$word" != --* ]] || continue
+      while IFS= read -r name; do
+        [[ -z "$name" ]] || word="${word//"$name"/"${variables[$name]}"}"
+      done < <(for name in "${!variables[@]}"; do
+        printf '%d %s\n' "${#name}" "$name"
+      done | sort -rn | cut -d' ' -f2-)
+      key="$(tr '+' '\n' <<<"${word,,}" | sort | tr '\n' '+')"
+      SWAY_KEYS[index]="${key%+}"
+      break
+    done
+  done
+}
+
 # The compositor owns the key. Handy's own global shortcut cannot be
 # registered on a wlroots compositor (no GlobalShortcuts portal), so the
 # tracked Sway config is what makes dictation reachable at all.
@@ -229,18 +324,39 @@ if [[ -e "$sway_config" ]]; then
     fail "config/actions.tsv has no $DICTATION_SWAY_ACTION_ID row, so there is" \
       "no statement of the dictation binding to check $sway_config against"
   else
-    # Read once into a variable and match as a here-string. A
-    # `producer | grep -q` pipeline takes SIGPIPE precisely when the match is
-    # found, so under pipefail it fails exactly in the passing case
-    # (docs/testing.md, "Assertions that cannot fail").
-    sway_live_lines="$(grep -Ev '^[[:space:]]*(#|$)' "$sway_config" || true)"
+    sway_collect_lines "$sway_config"
+    sway_binding_keys
 
-    if grep -Eq "^[[:space:]]*${sway_binding_pattern}[[:space:]]*\$" \
-      <<<"$sway_live_lines"; then
-      pass "Sway binds the dictation toggle (pkill -USR2 -x handy)"
+    # The dictation binding is the live line the registry describes; its key
+    # is then whatever that line binds, so the registry stays the one
+    # statement of both.
+    sway_toggle_index=""
+    for index in "${!SWAY_LINES[@]}"; do
+      if [[ "${SWAY_LINES[index]}" =~ ^${sway_binding_pattern}$ ]]; then
+        sway_toggle_index="$index"
+        break
+      fi
+    done
+
+    if [[ -z "$sway_toggle_index" ]]; then
+      fail "$sway_config has no live dictation binding, nor does any file it" \
+        "includes; the Sway session owns the dictation key, so without it" \
+        "nothing can start a transcription"
     else
-      fail "$sway_config has no live dictation binding; the Sway session owns" \
-        "the dictation key, so without it nothing can start a transcription"
+      sway_last_index="$sway_toggle_index"
+      for index in "${!SWAY_KEYS[@]}"; do
+        [[ "${SWAY_KEYS[index]}" != "${SWAY_KEYS[sway_toggle_index]}" ]] ||
+          sway_last_index="$index"
+      done
+
+      if [[ "${SWAY_LINES[sway_last_index]}" =~ ^${sway_binding_pattern}$ ]]; then
+        pass "Sway binds the dictation toggle (pkill -USR2 -x handy)"
+      else
+        fail "Sway rebinds the dictation key later, in" \
+          "${SWAY_LINE_FILES[sway_last_index]}:" \
+          "'${SWAY_LINES[sway_last_index]}'; Sway keeps the last binding of a" \
+          "key, so the dictation toggle is overridden"
+      fi
     fi
   fi
 else
