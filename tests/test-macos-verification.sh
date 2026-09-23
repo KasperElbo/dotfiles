@@ -298,17 +298,81 @@ if [[ "${1:-}" == --list-themes ]]; then
 fi
 EOF
 
-# mise activates its shims, and reports the installs directory of any tool it
-# manages.
+# mise, modelled on what mise 2026.9.12 was measured doing (issue #462) rather
+# than on what the verifier happens to ask:
+#
+# - `activate bash` prints a hook, not an answer: the shims directory goes on
+#   PATH, then one `hook-env` call resolves tools in whatever directory the
+#   shell is in when it evaluates the hook. Kasper's own `mise activate` output
+#   has the same shape.
+# - `hook-env` and every shim read the directory configuration at and above the
+#   working directory. MISE_CEILING_PATHS stops that search, and mise reads no
+#   configuration in the ceiling directory itself either.
+# - A shim whose tool the working directory does not configure runs the next
+#   command of that name on PATH, and fails when there is none.
+#
+# The fixture's own runtimes are global tools whose shims exec their installs
+# directly, so only a tool a directory configuration names takes the resolving
+# path. `which` reports the installs directory of a global tool. Anything else
+# is refused, not answered (docs/testing.md).
 stub mise <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-} ${2:-}" == "activate bash" ]]; then
-  printf 'export PATH=%q:"$PATH"\n' "$XDG_DATA_HOME/mise/shims"
-elif [[ "${1:-}" == which ]]; then
+shims="$XDG_DATA_HOME/mise/shims"
+
+# The install a directory configuration selects for $1, if any.
+configured_install() {
+  local directory="$PWD" file version
+  while [[ "$directory" != "${MISE_CEILING_PATHS:-}" ]]; do
+    for file in mise.toml .mise.toml mise.local.toml .mise.local.toml; do
+      [[ -f "$directory/$file" ]] || continue
+      version="$(sed -n "s/^$1 = \"\\(.*\\)\"\$/\\1/p" "$directory/$file")"
+      [[ -n "$version" ]] || continue
+      [[ -x "$XDG_DATA_HOME/mise/installs/$1/$version/bin/$1" ]] || continue
+      printf '%s\n' "$XDG_DATA_HOME/mise/installs/$1/$version/bin"
+      return 0
+    done
+    [[ "$directory" != / ]] || break
+    directory="$(dirname "$directory")"
+  done
+  return 1
+}
+
+name="$(basename "$0")"
+if [[ "$name" != mise ]]; then
+  if install="$(configured_install "$name")"; then
+    exec "$install/$name" "$@"
+  fi
+  IFS=: read -r -a entries <<<"$PATH"
+  for entry in "${entries[@]}"; do
+    [[ "$entry" != "$shims" && -x "$entry/$name" ]] && exec "$entry/$name" "$@"
+  done
+  printf 'mise ERROR %s is not a valid shim\n' "$name" >&2
+  exit 1
+fi
+
+case "${1:-} ${2:-}" in
+"activate bash" | "activate zsh")
+  printf 'export PATH=%q:"$PATH"\n' "$shims"
+  printf '_mise_hook() { eval "$(%q hook-env -s bash)"; }\n_mise_hook\n' "$0"
+  ;;
+"hook-env -s")
+  for tool in "$XDG_DATA_HOME"/mise/installs/*; do
+    if install="$(configured_install "$(basename "$tool")")"; then
+      printf 'export PATH=%q:"$PATH"\n' "$install"
+    fi
+  done
+  ;;
+"which "*)
   candidate="$XDG_DATA_HOME/mise/installs/$2/latest/bin/$2"
   [[ -x "$candidate" ]] || exit 1
   printf '%s\n' "$candidate"
-fi
+  ;;
+"--version ") printf '2026.9.12 macos-arm64 (2026-09-20)\n' ;;
+*)
+  printf 'mise stub: unexpected invocation: mise %s\n' "$*" >&2
+  exit 96
+  ;;
+esac
 EOF
 
 # A fresh Zsh login, reduced to what .zshrc derives from the machine-local
@@ -786,6 +850,36 @@ expect_one_more_failure 'a resolvable command that cannot run fails verification
 # other case rather than against one extra standing failure.
 rm "$mock_bin/stow"
 ln -s /usr/bin/true "$mock_bin/stow"
+
+# --- A project's mise configuration does not answer the command probes -------
+#
+# zoxide missing from Homebrew, and the verifier started inside a project whose
+# mise.toml supplies one. On the real machine both halves of activation read
+# that file from the working directory: `hook-env` puts the project's install on
+# PATH, and the shim runs it when started from there. Activating in place, or
+# prepending the shims in place instead, therefore passes the probe on a tool no
+# new terminal has (issue #462).
+mv "$mock_bin/zoxide" "$root/withheld-zoxide"
+stray_project="$root/project"
+mkdir -p "$stray_project" "$data/mise/installs/zoxide/0.9.8/bin"
+printf '[tools]\nzoxide = "0.9.8"\n' >"$stray_project/mise.toml"
+printf '#!/usr/bin/env bash\n[[ "${1:-}" != --version ]] || printf "zoxide 0.9.8\\n"\n' \
+  >"$data/mise/installs/zoxide/0.9.8/bin/zoxide"
+chmod +x "$data/mise/installs/zoxide/0.9.8/bin/zoxide"
+ln -s "$mock_bin/mise" "$data/mise/shims/zoxide"
+verifier_origin="$PWD"
+verifier_tmp="$root/verifier-tmp"
+mkdir -p "$verifier_tmp"
+cd "$stray_project"
+run_verifier "TMPDIR=$verifier_tmp"
+cd "$verifier_origin"
+expect_one_more_failure "a project's mise.toml does not supply a command the machine lacks" \
+  "zoxide resolves to $data/mise/shims/zoxide but does not run"
+assert_not_contains "$TEST_OUTPUT" 'zoxide runs:'
+# The directory the probes ran from is the verifier's own, and it is gone.
+assert_eq "" "$(ls -A "$verifier_tmp")" 'the verifier left its probe directory behind'
+rm -r "$stray_project" "$verifier_tmp" "$data/mise/installs/zoxide" "$data/mise/shims/zoxide"
+mv "$root/withheld-zoxide" "$mock_bin/zoxide"
 
 # --- Architecture checks read file(1)'s description, not its echo of the path -
 #
