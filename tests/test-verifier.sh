@@ -227,6 +227,11 @@ mkdir -p "$mise_context"
 VERIFY_MISE_COMMAND="$root/mise-bin"
 MISE_DATA_DIR="$root/mise-data"
 MISE_SHIMS_DIR="$root/mise-data/shims"
+# check_mise_owned asks a login that is not interactive for its PATH when no
+# caller has. These cases are about the other probes, so they answer that one
+# with a directory holding nothing, rather than letting a real Zsh read the
+# .zshenv of whoever runs the suite. It is its own subject further down.
+VERIFY_NONINTERACTIVE_LOGIN_PATH="$root/noninteractive-login-bin"
 
 PATH="$root/mise-managed/bin:$PATH"
 VERIFY_CALLER_PATH="$PATH"
@@ -342,6 +347,138 @@ hash -r
 verify_reset
 check_mise_owned tool || true
 assert_verifier_counts 0 1 0
+
+# --- The non-interactive login probe (#507, V4-11) ---------------------------
+#
+# The second probe looks for the copy of a runtime that a login which is not
+# interactive runs: .zshenv puts ~/.local/bin in front of the inherited PATH
+# and only .zshrc, which such a login never reads, activates mise. It ran only
+# when the caller supplied VERIFY_NONINTERACTIVE_LOGIN_PATH, and three of the
+# four callers -- the Fedora, Fedora WSL and macOS verifiers -- never did, so a
+# dnf or Homebrew copy in /usr/bin behind the interactive login's shims was
+# reported as mise-managed. A real Zsh reads the repository's own .zshenv
+# here; the directory standing in for /usr/bin is part of the PATH the verifier
+# was started with, the one every login inherits.
+printf 'Non-interactive login probe\n'
+unset VERIFY_NONINTERACTIVE_LOGIN_PATH VERIFY_CONFIGURED_LOGIN_PATH
+ni_saved_path="$PATH"
+ni_saved_home="$HOME"
+ni_saved_config="${XDG_CONFIG_HOME-}"
+ni_saved_mise="$VERIFY_MISE_COMMAND"
+ni_real_zsh="$(command -v zsh)" || _test_die 'zsh is required for the login probe cases'
+# The suite's PATH with every fixture directory taken out: the system tools the
+# probe itself needs (sed, tail), and no copy of the runtime below.
+ni_base_path="$(tr ':' '\n' <<<"$PATH" | grep -v "^$root/" | paste -sd: -)"
+ni_home="$root/ni-home"
+ni_system="$root/ni-system-bin"
+ni_installs="$root/mise-data/installs/ni-runtime/1/bin"
+mkdir -p "$ni_home/.local/bin" "$ni_home/.config" "$ni_system" "$ni_installs"
+cp "$repo_root/zsh/.zshenv" "$ni_home/.zshenv"
+cat >"$root/ni-mise" <<EOF
+#!/usr/bin/env bash
+if [[ "\${1:-}" == which && "\${2:-}" == ni-runtime ]]; then
+  printf '%s\\n' "$ni_installs/ni-runtime"
+  exit 0
+fi
+printf 'ni-mise fixture refused:' >&2
+printf ' %q' "\$@" >&2
+exit 96
+EOF
+for ni_copy in "$ni_installs/ni-runtime" "$ni_system/ni-runtime"; do
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$ni_copy"
+done
+printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$ni_installs/ni-runtime" \
+  >"$root/mise-data/shims/ni-runtime"
+chmod +x "$root/ni-mise" "$ni_installs/ni-runtime" "$ni_system/ni-runtime" \
+  "$root/mise-data/shims/ni-runtime"
+
+export HOME="$ni_home"
+export XDG_CONFIG_HOME="$ni_home/.config"
+VERIFY_MISE_COMMAND="$root/ni-mise"
+# The verifier's own PATH once establish_user_tool_environment has run, the
+# PATH it was started with, and what the interactive login reported: shims
+# first, so the interactive probe is satisfied.
+PATH="$root/mise-data/shims:$ni_home/.local/bin:$ni_system:$ni_base_path"
+VERIFY_CALLER_PATH="$ni_system:$ni_base_path"
+VERIFY_CONFIGURED_LOGIN_PATH="$PATH"
+hash -r
+
+# The platform verifiers' shape: the interactive login supplied, the other not.
+# Asked from the verifier's own PATH instead of the one it was started with,
+# the login would inherit the shims ahead of the copy and pass.
+verify_reset
+check_mise_owned ni-runtime >"$root/ni-shadow.out" 2>&1 || true
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/ni-shadow.out" \
+  "ni-runtime resolves outside mise in a login that is not interactive: $ni_system/ni-runtime"
+assert_eq "$ni_home/.local/bin:$ni_system:$ni_base_path" \
+  "${VERIFY_NONINTERACTIVE_LOGIN_PATH:-}" 'the non-interactive login PATH, as Zsh reported it'
+
+# The verifier run from a terminal where mise is activated, the ordinary way to
+# run it: that terminal's PATH carries mise's install directory, a fresh login
+# has none, and inherited as it was it put mise's own copy ahead of the one
+# being looked for.
+unset VERIFY_NONINTERACTIVE_LOGIN_PATH
+VERIFY_CALLER_PATH="$ni_installs:$ni_home/.local/bin:$ni_system:$ni_base_path"
+verify_reset
+check_mise_owned ni-runtime >"$root/ni-activated.out" 2>&1 || true
+assert_verifier_counts 0 1 0
+assert_file_contains "$root/ni-activated.out" \
+  "ni-runtime resolves outside mise in a login that is not interactive: $ni_system/ni-runtime"
+
+# Asked once per run: every mise-owned tool shares the answer, so a second
+# check starts no second login.
+cat >"$root/ni-wrap-zsh" <<EOF
+#!/usr/bin/env bash
+printf 'started\\n' >>"$root/ni-zsh.log"
+exec "$ni_real_zsh" "\$@"
+EOF
+chmod +x "$root/ni-wrap-zsh"
+mkdir -p "$root/ni-wrap"
+ln -sf "$root/ni-wrap-zsh" "$root/ni-wrap/zsh"
+: >"$root/ni-zsh.log"
+unset VERIFY_NONINTERACTIVE_LOGIN_PATH
+VERIFY_CALLER_PATH="$root/ni-wrap:$ni_system:$ni_base_path"
+verify_reset
+check_mise_owned ni-runtime >/dev/null 2>&1 || true
+check_mise_owned ni-runtime >/dev/null 2>&1 || true
+assert_verifier_counts 0 2 0
+assert_eq 1 "$(wc -l <"$root/ni-zsh.log" | tr -d ' ')" 'logins started for two checks'
+
+# A login that cannot be asked is not observed, by name, and the rest of the
+# check still answers. Asked from a PATH with no Zsh on it:
+unset VERIFY_NONINTERACTIVE_LOGIN_PATH
+VERIFY_CALLER_PATH="$ni_system"
+verify_reset
+check_mise_owned ni-runtime >"$root/ni-unasked.out" 2>&1
+assert_verifier_counts 1 0 0 1
+assert_file_contains "$root/ni-unasked.out" \
+  "whether a login that is not interactive runs a copy of ni-runtime outside mise"
+
+# ...and the subtle shape: a caller whose own probe came back empty. Empty
+# used to read as "not asked", and the probe was skipped without a word.
+VERIFY_NONINTERACTIVE_LOGIN_PATH=""
+VERIFY_CALLER_PATH="$ni_system:$ni_base_path"
+verify_reset
+check_mise_owned ni-runtime >"$root/ni-empty.out" 2>&1
+assert_verifier_counts 1 0 0 1
+assert_file_contains "$root/ni-empty.out" \
+  "zsh did not report that login's PATH"
+
+export HOME="$ni_saved_home"
+if [[ -n "$ni_saved_config" ]]; then
+  export XDG_CONFIG_HOME="$ni_saved_config"
+else
+  unset XDG_CONFIG_HOME
+fi
+PATH="$ni_saved_path"
+VERIFY_CALLER_PATH="$PATH"
+VERIFY_MISE_COMMAND="$ni_saved_mise"
+unset VERIFY_CONFIGURED_LOGIN_PATH
+VERIFY_NONINTERACTIVE_LOGIN_PATH="$root/noninteractive-login-bin"
+rm -f "$root/mise-data/shims/ni-runtime"
+hash -r
+printf 'PASS: every caller of check_mise_owned gets the non-interactive login probe\n'
 
 printf 'Functional command probe\n'
 probe_bin="$root/probe-bin"

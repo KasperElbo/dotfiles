@@ -56,18 +56,11 @@ no_mistakes_target_path_state="$(profile_state_read "$state_file" no_mistakes_ta
 
 # Capture the environment configured for a fresh interactive login before the
 # verifier adds mise's shims to its own process. An explicit value remains
-# supported for hermetic callers and tests.
-#
-# Both logins, because they configure different PATHs and only one of them is
-# the shell mise activation reaches: check_mise_owned needs the other to tell
-# a shim from a copy in ~/.local/bin that the next non-interactive login would
-# run instead. A caller that supplies the interactive value by hand supplies
-# the other one too, or the second probe stays out of the way.
+# supported for hermetic callers and tests. check_mise_owned asks the
+# non-interactive login itself, from VERIFY_CALLER_PATH, so that has to be
+# recorded here too, before the shims go in.
 if [[ -z "${VERIFY_CONFIGURED_LOGIN_PATH+x}" ]]; then
   VERIFY_CONFIGURED_LOGIN_PATH="$(verify_login_path interactive || true)"
-  if [[ -z "${VERIFY_NONINTERACTIVE_LOGIN_PATH+x}" ]]; then
-    VERIFY_NONINTERACTIVE_LOGIN_PATH="$(verify_login_path non-interactive || true)"
-  fi
 fi
 VERIFY_CALLER_PATH="$PATH"
 mise_command="$(resolve_mise_command || true)"

@@ -264,6 +264,11 @@ if [[ -z "$mise_command" && -x "$HOME/.local/bin/mise" ]]; then
   mise_command="$HOME/.local/bin/mise"
 fi
 
+# The PATH this verifier was started with, before it adds mise's shims to its
+# own process: check_mise_owned asks a fresh login from it, and a login
+# inherits PATH, so shims recorded here would sit ahead of the dnf copy that
+# check looks for.
+verify_caller_path="$PATH"
 if [[ -n "$mise_command" ]]; then
   establish_user_tool_environment
 else
@@ -308,7 +313,7 @@ done
 # exists to catch. It resolves them in the PATH the fresh Zsh login above
 # reported, which is what a new terminal will use.
 VERIFY_CONFIGURED_LOGIN_PATH="$login_path"
-VERIFY_CALLER_PATH="$PATH"
+VERIFY_CALLER_PATH="$verify_caller_path"
 VERIFY_MISE_COMMAND="$mise_command"
 mise_tools=(
   ast-grep

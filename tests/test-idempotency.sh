@@ -438,13 +438,20 @@ ln -sf terra-gpg "$mock_bin/gpg"
 rm -- "$mock_bin/zsh"
 cat >"$mock_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
-login_path="$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
+# A login inherits PATH, and .zshenv puts ~/.local/bin in front of it. Only an
+# interactive login reads .zshrc, which activates mise and so puts the shims
+# ahead of both; a login that is not interactive has no shims at all. That
+# difference is what lets a dnf copy of a mise-owned runtime hide from the
+# interactive probe, so this fixture has to keep it (issue #507, V4-11).
+if [[ "${1:-}" == -lc ]]; then
+  login_path="$HOME/.local/bin:$PATH"
+else
+  login_path="$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
+fi
 if [[ "$*" == *'login-path:'* ]]; then
-  # The AI verifier asks for a login PATH through this marker, and asks twice:
-  # once for an interactive login and once for a non-interactive one. This
-  # fixture answers both the same way, because what it models is an installed
-  # machine's login PATH; the difference between the two logins is
-  # tests/test-ai-profile.sh's subject rather than this suite's.
+  # The shared verifier library asks for a login PATH through this marker:
+  # check_mise_owned asks a login that is not interactive, whichever verifier
+  # calls it.
   printf 'login-path:%s\n' "$login_path"
 elif [[ "$*" == *'printf "%s\\n" "$PATH"'* ]]; then
   # The mise section of platforms/fedora/scripts/verify.sh asks for the same
@@ -700,6 +707,41 @@ fi
 grep -Fq 'Markdown preview server absent: ' "$test_root/preview-missing-verification.log"
 mv "$test_root/withheld-preview-server" "$preview_server"
 printf 'PASS: Fedora verification reports a Markdown preview with no server\n'
+
+# The mise section asks a login that is not interactive as well, not only the
+# AI verifier: a dnf package of a mise-owned runtime sits in /usr/bin, which
+# every login inherits, and only the interactive one puts mise's shims ahead of
+# it. Before #507 (V4-11) this verifier never asked that login, so the copy
+# every script, cron job and `ssh host node` would run was reported as
+# mise-managed via shim. The shim is what makes the interactive probe pass;
+# the directory stands in for /usr/bin, ahead of the fixture's own commands.
+if grep -Fq 'runs a copy of' "$test_root/tmux-drift-verification.log"; then
+  printf 'Fedora verification could not ask a non-interactive login on a healthy machine:\n' >&2
+  grep -F 'runs a copy of' "$test_root/tmux-drift-verification.log" >&2
+  exit 1
+fi
+dnf_shadow="$test_root/dnf-shadow-bin"
+node_shim="$bootstrap_data/mise/shims/node"
+mkdir -p "$dnf_shadow" "$(dirname "$node_shim")"
+cp "$mock_bin/mock-command" "$dnf_shadow/node"
+printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$mock_bin/node" >"$node_shim"
+chmod +x "$node_shim"
+if "${bootstrap_environment[@]}" "PATH=$dnf_shadow:$mock_bin:$PATH" \
+  "$repo_root/platforms/fedora/scripts/verify.sh" \
+  >"$test_root/dnf-shadow-verification.log" 2>&1; then
+  printf 'Fedora verification accepted a dnf node that a non-interactive login runs\n' >&2
+  exit 1
+fi
+grep -Fq "node resolves outside mise in a login that is not interactive: $dnf_shadow/node" \
+  "$test_root/dnf-shadow-verification.log"
+# The interactive probe must not be what caught it: the shim wins there.
+if grep -Fq 'node resolves outside mise in the configured login PATH' \
+  "$test_root/dnf-shadow-verification.log"; then
+  printf 'The dnf shadow fixture was caught by the interactive probe, so it proves nothing about the other\n' >&2
+  exit 1
+fi
+rm -r -- "$dnf_shadow" "$node_shim"
+printf 'PASS: Fedora verification reports a dnf runtime a non-interactive login runs instead of mise\n'
 
 run_bootstrap --vm-guest
 vm_guest_state="$bootstrap_config/dotfiles/vm-guest.conf"
