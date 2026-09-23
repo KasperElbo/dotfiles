@@ -8,77 +8,90 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 
 ## Tier: `immutable-verified`
 
-| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
-|---|---|---|---|---|---|---|---|---|
-| `catppuccin-bat-themes` | Catppuccin bat/delta syntax themes | Catppuccin | `file` | `user` | `6810349b28055dce54076712fc05fc68da4b8ec0` | commit+sha256 | `sha256-pinned` | manual-bump |
-| `ghost-pepper-release` | Ghost Pepper dictation application disk image | matthartman | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
-| `gitleaks-release` | Secret-scanning gate: the gitleaks binary ./scripts/scan-secrets.sh runs | gitleaks | `archive` | `user` | `pinned release + per-platform sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
-| `hack-nerd-font` | Hack Nerd Font release archive | Nerd Fonts | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
-| `handy-release` | Handy dictation application release RPM | cjpais | `rpm-package` | `root` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | manual-bump |
-| `parrot-boundary-image` | Parrot base image for the CI boundary check (not VM evidence) | Parrot Security | `container-image` | `root` | `latest` | sha256:944b58dad7e74ae4789e5ae9e369109dc5ebb3fe143ec65a5e39ec4132d80469 | `image-digest-pinned` | manual-bump |
-| `smoke-image-busybox` | Podman rootless smoke-test image | Docker Official Images | `container-image` | `user` | `stable` | sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 | `image-digest-pinned` | manual-bump |
-| `terra-signing-key` | Terra repository signing key | Fyra Labs | `gpg-key` | `root` | `per-releasever` | gpg-fingerprint | `gpg-fingerprint-pinned` | per-fedora-release |
-| `validation-image-fedora` | CI and clean-install validation base image | Fedora Project | `container-image` | `root` | `44` | sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 | `image-digest-pinned` | manual-bump |
+| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Checked before use | Cadence |
+|---|---|---|---|---|---|---|---|---|---|
+| `catppuccin-bat-themes` | Catppuccin bat/delta syntax themes | Catppuccin | `file` | `user` | `6810349b28055dce54076712fc05fc68da4b8ec0` | commit+sha256 | `sha256-pinned` | yes: pinned SHA-256 | manual-bump |
+| `ghost-pepper-release` | Ghost Pepper dictation application disk image | matthartman | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | yes: pinned SHA-256 | manual-bump |
+| `gitleaks-release` | Secret-scanning gate: the gitleaks binary ./scripts/scan-secrets.sh runs | gitleaks | `archive` | `user` | `pinned release + per-platform sha256` | release tag + sha256 | `sha256-pinned` | yes: pinned SHA-256 | manual-bump |
+| `hack-nerd-font` | Hack Nerd Font release archive | Nerd Fonts | `archive` | `user` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | yes: pinned SHA-256 | manual-bump |
+| `handy-release` | Handy dictation application release RPM | cjpais | `rpm-package` | `root` | `pinned release + sha256` | release tag + sha256 | `sha256-pinned` | yes: pinned SHA-256 | manual-bump |
+| `homebrew-installer` | Homebrew installer script, at a pinned commit | Homebrew | `remote-script` | `root` | `e53db71afc381d41c46c8baaeba10c091acf4b44` | commit + sha256 | `sha256-pinned` | yes: pinned SHA-256 | manual-bump |
+| `mise-release` | mise binary release archive for the Fedora WSL and Parrot CTF bootstraps | jdx | `archive` | `user` | `pinned release + per-architecture sha256` | release tag + sha256 | `sha256-pinned` | yes: pinned SHA-256 | manual-bump |
+| `parrot-boundary-image` | Parrot base image for the CI boundary check (not VM evidence) | Parrot Security | `container-image` | `root` | `latest` | sha256:944b58dad7e74ae4789e5ae9e369109dc5ebb3fe143ec65a5e39ec4132d80469 | `image-digest-pinned` | yes: pinned image digest | manual-bump |
+| `scoop-installer` | Scoop installer script, at a pinned commit | Scoop | `remote-script` | `user` | `1e2f334083d609986d8c8bc9e31ae8e87c39fab4` | commit + sha256 | `sha256-pinned` | yes: pinned SHA-256 | manual-bump |
+| `smoke-image-busybox` | Podman rootless smoke-test image | Docker Official Images | `container-image` | `user` | `stable` | sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 | `image-digest-pinned` | yes: pinned image digest | manual-bump |
+| `starship-release` | Starship binary release archive for the Fedora WSL bootstrap (Parrot CTF sources the same library but installs no Starship) | Starship | `archive` | `user` | `pinned release + per-architecture sha256` | release tag + sha256 | `sha256-pinned` | yes: pinned SHA-256 | manual-bump |
+| `terra-signing-key` | Terra repository signing key | Fyra Labs | `gpg-key` | `root` | `per-releasever` | gpg-fingerprint | `gpg-fingerprint-pinned` | yes: pinned key fingerprint | per-fedora-release |
+| `validation-image-fedora` | CI and clean-install validation base image | Fedora Project | `container-image` | `root` | `44` | sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 | `image-digest-pinned` | yes: pinned image digest | manual-bump |
 
 ## Tier: `exact-commit`
 
-| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
-|---|---|---|---|---|---|---|---|---|
-| `catppuccin-kde` | Catppuccin KDE theme | Catppuccin | `git` | `user` | `v0.4.0` | git rev-parse HEAD | `git-tag-pinned` | manual-bump |
-| `catppuccin-tmux` | Catppuccin tmux theme | Catppuccin | `git` | `user` | `v2.3.0` | git rev-parse HEAD | `git-tag-pinned` | manual-bump |
-| `dotfiles-repository` | This repository, checked out by CI | KasperElbo | `git` | `user` | `github.sha` | git rev-parse HEAD | `git-commit-pinned` | per-commit |
-| `lazyvim-plugins` | Neovim plugin set | LazyVim and plugin authors | `git` | `user` | `lazy-lock.json` | lazy-lock.json | `git-commit-pinned` | manual-bump |
+| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Checked before use | Cadence |
+|---|---|---|---|---|---|---|---|---|---|
+| `catppuccin-kde` | Catppuccin KDE theme | Catppuccin | `git` | `user` | `v0.4.0` | git rev-parse HEAD | `git-tag-pinned` | no: pinned tag, which upstream can move | manual-bump |
+| `catppuccin-tmux` | Catppuccin tmux theme | Catppuccin | `git` | `user` | `v2.3.0` | git rev-parse HEAD | `git-tag-pinned` | no: pinned tag, which upstream can move | manual-bump |
+| `dotfiles-repository` | This repository, checked out by CI | KasperElbo | `git` | `user` | `github.sha` | git rev-parse HEAD | `git-commit-pinned` | yes: pinned commit | per-commit |
+| `lazyvim-plugins` | Neovim plugin set | LazyVim and plugin authors | `git` | `user` | `lazy-lock.json` | lazy-lock.json | `git-commit-pinned` | yes: pinned commit | manual-bump |
 
 ## Tier: `exact-version`
 
-| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
-|---|---|---|---|---|---|---|---|---|
-| `markdown-preview-server` | Markdown preview server: the prebuilt binary markdown-preview.nvim's build downloads into app/bin | iamcco | `archive` | `user` | `the version in package.json at the markdown-preview.nvim commit lazy-lock.json pins` | app/bin/markdown-preview-<platform> --version | `https-tls` | manual-bump |
-| `neovim-github-releases` | Neovim for the Parrot CTF profile | Neovim | `archive` | `user` | `0.12.5` | release tag | `https-tls` | manual-bump |
-| `netcoredbg-legacy-release` | netcoredbg x64 build used as a debugger contract control | Samsung | `archive` | `user` | `3.1.3-1062` | release tag | `https-tls` | manual-bump |
-| `opam-repository` | OCaml Platform packages | OCaml | `package-registry` | `user` | `5.5.0 compiler` | opam switch list | `registry-tls` | manual-bump |
-| `psscriptanalyzer` | PSScriptAnalyzer rules for the Windows PowerShell validation job | Microsoft | `package-registry` | `user` | `1.24.0` | 1.24.0 | `registry-tls` | manual-bump |
+| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Checked before use | Cadence |
+|---|---|---|---|---|---|---|---|---|---|
+| `markdown-preview-server` | Markdown preview server: the prebuilt binary markdown-preview.nvim's build downloads into app/bin | iamcco | `archive` | `user` | `the version in package.json at the markdown-preview.nvim commit lazy-lock.json pins` | app/bin/markdown-preview-<platform> --version | `https-tls` | no: TLS only | manual-bump |
+| `neovim-github-releases` | Neovim for the Parrot CTF profile | Neovim | `archive` | `user` | `0.12.5` | release tag | `https-tls` | no: TLS only | manual-bump |
+| `netcoredbg-legacy-release` | netcoredbg x64 build used as a debugger contract control | Samsung | `archive` | `user` | `3.1.3-1062` | release tag | `https-tls` | no: TLS only | manual-bump |
+| `opam-repository` | OCaml Platform packages | OCaml | `package-registry` | `user` | `5.5.0 compiler` | opam switch list | `registry-tls` | no: registry over TLS | manual-bump |
+| `psscriptanalyzer` | PSScriptAnalyzer rules for the Windows PowerShell validation job | Microsoft | `package-registry` | `user` | `1.24.0` | 1.24.0 | `registry-tls` | no: registry over TLS | manual-bump |
 
 ## Tier: `version-line`
 
-| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
-|---|---|---|---|---|---|---|---|---|
-| `firstmate-repo` | FirstMate crew coordinator | kunchenguid | `git` | `user` | `default-branch` | firstmate_commit in ai state | `https-tls` | rolling |
-| `homebrew-formulae` | Homebrew formulae and casks | Homebrew | `package-registry` | `user` | `Brewfile` | brew bundle list | `registry-tls` | rolling |
-| `homebrew-tap-nikitabobko` | AeroSpace tiling window manager tap | nikitabobko | `git` | `user` | `HEAD` | brew tap-info nikitabobko/tap | `https-tls` | rolling |
-| `lazy-nvim` | lazy.nvim plugin manager: cloned at --branch=stable on a workstation, at the revision lazy-lock.json names by CI | folke | `git` | `user` | `stable branch (bootstrap), lazy-lock.json (CI)` | branch tip on a workstation, lazy-lock.json in CI | `https-tls` | rolling |
-| `mason-registry` | Neovim LSP/DAP tooling | Mason registry | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | rolling |
-| `mason-registry-crashdummyy` | Neovim LSP/DAP tooling absent from the official registry (roslyn) | Crashdummyy | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | rolling |
-| `mise-tool-registry` | mise tool registry and backends | mise | `package-registry` | `user` | `config.toml` | mise ls | `registry-tls` | rolling |
-| `npm-registry` | npm packages installed through mise | npm | `package-registry` | `user` | `latest` | <tool>_version in ai state | `registry-tls` | rolling |
-| `scoop-extras-bucket` | Official Scoop extras bucket (Handy dictation) | ScoopInstaller | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | rolling |
-| `scoop-noctty-bucket` | noctty terminal Scoop bucket | amanthanvi | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | rolling |
-| `smoke-image-alpine` | Podman machine architecture smoke image | Docker Official Images | `container-image` | `user` | `latest` | podman image inspect | `registry-tls` | rolling |
+| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Checked before use | Cadence |
+|---|---|---|---|---|---|---|---|---|---|
+| `firstmate-repo` | FirstMate crew coordinator | kunchenguid | `git` | `user` | `default-branch` | firstmate_commit in ai state | `https-tls` | no: TLS only | rolling |
+| `homebrew-formulae` | Homebrew formulae and casks | Homebrew | `package-registry` | `user` | `Brewfile` | brew bundle list | `registry-tls` | no: registry over TLS | rolling |
+| `homebrew-tap-nikitabobko` | AeroSpace tiling window manager tap | nikitabobko | `git` | `user` | `HEAD` | brew tap-info nikitabobko/tap | `https-tls` | no: TLS only | rolling |
+| `lazy-nvim` | lazy.nvim plugin manager: cloned at --branch=stable on a workstation, at the revision lazy-lock.json names by CI | folke | `git` | `user` | `stable branch (bootstrap), lazy-lock.json (CI)` | branch tip on a workstation, lazy-lock.json in CI | `https-tls` | no: TLS only | rolling |
+| `mason-registry` | Neovim LSP/DAP tooling | Mason registry | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | no: registry over TLS | rolling |
+| `mason-registry-crashdummyy` | Neovim LSP/DAP tooling absent from the official registry (roslyn) | Crashdummyy | `package-registry` | `user` | `mason-packages.txt` | mason-package-versions.txt | `registry-tls` | no: registry over TLS | rolling |
+| `mise-tool-registry` | mise tool registry and backends | mise | `package-registry` | `user` | `config.toml` | mise ls | `registry-tls` | no: registry over TLS | rolling |
+| `npm-registry` | npm packages installed through mise | npm | `package-registry` | `user` | `latest` | <tool>_version in ai state | `registry-tls` | no: registry over TLS | rolling |
+| `scoop-extras-bucket` | Official Scoop extras bucket (Handy dictation) | ScoopInstaller | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | no: TLS only | rolling |
+| `scoop-noctty-bucket` | noctty terminal Scoop bucket | amanthanvi | `git` | `user` | `default-branch` | scoop bucket list | `https-tls` | no: TLS only | rolling |
+| `smoke-image-alpine` | Podman machine architecture smoke image | Docker Official Images | `container-image` | `user` | `latest` | podman image inspect | `registry-tls` | no: registry over TLS | rolling |
 
 ## Tier: `os-rolling`
 
-| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
-|---|---|---|---|---|---|---|---|---|
-| `distribution-gpg-keys` | RPM Fusion signing keys, from Fedora's own signed package | Fedora Project | `rpm-package` | `root` | `releasever` | rpm -q distribution-gpg-keys | `repo-gpg` | distribution |
-| `fedora-os-repos` | Fedora base system packages | Fedora Project | `rpm-repo` | `root` | `releasever` | dnf-history | `repo-gpg` | distribution |
-| `parrot-os-repos` | Parrot base system packages | Parrot Security | `apt-repo` | `root` | `release` | dpkg-status | `repo-gpg` | distribution |
-| `rpmfusion-free-release` | RPM Fusion free release package | RPM Fusion | `rpm-package` | `root` | `releasever` | rpm -q rpmfusion-free-release | `https-tls` | per-fedora-release |
-| `rpmfusion-nonfree-release` | RPM Fusion nonfree release package | RPM Fusion | `rpm-package` | `root` | `releasever` | rpm -q rpmfusion-nonfree-release | `https-tls` | per-fedora-release |
-| `tailscale-repo` | Tailscale package repository | Tailscale | `rpm-repo` | `root` | `stable` | rpm -q tailscale | `repo-gpg` | rolling |
-| `terra-repo` | Terra packages (ghostty, mise, starship) | Fyra Labs | `rpm-repo` | `root` | `terra-release` | rpm -q terra-release | `repo-gpg` | rolling |
+| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Checked before use | Cadence |
+|---|---|---|---|---|---|---|---|---|---|
+| `distribution-gpg-keys` | RPM Fusion signing keys, from Fedora's own signed package | Fedora Project | `rpm-package` | `root` | `releasever` | rpm -q distribution-gpg-keys | `repo-gpg` | yes: repository signature | distribution |
+| `fedora-os-repos` | Fedora base system packages | Fedora Project | `rpm-repo` | `root` | `releasever` | dnf-history | `repo-gpg` | yes: repository signature | distribution |
+| `parrot-os-repos` | Parrot base system packages | Parrot Security | `apt-repo` | `root` | `release` | dpkg-status | `repo-gpg` | yes: repository signature | distribution |
+| `rpmfusion-free-release` | RPM Fusion free release package | RPM Fusion | `rpm-package` | `root` | `releasever` | rpm -q rpmfusion-free-release | `https-tls` | no: TLS only | per-fedora-release |
+| `rpmfusion-nonfree-release` | RPM Fusion nonfree release package | RPM Fusion | `rpm-package` | `root` | `releasever` | rpm -q rpmfusion-nonfree-release | `https-tls` | no: TLS only | per-fedora-release |
+| `tailscale-repo` | Tailscale package repository | Tailscale | `rpm-repo` | `root` | `stable` | rpm -q tailscale | `repo-gpg` | yes: repository signature | rolling |
+| `terra-repo` | Terra packages (ghostty, mise, starship) | Fyra Labs | `rpm-repo` | `root` | `terra-release` | rpm -q terra-release | `repo-gpg` | yes: repository signature | rolling |
 
 ## Tier: `reviewed-live`
 
-| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
-|---|---|---|---|---|---|---|---|---|
-| `homebrew-installer` | Homebrew installer script | Homebrew | `remote-script` | `root` | `HEAD` | brew --version | `https-tls` | rolling |
-| `mise-installer` | mise standalone installer script | jdx | `remote-script` | `user` | `latest` | mise --version | `https-tls` | rolling |
-| `no-mistakes-installer` | No Mistakes push gate installer | kunchenguid | `remote-script` | `user` | `main` | no_mistakes_digest in ai state | `https-tls` | rolling |
-| `pin-freshness-probe` | Upstream tag and branch refs read by the pin freshness report | GitHub | `git` | `user` | `refs of the repositories config/pin-freshness.tsv names` | git ls-remote output | `https-tls` | rolling |
-| `scoop-installer` | Scoop installer script | Scoop | `remote-script` | `user` | `latest` | scoop --version | `https-tls` | rolling |
-| `starship-installer` | Starship prompt installer script | Starship | `remote-script` | `user` | `latest` | starship --version | `https-tls` | rolling |
-| `treehouse-installer` | Treehouse worktree isolation installer | kunchenguid | `remote-script` | `user` | `live` | treehouse_digest in ai state | `https-tls` | rolling |
-| `wsl-distribution-catalog` | WSL distribution catalog | Microsoft | `json-api` | `user` | `master` | wsl --list --online | `https-tls` | rolling |
+| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Checked before use | Cadence |
+|---|---|---|---|---|---|---|---|---|---|
+| `no-mistakes-installer` | No Mistakes push gate installer | kunchenguid | `remote-script` | `user` | `main` | no_mistakes_digest in ai state | `https-tls` | no: TLS only | rolling |
+| `pin-freshness-probe` | Upstream tag and branch refs read by the pin freshness report | GitHub | `git` | `user` | `refs of the repositories config/pin-freshness.tsv names` | git ls-remote output | `https-tls` | no: TLS only | rolling |
+| `treehouse-installer` | Treehouse worktree isolation installer | kunchenguid | `remote-script` | `user` | `live` | treehouse_digest in ai state | `https-tls` | no: TLS only | rolling |
+| `wsl-distribution-catalog` | WSL distribution catalog | Microsoft | `json-api` | `user` | `master` | wsl --list --online | `https-tls` | no: TLS only | rolling |
+
+## Accepted live sources
+
+Nothing authenticates a `reviewed-live` source before it is used, so each one
+carries a recorded decision in `config/live-sources.tsv`. Where it is a script,
+it runs under the minimal installer environment of `common/lib/fetch.sh`.
+
+| Source | Runs as | Decision | Why | Environment it is given | Review and update |
+|---|---|---|---|---|---|
+| `no-mistakes-installer` | script | `owner-accepted` | Upstream publishes the installer only as a live script on its default branch, which resolves and downloads the latest release itself. Pinning its digest means re-reviewing and re-vouching for the script on every upstream change; the owner chose on 2026-09-22 (#386 SEC-05) to keep it rolling. | The minimal installer environment, PATH with ~/.local/bin first, and CURL_HOME holding a netrc for api.github.com only when CI supplies a token. | Rerunning --firstmate installs whatever upstream serves then. The script's SHA-256 is recorded after it runs, as an audit record rather than authentication, and verify-ai.sh reports when the installed binary no longer matches it. |
+| `pin-freshness-probe` | data | `not-executed` | git ls-remote output read as text to compare version tags; nothing it returns is executed or installed. | Not executed. | Nothing to review: the report only prints which pins have moved, and every bump it suggests is a reviewed edit to this repository. |
+| `treehouse-installer` | script | `owner-accepted` | Upstream publishes the installer only as a live script, which resolves and downloads the latest release itself. Pinning its digest means re-reviewing and re-vouching for the script on every upstream change; the owner chose on 2026-09-22 (#386 SEC-05) to keep it rolling. | The minimal installer environment, PATH with ~/.local/bin first, and CURL_HOME holding a netrc for api.github.com only when CI supplies a token. | Rerunning --firstmate installs whatever upstream serves then. The script's SHA-256 is recorded after it runs, as an audit record rather than authentication, and verify-ai.sh reports when the installed binary no longer matches it. |
+| `wsl-distribution-catalog` | data | `not-executed` | Read as data only: the installer takes the FedoraLinux distribution names from it and nothing else. The distribution itself comes from wsl --install, under WSL's own trust. Pinning a revision would freeze the list of installable Fedora releases. | Not executed. | Nothing to review: a wrong or missing name fails distribution selection with a message, and the Store catalogue is asked first. |
 
 ## Rollback and recovery
 
@@ -96,14 +109,14 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `hack-nerd-font` | `https://github.com/ryanoasis/nerd-fonts/releases/download/v${font_version}/Hack.tar.xz` | reinstall the previous version directory | `platforms/parrot-ctf/scripts/install-terminal.sh` |
 | `handy-release` | `https://github.com/cjpais/Handy/releases/download/v${handy_version}/${handy_rpm}` | pin the previous release tag and sha256 in platforms/fedora/lib/dictation.sh, then rerun with --dictation | `platforms/fedora/scripts/install-dictation.sh` `platforms/fedora/lib/dictation.sh` |
 | `homebrew-formulae` | `https://formulae.brew.sh` | brew uninstall | `platforms/macos/Brewfile` `platforms/macos/scripts/install-system.sh` |
-| `homebrew-installer` | `https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh` | Homebrew uninstall script | `scripts/bootstrap-macos.sh` `platforms/macos/install.sh` `platforms/macos/scripts/install-system.sh` |
+| `homebrew-installer` | `https://raw.githubusercontent.com/Homebrew/install` | restore the previous DOTFILES_HOMEBREW_INSTALLER_* values; Homebrew's own uninstall script removes Homebrew | `platforms/macos/lib/homebrew-installer.sh` `scripts/bootstrap-macos.sh` `platforms/macos/install.sh` `platforms/macos/scripts/install-system.sh` |
 | `homebrew-tap-nikitabobko` | `https://github.com/nikitabobko/homebrew-tap` | brew uninstall --cask aerospace && brew untap nikitabobko/tap | `platforms/macos/Brewfile` |
 | `lazy-nvim` | `https://github.com/folke/lazy.nvim.git` | restore lazy-lock.json and rerun the job; on a workstation, check out the previous commit in ~/.local/share/nvim/lazy/lazy.nvim | `nvim-lazyvim/.config/nvim/lazy-lock.json` `nvim-lazyvim/.config/nvim/lua/config/lazy.lua` `.github/workflows/validate.yml` |
 | `lazyvim-plugins` | `https://github.com/LazyVim/LazyVim` | git restore lazy-lock.json and :Lazy restore | `nvim-lazyvim/.config/nvim/lazy-lock.json` |
 | `markdown-preview-server` | `https://github.com/iamcco/markdown-preview.nvim/releases` | restore lazy-lock.json, :Lazy restore, then :Lazy build markdown-preview.nvim | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` `common/install-neovim-tools.sh` `common/lib/markdown-preview.sh` |
 | `mason-registry` | `https://github.com/mason-org/mason-registry` | Mason uninstall | `common/install-neovim-tools.sh` `common/mason-package-versions.txt` |
 | `mason-registry-crashdummyy` | `https://github.com/Crashdummyy/mason-registry` | Mason uninstall | `common/bootstrap-mason.lua` `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
-| `mise-installer` | `https://mise.run` | rm ~/.local/bin/mise and rerun | `platforms/fedora-wsl/install.sh` `platforms/parrot-ctf/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |
+| `mise-release` | `https://github.com/jdx/mise/releases` | restore the previous BOOTSTRAP_MISE_* values in common/lib/bootstrap-tools.sh, rm ~/.local/bin/mise and rerun | `common/lib/bootstrap-tools.sh` `platforms/fedora-wsl/install.sh` `platforms/parrot-ctf/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |
 | `mise-tool-registry` | `https://mise.jdx.dev/registry.html` | mise uninstall | `mise/.config/mise/config.toml` `common/install-mise.sh` |
 | `neovim-github-releases` | `https://github.com/neovim/neovim` | mise use -g nvim@<previous version> | `platforms/parrot-ctf/stow/mise-ctf/.config/mise/config.toml` `platforms/parrot-ctf/scripts/verify.sh` |
 | `netcoredbg-legacy-release` | `https://github.com/Samsung/netcoredbg/releases/download/3.1.3-1062/netcoredbg-osx-amd64.tar.gz` | pin the previous release tag | `tests/integration/macos-dotnet-debug.sh` |
@@ -117,11 +130,11 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `rpmfusion-free-release` | `https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-free-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `rpmfusion-nonfree-release` | `https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_version}.noarch.rpm` | sudo dnf remove rpmfusion-nonfree-release | `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-asus-hardware.sh` `platforms/fedora/scripts/install-desktop-tools.sh` |
 | `scoop-extras-bucket` | `https://github.com/ScoopInstaller/Extras` | scoop bucket rm extras | `platforms/windows/install.ps1` `platforms/windows/manifest.psd1` |
-| `scoop-installer` | `https://get.scoop.sh` | scoop uninstall | `platforms/windows/install.ps1` |
+| `scoop-installer` | `https://raw.githubusercontent.com/ScoopInstaller/Install` | restore the previous InstallerCommit and InstallerSha256 in platforms/windows/manifest.psd1; scoop uninstall scoop removes Scoop | `platforms/windows/manifest.psd1` `platforms/windows/install.ps1` |
 | `scoop-noctty-bucket` | `https://github.com/amanthanvi/scoop-noctty` | scoop bucket rm noctty | `platforms/windows/install.ps1` `platforms/windows/manifest.psd1` |
 | `smoke-image-alpine` | `docker.io/library/alpine:latest` | podman rmi | `platforms/macos/scripts/install-containers.sh` `platforms/macos/scripts/verify.sh` |
 | `smoke-image-busybox` | `docker.io/library/busybox:stable` | pin the previous digest | `platforms/fedora/scripts/verify-containers.sh` |
-| `starship-installer` | `https://starship.rs/install.sh` | rm ~/.local/bin/starship and rerun | `platforms/fedora-wsl/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` |
+| `starship-release` | `https://github.com/starship/starship/releases` | restore the previous BOOTSTRAP_STARSHIP_* values in common/lib/bootstrap-tools.sh, rm ~/.local/bin/starship and rerun | `common/lib/bootstrap-tools.sh` `platforms/fedora-wsl/install.sh` `platforms/parrot-ctf/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |
 | `tailscale-repo` | `https://pkgs.tailscale.com/stable/fedora/tailscale.repo` | sudo rm /etc/yum.repos.d/tailscale.repo | `platforms/fedora/lib/tailscale.sh` `platforms/fedora/scripts/install-tailscale.sh` |
 | `terra-repo` | `https://repos.fyralabs.com/terra$releasever` | sudo dnf remove terra-release | `platforms/fedora/install.sh` `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-terra.sh` `platforms/fedora/scripts/install-asus-hardware.sh` |
 | `terra-signing-key` | `https://repos.fyralabs.com/terra$releasever/key.asc` | sudo rpm -e --allmatches gpg-pubkey-<id> | `config/terra-keys.tsv` `platforms/fedora/install.sh` `platforms/fedora/lib/fedora.sh` `platforms/fedora/scripts/install-terra.sh` `platforms/fedora/scripts/install-asus-hardware.sh` |

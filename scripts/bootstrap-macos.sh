@@ -33,6 +33,31 @@ if bash_is_supported "${BASH:-}"; then
   exec_real_installer "$candidate" "$@"
 fi
 
+# run_homebrew_installer <script> <non-interactive>: the staged installer
+# inherits only these names, the list common/lib/fetch.sh keeps in
+# DOTFILES_INSTALLER_ENVIRONMENT (a test holds the two equal), so no token, API
+# key or agent socket reaches code this repository did not write. A function so
+# that `set --` builds the environment in its own positional parameters and
+# leaves the caller's arguments for the real installer. printenv, not indirect
+# expansion, so an unset name stays unset under Apple's Bash 3.2.
+run_homebrew_installer() {
+  script="$1"
+  quiet="$2"
+  set --
+  for name in HOME USER LOGNAME PATH SHELL TERM LANG LC_ALL LC_CTYPE LC_MESSAGES TMPDIR \
+    XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME \
+    http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY \
+    all_proxy ALL_PROXY SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE; do
+    if value="$(printenv "$name")"; then
+      set -- "$@" "$name=$value"
+    fi
+  done
+  if [ "$quiet" = "true" ]; then
+    set -- "$@" NONINTERACTIVE=1
+  fi
+  /usr/bin/env -i "$@" /bin/bash "$script"
+}
+
 help_requested="false"
 dry_run="false"
 non_interactive="false"
@@ -136,21 +161,21 @@ if [ -z "$brew_bin" ] || [ ! -x "$brew_bin" ]; then
   trap 'rm -f "$installer"' EXIT
   # This entry point runs under Apple's Bash 3.2 before any repository library
   # is available, so the bounded-transfer policy from common/lib/fetch.sh is
-  # written out here instead of being sourced.
+  # written out here instead of being sourced. The URL and digest come from
+  # the one Bash 3.2 file that pins them.
+  # shellcheck source=../platforms/macos/lib/homebrew-installer.sh
+  . "$repo_root/platforms/macos/lib/homebrew-installer.sh"
   # network-source: homebrew-installer
   curl --fail --location --proto '=https' --tlsv1.2 \
     --connect-timeout 10 --max-time 120 \
-    https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
+    "$(homebrew_installer_url)" \
     --output "$installer"
   if [ ! -s "$installer" ]; then
     printf 'ERROR: The Homebrew installer download was empty; nothing was executed.\n' >&2
     exit 1
   fi
-  if [ "$non_interactive" = "true" ]; then
-    NONINTERACTIVE=1 /bin/bash "$installer"
-  else
-    /bin/bash "$installer"
-  fi
+  homebrew_installer_verify "$installer"
+  run_homebrew_installer "$installer" "$non_interactive"
   rm -f "$installer"
   trap - EXIT
   brew_bin="/opt/homebrew/bin/brew"

@@ -7,6 +7,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/fetch.sh"
 # shellcheck source=../lib/macos.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/macos.sh"
+# shellcheck source=../lib/homebrew-installer.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/homebrew-installer.sh"
 
 non_interactive="false"
 while (($#)); do
@@ -33,14 +35,16 @@ if [[ ! -x "$brew_bin" ]]; then
   info "Installing native Apple Silicon Homebrew"
   installer="$(mktemp -t dotfiles-homebrew.XXXXXX)"
   trap 'rm -f -- "$installer"' EXIT
-  # network-source: homebrew-installer
-  fetch_to_file https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
-    "$installer" 'the Homebrew installer'
-  fetch_assert_shell_script "$installer" 'the Homebrew installer'
+  # The installer at one reviewed commit, refused unless its SHA-256 is the
+  # pinned one; see platforms/macos/lib/homebrew-installer.sh.
+  fetch_to_file "$(homebrew_installer_url)" "$installer" 'the pinned Homebrew installer'
+  fetch_verify_sha256 "$installer" "$DOTFILES_HOMEBREW_INSTALLER_SHA256" \
+    'the pinned Homebrew installer'
+  fetch_assert_shell_script "$installer" 'the pinned Homebrew installer'
   if [[ "$non_interactive" == true ]]; then
-    NONINTERACTIVE=1 /bin/bash "$installer"
+    fetch_run_installer NONINTERACTIVE=1 -- /bin/bash "$installer"
   else
-    /bin/bash "$installer"
+    fetch_run_installer -- /bin/bash "$installer"
   fi
 fi
 

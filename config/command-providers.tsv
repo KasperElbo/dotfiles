@@ -163,3 +163,7 @@ parrot-ctf	df	coreutils	base	base	supported-base
 parrot-ctf	find	findutils	base	base	supported-base
 parrot-ctf	readlink	coreutils	base	base	supported-base
 parrot-ctf	systemctl	systemd	base	base	supported-base
+fedora-wsl	gzip	gzip	base	base	baseline-package
+fedora-wsl	tar	tar	base	base	baseline-package
+parrot-ctf	gzip	gzip	base	base	supported-base
+parrot-ctf	tar	tar	base	base	supported-base

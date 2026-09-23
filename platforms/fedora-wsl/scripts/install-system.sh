@@ -4,8 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
-# shellcheck source=../../../common/lib/fetch.sh
-source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/fetch.sh"
+# shellcheck source=../../../common/lib/bootstrap-tools.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/bootstrap-tools.sh"
 # shellcheck source=../lib/wsl.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/wsl.sh"
 
@@ -24,6 +24,7 @@ packages=(
   gh
   git
   git-delta
+  gzip
   jq
   libicu
   make
@@ -36,6 +37,7 @@ packages=(
   sqlite
   sqlite-devel
   stow
+  tar
   tmux
   unzip
   zoxide
@@ -63,20 +65,13 @@ fi
 # directory to exist before they can place their executables there.
 mkdir -p "$HOME/.local/bin"
 
+# Both come from a pinned release archive whose SHA-256 is checked before it is
+# unpacked; no upstream install script runs (see common/lib/bootstrap-tools.sh).
 if command_exists starship || [[ -x "$HOME/.local/bin/starship" ]]; then
   info "Starship is already installed"
 else
-  starship_installer="$(mktemp)"
-  trap 'rm -f -- "${installer:-}" "${starship_installer:-}"' EXIT
-
-  info "Downloading the official Starship installer"
-  # network-source: starship-installer
-  fetch_to_file https://starship.rs/install.sh "$starship_installer" \
-    'the Starship installer'
-  fetch_assert_shell_script "$starship_installer" 'the Starship installer'
-
-  info "Installing Starship as a user executable"
-  sh "$starship_installer" --yes --bin-dir "$HOME/.local/bin"
+  info "Installing the pinned Starship $BOOTSTRAP_STARSHIP_VERSION release as a user executable"
+  install_bootstrap_tool starship "$HOME/.local/bin/starship"
 fi
 
 [[ -x "$HOME/.local/bin/starship" ]] || command_exists starship ||
@@ -85,16 +80,8 @@ fi
 if command_exists mise || [[ -x "$HOME/.local/bin/mise" ]]; then
   info "mise is already installed"
 else
-  installer="$(mktemp)"
-  trap 'rm -f -- "$installer" "${starship_installer:-}"' EXIT
-
-  info "Downloading the official mise installer"
-  # network-source: mise-installer
-  fetch_to_file https://mise.run "$installer" 'the mise installer'
-  fetch_assert_shell_script "$installer" 'the mise installer'
-
-  info "Installing mise as a Linux-native user executable"
-  MISE_INSTALL_PATH="$HOME/.local/bin/mise" sh "$installer"
+  info "Installing the pinned mise $BOOTSTRAP_MISE_VERSION release as a Linux-native user executable"
+  install_bootstrap_tool mise "$HOME/.local/bin/mise"
 fi
 
 [[ -x "$HOME/.local/bin/mise" ]] || command_exists mise ||

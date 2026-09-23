@@ -52,6 +52,8 @@ $WindowsManifest = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'manifest.
 $MinimumProvenWslVersion = [version]$WindowsManifest.MinimumProvenWslVersion
 $NocttyBucketUrl = $WindowsManifest.Scoop.NocttyBucket.Url
 $ExtrasBucketUrl = $WindowsManifest.Scoop.ExtrasBucket.Url
+$ScoopInstallerCommit = $WindowsManifest.Scoop.InstallerCommit
+$ScoopInstallerSha256 = $WindowsManifest.Scoop.InstallerSha256
 $WslDistributionCatalogUrl = 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json'
 $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $GhosttyConfig = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\shared.conf'
@@ -89,6 +91,55 @@ function Invoke-NativeCommand {
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw "Command failed with exit code ${exitCode}: $FilePath $($Arguments -join ' ')"
+    }
+}
+
+# The only environment variables a staged third-party installer inherits: what
+# Windows itself and a per-user install need, Scoop's own root settings, and
+# the proxy settings its downloads need. The same policy as
+# DOTFILES_INSTALLER_ENVIRONMENT in common/lib/fetch.sh (#504): a GITHUB_TOKEN,
+# an API key or a cloud profile in this session never reaches code this
+# repository did not write.
+function Get-InstallerEnvironmentName {
+    return @(
+        'SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATH', 'PATHEXT',
+        'TEMP', 'TMP', 'USERPROFILE', 'USERNAME', 'USERDOMAIN', 'HOMEDRIVE',
+        'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'ALLUSERSPROFILE', 'PUBLIC',
+        'ProgramData', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432',
+        'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432',
+        'COMPUTERNAME', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS',
+        'PSModulePath', 'SCOOP', 'SCOOP_GLOBAL', 'SCOOP_CACHE',
+        'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY'
+    )
+}
+
+# Runs a native command with every process environment variable outside
+# Get-InstallerEnvironmentName removed, and puts them all back afterwards. The
+# child inherits the process environment at the moment it starts, so this is
+# the whole mechanism; restoring in `finally` keeps a failing installer from
+# leaving this session without its own variables.
+function Invoke-MinimalEnvironmentCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [string[]]$Arguments = @()
+    )
+
+    $allowed = Get-InstallerEnvironmentName
+    $saved = [Environment]::GetEnvironmentVariables('Process')
+    try {
+        foreach ($name in @($saved.Keys)) {
+            if ($allowed -notcontains $name) {
+                [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+            }
+        }
+        Invoke-NativeCommand -FilePath $FilePath -Arguments $Arguments
+    }
+    finally {
+        foreach ($name in @($saved.Keys)) {
+            [Environment]::SetEnvironmentVariable($name, [string]$saved[$name], 'Process')
+        }
     }
 }
 
@@ -460,10 +511,18 @@ function Install-Scoop {
     )
 
     try {
-        Write-Step 'Downloading the official Scoop installer'
+        # The installer at one reviewed commit, refused unless its SHA-256 is
+        # the one platforms/windows/manifest.psd1 pins, before anything runs it.
+        Write-Step "Downloading the Scoop installer pinned at $ScoopInstallerCommit"
         # network-source: scoop-installer
-        Invoke-WebRequest -UseBasicParsing -Uri 'https://get.scoop.sh' -OutFile $installerPath -TimeoutSec 120
-        Invoke-NativeCommand -FilePath 'powershell.exe' -Arguments @(
+        $installerUrl = 'https://raw.githubusercontent.com/ScoopInstaller/Install/{0}/install.ps1' -f $ScoopInstallerCommit
+        # network-source: scoop-installer
+        Invoke-WebRequest -UseBasicParsing -Uri $installerUrl -OutFile $installerPath -TimeoutSec 120
+        $actualDigest = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualDigest -ne $ScoopInstallerSha256) {
+            throw "SHA-256 mismatch for the Scoop installer at $ScoopInstallerCommit`: expected $ScoopInstallerSha256, got $actualDigest; nothing was executed."
+        }
+        Invoke-MinimalEnvironmentCommand -FilePath 'powershell.exe' -Arguments @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $installerPath
         )
     }

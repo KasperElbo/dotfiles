@@ -6,7 +6,9 @@ Two independent jobs:
 1. The registry in ``config/network-sources.tsv`` is well formed: every source
    declares an owner, a provenance tier, a privilege level, an integrity
    mechanism consistent with its tier, an update cadence, a rollback strategy,
-   and consumer files that actually exist.
+   and consumer files that actually exist. Every ``reviewed-live`` source --
+   one nothing authenticates before it is used -- has exactly one recorded
+   decision in ``config/live-sources.tsv``, and no other source has one.
 
 2. No tracked file introduces a direct network source that the registry does
    not know about. Every network-executing construct -- ``curl``/``wget``,
@@ -49,6 +51,18 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 REGISTRY = pathlib.Path(
     os.environ.get("NETWORK_SOURCE_MANIFEST", ROOT / "config" / "network-sources.tsv")
 )
+LIVE_REGISTRY = pathlib.Path(
+    os.environ.get("LIVE_SOURCE_MANIFEST", ROOT / "config" / "live-sources.tsv")
+)
+
+# config/live-sources.tsv: the recorded decision for every `reviewed-live` row,
+# the sources nothing authenticates before they are used (#504).
+LIVE_FIELDS = ["id", "executes", "decision", "reason", "environment", "review"]
+LIVE_EXECUTES = {"script", "data"}
+# owner-accepted: a pin is possible and the owner chose to stay live.
+# no-pin-available: upstream offers nothing immutable to pin or verify.
+# not-executed: the content is read as data and never run.
+LIVE_DECISIONS = {"owner-accepted", "no-pin-available", "not-executed"}
 
 FIELDS = [
     "id", "component", "owner", "kind", "url", "privilege", "tier",
@@ -647,10 +661,85 @@ def scan_for_unregistered(
     return errors
 
 
+def check_live_decisions(rows: list[dict[str, str]]) -> int:
+    """Every live source has exactly one recorded decision, and it is coherent.
+
+    A `reviewed-live` row is content nothing verifies before it is used. That
+    is acceptable only as a written decision, so the decision is a row of its
+    own that has to exist: a new live source without one fails, and so does a
+    decision left behind after its source was pinned.
+    """
+    errors = 0
+    try:
+        decisions = read_tsv(LIVE_REGISTRY, LIVE_FIELDS)
+    except ManifestSchemaError as error:
+        for message in error.messages:
+            fail(f"{LIVE_REGISTRY.name}: {message}")
+        return 1
+
+    by_id = {row["id"]: row for row in rows}
+    live = {row["id"] for row in rows if row["tier"] == "reviewed-live"}
+    seen: set[str] = set()
+    for line, decision in enumerate(decisions, 2):
+        source_id = decision["id"]
+        where = f"{LIVE_REGISTRY.name} line {line}"
+        if source_id in seen:
+            fail(f"{where}: duplicate decision for {source_id!r}")
+            errors += 1
+        seen.add(source_id)
+        for column in LIVE_FIELDS:
+            if not (decision[column] or "").strip():
+                fail(f"{where}: {source_id} has an empty {column}")
+                errors += 1
+        if source_id not in live:
+            state = (
+                f"its tier is {by_id[source_id]['tier']!r}" if source_id in by_id
+                else "it is not a registered source"
+            )
+            fail(
+                f"{where}: {source_id} records a live-source decision, but {state}; "
+                "remove the decision when a source is pinned"
+            )
+            errors += 1
+            continue
+        if decision["executes"] not in LIVE_EXECUTES:
+            fail(f"{where}: {source_id} has unknown executes {decision['executes']!r}")
+            errors += 1
+        if decision["decision"] not in LIVE_DECISIONS:
+            fail(f"{where}: {source_id} has unknown decision {decision['decision']!r}")
+            errors += 1
+        # Content that runs is never "not executed", and a script is exactly
+        # what has to state the environment it is given.
+        if (decision["executes"] == "data") != (decision["decision"] == "not-executed"):
+            fail(
+                f"{where}: {source_id} pairs executes={decision['executes']!r} with "
+                f"decision={decision['decision']!r}; only data is not-executed"
+            )
+            errors += 1
+        if decision["executes"] == "script" and by_id[source_id]["kind"] != "remote-script":
+            fail(
+                f"{where}: {source_id} is recorded as an executed script, but its kind "
+                f"is {by_id[source_id]['kind']!r}"
+            )
+            errors += 1
+        if by_id[source_id]["kind"] == "remote-script" and decision["executes"] != "script":
+            fail(f"{where}: {source_id} is a remote script, so it executes as a script")
+            errors += 1
+
+    for source_id in sorted(live - seen):
+        fail(
+            f"{source_id} is reviewed-live, so nothing verifies it before use, but "
+            f"{LIVE_REGISTRY.name} records no decision for it: pin it, or record why not"
+        )
+        errors += 1
+    return errors
+
+
 def main() -> int:
     rows, errors = load_registry()
     if not rows:
         return 1 if errors else 0
+    errors += check_live_decisions(rows)
     errors += scan_for_unregistered(
         source_hosts(rows), source_taps(rows), source_repositories(rows)
     )

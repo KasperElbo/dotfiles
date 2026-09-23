@@ -202,3 +202,46 @@ fetch_assert_shell_script() {
     ;;
   esac
 }
+
+# The only variables a staged third-party installer inherits from the caller.
+# Identity, locale, terminal and temporary directory, the XDG roots this
+# repository's layout depends on, and the proxy and CA settings without which
+# the installer's own downloads would fail on a network that needs them.
+# Nothing else: no token, no API key, no cloud profile, no agent socket.
+DOTFILES_INSTALLER_ENVIRONMENT=(
+  HOME USER LOGNAME PATH SHELL TERM LANG LC_ALL LC_CTYPE LC_MESSAGES TMPDIR
+  XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+  http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY
+  all_proxy ALL_PROXY SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE
+)
+
+# fetch_run_installer [NAME=value ...] -- <command> [argument ...]
+#
+# Runs a staged third-party installer under a minimal environment: the names in
+# DOTFILES_INSTALLER_ENVIRONMENT that are set in the caller, plus exactly the
+# NAME=value pairs given here, which the call site states as the installer's
+# documented inputs. A remote script is code this repository did not write and
+# (where it is reviewed-live) could not authenticate before running, so it is
+# handed nothing it was not meant to have: a GITHUB_TOKEN exported for mise, an
+# ANTHROPIC_API_KEY in the user's shell, or an SSH_AUTH_SOCK would otherwise all
+# reach it. Returns the installer's own exit status.
+fetch_run_installer() {
+  local -a environment=()
+  local name
+
+  while (($# > 0)) && [[ "$1" != -- ]]; do
+    [[ "$1" == [A-Za-z_]*=* ]] ||
+      die "fetch_run_installer: expected NAME=value before --, got: $1"
+    environment+=("$1")
+    shift
+  done
+  [[ "${1:-}" == -- ]] || die "fetch_run_installer: missing -- before the command"
+  shift
+  (($# > 0)) || die "fetch_run_installer: no installer command given"
+
+  for name in "${DOTFILES_INSTALLER_ENVIRONMENT[@]}"; do
+    [[ -z "${!name+set}" ]] || environment=("$name=${!name}" "${environment[@]}")
+  done
+
+  env -i "${environment[@]}" "$@"
+}

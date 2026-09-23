@@ -4,8 +4,8 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/common.sh"
-# shellcheck source=../../../common/lib/fetch.sh
-source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/fetch.sh"
+# shellcheck source=../../../common/lib/bootstrap-tools.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../common/lib/bootstrap-tools.sh"
 # shellcheck source=../lib/parrot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parrot.sh"
 
@@ -64,13 +64,10 @@ mkdir -p "$HOME/.local/bin"
 if command_exists mise || [[ -x "$HOME/.local/bin/mise" ]]; then
   info "mise is already installed"
 else
-  installer="$(mktemp)"
-  trap 'rm -f -- "$installer"' EXIT
-  info "Downloading the official mise installer"
-  # network-source: mise-installer
-  fetch_to_file https://mise.run "$installer" 'the mise installer'
-  fetch_assert_shell_script "$installer" 'the mise installer'
-  MISE_INSTALL_PATH="$HOME/.local/bin/mise" sh "$installer"
+  # A pinned release archive, checked by SHA-256 before it is unpacked; no
+  # upstream install script runs (see common/lib/bootstrap-tools.sh).
+  info "Installing the pinned mise $BOOTSTRAP_MISE_VERSION release"
+  install_bootstrap_tool mise "$HOME/.local/bin/mise"
 fi
 
 [[ -x "$HOME/.local/bin/mise" ]] || command_exists mise ||

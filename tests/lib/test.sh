@@ -471,3 +471,30 @@ test_stub_assert_called() {
   grep -Fxq -- "$expected" "$root/logs/$name.log" ||
     _test_die "expected $name argv '$expected'; log follows:\n$(cat "$root/logs/$name.log" 2>/dev/null || true)"
 }
+
+# test_bootstrap_archives <dir> <marker>: writes into <dir> a release archive
+# for each tool common/lib/bootstrap-tools.sh pins, under the exact name the
+# library asks for on this machine, holding a stub binary at the path it
+# extracts. The stub prints "<tool> <marker>", so two sets written with
+# different markers differ in content -- one is what the suite treats as
+# pinned (DOTFILES_TEST_BOOTSTRAP_ARCHIVES), the other a tampered download.
+test_bootstrap_archives() {
+  local dir="$1" marker="$2"
+  local tool artifact member work library
+
+  library="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)/common/lib/bootstrap-tools.sh"
+  mkdir -p "$dir"
+  for tool in mise starship; do
+    IFS=$'\t' read -r artifact _ member < <(
+      bash -c 'source "$1"; bootstrap_tool_artifact "$2"' _ "$library" "$tool"
+    )
+    [[ -n "$artifact" && -n "$member" ]] ||
+      _test_die "common/lib/bootstrap-tools.sh names no $tool artifact for this machine"
+    work="$(mktemp -d)"
+    mkdir -p "$work/$(dirname "$member")"
+    printf '#!/usr/bin/env sh\nprintf "%%s\\n" "%s %s"\n' "$tool" "$marker" >"$work/$member"
+    chmod 755 "$work/$member"
+    tar -czf "$dir/$artifact" -C "$work" -- "$member"
+    rm -rf -- "$work"
+  done
+}

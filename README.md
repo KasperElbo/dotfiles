@@ -105,7 +105,7 @@ records, Git identities, Sway output overrides — lives under
 never tracked. See
 [docs/architecture/file-ownership.md](docs/architecture/file-ownership.md).
 
-Eleven manifests under `config/` are the normative contract the code and the
+Twelve manifests under `config/` are the normative contract the code and the
 documentation both read:
 
 | Manifest | Owns |
@@ -115,6 +115,7 @@ documentation both read:
 | `config/install-options.tsv` | Every persistent installer option: flag spelling, kind, default, permitted values |
 | `config/option-consumers.tsv` | Every option whose permitted values a program decides for itself: which file reads them, and how |
 | `config/network-sources.tsv` | Every network source the repository fetches, its provenance tier, privilege and integrity mechanism |
+| `config/live-sources.tsv` | Why each source nothing authenticates before use is still live, what environment it runs with, and how it is reviewed |
 | `config/pin-freshness.tsv` | How a newer release of each manually pinned source would be noticed: what to ask upstream, and where its pinned value lives |
 | `config/command-providers.tsv` | The pre-mutation command closure of every bash platform: which capability owns each native command |
 | `config/actions.tsv` | Every repository-defined user action: binding, platform, source, how it is discoverable, and whether a printable sheet carries it |

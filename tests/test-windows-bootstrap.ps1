@@ -1371,6 +1371,128 @@ try {
                 throw "A dry run did not describe installing Noctty: $($steps -join '; ')"
             }
         }
+
+    # The Scoop installer is a staged third-party script, and on Windows it is
+    # the only one (#504). It runs with the allowlisted environment only: a
+    # token or API key in this session must not reach it, and this session must
+    # have every variable back afterwards, including after a failing installer.
+    if ((Get-InstallerFunctionText -Name 'Install-Scoop') -notmatch
+        'Invoke-MinimalEnvironmentCommand -FilePath ''powershell\.exe''') {
+        throw 'Install-Scoop must run the Scoop installer through Invoke-MinimalEnvironmentCommand.'
+    }
+    $minimalEnvironmentText = Get-InstallerFunctionText -Name @(
+        'Invoke-NativeCommand',
+        'Get-InstallerEnvironmentName',
+        'Invoke-MinimalEnvironmentCommand'
+    )
+    Assert-CaseCatchesMutation -Name 'A staged installer inherits no token or API key' `
+        -FunctionText $minimalEnvironmentText `
+        -From "[Environment]::SetEnvironmentVariable(`$name, `$null, 'Process')" `
+        -To '$null = $name' `
+        -Case {
+            param([string]$FunctionText)
+
+            & {
+                param([string]$Text, [string]$Shell)
+
+                . ([scriptblock]::Create($Text))
+                $env:GITHUB_TOKEN = 'fixture-value-not-a-credential'
+                $env:ANTHROPIC_API_KEY = 'fixture-value-not-an-api-key'
+                try {
+                    # The child exits 3 when it sees either variable and 4 when
+                    # it has lost PATH, which Invoke-NativeCommand turns into a
+                    # throw; 0 means it saw exactly the minimal environment.
+                    Invoke-MinimalEnvironmentCommand -FilePath $Shell -Arguments @(
+                        '-NoProfile', '-Command',
+                        'if ($env:GITHUB_TOKEN -or $env:ANTHROPIC_API_KEY) { exit 3 }; if (-not $env:PATH) { exit 4 }; exit 0'
+                    )
+                    if ($env:GITHUB_TOKEN -ne 'fixture-value-not-a-credential') {
+                        throw 'The caller lost its own GITHUB_TOKEN after the installer ran.'
+                    }
+
+                    $failed = $false
+                    try {
+                        Invoke-MinimalEnvironmentCommand -FilePath $Shell -Arguments @(
+                            '-NoProfile', '-Command', 'exit 9'
+                        )
+                    }
+                    catch { $failed = $true }
+                    if (-not $failed) { throw 'A failing installer was reported as a success.' }
+                    if ($env:ANTHROPIC_API_KEY -ne 'fixture-value-not-an-api-key') {
+                        throw 'A failing installer left the caller without its own variables.'
+                    }
+                }
+                finally {
+                    Remove-Item Env:GITHUB_TOKEN, Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+                }
+            } $FunctionText ((Get-Process -Id $PID).Path)
+        }
+
+    # Scoop's installer is fetched at the pinned commit and refused unless its
+    # SHA-256 is the pinned one, before anything runs it (#504). The case pins
+    # the digest of the content it serves as "reviewed", then serves other
+    # bytes and requires a refusal that runs nothing and leaves nothing behind.
+    Assert-CaseCatchesMutation -Name 'A Scoop installer that differs from its pin is never run' `
+        -FunctionText (Get-InstallerFunctionText -Name 'Install-Scoop') `
+        -From 'if ($actualDigest -ne $ScoopInstallerSha256) {' `
+        -To 'if ($false) {' `
+        -Case {
+            param([string]$FunctionText)
+
+            & {
+                param([string]$Text)
+
+                function Write-Step { param([string]$Message) }
+                function Resolve-ScoopCommand { return 'C:\fixture\scoop\shims\scoop.ps1' }
+                function Invoke-WebRequest {
+                    param([switch]$UseBasicParsing, [string]$Uri, [string]$OutFile, [int]$TimeoutSec)
+                    $script:scoopRequested += @($Uri)
+                    $script:scoopStaged = $OutFile
+                    [IO.File]::WriteAllText($OutFile, $script:scoopServed)
+                }
+                function Invoke-MinimalEnvironmentCommand {
+                    param([string]$FilePath, [string[]]$Arguments)
+                    $script:scoopRuns += @($Arguments[-1])
+                }
+
+                $DryRun = $false
+                $ScoopInstallerCommit = '1e2f334083d609986d8c8bc9e31ae8e87c39fab4'
+                $reviewed = "Write-Output 'reviewed'`n"
+                $reviewedPath = Join-Path ([IO.Path]::GetTempPath()) ('scoop-pin-{0}.ps1' -f [guid]::NewGuid().ToString('N'))
+                [IO.File]::WriteAllText($reviewedPath, $reviewed)
+                $ScoopInstallerSha256 = (Get-FileHash -LiteralPath $reviewedPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                Remove-Item -LiteralPath $reviewedPath -Force
+
+                . ([scriptblock]::Create($Text))
+
+                $script:scoopRequested = @()
+                $script:scoopRuns = @()
+                $script:scoopServed = $reviewed
+                Install-Scoop | Out-Null
+                if ($script:scoopRequested -notcontains
+                    "https://raw.githubusercontent.com/ScoopInstaller/Install/$ScoopInstallerCommit/install.ps1") {
+                    throw "Scoop's installer was not fetched at the pinned commit: $($script:scoopRequested -join ', ')"
+                }
+                if ($script:scoopRuns.Count -ne 1) {
+                    throw 'The pinned Scoop installer was not run.'
+                }
+
+                $script:scoopRuns = @()
+                $script:scoopServed = "Write-Output 'tampered'`n"
+                $failure = $null
+                try { Install-Scoop | Out-Null }
+                catch { $failure = $_.Exception.Message }
+                if ($failure -notmatch 'SHA-256 mismatch for the Scoop installer') {
+                    throw "A Scoop installer that differs from its pin was not refused: $failure"
+                }
+                if ($script:scoopRuns.Count -ne 0) {
+                    throw 'A Scoop installer that differs from its pin was run.'
+                }
+                if (Test-Path -LiteralPath $script:scoopStaged) {
+                    throw 'A refused Scoop installer was left on disk.'
+                }
+            } $FunctionText
+        }
 }
 finally {
     $env:LOCALAPPDATA = $originalLocalAppData

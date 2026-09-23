@@ -1135,10 +1135,12 @@ verify_installed_binary() {
 # one form curl scopes by host: a netrc naming api.github.com and nothing else.
 # Every other host the script contacts is sent no credential.
 #
-# This widens no trust boundary. The token is already in the environment of
-# these scripts wherever CI exports it; this only makes it usable for the
-# request it was exported for. It lives in the 0700 staging directory, is
-# written 0600, and is deleted with that directory when the script returns.
+# This narrows the trust boundary rather than widening it: the script runs
+# under fetch_run_installer's minimal environment, so the exported variables
+# never reach it, and the netrc is the only form in which it can use the token
+# at all -- for api.github.com, and for no other host (#504). It lives in the
+# 0700 staging directory, is written 0600, and is deleted with that directory
+# when the script returns.
 # With no token in the environment -- every workstation install -- nothing is
 # written and the script runs exactly as it did before.
 stage_api_credential() {
@@ -1175,7 +1177,7 @@ INSTALL_STAGED_SCRIPT_DIGEST=""
 INSTALL_STAGED_SCRIPT_TARGET_PATH=""
 install_staged_script() {
   local name="$1" url="$2" target="$3" expected="${4:-}"
-  local work_dir staged digest curl_home
+  local work_dir staged digest curl_home run_path
 
   work_dir="$(mktemp -d)" || die "Could not create a staging directory for $name"
   chmod 700 -- "$work_dir"
@@ -1211,7 +1213,11 @@ install_staged_script() {
   }
   [[ ! -f "$work_dir/netrc" ]] ||
     info "Offering the GitHub API credential to $name for api.github.com only"
-  if ! PATH="$(dirname "$target"):$PATH" CURL_HOME="$curl_home" sh "$staged"; then
+  # fetch_run_installer hands the script only the minimal environment, so
+  # GITHUB_TOKEN and GH_TOKEN never reach it as variables: the netrc above is
+  # the one form the credential takes, and it names api.github.com alone.
+  run_path="$(dirname "$target"):$PATH"
+  if ! fetch_run_installer PATH="$run_path" CURL_HOME="$curl_home" -- sh "$staged"; then
     rm -rf -- "$work_dir"
     die "The $name installer failed."
   fi

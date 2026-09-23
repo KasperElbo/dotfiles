@@ -11,7 +11,7 @@ export LAZY_MOCK_INSTALL="$repo_root/tests/support/lazy-mock-install.sh"
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
-test_isolate_path git jq sha256sum stow timeout
+test_isolate_path git gzip jq sha256sum stow tar timeout
 test_new_root
 test_root="$TEST_ROOT"
 
@@ -160,9 +160,9 @@ test_stub_init "$test_root"
 test_stub_install "$test_root" dnf
 test_stub_install "$test_root" sudo
 fedora_wsl_packages=(
-  bat bzip2 curl eza fd-find fzf gawk gcc gcc-c++ gh git git-delta jq libicu
-  make neovim openssh-clients procps-ng ripgrep ShellCheck shadow-utils sqlite
-  sqlite-devel stow tmux unzip zoxide zsh zsh-autosuggestions
+  bat bzip2 curl eza fd-find fzf gawk gcc gcc-c++ gh git git-delta gzip jq
+  libicu make neovim openssh-clients procps-ng ripgrep ShellCheck shadow-utils
+  sqlite sqlite-devel stow tar tmux unzip zoxide zsh zsh-autosuggestions
   zsh-syntax-highlighting
 )
 test_stub_allow "$test_root" dnf install -y "${fedora_wsl_packages[@]}"
@@ -221,20 +221,15 @@ while (($#)); do
     shift
   fi
 done
-if [[ "$url" == *starship.rs* ]]; then
-  printf '%s\n' '#!/usr/bin/env sh' \
-    'while [ "$#" -gt 0 ]; do' \
-    '  if [ "$1" = "--bin-dir" ]; then bin_dir="$2"; shift 2; else shift; fi' \
-    'done' \
-    '[ -d "$bin_dir" ] || exit 1' \
-    'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$bin_dir/starship"' \
-    'chmod +x "$bin_dir/starship"' >"$output"
-else
-  printf '%s\n' '#!/usr/bin/env sh' \
-    'mkdir -p "$(dirname "$MISE_INSTALL_PATH")"' \
-    'printf "#!/usr/bin/env sh\\nexit 0\\n" >"$MISE_INSTALL_PATH"' \
-    'chmod +x "$MISE_INSTALL_PATH"' >"$output"
+# mise and Starship now come from pinned release archives (#504). The stub
+# serves whatever BOOTSTRAP_SERVE_DIR holds under the requested name, so a
+# case can serve content other than what the suite treats as pinned.
+if [[ "$url" == https://dotfiles-test.invalid/* ]]; then
+  cp -- "$BOOTSTRAP_SERVE_DIR/${url##*/}" "$output"
+  exit 0
 fi
+printf 'strict curl fixture rejected unexpected URL: %s\n' "$url" >&2
+exit 96
 EOF
 cat >"$mock_bin/stow" <<'EOF'
 #!/usr/bin/env bash
@@ -251,7 +246,11 @@ test_environment=(
   "OS_RELEASE_FILE=$test_root/os-release"
   "COMMAND_LOG=$command_log"
   "SHELL_STATE=$shell_state"
+  "DOTFILES_TEST_BOOTSTRAP_ARCHIVES=$test_root/pinned-archives"
+  "BOOTSTRAP_SERVE_DIR=$test_root/pinned-archives"
 )
+test_bootstrap_archives "$test_root/pinned-archives" pinned
+test_bootstrap_archives "$test_root/tampered-archives" tampered
 
 install_system_output="$("${test_environment[@]}" \
   "$repo_root/platforms/fedora-wsl/scripts/install-system.sh")"
@@ -260,9 +259,14 @@ assert_contains "$install_system_output" \
   'This Noctty session was started before that change; open a new Noctty/WSL'
 [[ -x "$home/.local/bin/mise" ]]
 [[ -x "$home/.local/bin/starship" ]]
+# The binaries are the ones inside the pinned archives, copied out.
+assert_eq 'mise pinned' "$("$home/.local/bin/mise")" 'mise must come from the pinned archive'
+assert_eq 'starship pinned' "$("$home/.local/bin/starship")" \
+  'Starship must come from the pinned archive'
+printf 'PASS: mise and Starship are installed from the pinned release archives\n'
 expected_zsh_path="$(PATH="$mock_bin:$PATH" command -v zsh)"
 grep -Fq 'sudo dnf install -y bat bzip2 curl eza fd-find fzf gawk' "$command_log"
-grep -Fq 'gh git git-delta jq libicu' "$command_log"
+grep -Fq 'gh git git-delta gzip jq libicu' "$command_log"
 grep -Fq "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log"
 grep -Fqx "$expected_zsh_path" "$shell_state"
 if grep -Fq ' starship' "$command_log"; then
@@ -280,6 +284,22 @@ first_mise="$(sha256sum "$home/.local/bin/mise")"
   "$repo_root/platforms/fedora-wsl/scripts/install-system.sh" >/dev/null
 [[ "$(sha256sum "$home/.local/bin/mise")" == "$first_mise" ]]
 [[ "$(grep -Fc "sudo usermod --shell $expected_zsh_path fedora-test" "$command_log")" == 1 ]]
+
+# A download whose content differs from the pin is refused before anything is
+# unpacked, and leaves no binary behind: a tampered or silently re-published
+# upstream archive fails the install rather than landing on PATH.
+tampered_home="$test_root/tampered-home"
+mkdir -p "$tampered_home"
+if "${test_environment[@]}" HOME="$tampered_home" \
+  BOOTSTRAP_SERVE_DIR="$test_root/tampered-archives" \
+  "$repo_root/platforms/fedora-wsl/scripts/install-system.sh" \
+  >"$test_root/tampered.log" 2>&1; then
+  _test_die 'Fedora WSL installed from an archive that does not match its pin'
+fi
+assert_file_contains "$test_root/tampered.log" 'SHA-256 mismatch for the pinned starship release'
+assert_path_missing "$tampered_home/.local/bin/starship"
+assert_path_missing "$tampered_home/.local/bin/mise"
+printf 'PASS: a bootstrap archive that differs from its pin is refused and installs nothing\n'
 
 STOW_LOG="$stow_log" HOME="$home" XDG_CONFIG_HOME="$config" \
   PATH="$mock_bin:$PATH" \

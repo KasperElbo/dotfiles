@@ -351,7 +351,10 @@ emit_environment_report() {
   printf '  printf "netrc_hosts=%%s\\n" \\\n'
   printf '    "$(awk "/^machine /{ printf \\"%%s \\", \\$2 }" "$CURL_HOME/netrc")" >>"$report"\n'
   printf '  printf "netrc_lines=%%s\\n" "$(grep -c . "$CURL_HOME/netrc")" >>"$report"\n'
-  printf '  if grep -Fq -- "$MOCK_EXPECTED_SECRET" "$CURL_HOME/netrc"; then\n'
+  # The expected value is written into the script here, while the fixture
+  # still sees it: the installer runs under a minimal environment that does not
+  # carry MOCK_EXPECTED_SECRET, or anything else of the caller's.
+  printf '  if grep -Fq -- %q "$CURL_HOME/netrc"; then\n' "${MOCK_EXPECTED_SECRET:-unset}"
   printf '    printf "netrc_value=as-passed\\n" >>"$report"\n'
   printf '  else\n'
   printf '    printf "netrc_value=mismatch\\n" >>"$report"\n'
@@ -360,6 +363,10 @@ emit_environment_report() {
   printf 'else\n'
   printf '  printf "netrc=absent\\n" >>"$report"\n'
   printf 'fi\n'
+  # Names only, never values: which credential-shaped variables reached code
+  # this repository did not write. The line is written even when empty, so an
+  # assertion on it cannot pass merely because the report is missing.
+  printf 'printf "inherited_secrets=%%s\\n" "${GITHUB_TOKEN:+GITHUB_TOKEN }${GH_TOKEN:+GH_TOKEN }${ANTHROPIC_API_KEY:+ANTHROPIC_API_KEY }" >>"$report"\n'
 }
 
 emit_installer() {
@@ -1203,7 +1210,8 @@ if ! credential_output="$(env \
   PATH="$mock_bin:$PATH" MISE_DATA_DIR="$mise_data" \
   MISE_SHIMS_DIR="$mise_shims" MISE_INSTALLS_DIR="$mise_installs" \
   FIRSTMATE_REPO_URL="$firstmate_origin" \
-  GITHUB_TOKEN="$credential_token" \
+  GITHUB_TOKEN="$credential_token" GH_TOKEN="$credential_token" \
+  ANTHROPIC_API_KEY='fixture-value-not-an-api-key' \
   MOCK_EXPECTED_SECRET="$credential_token" \
   "$repo_root/common/install-ai.sh" --firstmate 2>&1)"; then
   printf '%s\n' "$credential_output" >&2
@@ -1230,6 +1238,18 @@ credential_staging="$(sed -n 's/^curl_home=//p' "$credential_report")"
 }
 assert_path_missing "$credential_staging"
 printf 'PASS: a staged installer is offered the token for api.github.com only, in a directory that does not outlive it\n'
+
+# The netrc is the only form the token takes (#504). As an exported variable it
+# is sent to whatever host the upstream script chooses, so neither spelling may
+# reach the script, and neither may anything else credential-shaped the caller
+# happened to export.
+[[ "$(grep -c '^inherited_secrets=' "$credential_report")" == 1 ]] ||
+  _test_die 'the staged installer did not report what it inherited'
+assert_file_contains "$credential_report" 'inherited_secrets='
+if grep -Eq '^inherited_secrets=.+' "$credential_report"; then
+  _test_die "a staged installer inherited: $(sed -n 's/^inherited_secrets=//p' "$credential_report")"
+fi
+printf 'PASS: a staged installer inherits no token or API key from the caller\n'
 
 # No token, nothing offered: a workstation install must not acquire a
 # credential file, or a mechanism that exists for CI would follow users home.

@@ -6,7 +6,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
-test_isolate_path python3 rg sha256sum zsh
+test_isolate_path gzip python3 rg sha256sum tar zsh
 test_new_root
 test_root="$TEST_ROOT"
 
@@ -122,17 +122,22 @@ cat >"$mock_bin/getent" <<'EOF'
 #!/usr/bin/env bash
 printf 'parrot-test:x:1000:1000:Parrot Test:/home/parrot-test:%s\n' "$(<"$SHELL_STATE")"
 EOF
+# mise comes from a pinned release archive (#504): the stub serves whatever
+# BOOTSTRAP_SERVE_DIR holds under the requested name, and nothing else.
 cat >"$mock_bin/curl" <<'EOF'
 #!/usr/bin/env bash
+url=""
 while (($#)); do
-  if [[ "$1" == --output ]]; then output="$2"; shift 2; else shift; fi
+  if [[ "$1" == --output ]]; then output="$2"; shift 2
+  elif [[ "$1" == https://* ]]; then url="$1"; shift
+  else shift; fi
 done
-cat >"$output" <<'INSTALLER'
-#!/usr/bin/env sh
-mkdir -p "$(dirname "$MISE_INSTALL_PATH")"
-printf '#!/usr/bin/env sh\nexit 0\n' >"$MISE_INSTALL_PATH"
-chmod +x "$MISE_INSTALL_PATH"
-INSTALLER
+if [[ "$url" == https://dotfiles-test.invalid/* ]]; then
+  cp -- "$BOOTSTRAP_SERVE_DIR/${url##*/}" "$output"
+  exit 0
+fi
+printf 'strict curl fixture rejected unexpected URL: %s\n' "$url" >&2
+exit 96
 EOF
 cat >"$mock_bin/stow" <<'EOF'
 #!/usr/bin/env bash
@@ -162,7 +167,11 @@ test_environment=(
   "STOW_LOG=$stow_log"
   "QEMU_AGENT_CHANNEL=$channels/org.qemu.guest_agent.0"
   "SPICE_AGENT_CHANNEL=$channels/com.redhat.spice.0"
+  "DOTFILES_TEST_BOOTSTRAP_ARCHIVES=$test_root/pinned-archives"
+  "BOOTSTRAP_SERVE_DIR=$test_root/pinned-archives"
 )
+test_bootstrap_archives "$test_root/pinned-archives" pinned
+test_bootstrap_archives "$test_root/tampered-archives" tampered
 
 "${test_environment[@]}" \
   "$repo_root/platforms/parrot-ctf/scripts/install-system.sh" >/dev/null
@@ -170,6 +179,20 @@ first_mise="$(sha256sum "$home/.local/bin/mise")"
 "${test_environment[@]}" \
   "$repo_root/platforms/parrot-ctf/scripts/install-system.sh" >/dev/null
 [[ "$(sha256sum "$home/.local/bin/mise")" == "$first_mise" ]]
+assert_eq 'mise pinned' "$("$home/.local/bin/mise")" 'mise must come from the pinned archive'
+
+# A download that differs from the pin is refused before it is unpacked.
+tampered_home="$test_root/tampered-home"
+mkdir -p "$tampered_home"
+if "${test_environment[@]}" HOME="$tampered_home" \
+  BOOTSTRAP_SERVE_DIR="$test_root/tampered-archives" \
+  "$repo_root/platforms/parrot-ctf/scripts/install-system.sh" \
+  >"$test_root/tampered.log" 2>&1; then
+  _test_die 'Parrot installed mise from an archive that does not match its pin'
+fi
+assert_file_contains "$test_root/tampered.log" 'SHA-256 mismatch for the pinned mise release'
+assert_path_missing "$tampered_home/.local/bin/mise"
+printf 'PASS: Parrot installs mise from the pinned archive and refuses one that differs\n'
 grep -Fq 'sudo apt-get update' "$command_log"
 grep -Fq 'apt-get install -y --no-install-recommends bat build-essential' "$command_log"
 grep -Fq 'starship' "$command_log"

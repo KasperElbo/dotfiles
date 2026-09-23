@@ -66,7 +66,7 @@ unsupported on a platform install nothing there and are omitted.
 |---|---|---|---|
 | `ai` | `--ai` | `mise` | `claude-code` `herdr` |
 | `backpass` | `--backpass` | `mise-npm` | `acpx` `backpass` `lavish-axi` |
-| `base` | always | `dnf+upstream` | `ShellCheck` `bat` `bzip2` `curl` `eza` `fd-find` `fzf` `gawk` `gcc` `gcc-c++` `gh` `git` `git-delta` `jq` `libicu` `make` `mise` `neovim` `openssh-clients` `procps-ng` `ripgrep` `shadow-utils` `sqlite` `sqlite-devel` `starship` `stow` `tmux` `unzip` `zoxide` `zsh` `zsh-autosuggestions` `zsh-syntax-highlighting` |
+| `base` | always | `dnf+upstream` | `ShellCheck` `bat` `bzip2` `curl` `eza` `fd-find` `fzf` `gawk` `gcc` `gcc-c++` `gh` `git` `git-delta` `gzip` `jq` `libicu` `make` `mise` `neovim` `openssh-clients` `procps-ng` `ripgrep` `shadow-utils` `sqlite` `sqlite-devel` `starship` `stow` `tar` `tmux` `unzip` `zoxide` `zsh` `zsh-autosuggestions` `zsh-syntax-highlighting` |
 | `codex` | `--codex` | `mise-npm` | `@openai/codex` |
 | `containers` | `--containers` | `dnf` | `podman` `podman-compose` |
 | `dotnet-debug` | always | `mise-easydotnet` | `EasyDotnet` |

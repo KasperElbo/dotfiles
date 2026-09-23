@@ -23,7 +23,26 @@ TIER_ORDER = [
     "reviewed-live",
 ]
 
+live_manifest = root / "config" / "live-sources.tsv"
+
+# What each integrity mechanism establishes *before* the content is used. Only
+# a check against something this repository pinned, or a signature the package
+# manager verifies against a trusted key, authenticates content; TLS proves
+# only who served it. A digest recorded after a script ran is an audit record
+# and appears nowhere in this column (#504).
+CHECKED_BEFORE_USE = {
+    "sha256-pinned": "yes: pinned SHA-256",
+    "gpg-fingerprint-pinned": "yes: pinned key fingerprint",
+    "image-digest-pinned": "yes: pinned image digest",
+    "git-commit-pinned": "yes: pinned commit",
+    "repo-gpg": "yes: repository signature",
+    "git-tag-pinned": "no: pinned tag, which upstream can move",
+    "registry-tls": "no: registry over TLS",
+    "https-tls": "no: TLS only",
+}
+
 rows = read_tsv(manifest)
+decisions = {row["id"]: row for row in read_tsv(live_manifest)}
 
 lines = [
     "# Generated network-source inventory",
@@ -43,15 +62,36 @@ for tier in TIER_ORDER:
     lines += [
         f"## Tier: `{tier}`",
         "",
-        "| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Checked before use | Cadence |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in tier_rows:
         lines.append(
             "| `{id}` | {component} | {owner} | `{kind}` | `{privilege}` | `{requested}` | "
-            "{resolved} | `{integrity}` | {cadence} |".format(**row)
+            "{resolved} | `{integrity}` | {checked} | {cadence} |".format(
+                checked=CHECKED_BEFORE_USE[row["integrity"]], **row
+            )
         )
     lines.append("")
+
+lines += [
+    "## Accepted live sources",
+    "",
+    "Nothing authenticates a `reviewed-live` source before it is used, so each one",
+    "carries a recorded decision in `config/live-sources.tsv`. Where it is a script,",
+    "it runs under the minimal installer environment of `common/lib/fetch.sh`.",
+    "",
+    "| Source | Runs as | Decision | Why | Environment it is given | Review and update |",
+    "|---|---|---|---|---|---|",
+]
+for source_id in sorted(decisions):
+    decision = decisions[source_id]
+    lines.append(
+        "| `{id}` | {executes} | `{decision}` | {reason} | {environment} | {review} |".format(
+            **decision
+        )
+    )
+lines.append("")
 
 lines += ["## Rollback and recovery", "", "| Source | URL | Rollback | Consumers |", "|---|---|---|---|"]
 for row in sorted(rows, key=lambda row: row["id"]):
