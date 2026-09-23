@@ -25,6 +25,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/macos.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/dictation.sh"
 # shellcheck source=lib/install-actions.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/install-actions.sh"
+# The --help text, whose option listing and the --dry-run lines of the same
+# options are generated from config/install-options.tsv into lib/usage-options.sh.
+# shellcheck source=lib/usage.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/usage.sh"
 
 theme="$THEME_DEFAULT_FLAVOUR"; theme_explicit=false; install_ocaml=false; install_containers=false
 install_tailscale=false; install_dictation=false
@@ -37,7 +41,7 @@ ai_codex=''; ai_firstmate=''; ai_gnhf=''; ai_backpass=''
 interactive=true; dry_run=false
 
 usage() {
-  cat "$(dirname "${BASH_SOURCE[0]}")/bootstrap-help.txt"
+  macos_usage
   printf '\nDirect entry point (modern Bash only): ./platforms/macos/install.sh [options]\n'
 }
 
@@ -259,19 +263,12 @@ if [[ "$dry_run" == true ]]; then
 
 Apple Silicon macOS installation plan
 --------------------------------------
-Catppuccin flavour: $theme  (source: $theme_source — $(theme_source_description "$theme_source"))
-Window manager:     AeroSpace (Sway-compatible nine-workspace profile)
-macOS defaults:     $apply_defaults
-OCaml profile:      $install_ocaml
-Containers profile: $install_containers
-Tailscale profile:  $install_tailscale
-Dictation profile:  $install_dictation
+EOF
+  plan_persistent_options
+  cat <<EOF
+Flavour source:      $theme_source — $(theme_source_description "$theme_source")
+Window manager:      AeroSpace (Sway-compatible nine-workspace profile)
 Development workflow smoke tests: $run_dev_workflows  (this run only)
-AI tooling profile: $install_ai
-AI Codex subcomponent:     ${ai_codex:-inherit}
-AI FirstMate subcomponent: ${ai_firstmate:-inherit}
-AI GNHF subcomponent:      ${ai_gnhf:-inherit}
-AI backpass subcomponent:  ${ai_backpass:-inherit}
 Recorded rerun selection: $install_selection
 Rerun if this run fails: $DOTFILES_RERUN_COMMAND
 

@@ -22,7 +22,9 @@ registry can quietly stop describing reality:
    TOML parser, Waybar through a real JSON parser, tmux and the shell through
    their option and binding syntax, Neovim through its key literals, and the
    commands this repository puts on `PATH` — and each one must be claimed by a
-   registry row. Adding a binding without registering it fails here.
+   registry row whose source_pattern matches all of it, not just a prefix.
+   Adding a binding without registering it fails here, and so does appending
+   an argument or a chained command to one that is registered.
 4. **Registry to cheat sheets.** A `print=true` action must appear on every
    sheet it names, with a binding *and* a description that agree with the
    registry; a sheet that documents an action in prose has to say so with an
@@ -163,6 +165,51 @@ def sheet_claims(row: dict[str, str]) -> list[tuple[str, bool]]:
     return claims
 
 
+def unbounded_repeat(pattern: str) -> str | None:
+    """The first repetition in `pattern` with no upper bound, described, or None.
+
+    `check_implementation_is_registered()` claims a line only when a row's
+    pattern matches all of it, which is what stops a registered prefix from
+    absorbing a second command appended to it. A `.*`, `\\S+` or `[^;]*` would
+    hand that back: the row would again claim whatever text happened to follow
+    the part it names. No row needs one, since a family of lines is spelled out
+    as an alternation or a character class, so any `*`, `+` or `{m,}` outside
+    a character class is refused, not only the wildcard spellings of it.
+
+    This walks the pattern text rather than Python's private parser: an escape
+    is two characters, and a character class runs to the first `]` that is not
+    its first member.
+    """
+    index = 0
+    in_class = False
+    while index < len(pattern):
+        character = pattern[index]
+        if character == "\\":
+            index += 2
+            continue
+        if in_class:
+            in_class = character != "]"
+            index += 1
+            continue
+        if character == "[":
+            in_class = True
+            index += 1
+            # `[]...]` and `[^]...]` open with a literal `]`, not a closer.
+            if pattern.startswith("^", index):
+                index += 1
+            if pattern.startswith("]", index):
+                index += 1
+            continue
+        if character in "*+":
+            return f"{character!r} at character {index + 1}, after {pattern[:index]!r}"
+        if character == "{":
+            bound = re.match(r"\{\d*,\}", pattern[index:])
+            if bound:
+                return f"{bound.group(0)!r} at character {index + 1}, after {pattern[:index]!r}"
+        index += 1
+    return None
+
+
 def check_schema(root: pathlib.Path, rows: list[dict[str, str]], problems: list[str]) -> None:
     seen: set[str] = set()
     for line, row in enumerate(rows, 2):
@@ -218,6 +265,15 @@ def check_schema(root: pathlib.Path, rows: list[dict[str, str]], problems: list[
                 problems.append(f"{where}: source does not exist: {row['source']}")
             if row["source_pattern"] in {"", "-"}:
                 problems.append(f"{where}: a {row['origin']} action must name a source pattern")
+            else:
+                repeat = unbounded_repeat(row["source_pattern"])
+                if repeat is not None:
+                    problems.append(
+                        f"{where}: source_pattern has a repetition with no upper bound "
+                        f"({repeat}); a pattern claims the exact lines it names, so spell "
+                        "each one out (an alternation for a family) rather than "
+                        "admitting whatever text follows"
+                    )
         else:
             if row["source"] not in {"", "-"} or row["source_pattern"] not in {"", "-"}:
                 problems.append(
@@ -382,11 +438,69 @@ def path_commands(root: pathlib.Path) -> list[pathlib.Path]:
     return [path for path in files if path.is_file()]
 
 
+# A Sway binding: the directive, any `--flag`s, and the key or gesture it binds,
+# then the command Sway runs when it fires.
+SWAY_BINDING = re.compile(
+    r"(?P<head>(?:bindsym|bindgesture)(?:\s+--\S+)*\s+\S+)\s+(?P<command>\S.*)"
+)
+
+
+def sway_binding_evidence(line: str) -> list[str]:
+    """The evidence a stripped Sway binding line records, one per command.
+
+    A binding's command is a command list: Sway runs `bindsym $mod+1 workspace
+    number 1; exec notify-send hi` as two commands, and `,` separates commands
+    the same way, including after an `exec`, whose own arguments only survive
+    a `;` or `,` inside quotes. A second command appended to a registered
+    binding is a second action, so each command is recorded on its own, spelled
+    as the same directive and key followed by that one command, and each has to
+    be registered in its own right. A line with a single command is recorded
+    exactly as written.
+    """
+    binding = SWAY_BINDING.fullmatch(line)
+    if binding is None:
+        return [line]
+    commands = []
+    current = []
+    quote = None
+    text = binding.group("command")
+    index = 0
+    while index < len(text):
+        character = text[index]
+        # A backslash-escaped character is literal, separator or quote alike.
+        if character == "\\" and index + 1 < len(text):
+            current.append(text[index:index + 2])
+            index += 2
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+        elif character in "'\"":
+            quote = character
+        elif character in ";,":
+            commands.append("".join(current).strip())
+            current = []
+            index += 1
+            continue
+        current.append(character)
+        index += 1
+    commands.append("".join(current).strip())
+    commands = [command for command in commands if command]
+    # One command, including one with a stray trailing `;`, is the line as
+    # written, which a row then has to match in full.
+    if len(commands) <= 1:
+        return [line]
+    return [f"{binding.group('head')} {command}" for command in commands]
+
+
 def implemented_actions(root: pathlib.Path) -> list[tuple[str, str]]:
     """Every custom action the tracked configuration actually defines.
 
     Returned as (source, evidence) pairs, where the evidence is the exact text
     a registry row has to claim.
+
+    A Sway binding that chains commands with `;` or `,` yields one piece of
+    evidence per command; see `sway_binding_evidence()`.
     """
     found: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -402,10 +516,10 @@ def implemented_actions(root: pathlib.Path) -> list[tuple[str, str]]:
     if sway.is_file():
         for line in sway.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
-            if stripped.startswith((
-                "bindsym ", "bindgesture ", "floating_modifier ",
-                "exec ", "exec_always ",
-            )):
+            if stripped.startswith(("bindsym ", "bindgesture ")):
+                for evidence in sway_binding_evidence(stripped):
+                    record(sway, evidence)
+            elif stripped.startswith(("floating_modifier ", "exec ", "exec_always ")):
                 record(sway, stripped)
 
     aerospace = root / "platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml"
@@ -477,6 +591,17 @@ def implemented_actions(root: pathlib.Path) -> list[tuple[str, str]]:
 def check_implementation_is_registered(
     root: pathlib.Path, rows: list[dict[str, str]], problems: list[str]
 ) -> None:
+    """Every implemented action is claimed, in full, by a same-source row.
+
+    A row claims a piece of evidence only when its source_pattern matches the
+    whole of it. Searching for the pattern anywhere in the evidence let a
+    registered prefix absorb whatever was appended to it: `alias cld='claude
+    --dangerously-skip-permissions --mcp-config /tmp/evil.json'` passed as the
+    registered `cld`, and a Sway binding kept its registration with a second
+    command chained onto it. A row covering a family of lines therefore spells
+    each member out, as an alternation or a character class, and
+    `unbounded_repeat()` refuses the `.*` that would undo this.
+    """
     patterns: list[tuple[str, re.Pattern[str]]] = []
     sourced: set[str] = set()
     for row in rows:
@@ -502,7 +627,7 @@ def check_implementation_is_registered(
             )
             if any(spawned.search(pattern.pattern) for _, pattern in patterns):
                 continue
-        elif any(source == owner and expression.search(evidence)
+        elif any(source == owner and expression.fullmatch(evidence)
                  for owner, expression in patterns):
             continue
         problems.append(

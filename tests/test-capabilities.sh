@@ -60,6 +60,139 @@ if awk -F '\t' '$1 == "fedora" && $2 == "dev-workflows" { found = 1 } END { exit
   exit 1
 fi
 
+# The two manifests are joined on the flag, but the installer wiring gates in
+# scripts/validate-install-options.py key on the option's capability cell and
+# skip a row whose cell is `-`, as the plain settings (theme, charge limit)
+# legitimately are. A `-` written into the row of a real capability therefore
+# switched those gates off with nothing to notice (issue #509): blank the
+# `fedora sway` cell, drop sway from fedora_selected_capabilities, and both
+# validators passed while --sway bypassed capability_validate_selection. Only
+# this registry knows --sway is a capability, so the loop is closed here. Each
+# fixture edits exactly one manifest and must name both the flag and the
+# capability it belongs to.
+#
+# Usage: expect_option_link_failure LABEL OPTIONS CAPABILITIES NEEDLE...
+expect_option_link_failure() {
+  local label="$1" options="$2" capabilities="$3" log="$fixture.link.log" needle
+  shift 3
+  if INSTALL_OPTION_MANIFEST="$options" CAPABILITY_MANIFEST="$capabilities" \
+    python3 "$repo_root/scripts/validate-capabilities.py" 2>"$log"; then
+    printf '%s unexpectedly passed.\n' "$label" >&2
+    exit 1
+  fi
+  for needle in "$@"; do
+    grep -Fq -- "$needle" "$log" || {
+      printf '%s failed without naming %s:\n' "$label" "$needle" >&2
+      cat "$log" >&2
+      exit 1
+    }
+  done
+}
+
+# Obvious: the option row is gone altogether.
+awk -F '\t' '!($1 == "fedora" && $2 == "sway")' \
+  "$repo_root/config/install-options.tsv" >"$fixture.options-nosway"
+expect_option_link_failure 'Deleted fedora sway option' \
+  "$fixture.options-nosway" "$repo_root/config/capabilities.tsv" \
+  'fedora/sway: no persistent option declares --sway on fedora'
+
+# Subtle: the row is still there with the right flag, only its capability
+# cell says it selects nothing.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "fedora" && $2 == "sway" {$8 = "-"} {print}' \
+  "$repo_root/config/install-options.tsv" >"$fixture.options-blank"
+expect_option_link_failure 'Blank capability cell on fedora sway' \
+  "$fixture.options-blank" "$repo_root/config/capabilities.tsv" \
+  "fedora/sway: --sway selects capability sway in the capability manifest, but the option's capability cell is '-'"
+
+# Subtle: the cell names a capability, just not the one the flag belongs to.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "fedora" && $2 == "sway" {$8 = "kde"} {print}' \
+  "$repo_root/config/install-options.tsv" >"$fixture.options-other"
+expect_option_link_failure 'Fedora sway option selecting kde' \
+  "$fixture.options-other" "$repo_root/config/capabilities.tsv" \
+  "fedora/sway: --sway selects capability sway in the capability manifest, but the option's capability cell names kde"
+
+# Subtle: a second row for the same flag. A lookup keyed on the flag keeps
+# only the last one, so the duplicate has to be reported, not collapsed.
+{
+  cat "$repo_root/config/install-options.tsv"
+  awk -F '\t' 'BEGIN {OFS="\t"} $1 == "fedora" && $2 == "sway" {$2 = "sway-again"; print}' \
+    "$repo_root/config/install-options.tsv"
+} >"$fixture.options-dup"
+expect_option_link_failure 'Duplicated fedora --sway option' \
+  "$fixture.options-dup" "$repo_root/config/capabilities.tsv" \
+  'fedora: --sway is the on_flag of more than one option (sway, sway-again)' \
+  'fedora: capability sway is selected by more than one option (sway, sway-again)'
+
+# Reverse, from the option side: a `-` row whose flag a capability claims.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "fedora" && $2 == "tailscale" {$8 = "-"} {print}' \
+  "$repo_root/config/install-options.tsv" >"$fixture.options-tailscale"
+expect_option_link_failure 'Blank capability cell on fedora tailscale' \
+  "$fixture.options-tailscale" "$repo_root/config/capabilities.tsv" \
+  "fedora/tailscale: --tailscale selects capability tailscale in the capability manifest, but the option's capability cell is '-'"
+
+# Reverse, from the capability side: a capability that claims the flag of a
+# plain setting. The option row is untouched and still selects nothing.
+awk -F '\t' 'BEGIN {OFS="\t"} $1 == "hardening" && $2 == "fedora" {$4 = "--secure-boot"} {print}' \
+  "$repo_root/config/capabilities.tsv" >"$fixture.capability-claims"
+expect_option_link_failure 'Fedora hardening claiming --secure-boot' \
+  "$repo_root/config/install-options.tsv" "$fixture.capability-claims" \
+  "fedora/secure-boot: --secure-boot selects capability hardening in the capability manifest, but the option's capability cell is '-'" \
+  "fedora/hardening: selects capability hardening with --hardening, but the capability manifest gives hardening the flag '--secure-boot' on fedora"
+
+# The same blank, for every option whose flag the capability manifest claims:
+# no such row may be blanked without the check naming its flag and its
+# capability. Run in one process against check_option_manifest() alone, so the
+# sweep costs one interpreter start rather than a full validation per row.
+python3 - "$repo_root" "$fixture.sweep" <<'PY'
+import contextlib
+import importlib.util
+import io
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+scratch = pathlib.Path(sys.argv[2])
+spec = importlib.util.spec_from_file_location(
+    "validate_capabilities", root / "scripts" / "validate-capabilities.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+rows = module.read_tsv(module.MANIFEST, module.FIELDS)
+lines = module.OPTION_MANIFEST.read_text(encoding="utf-8").splitlines(keepends=True)
+header = lines[0].rstrip("\n").split("\t")
+column = {name: index for index, name in enumerate(header)}
+claimed = {
+    (row["platform"], row["cli_flag"]): row["capability"]
+    for row in rows
+    if row["cli_flag"] not in {"", "-"}
+}
+swept = 0
+missed = []
+for number, line in enumerate(lines[1:], 1):
+    cells = line.rstrip("\n").split("\t")
+    platform, flag = cells[column["platform"]], cells[column["on_flag"]]
+    capability = cells[column["capability"]]
+    if capability in {"", "-"} or (platform, flag) not in claimed:
+        continue
+    swept += 1
+    cells[column["capability"]] = "-"
+    scratch.write_text(
+        "".join(lines[:number]) + "\t".join(cells) + "\n" + "".join(lines[number + 1:]),
+        encoding="utf-8",
+    )
+    module.OPTION_MANIFEST = scratch
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        errors = module.check_option_manifest(rows)
+    needle = f"{flag} selects capability {capability} in the capability manifest"
+    if not errors or needle not in stderr.getvalue():
+        missed.append(f"{platform} {flag} ({capability})")
+if not swept:
+    sys.exit("the blank-cell sweep found no option row to blank")
+if missed:
+    sys.exit("blanking the capability cell went unreported for: " + ", ".join(missed))
+PY
+
 # A verifier declared for a capability it never mentions is the DOC-004 defect:
 # the manifest promises a check that does not exist, and the selected profile
 # then passes verification unconditionally. Point the Fedora LaTeX row at a
@@ -287,9 +420,9 @@ hardware_dry_run="$(
   "$repo_root/install.sh" --dry-run --no-kde --no-latex \
     --hardware ga402xz --secure-boot --charge-limit 80
 )"
-[[ "$hardware_dry_run" == *'ASUS hardware:       ga402xz'* ]]
-[[ "$hardware_dry_run" == *'Require Secure Boot: true'* ]]
-[[ "$hardware_dry_run" == *'Battery limit:       80'* ]]
+[[ "$hardware_dry_run" == *'ASUS hardware model: ga402xz'* ]]
+[[ "$hardware_dry_run" == *'Require Secure Boot for the selected hardware: true'* ]]
+[[ "$hardware_dry_run" == *'ASUS battery charge limit: 80'* ]]
 
 grep -Fq 'config/capabilities.tsv' "$repo_root/docs/capabilities.md"
 

@@ -20,7 +20,7 @@ fedora	gnhf	tristate	--gnhf	--no-gnhf	inherit	-	gnhf	AI subcomponent: GNHF
 fedora	backpass	tristate	--backpass	--no-backpass	inherit	-	backpass	AI subcomponent: backpass
 fedora	hardware	value	--hardware	-	-	ga402xz|ga402rk	hardware	ASUS hardware model
 fedora	secure-boot	boolean	--secure-boot	-	false	-	-	Require Secure Boot for the selected hardware
-fedora	charge-limit	value	--charge-limit	-	-	[4-9][0-9]|100	-	ASUS battery charge limit, 40-100
+fedora	charge-limit	value	--charge-limit	-	-	40..100	-	ASUS battery charge limit
 fedora-wsl	theme	value	--theme	-	macchiato	latte|frappe|macchiato|mocha	-	Catppuccin flavour
 fedora-wsl	ocaml	boolean	--ocaml	--no-ocaml	false	-	ocaml	OCaml profile
 fedora-wsl	latex	boolean	--latex	--no-latex	false	-	latex	LaTeX toolchain

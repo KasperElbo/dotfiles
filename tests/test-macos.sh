@@ -59,11 +59,11 @@ dry_run="$("$repo_root"/install.sh --platform macos --dry-run --ocaml --containe
 assert_contains "$dry_run" 'Apple Silicon macOS installation plan'
 assert_contains "$dry_run" 'AeroSpace (Sway-compatible nine-workspace profile)'
 assert_contains "$dry_run" 'Homebrew at /opt/homebrew'
-assert_contains "$dry_run" 'OCaml profile:      true'
-assert_contains "$dry_run" 'Containers profile: true'
+assert_contains "$dry_run" 'OCaml profile:       true'
+assert_contains "$dry_run" 'Podman machine profile: true'
 assert_contains "$dry_run" 'Development workflow smoke tests: true'
 assert_contains "$dry_run" 'Podman machine'
-assert_contains "$dry_run" 'AI tooling profile: false'
+assert_contains "$dry_run" 'AI-assisted development profile (Claude Code and Herdr): false'
 assert_contains "$dry_run" 'No changes were made.'
 
 # The containers profile is the one macOS capability no CI job installs. A
@@ -83,7 +83,7 @@ esac
 assert_contains "$containers_scope" 'docs/platforms/macos.md#optional-containers'
 
 no_defaults="$("$repo_root"/install.sh --platform macos --dry-run --no-defaults)"
-assert_contains "$no_defaults" 'macOS defaults:     false'
+assert_contains "$no_defaults" 'Reversible macOS defaults: false'
 if [[ "$no_defaults" == *'Apply reversible Dock'* ]]; then
   printf 'No-defaults dry run still planned preference mutation.\n' >&2
   exit 1
@@ -92,13 +92,13 @@ fi
 # Tailscale is opt-in, uses the supported macOS app model (interactive
 # login), and never reuses Fedora's systemd/tailscaled service assumptions.
 no_tailscale="$("$repo_root"/install.sh --platform macos --dry-run)"
-assert_contains "$no_tailscale" 'Tailscale profile:  false'
+assert_contains "$no_tailscale" 'Tailscale networking profile: false'
 if [[ "$no_tailscale" == *'Install the optional Tailscale profile'* ]]; then
   printf 'Default macOS dry run still planned the Tailscale profile.\n' >&2
   exit 1
 fi
 tailscale_dry_run="$("$repo_root"/install.sh --platform macos --dry-run --tailscale)"
-assert_contains "$tailscale_dry_run" 'Tailscale profile:  true'
+assert_contains "$tailscale_dry_run" 'Tailscale networking profile: true'
 assert_contains "$tailscale_dry_run" \
   'Install the optional Tailscale profile (Homebrew cask, interactive login).'
 grep -Fq -- '--cask tailscale-app' "$macos_root/scripts/install-tailscale.sh"
