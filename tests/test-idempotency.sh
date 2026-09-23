@@ -659,6 +659,22 @@ grep -Fq "Lazy plugin not installed: $withheld_plugin" \
 mv "$test_root/withheld-plugin" "$bootstrap_data/nvim/lazy/$withheld_plugin"
 printf 'PASS: Fedora verification reports a locked plugin the tree is missing\n'
 
+# The preview's server is what a checkout at the locked commit does not prove:
+# an install whose build never finished left exactly this tree, and the
+# preview opened no browser while every check above passed.
+grep -Fq 'Markdown preview server: ' "$test_root/tmux-drift-verification.log"
+preview_server="$bootstrap_data/nvim/lazy/markdown-preview.nvim/app/bin/$(bash -c 'source "$1/common/lib/markdown-preview.sh" && markdown_preview_server_name' _ "$repo_root")"
+mv "$preview_server" "$test_root/withheld-preview-server"
+if "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora/scripts/verify.sh" \
+  >"$test_root/preview-missing-verification.log" 2>&1; then
+  printf 'Fedora verification accepted a Markdown preview with no server\n' >&2
+  exit 1
+fi
+grep -Fq 'Markdown preview server absent: ' "$test_root/preview-missing-verification.log"
+mv "$test_root/withheld-preview-server" "$preview_server"
+printf 'PASS: Fedora verification reports a Markdown preview with no server\n'
+
 run_bootstrap --vm-guest
 vm_guest_state="$bootstrap_config/dotfiles/vm-guest.conf"
 first_vm_guest_state="$(sha256sum "$vm_guest_state")"

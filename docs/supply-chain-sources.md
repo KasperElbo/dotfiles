@@ -33,6 +33,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 
 | Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
 |---|---|---|---|---|---|---|---|---|
+| `markdown-preview-server` | Markdown preview server: the prebuilt binary markdown-preview.nvim's build downloads into app/bin | iamcco | `archive` | `user` | `the version in package.json at the markdown-preview.nvim commit lazy-lock.json pins` | app/bin/markdown-preview-<platform> --version | `https-tls` | manual-bump |
 | `neovim-github-releases` | Neovim for the Parrot CTF profile | Neovim | `archive` | `user` | `0.12.5` | release tag | `https-tls` | manual-bump |
 | `netcoredbg-legacy-release` | netcoredbg x64 build used as a debugger contract control | Samsung | `archive` | `user` | `3.1.3-1062` | release tag | `https-tls` | manual-bump |
 | `opam-repository` | OCaml Platform packages | OCaml | `package-registry` | `user` | `5.5.0 compiler` | opam switch list | `registry-tls` | manual-bump |
@@ -99,6 +100,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `homebrew-tap-nikitabobko` | `https://github.com/nikitabobko/homebrew-tap` | brew uninstall --cask aerospace && brew untap nikitabobko/tap | `platforms/macos/Brewfile` |
 | `lazy-nvim` | `https://github.com/folke/lazy.nvim.git` | restore lazy-lock.json and rerun the job; on a workstation, check out the previous commit in ~/.local/share/nvim/lazy/lazy.nvim | `nvim-lazyvim/.config/nvim/lazy-lock.json` `nvim-lazyvim/.config/nvim/lua/config/lazy.lua` `.github/workflows/validate.yml` |
 | `lazyvim-plugins` | `https://github.com/LazyVim/LazyVim` | git restore lazy-lock.json and :Lazy restore | `nvim-lazyvim/.config/nvim/lazy-lock.json` |
+| `markdown-preview-server` | `https://github.com/iamcco/markdown-preview.nvim/releases` | restore lazy-lock.json, :Lazy restore, then :Lazy build markdown-preview.nvim | `nvim-lazyvim/.config/nvim/lua/plugins/markdown.lua` `common/install-neovim-tools.sh` `common/lib/markdown-preview.sh` |
 | `mason-registry` | `https://github.com/mason-org/mason-registry` | Mason uninstall | `common/install-neovim-tools.sh` `common/mason-package-versions.txt` |
 | `mason-registry-crashdummyy` | `https://github.com/Crashdummyy/mason-registry` | Mason uninstall | `common/bootstrap-mason.lua` `nvim-lazyvim/.config/nvim/lua/plugins/dotnet.lua` |
 | `mise-installer` | `https://mise.run` | rm ~/.local/bin/mise and rerun | `platforms/fedora-wsl/install.sh` `platforms/parrot-ctf/install.sh` `platforms/fedora-wsl/scripts/install-system.sh` `platforms/parrot-ctf/scripts/install-system.sh` |

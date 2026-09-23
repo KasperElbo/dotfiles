@@ -594,6 +594,7 @@ check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.t
 # is the stowed copy under XDG_CONFIG_HOME, not the repository's, so it
 # verifies what was actually deployed.
 check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
+check_markdown_preview_server "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
 
 # The floor comes from config/tool-floors.tsv like every other enforcer of it,
 # and Neovim itself asserts it, which also proves it starts. The shared helper

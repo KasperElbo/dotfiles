@@ -557,6 +557,7 @@ for expected in \
   'scp runs:' \
   'Neovim 0.12.5 satisfies the >= 0.12 baseline' \
   'Lazy plugins match ' \
+  'Markdown preview server: ' \
   'Neovim starts and reports >= ' \
   "Ghost Pepper is at the pinned $DICTATION_VERSION" \
   'Ghost Pepper has no competing Homebrew cask' \
@@ -637,6 +638,15 @@ run_verifier
 expect_one_more_failure 'a locked plugin missing from the tree is reported, not installed' \
   "Lazy plugin not installed: $macos_withheld_plugin"
 mv "$root/withheld-plugin" "$data/nvim/lazy/$macos_withheld_plugin"
+
+# The plugin at its locked commit with no preview server: what a headless
+# install whose build never finished left, and a preview that opened nothing.
+macos_preview_server="$data/nvim/lazy/markdown-preview.nvim/app/bin/$(bash -c 'source "$1/common/lib/markdown-preview.sh" && markdown_preview_server_name' _ "$repo_root")"
+mv "$macos_preview_server" "$root/withheld-preview-server"
+run_verifier
+expect_one_more_failure 'a Markdown preview with no server is reported' \
+  'Markdown preview server absent: '
+mv "$root/withheld-preview-server" "$macos_preview_server"
 
 # A Starship configuration for the wrong flavour: the theme was never applied.
 ln -sfn "$repo_root/starship/.config/starship/catppuccin-mocha.toml" \

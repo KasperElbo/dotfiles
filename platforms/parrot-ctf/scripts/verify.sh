@@ -229,6 +229,7 @@ check_version_at_least "Neovim" "$nvim_version" "$(tool_floor nvim)"
 # replaces -- a directory that is not a checkout, a lock file that will not
 # parse, and a plugin the lock file does not name.
 check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/profiles/parrot-ctf/lazy-lock.json"
+check_markdown_preview_server "$XDG_CONFIG_HOME/nvim/profiles/parrot-ctf/lazy-lock.json"
 
 # Through run_mise, as the version read two lines above already is. Called
 # directly, mise resolved from this verifier's working directory with no

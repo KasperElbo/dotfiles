@@ -587,6 +587,12 @@ The remaining row and column operations are discoverable under `<leader>m`
 through WhichKey. Tables are real Markdown source and are aligned on leaving
 insert mode; the browser preview remains the final check for GitHub rendering.
 
+The preview page is served by a prebuilt server that the plugin's build
+downloads into `~/.local/share/nvim/lazy/markdown-preview.nvim/app/bin`. The
+installer runs that build to completion and repairs a checkout left without
+one, and every platform verifier fails a missing server. If `<leader>cp`
+opens nothing, `:Lazy build markdown-preview.nvim` downloads it again.
+
 On Fedora and Parrot, the preview opens through the distro-owned `xdg-open`.
 On Fedora WSL, the platform adapter routes both `gx` and preview URLs through
 the existing `wsl-open` helper to the Windows browser even though Windows PATH

@@ -18,6 +18,11 @@ set -euo pipefail
 # --omit leaves a plugin out, which is how a suite models the tree a verifier
 # must report rather than credit.
 #
+# markdown-preview.nvim also gets a package.json naming its version and what
+# its build leaves behind (markdown-preview-mock-build.sh). --no-preview-server
+# leaves the build out, which is the tree a headless install whose build never
+# finished left on every platform.
+#
 # Each plugin is a Git checkout whose HEAD is the pinned commit. The commit
 # object itself is not created: the lock file names real upstream commits, and
 # no fixture can conjure their contents. Writing the id into .git/HEAD is what
@@ -26,7 +31,13 @@ set -euo pipefail
 # itself would need this fixture to grow with it, and should.
 
 omitted=()
-while [[ "${1:-}" == --omit ]]; do
+preview_server=true
+while [[ "${1:-}" == --omit || "${1:-}" == --no-preview-server ]]; do
+  if [[ "$1" == --no-preview-server ]]; then
+    preview_server=false
+    shift
+    continue
+  fi
   omitted+=("${2:?--omit requires a plugin name}")
   shift 2
 done
@@ -39,6 +50,7 @@ command -v jq >/dev/null 2>&1 ||
 [[ -r "$lockfile" ]] ||
   { printf 'lazy-mock-install.sh cannot read the lock file: %s\n' "$lockfile" >&2; exit 1; }
 
+support_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 lazy_root="$data_home/nvim/lazy"
 mkdir -p "$lazy_root"
 
@@ -56,6 +68,13 @@ while IFS=$'\t' read -r plugin commit; do
   mkdir -p "$git_dir/objects" "$git_dir/refs/heads"
   printf '%s\n' "$commit" >"$git_dir/HEAD"
   printf '[core]\n\trepositoryformatversion = 0\n\tbare = false\n' >"$git_dir/config"
+  if [[ "$plugin" == markdown-preview.nvim ]]; then
+    printf '{ "name": "markdown-preview", "version": "0.0.10" }\n' \
+      >"$lazy_root/$plugin/package.json"
+    if [[ "$preview_server" == true ]]; then
+      "$support_dir/markdown-preview-mock-build.sh" "$lazy_root/$plugin"
+    fi
+  fi
   installed=$((installed + 1))
 done < <(jq -r 'to_entries[] | [.key, .value.commit] | @tsv' "$lockfile")
 

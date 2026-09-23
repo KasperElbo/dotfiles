@@ -6,6 +6,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # The mocked bootstrap leaves behind what a real Mason install leaves behind,
 # so common/lib/mason.sh reads it as installed.
 export MASON_MOCK_INSTALL="$repo_root/tests/support/mason-mock-install.sh"
+export PREVIEW_MOCK_BUILD="$repo_root/tests/support/markdown-preview-mock-build.sh"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -41,6 +42,15 @@ for argument in "$@"; do
     "${MOCK_NVIM_TREE_SITTER_RACE:-false}" == "true" && \
     ! -x "$XDG_DATA_HOME/nvim/mason/bin/tree-sitter" ]]; then
     printf 'Package is already installing\n'
+  fi
+
+  # The synchronous build in plugins/markdown.lua. Upstream's download script
+  # reports a failed download as success, so a failed build here exits 0 too
+  # and leaves app/bin empty, which is what the installer has to notice.
+  if [[ "$argument" == '+Lazy! build markdown-preview.nvim' && \
+    "${MOCK_NVIM_PREVIEW_BUILD_FAILS:-false}" != "true" ]]; then
+    "${PREVIEW_MOCK_BUILD:?the suite must export the preview build fixture}" \
+      "$XDG_DATA_HOME/nvim/lazy/markdown-preview.nvim"
   fi
 
   if [[ "$argument" == */common/bootstrap-mason.lua ]]; then
@@ -362,5 +372,53 @@ fi
   printf 'The incomplete-install fixture left no directory, so it models nothing\n' >&2
   exit 1
 }
+
+# A Markdown preview checkout with no server: what every headless install left
+# before the build was made synchronous. Lazy builds only on a clone or an
+# update, so a rerun of the installer is the one place that can repair it.
+preview_root="$test_root/preview-data"
+preview_plugin="$preview_root/nvim/lazy/markdown-preview.nvim"
+preview_server="$preview_plugin/app/bin/$(bash -c 'source "$1/common/lib/markdown-preview.sh" && markdown_preview_server_name' _ "$repo_root")"
+mkdir -p "$preview_plugin"
+printf '{ "name": "markdown-preview", "version": "0.0.10" }\n' >"$preview_plugin/package.json"
+: >"$command_log"
+"${test_environment[@]}" XDG_DATA_HOME="$preview_root" \
+  "$repo_root/common/install-neovim-tools.sh" >/dev/null
+grep -Fq '<+Lazy! build markdown-preview.nvim>' "$command_log" || {
+  printf 'The installer did not rebuild a Markdown preview with no server\n' >&2
+  exit 1
+}
+[[ -x "$preview_server" ]] || {
+  printf 'The installer finished with no Markdown preview server: %s\n' "$preview_server" >&2
+  exit 1
+}
+printf 'PASS: the installer repairs a Markdown preview with no server\n'
+
+# Converged, the rerun asks nothing: no download on every install.
+: >"$command_log"
+"${test_environment[@]}" XDG_DATA_HOME="$preview_root" \
+  "$repo_root/common/install-neovim-tools.sh" >/dev/null
+if grep -Fq '<+Lazy! build markdown-preview.nvim>' "$command_log"; then
+  printf 'The installer rebuilt a Markdown preview server that was already there\n' >&2
+  exit 1
+fi
+printf 'PASS: the installer leaves a working Markdown preview server alone\n'
+
+# A build that leaves no server fails the install by name, rather than
+# finishing with a preview that opens nothing.
+rm -f -- "$preview_server"
+if output="$(
+  "${test_environment[@]}" XDG_DATA_HOME="$preview_root" MOCK_NVIM_PREVIEW_BUILD_FAILS=true \
+    "$repo_root/common/install-neovim-tools.sh" 2>&1
+)"; then
+  printf 'The installer accepted a Markdown preview build that left no server:\n%s\n' \
+    "$output" >&2
+  exit 1
+fi
+[[ "$output" == *"Markdown preview server not installed: "* ]] || {
+  printf 'The missing Markdown preview server was not named:\n%s\n' "$output" >&2
+  exit 1
+}
+printf 'PASS: the installer fails a Markdown preview build that leaves no server\n'
 
 printf 'Neovim bootstrap convergence checks passed.\n'

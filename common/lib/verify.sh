@@ -19,6 +19,10 @@ if [[ -z "${DOTFILES_MASON_LOADED:-}" ]]; then
   # shellcheck source=mason.sh
   source "$(dirname "${BASH_SOURCE[0]}")/mason.sh"
 fi
+if [[ -z "${DOTFILES_MARKDOWN_PREVIEW_LOADED:-}" ]]; then
+  # shellcheck source=markdown-preview.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/markdown-preview.sh"
+fi
 # shellcheck source=install-lifecycle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/install-lifecycle.sh"
 # shellcheck source=capabilities.sh
@@ -867,6 +871,49 @@ check_lazy_plugin_state() {
     pass "Lazy plugins match ${#locked[@]} locked commits: $lockfile"
   fi
   return "$status"
+}
+
+# check_markdown_preview_server <lockfile>
+#
+# A markdown-preview.nvim checkout at its locked commit is not a working
+# preview: the page is served by a binary the plugin's build downloads, and an
+# install whose build never finished left the checkout and no server. The
+# preview then opened no browser on every platform while check_lazy_plugin_state
+# passed. lib/markdown-preview.sh decides, so this cannot credit what the
+# installer would repair. A profile whose lock file does not name the plugin
+# has no preview to check.
+check_markdown_preview_server() {
+  local lockfile="$1"
+  local plugin_dir locked
+
+  if ! command_exists jq; then
+    fail "Markdown preview server cannot be verified: jq is required to read $lockfile"
+    return 1
+  fi
+  # A lock file jq cannot read is a failure, never a profile without a preview.
+  locked="$(jq -r 'has("markdown-preview.nvim")' "$lockfile" 2>/dev/null)" || {
+    fail "Markdown preview server cannot be verified: $lockfile is not readable JSON"
+    return 1
+  }
+  [[ "$locked" == true ]] || return 0
+  plugin_dir="$(lazy_plugin_root)/markdown-preview.nvim"
+  if [[ ! -d "$plugin_dir" ]]; then
+    # check_lazy_plugin_state has already failed the missing checkout.
+    fail "Markdown preview server not observed: markdown-preview.nvim is not installed"
+    return 1
+  fi
+
+  if markdown_preview_server_status "$plugin_dir"; then
+    pass "Markdown preview server: $MARKDOWN_PREVIEW_DETAIL"
+    return 0
+  fi
+  if [[ "$MARKDOWN_PREVIEW_STATE" == unsupported ]]; then
+    warning "Markdown preview unavailable: $MARKDOWN_PREVIEW_DETAIL"
+    return 0
+  fi
+  fail "Markdown preview server $MARKDOWN_PREVIEW_STATE: $MARKDOWN_PREVIEW_DETAIL" \
+    "(rerun the installer, or :Lazy build markdown-preview.nvim)"
+  return 1
 }
 
 # The Catppuccin tmux version common/install-tmux-theme.sh pins. It is read

@@ -811,6 +811,21 @@ grep -Fq "Lazy plugin not installed: $wsl_withheld_plugin" "$test_root/lazy-miss
 mv "$test_root/withheld-plugin" "$bootstrap_data/nvim/lazy/$wsl_withheld_plugin"
 printf 'PASS: Fedora WSL verification reports a locked plugin the tree is missing\n'
 
+# A checkout at the locked commit with no preview server is what a headless
+# install whose build never finished left behind.
+grep -Fq 'Markdown preview server: ' "$test_root/tmux-drift.log"
+wsl_preview_server="$bootstrap_data/nvim/lazy/markdown-preview.nvim/app/bin/$(bash -c 'source "$1/common/lib/markdown-preview.sh" && markdown_preview_server_name' _ "$repo_root")"
+mv "$wsl_preview_server" "$test_root/withheld-preview-server"
+if "${bootstrap_environment[@]}" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/preview-missing.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a Markdown preview with no server\n' >&2
+  exit 1
+fi
+grep -Fq 'Markdown preview server absent: ' "$test_root/preview-missing.log"
+mv "$test_root/withheld-preview-server" "$wsl_preview_server"
+printf 'PASS: Fedora WSL verification reports a Markdown preview with no server\n'
+
 bootstrap_identity="$(sha256sum "$bootstrap_config/git/local")"
 bootstrap_notes="$(sha256sum "$bootstrap_home/notes")"
 run_bootstrap

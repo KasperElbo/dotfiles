@@ -512,6 +512,7 @@ check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.t
 # same way on every platform now, the plugin tree from the deployed lock file
 # first because a start would otherwise fill in what it found missing (#371).
 check_lazy_plugin_state "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
+check_markdown_preview_server "$XDG_CONFIG_HOME/nvim/lazy-lock.json"
 check_neovim_starts Neovim "$(tool_floor nvim)"
 
 section "Catppuccin tmux"
