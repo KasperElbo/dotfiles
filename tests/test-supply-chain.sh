@@ -1514,14 +1514,26 @@ fi
 # The Bash 3.2 check itself: the pinned bytes pass, any other bytes fail and
 # say so. The expected digest is read at call time, so the case can name the
 # fixture's own digest as the pin without touching the tracked value.
+# The library runs on macOS, where shasum is part of the system. Linux
+# runners may lack it (the Fedora CI container does), so there a shim with
+# the one call shape the library uses stands in for it.
+homebrew_path="$PATH"
+if ! command -v shasum >/dev/null 2>&1; then
+  mkdir -p "$test_root/shasum-bin"
+  printf '%s\n' '#!/bin/bash' \
+    '[[ "$1" == -a && "$2" == 256 && $# -eq 3 ]] || exit 2' \
+    'exec sha256sum -- "$3"' >"$test_root/shasum-bin/shasum"
+  chmod +x "$test_root/shasum-bin/shasum"
+  homebrew_path="$test_root/shasum-bin:$PATH"
+fi
 homebrew_fixture="$test_root/homebrew-install.sh"
 printf '#!/bin/bash\necho reviewed\n' >"$homebrew_fixture"
 homebrew_fixture_digest="$(sha256sum "$homebrew_fixture" | cut -d' ' -f1)"
-bash -c 'source "$1"; DOTFILES_HOMEBREW_INSTALLER_SHA256="$2"; homebrew_installer_verify "$3"' \
+PATH="$homebrew_path" bash -c 'source "$1"; DOTFILES_HOMEBREW_INSTALLER_SHA256="$2"; homebrew_installer_verify "$3"' \
   _ "$homebrew_lib" "$homebrew_fixture_digest" "$homebrew_fixture" ||
   _test_die 'the pinned Homebrew installer content was refused'
 printf '#!/bin/bash\necho tampered\n' >"$homebrew_fixture"
-if homebrew_output="$(bash -c 'source "$1"; DOTFILES_HOMEBREW_INSTALLER_SHA256="$2"; homebrew_installer_verify "$3"' \
+if homebrew_output="$(PATH="$homebrew_path" bash -c 'source "$1"; DOTFILES_HOMEBREW_INSTALLER_SHA256="$2"; homebrew_installer_verify "$3"' \
   _ "$homebrew_lib" "$homebrew_fixture_digest" "$homebrew_fixture" 2>&1)"; then
   _test_die 'a Homebrew installer that differs from its pin was accepted'
 fi
