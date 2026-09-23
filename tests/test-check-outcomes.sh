@@ -37,9 +37,8 @@ new_scratch() {
 }
 
 # Give every call site in every verifier both outcomes, so a case's own edit is
-# the only thing that can make the validator complain. The ledger is then all
-# zeroes, which is the state the repository is working towards.
-cover_everything() {
+# the only thing that can make the validator complain.
+trace_everything() {
   python3 - "$scratch" "$trace" <<'PYTHON'
 import pathlib
 import re
@@ -56,7 +55,53 @@ for pattern in ("platforms/*/scripts/verify*.sh", "common/verify-*.sh"):
                 lines.append(f"{path}\t{number}\tfail")
 trace.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PYTHON
+}
+
+# The same, with the ledger recorded from it, so it excuses nothing: the state
+# the repository is working towards.
+cover_everything() {
+  trace_everything
   python3 "$scratch/scripts/validate-check-outcomes.py" --record "$trace" >/dev/null
+}
+
+# The line of a verifier's Nth traced call site, counting from 1, or from the
+# end when negative.
+site_line() {
+  python3 - "$trace" "$scratch/$1" "$2" <<'PYTHON'
+import sys
+
+trace, verifier, which = sys.argv[1], sys.argv[2], int(sys.argv[3])
+with open(trace, encoding="utf-8") as lines:
+    sites = sorted({int(line.split("\t")[1]) for line in lines if line.startswith(verifier + "\t")})
+if len(sites) < 2:
+    sys.exit(f"fewer than two call sites traced in {verifier}, so this case proves nothing")
+print(sites[which - 1 if which > 0 else which])
+PYTHON
+}
+
+# Take one outcome away from one call site, as a fixture that stopped driving
+# it that way would.
+drop_outcome() {
+  grep -v -x -F "$scratch/$1	$2	$3" "$trace" >"$trace.dropped" || true
+  if cmp -s "$trace" "$trace.dropped"; then
+    _test_die "no $3 traced at $1:$2, so this case proves nothing"
+  fi
+  mv "$trace.dropped" "$trace"
+}
+
+# Record the ledger from the trace as it stands, and give every row a reason,
+# as a contributor excusing those call sites would have to.
+excuse_uncovered() {
+  python3 "$scratch/scripts/validate-check-outcomes.py" --record "$trace" >/dev/null
+  python3 - "$scratch/config/check-outcomes.tsv" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rows = path.read_text(encoding="utf-8").splitlines()
+rows[1:] = [row if row.split("\t")[2] else row + "excused by this case" for row in rows[1:]]
+path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+PYTHON
 }
 
 validate() {
@@ -77,9 +122,9 @@ assert_success
 printf 'PASS: a tree whose every check was driven both ways is accepted\n'
 
 # GRADE-03's second acceptance criterion: a brand-new check with no fixture
-# behind it is refused, and the message names where it is. The check goes in
-# before the coverage is recorded, so the ledger says the tree was clean and
-# the only uncovered site is the one this case added.
+# behind it is refused, and the message names where it is and which call it
+# is. The check goes in before the coverage is recorded, so the ledger says the
+# tree was clean and the only uncovered site is the one this case added.
 new_scratch
 verifier="$scratch/platforms/fedora/scripts/verify.sh"
 added_line="$(python3 - "$verifier" <<'PYTHON'
@@ -99,81 +144,154 @@ print(anchor + 2)
 PYTHON
 )"
 cover_everything
-grep -v "^$verifier	$added_line	" "$trace" >"$trace.trimmed"
-mv "$trace.trimmed" "$trace"
+drop_outcome platforms/fedora/scripts/verify.sh "$added_line" pass
+drop_outcome platforms/fedora/scripts/verify.sh "$added_line" fail
 validate
 assert_failure
-assert_contains "$TEST_OUTPUT" "platforms/fedora/scripts/verify.sh: 1 check_* call site "
+assert_contains "$TEST_OUTPUT" "platforms/fedora/scripts/verify.sh:$added_line: \`check_file_contains /etc/systemd/journald.conf 'Storage=persistent' 'journald keeps logs across reboots'\`"
 assert_contains "$TEST_OUTPUT" "never driven to both a pass and a fail"
-assert_contains "$TEST_OUTPUT" "platforms/fedora/scripts/verify.sh:$added_line"
-printf 'PASS: a new check no fixture can fail is refused, and located\n'
+printf 'PASS: a new check no fixture can fail is refused, and named\n'
+
+# A verifier that is new to the tree answers to the same rule. There is no
+# per-verifier row to forget: every call site the ledger does not excuse is
+# refused wherever it is.
+new_scratch
+cover_everything
+new_verifier="verify-$scratch_number.sh"
+printf '#!/usr/bin/env bash\ncheck_command dotfiles-new-verifier-tool\n' \
+  >"$scratch/platforms/fedora/scripts/$new_verifier"
+validate
+assert_failure
+assert_contains "$TEST_OUTPUT" "platforms/fedora/scripts/$new_verifier:2: \`check_command dotfiles-new-verifier-tool\`"
+printf 'PASS: a new verifier is not exempt\n'
 
 # GRADE-03's first acceptance criterion: a predicate that can no longer fail --
 # an inverted condition, a needle that is always present -- loses its fail and
 # is refused. The call site is unchanged; only what it produced is.
 new_scratch
 cover_everything
-python3 - "$trace" <<'PYTHON'
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-kept, dropped = [], None
-for line in path.read_text(encoding="utf-8").splitlines():
-    location, _, outcome = line.rpartition("\t")
-    if outcome == "fail" and "platforms/macos/scripts/verify.sh" in location and dropped is None:
-        dropped = location
-        continue
-    kept.append(line)
-if dropped is None:
-    sys.exit("no macOS fail outcome to drop, so this case proves nothing")
-path.write_text("\n".join(kept) + "\n", encoding="utf-8")
-PYTHON
+lost_line="$(site_line platforms/macos/scripts/verify.sh 1)"
+drop_outcome platforms/macos/scripts/verify.sh "$lost_line" fail
 validate
 assert_failure
-assert_contains "$TEST_OUTPUT" "platforms/macos/scripts/verify.sh: 1 check_* call site "
+assert_contains "$TEST_OUTPUT" "platforms/macos/scripts/verify.sh:$lost_line: \`check_"
+assert_contains "$TEST_OUTPUT" "does not excuse it"
 printf 'PASS: a check that can no longer fail is refused\n'
 
-# Coverage beyond the recorded number is reported, not refused. The count is
-# measured behaviour: a machine with podman or systemctl drives checks to a
-# verdict that a machine without them reports as not observed, and the Fedora
-# CI container really does cover two more of the Fedora verifier's call sites
-# than a plain Linux container. Demanding the number exactly, as the symlink
-# gate does with counts it reads out of files, fails on whichever machine
-# covers the most.
+# An exception belongs to one call site, not to its verifier's total (#497).
+# Excuse one macOS site, then cover it and uncover another: the count is the
+# same, but the check that lost its failing fixture is not the one the ledger
+# excused, so it is refused and named.
 new_scratch
 cover_everything
-python3 - "$scratch" <<'PYTHON'
+excused_line="$(site_line platforms/macos/scripts/verify.sh 1)"
+lost_line="$(site_line platforms/macos/scripts/verify.sh -1)"
+cp "$trace" "$trace.full"
+drop_outcome platforms/macos/scripts/verify.sh "$excused_line" fail
+excuse_uncovered
+validate
+assert_success
+cp "$trace.full" "$trace"
+drop_outcome platforms/macos/scripts/verify.sh "$lost_line" fail
+validate
+assert_failure
+assert_contains "$TEST_OUTPUT" "platforms/macos/scripts/verify.sh:$lost_line: \`check_"
+printf 'PASS: swapping which check is uncovered, at the same count, is refused\n'
+
+# An exception follows its call when unrelated lines move it. Excuse the
+# second macOS call site, then add lines above the first until the first call
+# sits on the line the excused one used to: a ledger keyed by line would now
+# excuse the wrong check. The excused call, wherever it went, stays excused;
+# the call that took its old line does not inherit that.
+new_scratch
+cover_everything
+first_line="$(site_line platforms/macos/scripts/verify.sh 1)"
+excused_line="$(site_line platforms/macos/scripts/verify.sh 2)"
+drop_outcome platforms/macos/scripts/verify.sh "$excused_line" fail
+excuse_uncovered
+shift_by=$((excused_line - first_line))
+python3 - "$scratch/platforms/macos/scripts/verify.sh" "$first_line" "$shift_by" <<'PYTHON'
 import pathlib
 import sys
 
-path = pathlib.Path(sys.argv[1]) / "config/check-outcomes.tsv"
+path, before, count = pathlib.Path(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
 lines = path.read_text(encoding="utf-8").splitlines()
-for index, line in enumerate(lines):
-    if line.startswith("platforms/fedora/scripts/verify.sh\t"):
-        verifier, _, note = line.split("\t")
-        lines[index] = f"{verifier}\t3\t{note}"
-        break
-else:
-    sys.exit("the Fedora verifier is not in the ledger, so this case proves nothing")
+lines[before - 1:before - 1] = ["# moved by an unrelated change"] * count
 path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PYTHON
+trace_everything
+drop_outcome platforms/macos/scripts/verify.sh "$((excused_line + shift_by))" fail
 validate
 assert_success
-assert_contains "$TEST_OUTPUT" "is down to 0 uncovered call sites from the 3"
-assert_contains "$TEST_OUTPUT" "re-record"
-printf 'PASS: covering more than the ledger allows is reported, not refused\n'
-
-# A verifier the ledger does not mention is not silently exempt.
-new_scratch
-cover_everything
-grep -v '^platforms/parrot-ctf/scripts/verify\.sh' \
-  "$scratch/config/check-outcomes.tsv" >"$scratch/config/check-outcomes.tsv.new"
-mv "$scratch/config/check-outcomes.tsv.new" "$scratch/config/check-outcomes.tsv"
+trace_everything
+drop_outcome platforms/macos/scripts/verify.sh "$excused_line" fail
 validate
 assert_failure
-assert_contains "$TEST_OUTPUT" "every verifier answers to this rule"
-printf 'PASS: a verifier missing from the ledger is refused\n'
+assert_contains "$TEST_OUTPUT" "platforms/macos/scripts/verify.sh:$excused_line: \`check_"
+printf 'PASS: an exception follows its call when unrelated lines move it\n'
+
+# A call made twice in one verifier is told apart by its occurrence, so one of
+# them can be excused without excusing the other.
+new_scratch
+cover_everything
+mapfile -t twin_lines < <(grep -n '^[[:space:]]*check_private_key_mode "\$key"$' \
+  "$scratch/platforms/fedora/scripts/verify-hardening.sh" | cut -d: -f1)
+((${#twin_lines[@]} == 2)) ||
+  _test_die "expected the hardening verifier's two identical key-mode calls, found ${#twin_lines[@]}"
+cp "$trace" "$trace.full"
+drop_outcome platforms/fedora/scripts/verify-hardening.sh "${twin_lines[1]}" fail
+excuse_uncovered
+assert_contains "$(cat "$scratch/config/check-outcomes.tsv")" 'check_private_key_mode "$key" (occurrence 2)'
+validate
+assert_success
+cp "$trace.full" "$trace"
+drop_outcome platforms/fedora/scripts/verify-hardening.sh "${twin_lines[0]}" fail
+validate
+assert_failure
+assert_contains "$TEST_OUTPUT" "verify-hardening.sh:${twin_lines[0]}: \`check_private_key_mode \"\$key\"\`"
+printf 'PASS: two identical calls are excused one at a time\n'
+
+# A real gain is reported, not refused, with what to do about it. Coverage is
+# measured behaviour: a machine with podman or systemctl drives checks to a
+# verdict that a machine without them reports as not observed, so the rows are
+# the worst environment's and a better one covers some of them.
+new_scratch
+cover_everything
+gained_line="$(site_line platforms/fedora/scripts/verify.sh 1)"
+cp "$trace" "$trace.full"
+drop_outcome platforms/fedora/scripts/verify.sh "$gained_line" fail
+excuse_uncovered
+cp "$trace.full" "$trace"
+validate
+assert_success
+assert_contains "$TEST_OUTPUT" "platforms/fedora/scripts/verify.sh:$gained_line: \`check_"
+assert_contains "$TEST_OUTPUT" "still excuses it; delete its row, or re-record with --record"
+printf 'PASS: a check the ledger excuses that is now covered is reported, not refused\n'
+
+# Every exception says why. A row --record wrote for a newly uncovered site
+# has no reason until someone writes one, and until then it excuses nothing.
+new_scratch
+cover_everything
+reasonless_line="$(site_line platforms/fedora/scripts/verify.sh 1)"
+drop_outcome platforms/fedora/scripts/verify.sh "$reasonless_line" fail
+run_capture python3 "$scratch/scripts/validate-check-outcomes.py" --record "$trace"
+assert_success
+assert_contains "$TEST_OUTPUT" "1 of them have no reason yet"
+validate
+assert_failure
+assert_contains "$TEST_OUTPUT" "has no reason"
+printf 'PASS: an exception without a reason is refused\n'
+
+# A row naming a call the verifier no longer makes is refused, so an exception
+# cannot outlive its check and quietly excuse whatever is written that way next.
+new_scratch
+cover_everything
+printf 'platforms/fedora/scripts/verify.sh\tcheck_command dotfiles-long-gone\ta removed check\n' \
+  >>"$scratch/config/check-outcomes.tsv"
+validate
+assert_failure
+assert_contains "$TEST_OUTPUT" "excuses \`check_command dotfiles-long-gone\` in platforms/fedora/scripts/verify.sh, which makes no such call"
+printf 'PASS: an exception for a call that no longer exists is refused\n'
 
 # The two ways this rule could pass for want of evidence. A gate that reports
 # nothing when it learned nothing is the failure mode the verify tier keeps

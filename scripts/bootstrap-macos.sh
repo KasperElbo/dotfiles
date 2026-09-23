@@ -96,7 +96,9 @@ if [ -n "$homebrew_bash" ] && bash_is_supported "$homebrew_bash"; then
 fi
 
 if [ "$help_requested" = "true" ]; then
-  cat "$repo_root/platforms/macos/bootstrap-help.txt"
+  # shellcheck source=../platforms/macos/lib/usage.sh
+  . "$repo_root/platforms/macos/lib/usage.sh"
+  macos_usage
   printf '\nBootstrap note: applying this profile first establishes Homebrew Bash %s+; --help never changes the machine.\n' \
     "$minimum_bash"
   exit 0

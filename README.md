@@ -110,7 +110,7 @@ documentation both read:
 
 | Manifest | Owns |
 |---|---|
-| `config/check-outcomes.tsv` | How many of each verifier's checks no fixture has yet driven to both a pass and a fail |
+| `config/check-outcomes.tsv` | Each verifier check no fixture drives to both a pass and a fail, and why that is allowed |
 | `config/capabilities.tsv` | Which capability exists on which platform, its provider, packages and their installers, Stow packages, verifier, state file and documentation |
 | `config/install-options.tsv` | Every persistent installer option: flag spelling, kind, default, permitted values |
 | `config/option-consumers.tsv` | Every option whose permitted values a program decides for itself: which file reads them, and how |
