@@ -392,7 +392,9 @@ apply_pam_faillock() {
     return 1
   fi
 
-  if authselect current 2>/dev/null | grep -q 'with-faillock'; then
+  # Each enabled feature is a `- <name>` line; match the whole line, as
+  # verify-hardening.sh does, not any feature containing the name.
+  if grep -Fxq -e '- with-faillock' <<<"$(authselect current 2>/dev/null)"; then
     info "pam_faillock already enabled via authselect"
   elif sudo authselect enable-feature with-faillock; then
     success "Enabled pam_faillock via authselect"
