@@ -371,6 +371,92 @@ own_check_firstmate() {
   return 0
 }
 
+# --- The No Mistakes daemon ------------------------------------------------
+#
+# The No Mistakes installer ends with `no-mistakes daemon restart`, which
+# leaves a running daemon and registers it as a login service: a systemd user
+# unit enabled for default.target (Restart=always) on Linux, a LaunchAgent
+# (RunAtLoad, KeepAlive) on macOS. Deleting the binary alone leaves the daemon
+# running from a deleted file, and the service starting a binary that is gone
+# at every login -- on macOS, every ten seconds for good.
+#
+# Upstream's own uninstall is `no-mistakes daemon stop`, then the binary, then
+# the service definition. The definitions are named by a hash of the install
+# root, so they are found by pattern, and one is ours only when the program it
+# runs is the exact binary proved owned above: a second install, or a copy
+# somewhere else, has its own definition naming its own binary.
+
+no_mistakes_units_dir="$HOME/.config/systemd/user"
+no_mistakes_agents_dir="$HOME/Library/LaunchAgents"
+
+# no_mistakes_service_program <definition>: the program a service definition
+# runs, as its first argument. Nothing is printed for a definition that cannot
+# be read unambiguously, which leaves it unowned.
+no_mistakes_service_program() {
+  local definition="$1" program=""
+
+  case "$definition" in
+  *.service)
+    program="$(sed -n 's/^ExecStart=//p' "$definition" | head -n 1)"
+    if [[ "$program" == \"* ]]; then
+      program="${program#\"}"
+      [[ "$program" == *\"* ]] || return 0
+      program="${program%%\"*}"
+    else
+      program="${program%%[[:space:]]*}"
+    fi
+    ;;
+  *.plist)
+    program="$(awk '
+      /<key>ProgramArguments<\/key>/ { in_args = 1; next }
+      in_args && /<string>/ {
+        sub(/.*<string>/, ""); sub(/<\/string>.*/, ""); print; exit
+      }
+    ' "$definition")"
+    [[ "$program" != *'&'* ]] || program="$(printf '%s' "$program" |
+      sed 's/&lt;/</g; s/&gt;/>/g; s/&quot;/"/g; s/&apos;/'"'"'/g; s/&amp;/\&/g')"
+    ;;
+  esac
+  # A backslash is an escape this reading does not decode.
+  [[ -n "$program" && "$program" != *\\* ]] || return 0
+  printf '%s\n' "$program"
+}
+
+# no_mistakes_owned_services <binary>: every service definition whose program
+# resolves to <binary>.
+no_mistakes_owned_services() {
+  local binary="$1" definition program resolved
+
+  for definition in "$no_mistakes_units_dir"/no-mistakes-daemon*.service \
+    "$no_mistakes_agents_dir"/com.kunchenguid.no-mistakes.daemon*.plist; do
+    [[ -f "$definition" && ! -L "$definition" ]] || continue
+    program="$(no_mistakes_service_program "$definition")"
+    [[ -n "$program" ]] || continue
+    resolved="$(resolve_existing_path "$program" 2>/dev/null || true)"
+    [[ -n "$resolved" && "$resolved" == "$binary" ]] || continue
+    printf '%s\n' "$definition"
+  done
+}
+
+# remove_no_mistakes_service <definition>: delete one owned definition, so the
+# next login does not start the daemon again. Unloading it from the running
+# service manager is `daemon stop`'s job, done before anything was deleted:
+# upstream stops the systemd unit and boots the LaunchAgent out. That keeps
+# this portable script free of any platform's service manager.
+remove_no_mistakes_service() {
+  local definition="$1" wants
+
+  rm -f -- "$definition"
+  # Enabling the unit for WantedBy=default.target left a link of the same name
+  # in default.target.wants; with the definition gone it points at nothing.
+  if [[ "$definition" == *.service ]]; then
+    wants="$no_mistakes_units_dir/default.target.wants/$(basename -- "$definition")"
+    if [[ -L "$wants" && ! -e "$wants" ]]; then
+      rm -f -- "$wants"
+    fi
+  fi
+}
+
 # removal_blockers: every reason a requested removal cannot be proved safe.
 # Collected before anything is changed so --dry-run reports the same verdict an
 # apply run would reach, and so an apply run refuses before it mutates.
@@ -387,6 +473,13 @@ if [[ "${transition[firstmate]}" == "remove" ]]; then
     "no-mistakes:$no_mistakes_target:no_mistakes_target_digest:no_mistakes_target_path"; do
     IFS=: read -r own_name own_target own_key own_path_key <<<"$entry"
     if own_check_script_binary "$own_name" "$own_target" "$own_key" "$own_path_key"; then
+      if [[ "$own_name" == no-mistakes ]]; then
+        # Stopped while its binary still exists, before anything is deleted.
+        removal_paths+=("daemon|$owned_binary_path|No Mistakes daemon")
+        while IFS= read -r own_service; do
+          removal_paths+=("service|$own_service|No Mistakes daemon service")
+        done < <(no_mistakes_owned_services "$owned_binary_path")
+      fi
       # Each deleted path is listed in its own right, so --dry-run and the
       # confirmation name the upstream's own directory rather than hiding it
       # behind the launcher that will be removed with it.
@@ -433,6 +526,19 @@ mise_specs_to_uninstall() {
     sed 's/^"//; s/"$//' | sed '/^$/d'
 }
 
+# removal_entry_description <entry>: one line of the removal plan, the same
+# in --dry-run and in the confirmation.
+removal_entry_description() {
+  local kind="${1%%|*}" path="${1#*|}"
+
+  path="${path%%|*}"
+  if [[ "$kind" == daemon ]]; then
+    printf 'stop the %s (%s daemon stop)\n' "${1##*|}" "$path"
+  else
+    printf 'delete %s (%s)\n' "$path" "${1##*|}"
+  fi
+}
+
 stale_mise_specs=()
 if [[ "$removal_requested" == "true" ]]; then
   # Without an explicit --no-<component>, a declaration that is no longer
@@ -476,8 +582,7 @@ EOF
       printf '  mise uninstall %s\n' "$spec"
     done
     for entry in ${removal_paths[@]+"${removal_paths[@]}"}; do
-      entry_path="${entry#*|}"
-      printf '  delete %s (%s)\n' "${entry_path%%|*}" "${entry##*|}"
+      printf '  %s\n' "$(removal_entry_description "$entry")"
     done
     for blocker in ${removal_blockers[@]+"${removal_blockers[@]}"}; do
       printf '  REFUSED, manual action required -- %s\n' "$blocker"
@@ -613,8 +718,7 @@ if ((${#removal_paths[@]} > 0 || ${#stale_mise_specs[@]} > 0)); then
     warn "  mise uninstall $spec"
   done
   for entry in ${removal_paths[@]+"${removal_paths[@]}"}; do
-    entry_path="${entry#*|}"
-    warn "  delete ${entry_path%%|*} (${entry##*|})"
+    warn "  $(removal_entry_description "$entry")"
   done
   if [[ "$interactive" == "true" ]]; then
     confirm 'Remove these AI components?' ||
@@ -623,6 +727,18 @@ if ((${#removal_paths[@]} > 0 || ${#stale_mise_specs[@]} > 0)); then
     warn "Proceeding on the --non-interactive acknowledgement."
   fi
 fi
+
+# Daemons are stopped before anything changes, so one that refuses -- No
+# Mistakes does while a pipeline run is active -- leaves the profile exactly as
+# it was and the removal safe to repeat.
+for entry in ${removal_paths[@]+"${removal_paths[@]}"}; do
+  [[ "${entry%%|*}" == daemon ]] || continue
+  removal_path="${entry#*|}"
+  removal_path="${removal_path%%|*}"
+  info "Stopping the ${entry##*|}: $removal_path daemon stop"
+  "$removal_path" daemon stop ||
+    die "The ${entry##*|} did not stop ($removal_path daemon stop); nothing was changed. Stop it, then rerun."
+done
 
 # Kept so a failed uninstall below can put the declarations back. The file is
 # the only record of what was previously declared (mise_specs_previously_declared
@@ -1175,13 +1291,16 @@ if [[ "$install_firstmate" == "true" ]]; then
   info "No Mistakes installed binary digest: $no_mistakes_target_digest"
 else
   # An explicit removal, already confirmed and already proved owned above.
+  # Daemons were stopped before anything changed, right after the confirmation.
   for entry in ${removal_paths[@]+"${removal_paths[@]}"}; do
     removal_kind="${entry%%|*}"
     removal_path="${entry#*|}"
     removal_path="${removal_path%%|*}"
+    [[ "$removal_kind" != daemon ]] || continue
     info "Removing ${entry##*|}: $removal_path"
     case "$removal_kind" in
     tree) rm -rf -- "$removal_path" ;;
+    service) remove_no_mistakes_service "$removal_path" ;;
     file) rm -f -- "$removal_path" ;;
     binary)
       rm -f -- "$removal_path"

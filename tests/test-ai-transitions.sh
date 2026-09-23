@@ -163,6 +163,62 @@ esac
 # No Mistakes on darwin/arm64 installs into its own directory and leaves a
 # launcher symlink on PATH. Removal has to delete the binary behind the link,
 # so the fixture can produce either layout.
+# The real installer ends with `no-mistakes daemon restart`, which registers
+# the daemon as a login service naming the binary: a systemd user unit enabled
+# for default.target on Linux, a RunAtLoad/KeepAlive LaunchAgent on macOS. The
+# daemon layout writes both, as that command would, so one run covers both
+# platforms. The binary is strict: it answers --version and `daemon stop`
+# (recorded, and refusable) and nothing else.
+if [[ "$name" == no-mistakes && "${MOCK_NO_MISTAKES_LAYOUT:-direct}" == daemon ]]; then
+  cat >"$output" <<'INSTALLER'
+#!/usr/bin/env sh
+set -e
+bin="$HOME/.no-mistakes/bin/no-mistakes"
+mkdir -p "$HOME/.no-mistakes/bin" "$HOME/.local/bin"
+cat >"$bin" <<'BINARY'
+#!/usr/bin/env sh
+case "$*" in
+--version) echo "no-mistakes fixture" ;;
+"daemon stop")
+  if [ -n "${MOCK_NO_MISTAKES_STOP_FAIL:-}" ]; then
+    echo "refusing daemon stop because 1 active pipeline runs are in progress" >&2
+    exit 1
+  fi
+  echo "daemon stop" >>"$HOME/no-mistakes-daemon.log"
+  ;;
+*) echo "strict no-mistakes fixture rejected: $*" >&2; exit 96 ;;
+esac
+BINARY
+chmod +x "$bin"
+ln -sf "$bin" "$HOME/.local/bin/no-mistakes"
+units="$HOME/.config/systemd/user"
+mkdir -p "$units/default.target.wants" "$HOME/Library/LaunchAgents"
+printf '[Service]\nExecStart=%s daemon run --root %s\nRestart=always\n\n[Install]\nWantedBy=default.target\n' \
+  "$bin" "$HOME/.no-mistakes" >"$units/no-mistakes-daemon-1a2b3c4d.service"
+ln -sf "$units/no-mistakes-daemon-1a2b3c4d.service" \
+  "$units/default.target.wants/no-mistakes-daemon-1a2b3c4d.service"
+cat >"$HOME/Library/LaunchAgents/com.kunchenguid.no-mistakes.daemon.1a2b3c4d.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.kunchenguid.no-mistakes.daemon.1a2b3c4d</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$bin</string>
+    <string>daemon</string>
+    <string>run</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+INSTALLER
+  exit 0
+fi
 if [[ "$name" == no-mistakes && "${MOCK_NO_MISTAKES_LAYOUT:-direct}" == launcher ]]; then
   {
     printf '#!/usr/bin/env sh\n'
@@ -669,5 +725,68 @@ assert_file_contains "$test_root/versions-missing.log" \
 assert_file_contains "$test_root/versions-missing.log" \
   'Refusing to record an install whose versions are unknown'
 printf 'PASS: a declared package mise does not report fails the install\n'
+
+# --- 22. Removal stops the daemon and unregisters its login service ---------
+#
+# The No Mistakes installer leaves a running daemon and a login service that
+# starts the binary again: a KeepAlive LaunchAgent would retry a deleted binary
+# every ten seconds for good, a Restart=always unit fails at every login.
+# Deleting the binary alone leaves both behind. The daemon is stopped while
+# its binary still exists, and a service definition is removed only when it
+# runs the exact binary this repository installed.
+
+units="$home/.config/systemd/user"
+agents="$home/Library/LaunchAgents"
+MOCK_NO_MISTAKES_LAYOUT=daemon install_ai --firstmate --non-interactive \
+  >"$test_root/daemon-install.log" 2>&1 ||
+  { cat "$test_root/daemon-install.log" >&2; exit 1; }
+no_mistakes_binary="$(cd -P -- "$home/.no-mistakes/bin" && pwd)/no-mistakes"
+unit="$units/no-mistakes-daemon-1a2b3c4d.service"
+unit_link="$units/default.target.wants/no-mistakes-daemon-1a2b3c4d.service"
+agent="$agents/com.kunchenguid.no-mistakes.daemon.1a2b3c4d.plist"
+assert_path_exists "$unit"
+assert_path_exists "$agent"
+# Another install's service -- a second NM_HOME, or a copy elsewhere -- names
+# a different binary and is not this repository's to remove.
+foreign_unit="$units/no-mistakes-daemon-99999999.service"
+printf '[Service]\nExecStart=%s daemon run\n' "$home/elsewhere/no-mistakes" >"$foreign_unit"
+rm -f -- "$home/no-mistakes-daemon.log"
+
+daemon_preview="$(install_ai --no-firstmate --dry-run)"
+assert_contains "$daemon_preview" "stop the No Mistakes daemon ($no_mistakes_binary daemon stop)"
+assert_contains "$daemon_preview" "delete $unit (No Mistakes daemon service)"
+assert_contains "$daemon_preview" "delete $agent (No Mistakes daemon service)"
+assert_not_contains "$daemon_preview" "$foreign_unit"
+assert_path_missing "$home/no-mistakes-daemon.log"
+
+# A daemon that refuses to stop -- upstream refuses while a pipeline run is
+# active -- stops the removal before anything of No Mistakes is deleted.
+if MOCK_NO_MISTAKES_STOP_FAIL=1 install_ai --no-firstmate --non-interactive \
+  >"$test_root/daemon-stop-refused.log" 2>&1; then
+  printf 'install-ai.sh removed No Mistakes while its daemon refused to stop\n' >&2
+  exit 1
+fi
+assert_file_contains "$test_root/daemon-stop-refused.log" 'active pipeline runs'
+assert_file_contains "$test_root/daemon-stop-refused.log" "$no_mistakes_binary daemon stop"
+assert_path_executable "$no_mistakes_binary"
+assert_path_exists "$unit"
+assert_path_exists "$agent"
+state_says 'no_mistakes=installed'
+
+install_ai --no-firstmate --non-interactive >"$test_root/daemon-remove.log" 2>&1 ||
+  { cat "$test_root/daemon-remove.log" >&2; exit 1; }
+state_says 'no_mistakes=disabled'
+assert_file_line "$home/no-mistakes-daemon.log" 'daemon stop'
+assert_path_missing "$no_mistakes_binary"
+assert_path_missing "$no_mistakes_target"
+assert_path_missing "$unit"
+[[ ! -e "$unit_link" && ! -L "$unit_link" ]] || {
+  printf 'removal left the default.target.wants link: %s\n' "$unit_link" >&2
+  exit 1
+}
+assert_path_missing "$agent"
+assert_path_exists "$foreign_unit"
+verify_ai >/dev/null
+printf 'PASS: removal stops the No Mistakes daemon and removes only its own service\n'
 
 printf 'AI optional-component transition tests passed.\n'
