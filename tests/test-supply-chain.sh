@@ -474,8 +474,11 @@ git -C "$fixture_repo" checkout -q -- .github/workflows/validate.yml
 lint_fixture >/dev/null
 printf 'PASS: an unannotated PowerShell package verb fails the linter\n'
 
-# And the other verbs of the same family, in a file that never had one.
-cat >"$fixture_repo/platforms/windows/scratch.ps1" <<'EOF'
+# And the other verbs of the same family, in a file that never had one. Its
+# name is assembled at run time: spelled out, a path that exists only inside
+# this suite would be a dangling reference to scripts/validate-repository-hygiene.py.
+scratch_ps1="$(printf 'platforms/windows/%s.ps1' scratch)"
+cat >"$fixture_repo/$scratch_ps1" <<'EOF'
 Register-PSRepository -Name Private -SourceLocation https://example.invalid/feed
 Save-Module -Name Anything -Path C:\tmp
 Install-PSResource -Name Anything
@@ -485,10 +488,10 @@ if lint_output="$(lint_fixture)"; then
   printf 'The linter accepted an unregistered PowerShell package verb.\n' >&2
   exit 1
 fi
-assert_contains "$lint_output" 'platforms/windows/scratch.ps1:1'
-assert_contains "$lint_output" 'platforms/windows/scratch.ps1:2'
-assert_contains "$lint_output" 'platforms/windows/scratch.ps1:3'
-rm -f -- "$fixture_repo/platforms/windows/scratch.ps1"
+assert_contains "$lint_output" "$scratch_ps1:1"
+assert_contains "$lint_output" "$scratch_ps1:2"
+assert_contains "$lint_output" "$scratch_ps1:3"
+rm -f -- "$fixture_repo/$scratch_ps1"
 git -C "$fixture_repo" add -A
 lint_fixture >/dev/null
 printf 'PASS: every PowerShell package verb of the family is flagged\n'

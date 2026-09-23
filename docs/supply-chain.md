@@ -548,11 +548,16 @@ inside a workflow, so it could not be run before a push and a fork could not
 run it at all.
 
 The step is not optional, and not only by convention.
-`scripts/validate-repository-hygiene.py` requires `validate.yml` to invoke the
-scanner, so removing the step — or commenting it out — fails lint rather than
-quietly removing the coverage. `tests/test-repository-hygiene.sh` proves both
-halves: that the gate catches a credential using the exact command CI runs,
-and that the tree is refused when the gate is taken away.
+`scripts/validate-repository-hygiene.py` reads `validate.yml` as the structure
+GitHub reads and requires a step that runs the scanner exactly, with no `if:`
+on it or its job, no `continue-on-error`, under a shell that runs it, in a
+workflow every pull request triggers. Removing the step, commenting it out, or
+keeping it and switching it off — `if: false`, `--help` after the command —
+fails lint rather than quietly removing the coverage. The same rule holds
+`./scripts/lint.sh`, `./scripts/test.sh` and the PowerShell static analysis
+in place. `tests/test-repository-hygiene.sh` proves both halves: that the gate
+catches a credential using the exact command CI runs, and that the tree is
+refused when the gate is taken away or disabled.
 
 **History is scanned on every run, not just a commit range.** A credential
 deleted from the working tree is still a credential, reachable by anyone with
@@ -570,7 +575,20 @@ The allowlist in `.gitleaks.toml` is empty, because it can be: the tree and
 the full history are clean against the default rules. That file states the two
 rules for adding an entry — scope it to the one literal, and say why the
 literal cannot be a credential — and says why generating a credential-shaped
-string at runtime is better than allowlisting one for good.
+string at runtime is better than allowlisting one for good. Lint enforces
+both: an entry is an anchored literal with a description, and nothing else
+may appear in the file, so a pattern class, a stopword, a disabled rule or a
+local rule overriding a default one is refused. The hygiene suite also runs
+the file over one generated sample per high-value rule family and requires
+each to be reported.
+
+It is the only allowlist. gitleaks also honours a `.gitleaksignore`
+fingerprint file in the scanned directory and a `gitleaks:allow` comment on a
+line, neither scoped nor justified. The scanner refuses to run beside the
+first — gitleaks reads it from the scanned directory whatever
+`--gitleaks-ignore-path` says, so refusing is the only way to keep it out —
+and passes `--ignore-gitleaks-allow` for the second, and lint refuses a
+tracked `.gitleaksignore` anywhere.
 
 GitHub's own secret scanning and push protection are worth enabling on the
 repository as well, in **Settings → Code security**. They are complementary

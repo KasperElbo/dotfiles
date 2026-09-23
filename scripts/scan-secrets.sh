@@ -186,27 +186,48 @@ cd "$repo_root"
 [[ -r "$config_file" ]] ||
   die "No scanner configuration at $config_file. The rules and the allowlist are tracked; a scan without them is not the gate this repository claims."
 
+# gitleaks has two allowlists besides the configuration, and neither is
+# reviewed: a `.gitleaksignore` in the scanned directory silences findings by
+# `file:rule:line` fingerprint, and a `gitleaks:allow` comment silences the
+# line it is on. Either lets a credential sit in the tree with this scan green
+# (#506). The comment is switched off with a flag. The file is not: gitleaks
+# reads the one in the directory it scans whatever --gitleaks-ignore-path
+# says, so the only way to keep it out of the verdict is to refuse to scan
+# beside one.
+if [[ -e .gitleaksignore || -L .gitleaksignore ]]; then
+  die "$(
+    cat <<'EOF'
+Refusing to scan: .gitleaksignore exists at the repository root.
+
+gitleaks would silence every finding it names by fingerprint, with no scope
+and no reason, so a scan here would not be the gate this repository claims.
+Remove it. A deliberate exception belongs in .gitleaks.toml, scoped to one
+literal, with a comment saying why that literal cannot be a credential.
+EOF
+  )"
+fi
+
 gitleaks="$(gitleaks_executable)"
 
 failed=0
 
 info "Scanning the working tree"
 "$gitleaks" dir . \
-  --config "$config_file" \
+  --config "$config_file" --ignore-gitleaks-allow \
   --no-banner --redact --exit-code 1 || failed=1
 
 if [[ -n "$range" ]]; then
   scanned="the working tree and the commits in $range"
   info "Scanning commits in $range"
   "$gitleaks" git . \
-    --config "$config_file" \
+    --config "$config_file" --ignore-gitleaks-allow \
     --log-opts "$range" \
     --no-banner --redact --exit-code 1 || failed=1
 else
   scanned="the working tree or in history"
   info "Scanning every commit reachable from HEAD"
   "$gitleaks" git . \
-    --config "$config_file" \
+    --config "$config_file" --ignore-gitleaks-allow \
     --no-banner --redact --exit-code 1 || failed=1
 fi
 
