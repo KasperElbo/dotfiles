@@ -115,6 +115,83 @@ assert_contains "$TEST_OUTPUT" 'is never closed'
 cp "$repo_root/platforms/fedora/install.sh" "$hidden_tree/platforms/fedora/install.sh"
 printf 'PASS: an installer the reader cannot parse is a build error, not a pass\n'
 
+# A step's script reaches the libraries it sources, and the sources those
+# libraries fetch from have to name the script as a consumer. The closure used
+# to understand three spellings of a source line and skip any other with a
+# bare `continue`, so hoisting `$(dirname "${BASH_SOURCE[0]}")` into a variable,
+# the most ordinary cleanup there is, emptied it: seven libraries, fetch.sh
+# among them, left the preflight's view with lint green (#508, V4-05). The
+# control: the containers step calling the RPM Fusion helper must name all
+# three packages it downloads.
+closure_tree="$test_root/sourced-closure-tree"
+mkdir -p "$closure_tree"
+tar -C "$repo_root" --exclude=.git --exclude=.claude -cf - . |
+  tar -C "$closure_tree" -xf -
+containers_step="$closure_tree/platforms/fedora/scripts/install-containers.sh"
+respell_sources() {
+  python3 - "$containers_step" "$1" <<'PYTHON'
+import pathlib
+import sys
+
+script, spelling = pathlib.Path(sys.argv[1]), sys.argv[2]
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+own = 'source "$(dirname "${BASH_SOURCE[0]}")/'
+if own not in text or "\ntarget_user=" not in text:
+    raise SystemExit("the source lines this case rewrites are gone")
+text = text.replace("\ntarget_user=", "\nensure_rpm_fusion_repositories\ntarget_user=", 1)
+if spelling == "script_dir":
+    text = text.replace(own, 'source "$script_dir/')
+    text = text.replace(
+        "set -euo pipefail\n",
+        'set -euo pipefail\nscript_dir="$(dirname "${BASH_SOURCE[0]}")"\n',
+        1,
+    )
+elif spelling == "script_dir-twice":
+    text = text.replace(own, 'source "${script_dir}/')
+    text = text.replace(
+        "set -euo pipefail\n",
+        'set -euo pipefail\nscript_dir="$(dirname "${BASH_SOURCE[0]}")"\n'
+        'script_dir="$1"\n',
+        1,
+    )
+elif spelling == "braced-root":
+    text = text.replace(own + "../../../", 'source "${DOTFILES_ROOT}/')
+    text = text.replace(own + "../", 'source "${DOTFILES_ROOT}/platforms/fedora/')
+script.write_text(text, encoding="utf-8")
+PYTHON
+  bash -n "$containers_step"
+  run_capture python3 "$repo_root/scripts/validate-plan-network.py" --root "$closure_tree"
+  cp "$repo_root/platforms/fedora/scripts/install-containers.sh" "$containers_step"
+}
+assert_names_rpm_fusion() {
+  assert_failure
+  local package
+  for package in distribution-gpg-keys rpmfusion-free-release rpmfusion-nonfree-release; do
+    assert_contains "$TEST_OUTPUT" \
+      "platforms/fedora/scripts/install-containers.sh can fetch $package"
+  done
+}
+
+respell_sources as-written
+assert_names_rpm_fusion
+printf 'PASS: a step script that fetches through a sourced library names its sources\n'
+
+respell_sources script_dir
+assert_names_rpm_fusion
+printf 'PASS: hoisting the script directory into a variable keeps the closure\n'
+
+respell_sources braced-root
+assert_names_rpm_fusion
+printf 'PASS: ${DOTFILES_ROOT}/ is followed as surely as $DOTFILES_ROOT/\n'
+
+# A source line the reader cannot resolve is a failure naming the line, never
+# a library quietly left out: a variable assigned twice could be either value.
+respell_sources script_dir-twice
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'platforms/fedora/scripts/install-containers.sh:8: cannot tell which file `source "${script_dir}/../../../common/lib/common.sh"` reads'
+printf 'PASS: a source line the closure cannot follow is a build error\n'
+
 # Everything the audit named as a trust source is actually registered.
 for source_id in terra-repo terra-signing-key rpmfusion-free-release \
   rpmfusion-nonfree-release tailscale-repo mise-installer starship-installer \

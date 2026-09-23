@@ -183,6 +183,148 @@ after'
 assert_success
 assert_eq 'after' "$TEST_OUTPUT" 'the code after a nested helper still runs on load'
 
+# --- A line is read in the context of the lines before it ------------------
+
+# The reader used to read each line on its own, so it had no idea a line was
+# the body of a heredoc or the second line of a string. Help text listing a
+# reader's name was reported as a call, and so were the heredoc's terminator
+# and the first word of every line of it (#508, V4-04).
+run_capture reader commands <<<'usage() {
+  cat <<'"'"'EOF'"'"'
+Usage: enforce.sh
+tool_floor_check nvim   check the Neovim floor by hand
+EOF
+}
+usage'
+assert_success
+assert_eq 'cat usage' "$TEST_OUTPUT" 'a quoted heredoc body is data, and so is its terminator'
+
+run_capture reader commands <<<'cat <<EOF
+tool_floor_check nvim
+EOF
+after'
+assert_success
+assert_eq 'after cat' "$TEST_OUTPUT" 'an unquoted heredoc body is data too'
+
+# The subtle part of the same rule: an unquoted heredoc still expands `$( )`,
+# so a command substituted into it does run. A quoted one expands nothing.
+run_capture reader commands <<<'cat <<EOF
+Floor: $(tool_floor nvim)
+EOF'
+assert_success
+assert_eq 'cat tool_floor' "$TEST_OUTPUT" 'a substitution in an unquoted heredoc runs'
+
+run_capture reader commands <<<'cat <<"EOF"
+Floor: $(tool_floor nvim)
+EOF'
+assert_success
+assert_eq 'cat' "$TEST_OUTPUT" 'nothing in a quoted heredoc runs'
+
+run_capture reader commands <<<"$(printf 'if true; then\n\tcat <<-EOF\n\ttool_floor_check nvim\n\tEOF\nfi\nafter')"
+assert_success
+assert_eq 'after cat true' "$TEST_OUTPUT" 'a <<- heredoc ends at its tab-indented terminator'
+
+run_capture reader commands <<<'grep -q x <<<"$value"
+after'
+assert_success
+assert_eq 'after grep' "$TEST_OUTPUT" 'a here-string is not a heredoc'
+
+run_capture reader commands <<<'shifted=$(( 1 << 2 ))
+after'
+assert_success
+assert_eq 'after' "$TEST_OUTPUT" 'a shift inside arithmetic is not a heredoc'
+
+run_capture reader commands <<<'printf "%s\n" "Checks:
+tool_floor_check nvim
+done"'
+assert_success
+assert_eq 'printf' "$TEST_OUTPUT" 'the second line of a string is still the string'
+
+run_capture reader commands <<<'echo "an escaped \" quote does not close it"
+after'
+assert_success
+assert_eq 'after echo' "$TEST_OUTPUT" 'an escaped quote leaves the string open to its real end'
+
+run_capture reader commands <<<'value="$(
+  tool_floor nvim
+)"'
+assert_success
+assert_eq 'tool_floor' "$TEST_OUTPUT" 'a substitution that spans lines still runs its command'
+
+run_capture reader commands <<<'echo \
+  tool_floor_check nvim'
+assert_success
+assert_eq 'echo' "$TEST_OUTPUT" 'the word after a backslash-newline is an argument'
+
+# A case arm's pattern sits where a command would, first on its line or after
+# the `|` of the pattern before it, and is compared rather than run.
+run_capture reader commands <<<'case "$1" in
+  tool_floor_check) run_arm ;;
+  --help | tool_floor) run_other ;;
+  (other) run_third ;;
+esac'
+assert_success
+assert_eq 'run_arm run_other run_third' "$TEST_OUTPUT" 'case patterns are not commands'
+
+run_capture reader commands <<<'case "$a" in
+  outer)
+    case "$b" in inner) run_inner ;; esac
+    run_outer ;;
+  last) run_last ;;
+esac'
+assert_success
+assert_eq 'run_inner run_last run_outer' "$TEST_OUTPUT" \
+  'a nested case keeps the outer case reading its patterns'
+
+run_capture reader code <<<'cat <<EOF
+# kept: a heredoc line is text, not a comment
+EOF'
+assert_success
+assert_eq '[cat <<EOF
+# kept: a heredoc line is text, not a comment
+EOF]' "$TEST_OUTPUT" 'a # inside a heredoc body opens no comment'
+
+# --- A definition is found whatever its body is written in -----------------
+
+# `name() ( ... )` runs its body in a subshell and is as much a definition as
+# the braced form; it used to be read as load-time code (#508, V4-08).
+run_capture reader functions <<<'in_subshell() (
+  tool_floor_check nvim
+)
+after'
+assert_success
+assert_eq 'in_subshell' "$TEST_OUTPUT" 'a subshell body is a function'
+
+run_capture reader outside <<<'in_subshell() (
+  tool_floor_check nvim
+)
+after'
+assert_success
+assert_eq 'after' "$TEST_OUTPUT" 'and its body does not run on load'
+
+# A comment after the closing brace still closes the function. It used to be
+# compared as raw text, so the span ran on to the next brace and the function
+# between them vanished.
+run_capture reader spans <<<'first() {
+  one
+} # first
+second() {
+  two
+}'
+assert_success
+assert_eq 'first 0 2
+second 3 5' "$TEST_OUTPUT" 'a commented closing brace closes its own function'
+
+run_capture reader spans <<<'writes_unit() {
+  cat <<EOF
+}
+EOF
+}
+after() { :; }'
+assert_success
+assert_eq 'writes_unit 0 4
+after 5 5' "$TEST_OUTPUT" 'a brace inside a heredoc closes nothing'
+
 # --- Shell the reader cannot read is refused, never guessed at --------------
 
 run_capture reader functions <<<'broken() {
@@ -190,6 +332,23 @@ run_capture reader functions <<<'broken() {
 : never closed'
 assert_failure
 assert_contains "$TEST_OUTPUT" 'is never closed'
+
+# Text that ends inside a heredoc, a string or a case statement would be read
+# with its quoting inverted from there on, so it is refused the same way.
+run_capture reader commands <<<'cat <<EOF
+tool_floor_check nvim'
+assert_failure
+assert_contains "$TEST_OUTPUT" "heredoc (terminator 'EOF') opened on line 1 is never closed"
+
+run_capture reader commands <<<'echo "never closed
+tool_floor_check nvim'
+assert_failure
+assert_contains "$TEST_OUTPUT" 'double-quoted string opened on line 1 is never closed'
+
+run_capture reader commands <<<'case "$1" in
+  a) tool_floor_check nvim ;;'
+assert_failure
+assert_contains "$TEST_OUTPUT" "never closed by 'esac'"
 
 # `name()` with nothing after it is not a definition this reader recognises, and
 # inventing a span for it would take every following line out of the file.
