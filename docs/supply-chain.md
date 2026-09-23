@@ -498,6 +498,11 @@ ERROR: The Treehouse installer failed.
 The `macos` job in `.github/workflows/real-install.yml` therefore exports the
 workflow's own token (as both `GITHUB_TOKEN` and `GH_TOKEN`) on the two steps
 that install the AI profile, which raises the limit to 5000 requests per hour.
+It exports it on the baseline install and its idempotent rerun too, which run
+no staged installer: mise verifies the GitHub artifact attestations of the
+runtimes it installs through the same API, and the baseline failed at
+`API rate limit exceeded` on 23 September without it (#500). The Fedora job
+forwards the token into its container for the installing user.
 
 Exporting it is not enough on its own: which variable an upstream script reads
 is the upstream's choice, and these read neither. An install and a rerun a
@@ -511,8 +516,8 @@ The boundaries are the reason this is acceptable:
 
 - the token is scoped by `permissions: contents: read`, so it can read this
   repository and do nothing else, and it exists for the life of one CI job;
-- it is exported on exactly the two steps that run the staged installers,
-  never job-wide;
+- it is exported only on the steps that install, never job-wide, and the
+  verifiers, smoke tests and probes run without it;
 - offering it through `netrc` widens nothing — a token exported into a step is
   already in the environment of every process that step runs, including these
   scripts; this only makes it usable for the one request it was exported for;
