@@ -435,4 +435,38 @@ assert_not_contains "$verifier_output" "$git_link_failure"
 verifier_entry="$verifier"
 printf 'PASS: a genuine machine-local Git config passes under both spellings\n'
 
+# ---------------------------------------------------------------------------
+# "Not tracked" is only claimed when git answered
+# ---------------------------------------------------------------------------
+#
+# `git ls-files --error-unmatch` exits 1 for an untracked path and 128 when the
+# directory is no work tree at all, and the else-branch read both as untracked.
+# A checkout git cannot answer for therefore passed the one thing this section
+# asks, having asked nothing (noted on #398).
+
+new_machine base,dotnet-debug
+run_verifier
+assert_contains "$verifier_output" 'Machine-local Git config is not tracked: git/.config/git/local'
+printf 'PASS: a real checkout still reports its machine-local Git config as untracked\n'
+
+# The same tree with no .git among its entries. DOTFILES_ROOT is derived from
+# the path the verifier was started through, so a directory of links to the
+# checkout's entries is a checkout by every path the verifier follows and not a
+# work tree by the only question git is asked.
+nogit_root="$root/checkout-without-git"
+mkdir -p "$nogit_root"
+for entry in "$repo_root"/*; do
+  ln -sfn "$entry" "$nogit_root/$(basename "$entry")"
+done
+[[ ! -e "$nogit_root/.git" ]] ||
+  _test_die "the fixture checkout still has a .git, so git can answer after all"
+
+verifier_entry="$nogit_root/platforms/fedora/scripts/verify.sh"
+run_verifier
+assert_contains "$verifier_output" 'git could not say whether'
+assert_not_contains "$verifier_output" 'Machine-local Git config is not tracked'
+assert_not_contains "$verifier_output" 'Machine-local Sway output override is not tracked'
+verifier_entry="$verifier"
+printf 'PASS: a checkout git cannot answer for records an unobserved check, not a pass\n'
+
 printf '\nFedora verification tests passed.\n'

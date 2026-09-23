@@ -204,6 +204,30 @@ else
   fail "Default login shell is not Zsh: ${login_shell:-unknown}"
 fi
 
+# report_tracking <repo-relative-path> <subject>: whether this checkout tracks
+# <path>, kept apart from git having failed to answer.
+#
+# `ls-files --error-unmatch` exits 1 for a path the work tree does not track and
+# 128 when DOTFILES_ROOT is no work tree at all -- no .git, a tarball, a
+# directory of links. Reading every non-zero exit as "not tracked" made the
+# second case the strongest claim this asks, on a run that had asked nothing
+# (noted on #398).
+report_tracking() {
+  local repo_relative_path="$1"
+  local subject="$2"
+  local status=0
+
+  git -C "$DOTFILES_ROOT" ls-files --error-unmatch -- \
+    "$repo_relative_path" >/dev/null 2>&1 || status=$?
+
+  case "$status" in
+  0) fail "$subject is tracked: $repo_relative_path" ;;
+  1) pass "$subject is not tracked: $repo_relative_path" ;;
+  *) not_observed "git could not say whether $repo_relative_path is tracked" \
+    "(ls-files exit $status); $DOTFILES_ROOT may not be a work tree" ;;
+  esac
+}
+
 # ---------------------------------------------------------------------------
 # Stow-managed configuration
 # ---------------------------------------------------------------------------
@@ -451,12 +475,8 @@ if ((sway_selection_status == 0)) ||
     fail "Machine-local Sway output override missing or linked: $local_sway"
   fi
 
-  if git -C "$DOTFILES_ROOT" ls-files --error-unmatch -- \
-    "platforms/fedora/stow/sway/.config/sway/local.conf" >/dev/null 2>&1; then
-    fail "Machine-local Sway output override is tracked"
-  else
-    pass "Machine-local Sway output override is not tracked"
-  fi
+  report_tracking "platforms/fedora/stow/sway/.config/sway/local.conf" \
+    "Machine-local Sway output override"
 
   sway_theme_files=(
     "$XDG_CONFIG_HOME/dotfiles/sway-theme.conf"
@@ -486,12 +506,7 @@ for name in local drdk; do
   repo_relative_path="git/.config/git/$name"
   repo_file="$DOTFILES_ROOT/$repo_relative_path"
 
-  if git -C "$DOTFILES_ROOT" ls-files --error-unmatch -- \
-    "$repo_relative_path" >/dev/null 2>&1; then
-    fail "Machine-local Git config is tracked: $repo_relative_path"
-  else
-    pass "Machine-local Git config is not tracked: $repo_relative_path"
-  fi
+  report_tracking "$repo_relative_path" "Machine-local Git config"
 
   if [[ -e "$repo_file" || -L "$repo_file" ]]; then
     fail "Machine-local Git config exists inside the Stow package: $repo_file"
