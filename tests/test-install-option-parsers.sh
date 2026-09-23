@@ -378,4 +378,113 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "declares the kind 'vibes', which this check cannot read"
 printf 'PASS: a consumer kind this check cannot read fails\n'
 
+# --- The coupled wiring sites a new capability is threaded through -----------
+#
+# Adding a capability to an installer means editing nine places. The argv arm
+# and the default above are two of them; these are the rest. Each case removes
+# exactly one and requires the validator to name it, because a check that
+# cannot fail is the defect this group exists to prevent: a capability could be
+# declared, parsed and recorded while no step ever installed it, and every gate
+# stayed green.
+
+fedora_selection_set='install_selection_set tailscale "$install_tailscale"'
+fedora_summary_line='Tailscale profile:   $install_tailscale'
+
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_selection_set" ''
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'never calls `install_selection_set tailscale`'
+assert_contains "$TEST_OUTPUT" '--rerun forgets the selection'
+printf 'PASS: a capability the installer never records fails\n'
+
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_selection_set" \
+  'install_selection_set tailscal "$install_tailscale"'
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'records a tailscal selection'
+assert_contains "$TEST_OUTPUT" 'never calls `install_selection_set tailscale`'
+printf 'PASS: a selection recorded under a name the manifest does not declare fails, both ways\n'
+
+# The capability list is what the run prints as its selected set. Dropping one
+# entry installs the capability without saying so, which the run's own output
+# then reads as not selected.
+scratch_tree
+python3 - "$tree/platforms/fedora/install.sh" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+entry = ' "$install_tailscale:tailscale"'
+if text.count(entry) != 1:
+    sys.exit(f"expected exactly one {entry!r} in {path}")
+path.write_text(text.replace(entry, ""), encoding="utf-8")
+PYTHON
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  'does not list tailscale among the capabilities it reports as selected'
+printf 'PASS: a capability missing from the selected list fails\n'
+
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" \
+  "[[ \"\$install_tailscale\" != true ]] || plan_add tailscale 'Install the optional Tailscale networking profile' apply : apply_tailscale \"\$(plan_command_note fedora_tailscale_command)\" 'platforms/fedora/scripts/install-tailscale.sh'" \
+  ''
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'no `plan_add tailscale` step'
+assert_contains "$TEST_OUTPUT" 'records the choice and installs nothing'
+printf 'PASS: a capability with no execution-plan step fails\n'
+
+scratch_tree
+replace_line "$tree/platforms/fedora/install.sh" "$fedora_summary_line" ''
+run_capture python3 "$tree/scripts/validate-install-options.py"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'never shows $install_tailscale'
+assert_contains "$TEST_OUTPUT" 'without appearing in the plan the run prints'
+printf 'PASS: an option missing from the --dry-run summary fails\n'
+
+# --- The generated --help listing -------------------------------------------
+#
+# The listing is rendered from the manifest, so it can go stale in two
+# directions: the generated file edited by hand, and the manifest changed
+# without regenerating. Both are the same gate and both are checked, because a
+# gate that only notices one of them leaves the other silent.
+
+run_capture python3 "$repo_root/scripts/render-installer-usage.py" --check
+assert_success
+printf 'PASS: the committed installer help text matches the manifest\n'
+
+scratch_tree
+replace_line "$tree/platforms/fedora/lib/usage-options.sh" \
+  '                     Tailscale networking profile (default: false)' \
+  '                     Tailscale networking profile, probably (default: false)'
+run_capture python3 "$tree/scripts/render-installer-usage.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" 'fedora installer help text is stale'
+printf 'PASS: a hand-edited generated help listing fails\n'
+
+# macOS carries the same summary for its own tailscale row, so the line is
+# replaced whole: a substring edit would change both platforms' rows and the
+# case would stop being about the Fedora listing.
+fedora_tailscale_row=$'fedora\ttailscale\tboolean\t--tailscale\t--no-tailscale\tfalse\t-\ttailscale\tTailscale networking profile'
+
+scratch_tree
+replace_line "$tree/config/install-options.tsv" "$fedora_tailscale_row" \
+  "${fedora_tailscale_row%Tailscale networking profile}Tailscale mesh networking"
+run_capture python3 "$tree/scripts/render-installer-usage.py" --check
+assert_failure
+assert_contains "$TEST_OUTPUT" 'fedora installer help text is stale'
+printf 'PASS: a manifest summary changed without regenerating fails\n'
+
+# A platform whose usage() does not call usage_persistent_options has no
+# generated listing, and asking for one is an error rather than a file written
+# where nothing reads it.
+run_capture python3 "$repo_root/scripts/render-installer-usage.py" --platform macos --check
+assert_failure
+assert_contains "$TEST_OUTPUT" 'not a generated platform: macos'
+printf 'PASS: rendering a listing no installer reads fails\n'
+
 printf 'Installer option parser validation passed.\n'

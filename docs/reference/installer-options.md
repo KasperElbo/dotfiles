@@ -27,18 +27,18 @@ Platform guide: [../platforms/fedora.md](../platforms/fedora.md)
 | `hardening` | `--hardening` | `--no-hardening` | `false` | — | Security-hardening profile | `hardening` | [docs/profiles/hardening.md](../profiles/hardening.md) |
 | `desktop-tools` | `--desktop-tools` | `--no-desktop-tools` | `false` | — | Desktop application profile | `desktop-tools` | [docs/profiles/desktop-tools.md](../profiles/desktop-tools.md) |
 | `desktop-tools-force-defaults` | `--desktop-tools-force-defaults` | — | `false` | — | Override existing application defaults | — | — |
-| `dictation` | `--dictation` | `--no-dictation` | `false` | — | Voice dictation profile | `dictation` | [docs/profiles/dictation.md](../profiles/dictation.md) |
+| `dictation` | `--dictation` | `--no-dictation` | `false` | — | Voice dictation profile (Handy), bound to Super+O by Sway | `dictation` | [docs/profiles/dictation.md](../profiles/dictation.md) |
 | `containers` | `--containers` | `--no-containers` | `false` | — | Rootless Podman profile | `containers` | [docs/profiles/containers.md](../profiles/containers.md) |
 | `containers-api-socket` | `--containers-api-socket` | — | `false` | — | Rootless Podman API socket | — | — |
 | `tailscale` | `--tailscale` | `--no-tailscale` | `false` | — | Tailscale networking profile | `tailscale` | [docs/profiles/tailscale.md](../profiles/tailscale.md) |
-| `ai` | `--ai` | `--no-ai` | `false` | — | AI-assisted development profile | `ai` | [docs/profiles/ai.md](../profiles/ai.md) |
+| `ai` | `--ai` | `--no-ai` | `false` | — | AI-assisted development profile (Claude Code and Herdr) | `ai` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `codex` | `--codex` | `--no-codex` | `inherit` | — | AI subcomponent: Codex CLI | `codex` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `firstmate` | `--firstmate` | `--no-firstmate` | `inherit` | — | AI subcomponent: FirstMate toolchain | `firstmate` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `gnhf` | `--gnhf` | `--no-gnhf` | `inherit` | — | AI subcomponent: GNHF | `gnhf` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `backpass` | `--backpass` | `--no-backpass` | `inherit` | — | AI subcomponent: backpass | `backpass` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `hardware` | `--hardware` | — | — | `ga402xz\|ga402rk` | ASUS hardware model | `hardware` | [docs/platforms/fedora.md](../platforms/fedora.md#asus-laptop-hardware) |
 | `secure-boot` | `--secure-boot` | — | `false` | — | Require Secure Boot for the selected hardware | — | — |
-| `charge-limit` | `--charge-limit` | — | — | `[4-9][0-9]\|100` | ASUS battery charge limit | — | — |
+| `charge-limit` | `--charge-limit` | — | — | `[4-9][0-9]\|100` | ASUS battery charge limit, 40-100 | — | — |
 
 ## Fedora on WSL (`--platform fedora-wsl`)
 
@@ -51,7 +51,7 @@ Platform guide: [../platforms/fedora-wsl.md](../platforms/fedora-wsl.md)
 | `latex` | `--latex` | `--no-latex` | `false` | — | LaTeX toolchain | `latex` | [docs/workflows/latex.md](../workflows/latex.md#latex-editing-workflow) |
 | `containers` | `--containers` | `--no-containers` | `false` | — | Rootless Podman profile | `containers` | [docs/profiles/containers.md](../profiles/containers.md) |
 | `containers-api-socket` | `--containers-api-socket` | — | `false` | — | Rootless Podman API socket | — | — |
-| `ai` | `--ai` | `--no-ai` | `false` | — | AI-assisted development profile | `ai` | [docs/profiles/ai.md](../profiles/ai.md) |
+| `ai` | `--ai` | `--no-ai` | `false` | — | AI-assisted development profile (Claude Code and Herdr) | `ai` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `codex` | `--codex` | `--no-codex` | `inherit` | — | AI subcomponent: Codex CLI | `codex` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `firstmate` | `--firstmate` | `--no-firstmate` | `inherit` | — | AI subcomponent: FirstMate toolchain | `firstmate` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `gnhf` | `--gnhf` | `--no-gnhf` | `inherit` | — | AI subcomponent: GNHF | `gnhf` | [docs/profiles/ai.md](../profiles/ai.md) |
@@ -69,7 +69,7 @@ Platform guide: [../platforms/macos.md](../platforms/macos.md)
 | `tailscale` | `--tailscale` | `--no-tailscale` | `false` | — | Tailscale networking profile | `tailscale` | [docs/profiles/tailscale.md](../profiles/tailscale.md) |
 | `dictation` | `--dictation` | `--no-dictation` | `false` | — | Local voice dictation profile | `dictation` | [docs/profiles/dictation.md](../profiles/dictation.md#macos) |
 | `defaults` | `--defaults` | `--no-defaults` | `true` | — | Reversible macOS defaults | — | — |
-| `ai` | `--ai` | `--no-ai` | `false` | — | AI-assisted development profile | `ai` | [docs/profiles/ai.md](../profiles/ai.md) |
+| `ai` | `--ai` | `--no-ai` | `false` | — | AI-assisted development profile (Claude Code and Herdr) | `ai` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `codex` | `--codex` | `--no-codex` | `inherit` | — | AI subcomponent: Codex CLI | `codex` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `firstmate` | `--firstmate` | `--no-firstmate` | `inherit` | — | AI subcomponent: FirstMate toolchain | `firstmate` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `gnhf` | `--gnhf` | `--no-gnhf` | `inherit` | — | AI subcomponent: GNHF | `gnhf` | [docs/profiles/ai.md](../profiles/ai.md) |

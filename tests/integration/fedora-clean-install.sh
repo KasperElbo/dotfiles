@@ -212,6 +212,13 @@ run_as_negative_user() {
 # the Fedora and Fedora WSL rows too. The negative case keeps the base command,
 # because what it proves is that an invalid package stops the installer, and
 # installing an AI profile first would only make it slower to prove.
+#
+# Which is why its flags are not evidence for anything. This run is asserted to
+# *fail*, so --kde and --sway here install neither; counting them let the
+# positive sequence drop --kde with fedora/kde still passing, on the strength
+# of a run that never completed. The annotation is what scripts/
+# validate-capabilities.py reads to leave this invocation out of the walk.
+# ci-selection: not-an-installation an injected invalid package aborts this run
 base_command='./install.sh --platform fedora --kde --sway --no-latex --non-interactive'
 install_command='./install.sh --platform fedora --kde --sway --no-latex \
   --ocaml --ai --codex --firstmate --gnhf --backpass --non-interactive'
