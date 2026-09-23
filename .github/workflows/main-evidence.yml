@@ -1,0 +1,102 @@
+name: Main evidence
+
+# Every main commit is a tree nobody else validates: a pull request's run is
+# for the PR merged into main as main stood when the run began, and main may
+# have moved since. So the push run on the commit itself is the evidence that
+# the tree which landed passed (#499). This job looks for main commits that do
+# not have one -- a run that was cancelled, failed, skipped a job, or was never
+# started -- and for merge rules on main that do not require those jobs.
+#
+# It runs after every Validate run on main finishes, which catches a cancelled
+# or failed run within minutes, and once a day, which catches the case no
+# workflow_run can: a push GitHub never started a run for at all. A finding
+# fails the job and opens, or comments on, one tracking issue, so a gap is a
+# notification rather than something noticed on the Actions page later.
+# See docs/testing.md, "Which run is evidence for which commit".
+
+on:
+  workflow_run:
+    workflows:
+      - Validate
+    types:
+      - completed
+    branches:
+      - main
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: main-evidence
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Every main commit has its own green Validate run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          # The check walks main's first-parent history and reads each
+          # commit's own validate.yml.
+          fetch-depth: 0
+
+      - name: Check every main commit's Validate run
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          status=0
+          python3 ./scripts/check-main-evidence.py --repository "$GITHUB_REPOSITORY" \
+            --ref origin/main --report "$RUNNER_TEMP/main-evidence.md" \
+            --findings "$RUNNER_TEMP/findings.md" || status=$?
+          if [[ -f "$RUNNER_TEMP/main-evidence.md" ]]; then
+            cat "$RUNNER_TEMP/main-evidence.md" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
+      # One issue for as long as main has a gap. It is commented on only when
+      # the findings change, so a gap that stands for a week is one
+      # notification, not one per merge, and it is closed by the first run
+      # that finds nothing.
+      - name: Open or update the tracking issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title='Main has commits without their own green Validate run'
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
+          findings="$RUNNER_TEMP/findings.md"
+          if [[ ! -s "$findings" ]]; then
+            if [[ -f "$findings" && -n "$number" ]]; then
+              gh issue close "$number" --repo "$GITHUB_REPOSITORY" \
+                --comment "Every main commit in scope has its own green Validate run and main's merge rules require its jobs, as of $RUN_URL."
+            elif [[ ! -f "$findings" ]]; then
+              printf 'The check produced no findings file, so it did not finish.\n' >&2
+              exit 1
+            fi
+            exit 0
+          fi
+          body="$RUNNER_TEMP/issue.md"
+          { cat "$findings"; printf '\nFound by %s.\n' "$RUN_URL"; } >"$body"
+          if [[ -z "$number" ]]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body"
+            exit 0
+          fi
+          last="$(gh issue view "$number" --repo "$GITHUB_REPOSITORY" --json body,comments \
+            --jq '(.comments | last | .body) // .body')"
+          last="${last%%$'\n'Found by *}"
+          if [[ "${last%$'\n'}" != "$(cat "$findings")" ]]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$body"
+          fi
