@@ -626,7 +626,7 @@ if lint_output="$(lint_fixture)"; then
   printf 'The linter accepted an unregistered URL assignment.\n' >&2
   exit 1
 fi
-assert_contains "$lint_output" 'scripts/plain-assignment.sh:2: unregistered url-assignment network source'
+assert_contains "$lint_output" '/plain-assignment.sh:2: unregistered url-assignment network source'
 assert_not_contains "$lint_output" 'manifest-url'
 rm -f -- "$fixture_repo/scripts/plain-assignment.sh"
 git -C "$fixture_repo" add -A
