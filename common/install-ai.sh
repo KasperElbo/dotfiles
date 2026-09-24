@@ -34,11 +34,14 @@ interactive="true"
 
 # Overridable so tests can point FirstMate's clone, and Treehouse's/No
 # Mistakes' install scripts, at local fixtures instead of the real network.
+# network-source: firstmate-repo
 firstmate_repo="${FIRSTMATE_REPO_URL:-https://github.com/kunchenguid/firstmate.git}"
 firstmate_dir="$XDG_DATA_HOME/firstmate"
 firstmate_backend_file="$firstmate_dir/config/backend"
+# network-source: treehouse-installer
 treehouse_install_script="${TREEHOUSE_INSTALL_SCRIPT_URL:-https://kunchenguid.github.io/treehouse/install.sh}"
 treehouse_target="$HOME/.local/bin/treehouse"
+# network-source: no-mistakes-installer
 no_mistakes_install_script="${NO_MISTAKES_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh}"
 no_mistakes_target="$HOME/.local/bin/no-mistakes"
 
@@ -1385,6 +1388,7 @@ install_staged_script() {
   info "Staging the $name installer"
   if ! (
     set -euo pipefail
+    # network-source: caller-provided
     fetch_to_file "$url" "$staged" "the $name installer"
     fetch_assert_shell_script "$staged" "the $name installer"
     [[ -z "$expected" ]] || fetch_verify_sha256 "$staged" "$expected" "the $name installer"

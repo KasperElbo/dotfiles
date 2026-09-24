@@ -129,6 +129,7 @@ install_bootstrap_tool() {
   chmod 700 -- "$work_dir"
   if ! (
     set -euo pipefail
+    # network-source: mise-release,starship-release
     fetch_to_file "$url" "$work_dir/$artifact" "the pinned $tool release"
     fetch_verify_sha256 "$work_dir/$artifact" "$digest" "the pinned $tool release"
     tar -xzf "$work_dir/$artifact" -C "$work_dir" -- "$member"

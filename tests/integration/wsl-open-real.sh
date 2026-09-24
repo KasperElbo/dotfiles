@@ -28,7 +28,10 @@ EOF
 chmod +x "$windows_root/explorer.exe"
 : >"$argument_log"
 
-url='https://example.invalid/path?q=one two'
+# Explorer is handed this URL as an argument and nothing fetches it, so it is
+# not written as a URL assignment, which the network-source scan reads as a
+# download to register.
+printf -v url '%s' 'https://example.invalid/path?q=one two'
 EXPLORER_ARGUMENT_LOG="$argument_log" WINDOWS_SYSTEM_ROOT="$windows_root" \
   "$repo_root/platforms/fedora-wsl/stow/interop/.local/bin/wsl-open" \
   "$work_root/æøå-文件.txt" "$work_root/directory with spaces" "$url"
