@@ -389,52 +389,216 @@ own_check_firstmate() {
 no_mistakes_units_dir="$HOME/.config/systemd/user"
 no_mistakes_agents_dir="$HOME/Library/LaunchAgents"
 
-# no_mistakes_service_program <definition>: the program a service definition
-# runs, as its first argument. Nothing is printed for a definition that cannot
-# be read unambiguously, which leaves it unowned.
-no_mistakes_service_program() {
-  local definition="$1" program=""
+# A definition is ours when every program it starts is the owned binary, some
+# other install's when none is, and neither when it cannot be read: that third
+# answer is a blocker, never "not ours", because a removal that skipped it
+# would record No Mistakes as removed while a login service still starts the
+# binary it deleted. The readers below set service_programs to every program a
+# definition starts, or return 1 with service_unreadable saying why they
+# cannot, and they read a definition the way its service manager does rather
+# than the way upstream happens to write it today.
 
+# no_mistakes_unit_program <ExecStart value>: set service_program to the
+# executable of one command line, or return 1 with service_unreadable set.
+# systemd takes the first word, unquoting it, then strips the executable
+# prefixes (-@:+!|) from it; %-specifiers are expanded first.
+no_mistakes_unit_program() {
+  local value="$1" word="" quote="" char index specifier expanded=""
+
+  for ((index = 0; index < ${#value}; index++)); do
+    char="${value:index:1}"
+    if [[ "$char" == \\ ]]; then
+      service_unreadable="uses a backslash escape in its program, which this removal does not decode"
+      return 1
+    elif [[ -n "$quote" ]]; then
+      if [[ "$char" == "$quote" ]]; then quote=""; else word+="$char"; fi
+    elif [[ "$char" == [[:space:]] ]]; then
+      break
+    elif [[ "$char" == \" || "$char" == \' ]]; then
+      quote="$char"
+    else
+      word+="$char"
+    fi
+  done
+  if [[ -n "$quote" ]]; then
+    service_unreadable="has an unterminated quote in ExecStart="
+    return 1
+  fi
+  # A lone ';' separates further command lines, each with its own program.
+  if [[ " ${value//[[:space:]]/ } " == *" ; "* ]]; then
+    service_unreadable="chains commands with ';' in ExecStart=, which this removal does not split"
+    return 1
+  fi
+
+  while [[ "$word" == [-@:+!\|]* ]]; do
+    word="${word:1}"
+  done
+
+  while [[ "$word" == *%* ]]; do
+    expanded+="${word%%\%*}"
+    word="${word#*%}"
+    specifier="${word:0:1}"
+    case "$specifier" in
+    h) expanded+="$HOME" ;;
+    u) expanded+="$(id -un)" ;;
+    U) expanded+="$(id -u)" ;;
+    %) expanded+="%" ;;
+    *)
+      service_unreadable="starts its program through the specifier %$specifier, which this removal does not evaluate"
+      return 1
+      ;;
+    esac
+    word="${word:1}"
+  done
+  expanded+="$word"
+
+  if [[ "$expanded" != /* || "$expanded" == *[[:space:]\$]* ]]; then
+    service_unreadable="starts '$expanded', which is not an absolute path this removal can resolve"
+    return 1
+  fi
+  service_program="$expanded"
+}
+
+# no_mistakes_unit_dropin <definition>: the first drop-in that sets
+# ExecStart= for the unit, which would change what it starts. systemd reads
+# <unit>.d and, for a dashed name, each dash-truncated <prefix>-.service.d.
+no_mistakes_unit_dropin() {
+  local name stem prefix dropin prefixes
+
+  name="$(basename -- "$1")"
+  stem="${name%.service}"
+  prefixes=("$name")
+  while [[ "$stem" == *-* ]]; do
+    stem="${stem%-*}"
+    prefixes+=("$stem-.service")
+  done
+  for prefix in "${prefixes[@]}"; do
+    for dropin in "$no_mistakes_units_dir/$prefix.d"/*.conf; do
+      [[ -e "$dropin" || -L "$dropin" ]] || continue
+      if [[ ! -r "$dropin" ]] ||
+        grep -Eq '^[[:space:]]*ExecStart[[:space:]]*=' "$dropin"; then
+        printf '%s\n' "$dropin"
+        return 0
+      fi
+    done
+  done
+}
+
+# no_mistakes_service_programs <definition>: set service_programs, or return 1
+# with service_unreadable set.
+no_mistakes_service_programs() {
+  local definition="$1" value dropin content program
+  local program_key='<key>Program</key>[[:space:]]*<string>([^<]*)</string>'
+  local arguments_key='<key>ProgramArguments</key>[[:space:]]*<array>[[:space:]]*<string>([^<]*)</string>'
+
+  service_programs=()
+  service_unreadable=""
   case "$definition" in
   *.service)
-    program="$(sed -n 's/^ExecStart=//p' "$definition" | head -n 1)"
-    if [[ "$program" == \"* ]]; then
-      program="${program#\"}"
-      [[ "$program" == *\"* ]] || return 0
-      program="${program%%\"*}"
-    else
-      program="${program%%[[:space:]]*}"
+    # Keys are read only in [Service], after comments are dropped and
+    # continuation lines joined; whitespace around '=' is not significant.
+    # Each value is printed behind a marker, so the empty ExecStart= that
+    # resets the list is not lost.
+    while IFS= read -r value; do
+      value="${value#v}"
+      if [[ -z "$value" ]]; then
+        service_programs=()
+        continue
+      fi
+      no_mistakes_unit_program "$value" || return 1
+      service_programs+=("$service_program")
+    done < <(awk '
+      function take(line) {
+        sub(/^[ \t]+/, "", line)
+        if (line == "" || line ~ /^[#;]/) return
+        if (line ~ /^\[/) { sub(/[ \t]+$/, "", line); section = line; return }
+        if (section == "[Service]" && line ~ /^ExecStart[ \t]*=/) {
+          sub(/^ExecStart[ \t]*=[ \t]*/, "", line)
+          sub(/[ \t]+$/, "", line)
+          print "v" line
+        }
+      }
+      {
+        if (pending != "" && $0 ~ /^[ \t]*[#;]/) next
+        line = pending $0
+        pending = ""
+        if (line ~ /\\$/) { pending = substr(line, 1, length(line) - 1) " "; next }
+        take(line)
+      }
+      END { if (pending != "") take(pending) }
+    ' "$definition")
+    dropin="$(no_mistakes_unit_dropin "$definition")"
+    if [[ -n "$dropin" ]]; then
+      service_unreadable="has a drop-in that sets ExecStart= ($dropin)"
+      return 1
     fi
     ;;
   *.plist)
-    program="$(awk '
-      /<key>ProgramArguments<\/key>/ { in_args = 1; next }
-      in_args && /<string>/ {
-        sub(/.*<string>/, ""); sub(/<\/string>.*/, ""); print; exit
-      }
-    ' "$definition")"
-    [[ "$program" != *'&'* ]] || program="$(printf '%s' "$program" |
+    # launchd runs Program when it is set and ProgramArguments' first string
+    # otherwise. Only the XML form is read; a binary property list is not.
+    content="$(tr '\n' ' ' <"$definition" 2>/dev/null | tr -d '\000')"
+    if [[ "$content" != *'<plist'* ]]; then
+      service_unreadable="is not an XML property list"
+      return 1
+    fi
+    if [[ "$content" == *'<key>Program</key>'* ]]; then
+      [[ "$content" =~ $program_key ]] && program="${BASH_REMATCH[1]}"
+    elif [[ "$content" =~ $arguments_key ]]; then
+      program="${BASH_REMATCH[1]}"
+    fi
+    [[ "${program:-}" != *'&'* ]] || program="$(printf '%s' "$program" |
       sed 's/&lt;/</g; s/&gt;/>/g; s/&quot;/"/g; s/&apos;/'"'"'/g; s/&amp;/\&/g')"
+    if [[ "${program:-}" != /* ]]; then
+      service_unreadable="has no Program or ProgramArguments this removal can read as an absolute path"
+      return 1
+    fi
+    service_programs+=("$program")
     ;;
   esac
-  # A backslash is an escape this reading does not decode.
-  [[ -n "$program" && "$program" != *\\* ]] || return 0
-  printf '%s\n' "$program"
+  if ((${#service_programs[@]} == 0)); then
+    service_unreadable="names no program (no ExecStart= in [Service])"
+    return 1
+  fi
 }
 
-# no_mistakes_owned_services <binary>: every service definition whose program
-# resolves to <binary>.
-no_mistakes_owned_services() {
-  local binary="$1" definition program resolved
+# no_mistakes_classify_services <binary>: sort every definition in the daemon's
+# glob into no_mistakes_owned_services (every program it starts resolves to
+# <binary>) and no_mistakes_unproved_services (each "<definition> <why>").
+# Definitions whose programs are all some other path are neither.
+no_mistakes_classify_services() {
+  local binary="$1" definition program resolved ours foreign
 
+  no_mistakes_owned_services=()
+  no_mistakes_unproved_services=()
   for definition in "$no_mistakes_units_dir"/no-mistakes-daemon*.service \
     "$no_mistakes_agents_dir"/com.kunchenguid.no-mistakes.daemon*.plist; do
-    [[ -f "$definition" && ! -L "$definition" ]] || continue
-    program="$(no_mistakes_service_program "$definition")"
-    [[ -n "$program" ]] || continue
-    resolved="$(resolve_existing_path "$program" 2>/dev/null || true)"
-    [[ -n "$resolved" && "$resolved" == "$binary" ]] || continue
-    printf '%s\n' "$definition"
+    [[ -e "$definition" || -L "$definition" ]] || continue
+    if [[ -L "$definition" ]]; then
+      no_mistakes_unproved_services+=("$definition is a symbolic link, so what it defines is not this removal's to read")
+      continue
+    fi
+    if [[ ! -f "$definition" || ! -r "$definition" ]]; then
+      no_mistakes_unproved_services+=("$definition is not a readable file")
+      continue
+    fi
+    if ! no_mistakes_service_programs "$definition"; then
+      no_mistakes_unproved_services+=("$definition $service_unreadable")
+      continue
+    fi
+    ours=0 foreign=0
+    for program in "${service_programs[@]}"; do
+      resolved="$(resolve_existing_path "$program" 2>/dev/null || true)"
+      if [[ -n "$resolved" && "$resolved" == "$binary" ]]; then
+        ours=1
+      else
+        foreign=1
+      fi
+    done
+    if ((ours && foreign)); then
+      no_mistakes_unproved_services+=("$definition starts both $binary and another program")
+    elif ((ours)); then
+      no_mistakes_owned_services+=("$definition")
+    fi
   done
 }
 
@@ -476,9 +640,13 @@ if [[ "${transition[firstmate]}" == "remove" ]]; then
       if [[ "$own_name" == no-mistakes ]]; then
         # Stopped while its binary still exists, before anything is deleted.
         removal_paths+=("daemon|$owned_binary_path|No Mistakes daemon")
-        while IFS= read -r own_service; do
+        no_mistakes_classify_services "$owned_binary_path"
+        for own_service in ${no_mistakes_owned_services[@]+"${no_mistakes_owned_services[@]}"}; do
           removal_paths+=("service|$own_service|No Mistakes daemon service")
-        done < <(no_mistakes_owned_services "$owned_binary_path")
+        done
+        for own_service in ${no_mistakes_unproved_services[@]+"${no_mistakes_unproved_services[@]}"}; do
+          removal_blockers+=("$own_name: $own_service")
+        done
       fi
       # Each deleted path is listed in its own right, so --dry-run and the
       # confirmation name the upstream's own directory rather than hiding it
