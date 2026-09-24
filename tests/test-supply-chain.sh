@@ -838,6 +838,8 @@ printf 'PASS: a recorded image digest must be the one its consumers pull\n'
 # --- Terra: no --nogpgcheck, and the key is fingerprint-pinned -------------
 
 # Comments may still explain why the flag is gone; a live invocation may not.
+# Raw text on purpose: an absence check over every file in these trees, shell
+# or not, can only err toward failing, and a whole-line comment is let through.
 nogpgcheck_uses="$(grep -rn -- '--nogpgcheck' "$repo_root/platforms" \
   "$repo_root/common" "$repo_root/scripts" 2>/dev/null |
   grep -vE ':[[:space:]]*#' || true)"
@@ -845,9 +847,9 @@ if [[ -n "$nogpgcheck_uses" ]]; then
   printf 'An installer still passes --nogpgcheck:\n%s\n' "$nogpgcheck_uses" >&2
   exit 1
 fi
-assert_file_contains "$repo_root/platforms/fedora/lib/fedora.sh" \
+assert_code_contains "$repo_root/platforms/fedora/lib/fedora.sh" \
   'terra_pinned_fingerprint'
-assert_file_contains "$repo_root/platforms/fedora/lib/fedora.sh" \
+assert_code_contains "$repo_root/platforms/fedora/lib/fedora.sh" \
   '--setopt=terra.gpgcheck=1'
 while IFS=$'\t' read -r releasever fingerprint; do
   [[ "$releasever" != \#* && -n "$releasever" ]] || continue
@@ -1009,7 +1011,7 @@ printf 'PASS: an acknowledgement does not cover a second key in the same file\n'
 # The bootstrap returns early once terra-release is installed, so these cases
 # drive the read-only verifier section with the same stubs. MOCK_LOG records
 # every sudo, import and install; the verifier must leave it empty.
-assert_file_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
+assert_code_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
   'verify_terra_trust_root'
 
 # run_terra_verify <terra-release installed?> <releasever> <gpgcheck>
@@ -1286,6 +1288,16 @@ printf 'PASS: a missing reviewed key refuses the bootstrap instead of falling ba
 # here until both halves exist. fedora-os-repos is the one row with no entry:
 # it is the distribution's own set, configured by the Fedora installation
 # rather than by anything in this repository.
+# platform_code_contains <needle>: some shell library under platforms/ has the
+# needle in its code, not only in a comment (#537). The raw search only picks
+# the candidate files; each is then read as code.
+platform_code_contains() {
+  local file
+  while IFS= read -r file; do
+    ! code_grep -Fq -- "$1" "$file" || return 0
+  done < <(grep -rlF --include='*.sh' -- "$1" "$repo_root/platforms" || true)
+  return 1
+}
 verified_repo_pairs=(terra-repo:terra tailscale-repo:tailscale)
 unchecked_repos=''
 while IFS= read -r registry_id; do
@@ -1299,7 +1311,7 @@ while IFS= read -r registry_id; do
     unchecked_repos+="${unchecked_repos:+, }$registry_id (no verifier)"
     continue
   fi
-  grep -rqF "verify_repo_trust_root $dnf_repo_id " "$repo_root/platforms" ||
+  platform_code_contains "verify_repo_trust_root $dnf_repo_id " ||
     unchecked_repos+="${unchecked_repos:+, }$registry_id (never verified)"
 done < <(awk -F'\t' 'NR > 1 && $4 == "rpm-repo" { print $1 }' \
   "$repo_root/config/network-sources.tsv")
@@ -1732,6 +1744,8 @@ homebrew_commit="$(bash -c 'source "$1"; printf %s "$DOTFILES_HOMEBREW_INSTALLER
   _test_die "the Homebrew installer is not pinned to a full commit: $homebrew_commit"
 assert_eq "https://raw.githubusercontent.com/Homebrew/install/$homebrew_commit/install.sh" \
   "$homebrew_url" 'the Homebrew installer must be fetched at the pinned commit'
+# Raw text on purpose: absence over every file in both trees, where a comment
+# naming the moving URL costs nothing to reword.
 if grep -rFq 'Homebrew/install/HEAD' "$repo_root/scripts" "$repo_root/platforms"; then
   _test_die 'an installer still fetches the moving HEAD of Homebrew/install'
 fi
@@ -1765,7 +1779,9 @@ fi
 assert_contains "$homebrew_output" 'SHA-256 mismatch for the Homebrew installer'
 
 # Both consumers check the pin before the line that runs the script.
-line_of() { grep -nF -- "$2" "$1" | head -n1 | cut -d: -f1; }
+# Read as code: a comment naming the verify call above the real run line would
+# otherwise stand in for it (#537). source_code keeps every line in place.
+line_of() { code_grep -nF -- "$2" "$1" | head -n1 | cut -d: -f1; }
 bootstrap="$repo_root/scripts/bootstrap-macos.sh"
 system_installer="$repo_root/platforms/macos/scripts/install-system.sh"
 [[ -n "$(line_of "$bootstrap" 'homebrew_installer_verify "$installer"')" &&
@@ -1780,6 +1796,8 @@ printf 'PASS: the Homebrew installer is fetched at its pinned commit and refused
 
 # --- No installer pipes remote content into a shell -------------------------
 
+# Raw text on purpose: absence over every file in these trees can only err
+# toward failing, and a whole-line comment is let through.
 piped_downloads="$(grep -rnE 'curl[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh' \
   "$repo_root/common" "$repo_root/scripts" "$repo_root/platforms" 2>/dev/null |
   grep -vE ':[[:space:]]*#' || true)"
