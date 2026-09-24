@@ -127,6 +127,23 @@ really states its pin once, and a `requested` value that states the pin as a
 literal must equal what that installer actually pins. So a pinned artifact
 cannot be added without saying how a newer release of it would be noticed.
 
+Freshness is one question; whether a pin holds together is another. A bump
+edits a version or commit and its SHA-256 together, and a digest copied from
+the wrong release, or from the other architecture's line, is a well-formed
+64-hex value that every offline gate accepts.
+
+```bash
+./scripts/check-pin-freshness.sh --coherence
+```
+
+downloads each artifact a row pins a digest for, from its pinned address, into
+a private directory it then removes, and fails on any artifact whose SHA-256 is
+not the pinned one. Every architecture a pin covers is fetched, not only the
+runner's. A row that pins no digest is printed with the reason, and a row the
+check has no rule for is an error, so a new pin cannot sit outside it;
+`--list` prints the addresses and digests without downloading. The same
+workflow runs it monthly and on any pull request that touches a pin file.
+
 Some pins cannot be asked this way, and that is a row rather than an omission.
 A `none` probe must carry its reason, and the report prints that reason, so a
 source outside the mechanism stays visible in the output instead of quietly

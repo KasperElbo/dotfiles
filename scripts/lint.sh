@@ -76,6 +76,7 @@ python3 ./scripts/validate-repository-hygiene.py
 python3 ./scripts/validate-shell-file-roles.py
 python3 ./scripts/validate-neovim-plugin-specs.py
 python3 ./scripts/validate-library-guards.py
+python3 ./scripts/validate-errexit-conditions.py
 python3 ./scripts/validate-symlink-checks.py
 
 printf 'Checking generated and cross-referenced documentation...\n'

@@ -17,11 +17,33 @@ name: Pin freshness
 # to go and review a release, not a defect. The job does fail when a pin could
 # not be read or an upstream could not be reached, since a report that silently
 # reached nothing would read as "all current".
+#
+# The coherence job asks whether each pinned SHA-256 belongs to the artifact at
+# its pinned address (#539). A bump that pairs a commit or version with the
+# wrong digest reads in a diff exactly like a correct one, and every offline
+# gate passes it, so it also runs on a pull request that touches a pin file.
+# The pull_request paths are config/pin-freshness.tsv's pin_file column, and
+# tests/test-pin-freshness.sh holds them to it.
 
 on:
   schedule:
     - cron: "23 5 1 * *"
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/pin-freshness.yml
+      - config/pin-freshness.tsv
+      - scripts/check-pin-freshness.sh
+      - common/install-tmux-theme.sh
+      - platforms/fedora/scripts/install-kde-theme.sh
+      - platforms/parrot-ctf/scripts/install-terminal.sh
+      - platforms/macos/lib/dictation.sh
+      - platforms/fedora/lib/dictation.sh
+      - tests/integration/macos-dotnet-debug.sh
+      - scripts/scan-secrets.sh
+      - common/lib/bootstrap-tools.sh
+      - platforms/macos/lib/homebrew-installer.sh
+      - platforms/windows/manifest.psd1
 
 permissions:
   contents: read
@@ -33,6 +55,8 @@ concurrency:
 jobs:
   report:
     name: Manual-bump pins against their upstreams
+    # A newer upstream release is not something a pull request can fix.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -47,6 +71,28 @@ jobs:
           ./scripts/check-pin-freshness.sh | tee "$report" || status=$?
           {
             printf '## Pinned components\n\n'
+            printf '```text\n'
+            cat "$report"
+            printf '```\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+  coherence:
+    name: Pinned digests against their pinned artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check each pinned digest against its artifact
+        run: |
+          report="$(mktemp)"
+          status=0
+          ./scripts/check-pin-freshness.sh --coherence | tee "$report" || status=$?
+          {
+            printf '## Pinned digests\n\n'
             printf '```text\n'
             cat "$report"
             printf '```\n'

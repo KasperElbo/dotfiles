@@ -1383,8 +1383,9 @@ install_staged_script() {
   staged="$work_dir/install.sh"
 
   info "Staging the $name installer"
+  # No `set -e` here: in the condition of an `if !` it would be inert (#539).
+  # Each step dies on its own failure, and one added later must as well.
   if ! (
-    set -euo pipefail
     fetch_to_file "$url" "$staged" "the $name installer"
     fetch_assert_shell_script "$staged" "the $name installer"
     [[ -z "$expected" ]] || fetch_verify_sha256 "$staged" "$expected" "the $name installer"
