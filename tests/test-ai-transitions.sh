@@ -167,8 +167,10 @@ esac
 # the daemon as a login service naming the binary: a systemd user unit enabled
 # for default.target on Linux, a RunAtLoad/KeepAlive LaunchAgent on macOS. The
 # daemon layout writes both, as that command would, so one run covers both
-# platforms. The binary is strict: it answers --version and `daemon stop`
-# (recorded, and refusable) and nothing else.
+# platforms. The binary is strict: it answers --version, `daemon restart` and
+# `daemon stop` (recorded, and refusable) and nothing else. Both daemon
+# commands fail as upstream v1.79.0 does when daemon.pid names a process that
+# is gone: its stop validates the recorded PID with `ps` and gives up.
 if [[ "$name" == no-mistakes && "${MOCK_NO_MISTAKES_LAYOUT:-direct}" == daemon ]]; then
   cat >"$output" <<'INSTALLER'
 #!/usr/bin/env sh
@@ -177,8 +179,25 @@ bin="$HOME/.no-mistakes/bin/no-mistakes"
 mkdir -p "$HOME/.no-mistakes/bin" "$HOME/.local/bin"
 cat >"$bin" <<'BINARY'
 #!/usr/bin/env sh
+dead_daemon_pid() {
+  pid_file="$HOME/.no-mistakes/daemon.pid"
+  [ -f "$pid_file" ] || return 1
+  pid="$(sed -n -e 's/^[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' \
+    -e 's/.*"pid":[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$pid_file")"
+  [ -n "$pid" ] || return 1
+  ! kill -0 "$pid" 2>/dev/null
+}
+case "$*" in
+"daemon restart" | "daemon stop")
+  if dead_daemon_pid; then
+    echo "stop daemon: wait for exit: inspect daemon pid $pid: exit status 1" >&2
+    exit 1
+  fi
+  ;;
+esac
 case "$*" in
 --version) echo "no-mistakes fixture" ;;
+"daemon restart") ;;
 "daemon stop")
   if [ -n "${MOCK_NO_MISTAKES_STOP_FAIL:-}" ]; then
     echo "refusing daemon stop because 1 active pipeline runs are in progress" >&2
@@ -216,6 +235,7 @@ cat >"$HOME/Library/LaunchAgents/com.kunchenguid.no-mistakes.daemon.1a2b3c4d.pli
 </dict>
 </plist>
 PLIST
+"$bin" daemon restart
 INSTALLER
   exit 0
 fi
@@ -896,5 +916,58 @@ assert_path_missing "$unit"
 assert_path_missing "$agent"
 assert_path_exists "$foreign_unit"
 printf 'PASS: an unreadable No Mistakes service blocks the removal instead of being disowned\n'
+
+# --- 24. A daemon that died without its teardown does not block a rerun -----
+#
+# `wsl --shutdown`, a crash or a power loss kills the daemon without its
+# teardown, leaving daemon.pid naming a process that is gone, and its socket.
+# Upstream's `daemon restart` (the installer's last step) and `daemon stop`
+# (removal's first) then fail instead of treating the daemon as stopped, which
+# is how a Fedora WSL rerun failed after its first `wsl --shutdown`. The
+# installer clears exactly those two files first, and only for a dead PID.
+
+nm_root="$home/.no-mistakes"
+dead_pid="$(bash -c 'echo "$$"')"
+if kill -0 "$dead_pid" 2>/dev/null; then
+  printf 'expected pid %s to have exited\n' "$dead_pid" >&2
+  exit 1
+fi
+mkdir -p "$nm_root"
+printf '{"pid":%s,"started_at":"2026-09-24T09:00:00Z"}\n' "$dead_pid" >"$nm_root/daemon.pid"
+: >"$nm_root/socket"
+MOCK_NO_MISTAKES_LAYOUT=daemon install_ai --firstmate --non-interactive \
+  >"$test_root/dead-daemon-install.log" 2>&1 ||
+  { cat "$test_root/dead-daemon-install.log" >&2; exit 1; }
+state_says 'no_mistakes=installed'
+assert_path_missing "$nm_root/daemon.pid"
+assert_path_missing "$nm_root/socket"
+assert_file_contains "$test_root/dead-daemon-install.log" \
+  "No Mistakes daemon that is no longer running (pid $dead_pid)"
+
+# A PID file naming a live process of ours is the running daemon's, and is
+# left alone.
+sleep 300 &
+live_pid=$!
+printf '%s\n' "$live_pid" >"$nm_root/daemon.pid"
+: >"$nm_root/socket"
+MOCK_NO_MISTAKES_LAYOUT=daemon install_ai --firstmate --non-interactive \
+  >"$test_root/live-daemon-install.log" 2>&1 ||
+  { kill "$live_pid"; cat "$test_root/live-daemon-install.log" >&2; exit 1; }
+kill "$live_pid"
+wait "$live_pid" 2>/dev/null || true
+assert_file_line "$nm_root/daemon.pid" "$live_pid"
+assert_path_exists "$nm_root/socket"
+assert_file_not_contains "$test_root/live-daemon-install.log" 'no longer running'
+
+# Removal stops the daemon first, and a dead one no longer blocks it. The
+# plain-integer PID file is the older format upstream still reads.
+printf '%s\n' "$dead_pid" >"$nm_root/daemon.pid"
+install_ai --no-firstmate --non-interactive >"$test_root/dead-daemon-remove.log" 2>&1 ||
+  { cat "$test_root/dead-daemon-remove.log" >&2; exit 1; }
+state_says 'no_mistakes=disabled'
+assert_path_missing "$nm_root/daemon.pid"
+assert_path_missing "$nm_root/socket"
+assert_path_missing "$no_mistakes_target"
+printf 'PASS: a No Mistakes daemon that died without its teardown does not block a rerun or removal\n'
 
 printf 'AI optional-component transition tests passed.\n'

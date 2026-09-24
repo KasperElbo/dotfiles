@@ -89,6 +89,13 @@ program is the exact binary being removed. Another install's definition is
 left alone. If the daemon refuses to stop, for example while a pipeline run
 is active, nothing is changed.
 
+A daemon killed without its own teardown (`wsl --shutdown`, a crash, a power
+loss) leaves `~/.no-mistakes/daemon.pid` and `~/.no-mistakes/socket` behind,
+and No Mistakes' own restart and stop then fail with
+`inspect daemon pid N: exit status 1`. Before an install or a removal runs
+either one, the installer deletes those two files when the recorded PID is no
+longer a running process of yours. A live daemon's files are left alone.
+
 `common/verify-ai.sh` fails when an enabled component is missing or broken,
 and reports — rather than silently rewriting — a component that is disabled
 but still present, naming the `--no-<component>` flag that would remove it.
