@@ -612,18 +612,26 @@ lint_fixture >/dev/null
 printf 'PASS: a repointed Scoop bucket is not covered by its old annotation\n'
 
 # A shell assignment is not a manifest declaration. Spaces around the `=` are
-# what tells them apart, and a shell variable holding a URL is covered by
-# whatever construct then fetches it.
+# what tells them apart. It is a construct of its own all the same: the
+# assignment is where the host is written, and the construct that later
+# fetches `$url` names none, so an annotation there could cover any host
+# (#534 V5-21).
 cat >"$fixture_repo/scripts/plain-assignment.sh" <<'EOF'
 #!/usr/bin/env bash
 url='https://example.invalid/path'
 printf '%s\n' "$url"
 EOF
 git -C "$fixture_repo" add -A
-lint_fixture >/dev/null
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered URL assignment.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" '/plain-assignment.sh:2: unregistered url-assignment network source'
+assert_not_contains "$lint_output" 'manifest-url'
 rm -f -- "$fixture_repo/scripts/plain-assignment.sh"
 git -C "$fixture_repo" add -A
-printf 'PASS: a shell URL assignment is not read as a manifest declaration\n'
+lint_fixture >/dev/null
+printf 'PASS: a shell URL assignment is its own construct, not a manifest declaration\n'
 
 # The walk that finds an annotation above a continued construct stops at the
 # first line of code, and a list element is not a continuation of the one
@@ -1570,5 +1578,166 @@ if [[ -n "$piped_downloads" ]]; then
   exit 1
 fi
 printf 'PASS: no installer pipes a download straight into a shell\n'
+
+# --- The transfer primitives are network constructs too (#534 V5-21) -------
+#
+# install_staged_script replaced `curl ... | sh` for the two reviewed-live
+# installers, the only remote code this repository runs without
+# authenticating it, and no pattern matched it: a bogus annotation above the
+# real call, and a new call fetching from an unregistered host, both left the
+# validator at exit 0. Each case edits the copied fixture and restores it.
+ai_installer=common/install-ai.sh
+
+# The acceptance case: a new staged install from a host nothing registers.
+printf '%s\n' 'install_staged_script X "https://unregistered.example.invalid/i.sh" "$HOME/.local/bin/x"' \
+  >>"$fixture_repo/$ai_installer"
+appended_line="$(wc -l <"$fixture_repo/$ai_installer")"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered install_staged_script source.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$ai_installer:$appended_line: unregistered install_staged_script network source"
+git -C "$fixture_repo" checkout -q -- "$ai_installer"
+lint_fixture >/dev/null
+printf 'PASS: an unregistered install_staged_script call fails the linter, naming its line\n'
+
+# The shape that got through: the real call, its annotation naming a source
+# that does not exist.
+sed -i 's/# network-source: no-mistakes-installer$/# network-source: bogus-source/' \
+  "$fixture_repo/$ai_installer"
+staged_call_line="$(grep -n 'install_staged_script "No Mistakes"' "$fixture_repo/$ai_installer" | cut -d: -f1)"
+[[ -n "$staged_call_line" ]] ||
+  _test_die "the No Mistakes install_staged_script call this case annotates is gone"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an install_staged_script call under a bogus source id.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$ai_installer:$staged_call_line: unknown network-source id 'bogus-source'"
+git -C "$fixture_repo" checkout -q -- "$ai_installer"
+lint_fixture >/dev/null
+printf 'PASS: an install_staged_script call under an unknown source id fails the linter\n'
+
+# The URL is a shell assignment far above the call, so the call names no host.
+# Repointing it keeps every annotation in place, and must still be refused.
+sed -i 's|https://kunchenguid.github.io/treehouse/install.sh|https://attacker.example.invalid/install.sh|' \
+  "$fixture_repo/$ai_installer"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted a repointed installer URL.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$ai_installer:$(grep -n '^treehouse_install_script=' "$fixture_repo/$ai_installer" | cut -d: -f1): this url-assignment downloads from attacker.example.invalid"
+git -C "$fixture_repo" checkout -q -- "$ai_installer"
+lint_fixture >/dev/null
+printf 'PASS: a repointed installer URL is not covered by its old annotation\n'
+
+# And a new URL held in a variable, fetched under an annotation borrowed from
+# a real source: the assignment is where the host is written, so it is the
+# line that has to be registered.
+cat >>"$fixture_repo/$ai_installer" <<'EOF'
+widget_install_script="https://unregistered.example.invalid/i.sh"
+# network-source: treehouse-installer
+install_staged_script Widget "$widget_install_script" "$HOME/.local/bin/widget"
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered URL behind a borrowed annotation.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$ai_installer:$(grep -n '^widget_install_script=' "$fixture_repo/$ai_installer" | cut -d: -f1): unregistered url-assignment network source"
+git -C "$fixture_repo" checkout -q -- "$ai_installer"
+lint_fixture >/dev/null
+printf 'PASS: an unregistered URL in a variable fails the linter where it is written\n'
+
+# Every real call site of either primitive, and every URL assignment, is held
+# by its annotation alone.
+for annotated in common/install-ai.sh:treehouse-installer:install_staged_script \
+  common/install-ai.sh:no-mistakes-installer:install_staged_script \
+  platforms/macos/scripts/install-system.sh:homebrew-installer:fetch_to_file \
+  common/lib/bootstrap-tools.sh:mise-release,starship-release:fetch_to_file \
+  platforms/fedora/lib/fedora.sh:terra-signing-key,terra-repo:url-assignment \
+  common/install-tmux-theme.sh:catppuccin-tmux:url-assignment; do
+  IFS=: read -r annotated_file annotated_id annotated_label <<<"$annotated"
+  sed -i "/network-source: $annotated_id\$/d" "$fixture_repo/$annotated_file"
+  if lint_output="$(lint_fixture)"; then
+    printf 'The linter accepted %s without its %s annotation.\n' \
+      "$annotated_file" "$annotated_id" >&2
+    exit 1
+  fi
+  assert_contains "$lint_output" "unregistered $annotated_label network source"
+  git -C "$fixture_repo" checkout -q -- "$annotated_file"
+done
+lint_fixture >/dev/null
+printf 'PASS: the real transfer-primitive calls and URL assignments need their annotations\n'
+
+# --- Liveness is derived, not declared (#534 V5-22) -------------------------
+#
+# The decision registry was closed over the `tier` column, and nothing tied
+# the tier to what a source is. Retiering the No Mistakes installer to
+# version-line and deleting its decision left lint green while install-ai.sh
+# still ran whatever the live URL served. The Treehouse row was only caught
+# because the cases above happen to name it. So every decision is removed in
+# turn, and every remote script is retiered in turn, rather than one by name.
+live_ids=()
+while IFS=$'\t' read -r source_id _; do
+  [[ "$source_id" != id ]] || continue
+  live_ids+=("$source_id")
+done <"$repo_root/config/live-sources.tsv"
+((${#live_ids[@]} > 0)) || _test_die 'config/live-sources.tsv records no decisions to remove'
+
+for source_id in "${live_ids[@]}"; do
+  awk -F '\t' -v id="$source_id" 'NR == 1 || $1 != id' \
+    "$repo_root/config/live-sources.tsv" >"$live_fixture"
+  if lint_output="$(LIVE_SOURCE_MANIFEST="$live_fixture" \
+    python3 "$repo_root/scripts/validate-network-sources.py" 2>&1)"; then
+    printf 'The linter accepted %s with its live-source decision removed.\n' "$source_id" >&2
+    exit 1
+  fi
+  assert_contains "$lint_output" "$source_id is reviewed-live, so nothing verifies it before use"
+done
+printf 'PASS: removing any one live-source decision fails the linter\n'
+
+# retier_live_script <id> <tier> [requested]: the registry with <id> moved to
+# <tier> (and its requested ref to [requested]), and its decision deleted, so
+# both registries agree the source is not live. Only the paperwork changes.
+retier_live_script() {
+  awk -F '\t' -v id="$1" -v tier="$2" -v requested="${3:-}" 'BEGIN { OFS = "\t" }
+    NR > 1 && $1 == id { $7 = tier; if (requested != "") $8 = requested }
+    { print }' "$repo_root/config/network-sources.tsv" >"$manifest_fixture"
+  awk -F '\t' -v id="$1" 'NR == 1 || $1 != id' \
+    "$repo_root/config/live-sources.tsv" >"$live_fixture"
+  run_capture env NETWORK_SOURCE_MANIFEST="$manifest_fixture" \
+    LIVE_SOURCE_MANIFEST="$live_fixture" \
+    python3 "$repo_root/scripts/validate-network-sources.py"
+}
+
+# Every remote script that nothing authenticates, read from the registry
+# rather than named here.
+live_scripts=()
+while IFS=$'\t' read -r source_id _ _ kind _ _ _ _ _ integrity _; do
+  [[ "$kind" == remote-script ]] || continue
+  [[ "$integrity" == https-tls || "$integrity" == registry-tls ]] || continue
+  live_scripts+=("$source_id")
+done <"$repo_root/config/network-sources.tsv"
+[[ " ${live_scripts[*]} " == *' no-mistakes-installer '* ]] ||
+  _test_die 'no-mistakes-installer is no longer an unauthenticated remote script'
+
+for source_id in "${live_scripts[@]}"; do
+  retier_live_script "$source_id" version-line
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "$source_id is a remote script whose integrity is"
+  assert_contains "$TEST_OUTPUT" "its tier must be reviewed-live, not 'version-line'"
+done
+printf 'PASS: retiering an unauthenticated remote script away from reviewed-live fails\n'
+
+# The subtle one: a tier that reads as a pin, with a requested version to
+# match, still authenticates nothing the script serves.
+retier_live_script no-mistakes-installer exact-version v1.0.0
+assert_failure
+assert_contains "$TEST_OUTPUT" "its tier must be reviewed-live, not 'exact-version'"
+assert_contains "$TEST_OUTPUT" 'no-mistakes-installer is live, so nothing verifies it before use'
+printf 'PASS: an exact-version claim does not make a live remote script pinned\n'
 
 printf 'Supply-chain policy tests passed.\n'

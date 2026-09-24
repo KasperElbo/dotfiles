@@ -1001,8 +1001,12 @@ def check_gitleaks_ignore(root: pathlib.Path, problems: list[str]) -> None:
 # off (a disabled rule, a local rule overriding a default one, a stopword)
 # fails here rather than being skipped.
 ALLOWLIST_KEYS = frozenset({"description", "paths", "regexes"})
-# A literal: anchored at both ends, every metacharacter escaped.
-ANCHORED_LITERAL = re.compile(r"\^(?:[^\\.^$*+?()\[\]{}|]|\\.)+\$")
+# A literal: anchored at both ends, every metacharacter escaped. Only an
+# escaped ASCII punctuation character is a literal: to Go's regexp, which
+# gitleaks runs, a backslash before a letter or digit is a class (`\w`, `\d`,
+# `\s`, `\pL`), an assertion or a quoting mode, and thirty-two `\w` between
+# the anchors silenced every 32-character secret while passing this check.
+ANCHORED_LITERAL = re.compile(r"\^(?:[^\\.^$*+?()\[\]{}|]|\\[!-/:-@\[-`{-~])+\$")
 
 
 def check_gitleaks_config(root: pathlib.Path, problems: list[str]) -> None:

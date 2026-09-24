@@ -76,6 +76,7 @@ command_exists plasma-apply-lookandfeel || die \
   "not install one. Install Plasma, or rerun with --no-kde."
 
 version="v0.4.0"
+# network-source: catppuccin-kde
 repo="https://github.com/catppuccin/kde.git"
 workdir="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/catppuccin-kde"
 

@@ -14,8 +14,9 @@ Two independent jobs:
    not know about. Every network-executing construct -- ``curl``/``wget``,
    ``Invoke-WebRequest``/``Invoke-RestMethod``, a remote ``git clone``/
    ``fetch``, a remote release RPM, ``--repofrompath``, a DNF
-   ``config-manager addrepo``, an ``rpm --import`` of a signing key, or a
-   container image -- must carry a ``# network-source: <id>`` annotation naming
+   ``config-manager addrepo``, an ``rpm --import`` of a signing key, a
+   container image, a call to the ``fetch_to_file``/``install_staged_script``
+   transfer primitives, or a shell variable assigned a URL -- must carry a ``# network-source: <id>`` annotation naming
    a registered source. CI fails when a new one appears unregistered.
 
    A file is scanned by what it is, not only by its name: a scanned suffix, a
@@ -99,6 +100,11 @@ VERIFIED_INTEGRITY = {
 }
 
 EXACT_REF_INTEGRITY = VERIFIED_INTEGRITY | {"git-tag-pinned", "git-commit-pinned"}
+
+# Integrity that authenticates the channel and nothing it serves. A remote
+# script fetched this way runs whatever upstream publishes that day, which is
+# what `reviewed-live` means, whatever tier its row declares.
+UNAUTHENTICATED_INTEGRITY = {"https-tls", "registry-tls"}
 
 PRIVILEGES = {"user", "root"}
 
@@ -189,6 +195,27 @@ NETWORK_PATTERNS = [
     # Spaces around the ``=`` are what makes this a declaration in a data file
     # rather than a shell assignment, which cannot have them.
     (re.compile(r"""^\s*[A-Za-z_]\w*\s+=\s+["']https?://"""), "manifest-url"),
+    # The same declaration in shell, which cannot have the spaces: a URL
+    # assigned to a variable, with or without a default an environment
+    # variable may override. The construct that later fetches `$url` names no
+    # host, so the assignment is the only line where one is written, and an
+    # annotation there is checked against it. Without this, the two reviewed-
+    # live installer URLs in common/install-ai.sh were held by nothing (#534).
+    (
+        re.compile(
+            r"^\s*(?:(?:local|readonly|export|declare|typeset)(?:\s+-\w+)*\s+)?"
+            r"[A-Za-z_]\w*=\S*?https?://"
+        ),
+        "url-assignment",
+    ),
+    # The repository's own transfer primitives. Each takes its URL from the
+    # caller, so the call is the construct that reaches the network, exactly
+    # as a curl line is. install_staged_script is the one that runs what it
+    # fetches, and matched no pattern at all: a call from an unregistered host,
+    # and a bogus id above a real one, both passed (#534 V5-21). A definition,
+    # `name() {`, is not a call.
+    (re.compile(r"(?<![\w./-])install_staged_script(?![\w-])(?!\s*\(\))"), "install_staged_script"),
+    (re.compile(r"(?<![\w./-])fetch_to_file(?![\w-])(?!\s*\(\))"), "fetch_to_file"),
     (re.compile(r"--repofrompath"), "repofrompath"),
     (re.compile(r"https://\S*\.rpm"), "remote-rpm"),
     # The two constructs that give a machine a new package trust root: a DNF
@@ -270,7 +297,7 @@ SCANNED_SHEBANG = re.compile(r"^#!.*(?:\b(?:ba|z|da|k)?sh\b|\bpython[0-9.]*\b)")
 # Hosts written out in full. A scheme covers every URL; the second form is the
 # registry of a container reference, which carries no scheme, and is only read
 # where an image reference is what matched.
-SCHEME_HOST = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://(?P<host>[^/\s\"'`<>|)\\]+)")
+SCHEME_HOST = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://(?P<host>[^/\s\"'`<>|)}\\]+)")
 IMAGE_HOST = re.compile(
     r"(?<![\w.:/@-])(?P<host>(?:[a-z0-9-]+\.)+[a-z]{2,}(?::[0-9]+)?)/[a-z0-9]"
 )
@@ -678,7 +705,22 @@ def check_live_decisions(rows: list[dict[str, str]]) -> int:
         return 1
 
     by_id = {row["id"]: row for row in rows}
+    # Liveness is derived as well as declared. The closure below used to be
+    # over the `tier` column alone, and nothing tied the tier to what the
+    # source is: retiering the No Mistakes installer to version-line and
+    # deleting its decision left lint green while the installer still ran
+    # whatever the live URL served (#534 V5-22).
     live = {row["id"] for row in rows if row["tier"] == "reviewed-live"}
+    for row in rows:
+        if row["kind"] == "remote-script" and row["integrity"] in UNAUTHENTICATED_INTEGRITY:
+            live.add(row["id"])
+            if row["tier"] != "reviewed-live":
+                fail(
+                    f"{row['id']} is a remote script whose integrity is "
+                    f"{row['integrity']!r}, so nothing authenticates it before it "
+                    f"runs: its tier must be reviewed-live, not {row['tier']!r}"
+                )
+                errors += 1
     seen: set[str] = set()
     for line, decision in enumerate(decisions, 2):
         source_id = decision["id"]
@@ -727,8 +769,10 @@ def check_live_decisions(rows: list[dict[str, str]]) -> int:
             errors += 1
 
     for source_id in sorted(live - seen):
+        declared = by_id[source_id]["tier"] == "reviewed-live"
         fail(
-            f"{source_id} is reviewed-live, so nothing verifies it before use, but "
+            f"{source_id} is {'reviewed-live' if declared else 'live'}, so nothing "
+            f"verifies it before use, but "
             f"{LIVE_REGISTRY.name} records no decision for it: pin it, or record why not"
         )
         errors += 1
