@@ -205,12 +205,22 @@ fetch_assert_shell_script() {
 
 # The only variables a staged third-party installer inherits from the caller.
 # Identity, locale, terminal and temporary directory, the XDG roots this
-# repository's layout depends on, and the proxy and CA settings without which
-# the installer's own downloads would fail on a network that needs them.
-# Nothing else: no token, no API key, no cloud profile, no agent socket.
+# repository's layout depends on, the address of the user's own service
+# manager, and the proxy and CA settings without which the installer's own
+# downloads would fail on a network that needs them. Nothing else: no token,
+# no API key, no cloud profile, no agent socket.
+#
+# The service manager is there because No Mistakes' installer stops and
+# restarts its daemon through `systemctl --user`, which finds the user's
+# manager only through XDG_RUNTIME_DIR or DBUS_SESSION_BUS_ADDRESS. Without
+# them a rerun, the first run with a daemon to stop, failed with "Failed to
+# connect to user scope bus" (Fedora WSL, 24 September 2026). Both name a
+# socket the installer, running as this user, could reach anyway; neither is
+# a credential for anything outside this machine.
 DOTFILES_INSTALLER_ENVIRONMENT=(
   HOME USER LOGNAME PATH SHELL TERM LANG LC_ALL LC_CTYPE LC_MESSAGES TMPDIR
   XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+  XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
   http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY
   all_proxy ALL_PROXY SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE
 )
