@@ -374,15 +374,15 @@ run_capture python3 "$validator" --root "$scratch"
 assert_success
 printf 'PASS: a quoted , or ; inside a Sway exec is not a second command\n'
 
-# An alias is its whole value. `cld` is registered as the one flag it passes,
+# An alias is its whole value. `claude-unsafe` is registered as the one flag it passes,
 # so an extra argument is a different command, and the eza family's shared
 # `alias ls='eza` prefix must not claim a second command either.
 with_config_edit zsh/.config/zsh/.zshrc \
-  "alias cld='claude --dangerously-skip-permissions'" \
-  "alias cld='claude --dangerously-skip-permissions --mcp-config /tmp/evil.json'"
+  "alias claude-unsafe='claude --dangerously-skip-permissions'" \
+  "alias claude-unsafe='claude --dangerously-skip-permissions --mcp-config /tmp/evil.json'"
 assert_failure
 assert_contains "$TEST_OUTPUT" \
-  "unregistered custom action: \"alias cld='claude --dangerously-skip-permissions --mcp-config /tmp/evil.json'\""
+  "unregistered custom action: \"alias claude-unsafe='claude --dangerously-skip-permissions --mcp-config /tmp/evil.json'\""
 printf 'PASS: an argument appended to a registered alias fails\n'
 
 with_config_edit zsh/.config/zsh/.zshrc "alias ls='eza'" "alias ls='eza; curl evil'"
@@ -394,7 +394,7 @@ printf 'PASS: a command appended to an alias of a registered family fails\n'
 # away, so a sourced row's pattern may not repeat without an upper bound, in
 # any spelling of it.
 for widened in \
-  "zsh.alias.claude-code|alias cld='claude.*" \
+  "zsh.alias.claude-unsafe|alias claude-unsafe='claude.*" \
   "sway.workspace.switch|bindsym \\\$mod\\+[1-9] workspace number[^;]*"; do
   id="${widened%%|*}"
   pattern="${widened#*|}"
@@ -524,6 +524,91 @@ run_capture python3 "$validator" --root "$scratch"
 assert_failure
 assert_contains "$TEST_OUTPUT" "never-registered on PATH"
 printf 'PASS: an unregistered command on PATH fails\n'
+
+# --- The agent permission bypass is an explicit safety decision (#503) -----
+
+# bypass_tree <name>: a fresh copy of everything the validator reads, in
+# $scratch, for one mutation of the permission-bypass alias.
+bypass_tree() {
+  test_new_root
+  scratch="$TEST_ROOT/$1"
+  mkdir -p "$scratch"
+  cp -r "$repo_root/config" "$repo_root/docs" "$repo_root/platforms" \
+    "$repo_root/zsh" "$repo_root/nvim-lazyvim" "$repo_root/bin" "$repo_root/tmux" \
+    "$scratch/"
+}
+
+bypass_alias="alias claude-unsafe='claude --dangerously-skip-permissions'"
+grep -Fq -- "$bypass_alias" "$repo_root/zsh/.config/zsh/.zshrc" ||
+  _test_die "the tracked .zshrc no longer defines: $bypass_alias"
+
+# The registry used to pin only the prefix `alias cld='claude`, so any flag
+# appended to the alias rode along with exit 0 while every sheet kept calling
+# it "permission prompts disabled".
+bypass_tree bypass-appended
+sed -i "s|$bypass_alias|${bypass_alias%\'} --mcp-config /tmp/evil.json'|" \
+  "$scratch/zsh/.config/zsh/.zshrc"
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "zsh.alias.claude-unsafe: source_pattern no longer matches"
+printf 'PASS: a flag appended to the permission-bypass alias fails\n'
+
+# A registry row that goes back to pinning a prefix is refused by itself,
+# before anything has drifted underneath it.
+with_registry "by_id['zsh.alias.claude-unsafe']['source_pattern'] = \"alias claude-unsafe='claude\""
+assert_failure
+assert_contains "$TEST_OUTPUT" "must match the whole permission-bypass alias"
+printf 'PASS: a registry row pinning only a prefix of the bypass alias fails\n'
+
+# Renamed back to a short name, with the registry and sheet following it so
+# that only the naming rule is left to object.
+bypass_tree bypass-short-name
+sed -i "s|alias claude-unsafe=|alias cld=|" "$scratch/zsh/.config/zsh/.zshrc"
+sed -i 's|\\csrow{claude-unsafe}|\\csrow{cld}|' "$scratch/docs/cheatsheets/common-workflow.tex"
+python3 - "$scratch/config/actions.tsv" <<'PYTHON'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+text = text.replace("\tclaude-unsafe\t", "\tcld\t").replace("alias claude-unsafe=", "alias cld=")
+path.write_text(text, encoding="utf-8")
+PYTHON
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "the permission-bypass alias 'cld' must say 'unsafe' in its name"
+printf 'PASS: a permission-bypass alias without "unsafe" in its name fails\n'
+
+# A wrapper function has a body the registry cannot pin.
+bypass_tree bypass-function
+printf 'cld() {\n  claude --dangerously-skip-permissions "$@"\n}\n' \
+  >>"$scratch/zsh/.config/zsh/.zshrc"
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "may only be defined as a shell alias"
+printf 'PASS: a permission-bypass wrapper function fails\n'
+
+# Nor may a command on PATH carry the flag, whatever it is called. Codex's own
+# spelling of the same bypass is held to the same rule.
+bypass_tree bypass-command
+printf '#!/usr/bin/env bash\nexec codex --dangerously-bypass-approvals-and-sandbox "$@"\n' \
+  >"$scratch/bin/.local/bin/codex-unsafe"
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "bin/.local/bin/codex-unsafe:2: an agent permission bypass may only be defined as a shell alias"
+printf 'PASS: a command on PATH carrying a permission bypass fails\n'
+
+# The warning has to travel with the name: registry and every printed sheet.
+with_registry "by_id['zsh.alias.claude-unsafe']['action'] = 'Claude Code, started with permission prompts disabled'"
+assert_failure
+assert_contains "$TEST_OUTPUT" "zsh.alias.claude-unsafe: the action must warn that 'claude-unsafe' is 'unsafe'"
+printf 'PASS: a registry description without the unsafe warning fails\n'
+
+bypass_tree bypass-sheet
+sed -i 's|\\csrow{claude-unsafe}{[^}]*}|\\csrow{claude-unsafe}{Claude Code, all permission prompts off}|' \
+  "$scratch/docs/cheatsheets/common-workflow.tex"
+run_capture python3 "$validator" --root "$scratch"
+assert_failure
+assert_contains "$TEST_OUTPUT" "docs/cheatsheets/macos.tex must warn that 'claude-unsafe' is 'unsafe'"
+printf 'PASS: a printed sheet without the unsafe warning fails\n'
 
 # --- Platform-accurate sheets ----------------------------------------------
 

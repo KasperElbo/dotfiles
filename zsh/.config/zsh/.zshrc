@@ -14,8 +14,10 @@ typeset -gU path PATH
 # the two files, and on macOS that runs path_helper, which rebuilds PATH with
 # the system directories in front and everything else after them. ~/.local/bin
 # then sits eighth on a normal Mac, and a terminal window is a login shell, so
-# that is the ordinary shape rather than an edge case. Re-assert it here, after
-# every system file has had its say. The tied array is unique, so this is a
+# that is the ordinary shape rather than an edge case. .zprofile re-asserts it
+# for every login, and it is re-asserted here too, after every system file has
+# had its say, for an interactive shell that is not a login (or a harness that
+# sources this file alone). The tied array is unique, so this is a
 # no-op in the shells where ~/.local/bin is already first: Zsh keeps the
 # leftmost occurrence and drops the later duplicate, moving nothing else.
 #
@@ -299,10 +301,15 @@ fi
 [[ ! -r "$HOME/.opam/opam-init/init.zsh" ]] ||
   source "$HOME/.opam/opam-init/init.zsh" >/dev/null 2>/dev/null
 
-# `cld` starts Claude Code with permission prompts disabled. The flag is the
-# only way in: a `permissions.defaultMode` of `bypassPermissions` is ignored
-# when it comes from repo-level settings, and the mode cannot be raised once
-# the session is running.
+# `claude-unsafe` starts Claude Code with every permission prompt disabled:
+# the agent can then read and write anything this user can, run any command,
+# and use every credential the shell can reach, without asking. The name says
+# so on purpose (#503); docs/profiles/ai.md has the policy, and
+# scripts/validate-actions.py refuses a shorter name, a wrapper function, or a
+# registry row that does not pin this whole line. The flag is the only way in:
+# a `permissions.defaultMode` of `bypassPermissions` is ignored when it comes
+# from repo-level settings, and the mode cannot be raised once the session is
+# running.
 #
 # Gated on the `ai` capability rather than `_dotfiles_integration`: that
 # capability is opt-in and off by default, so an absent Claude Code is a
@@ -316,7 +323,7 @@ fi
 # answers "absent" on every machine that has it, and the alias is never
 # defined.
 if _dotfiles_capability ai && command -v claude >/dev/null 2>&1; then
-  alias cld='claude --dangerously-skip-permissions'
+  alias claude-unsafe='claude --dangerously-skip-permissions'
 fi
 
 # Startship Theming

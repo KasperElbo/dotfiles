@@ -426,6 +426,41 @@ jobs:
     runs-on: [self-hosted, Windows, X64, dotfiles-wsl]
     timeout-minutes: 90
     steps:
+      # The removal step at the end runs on success, failure and cancellation,
+      # but not when the runner itself is lost -- a reboot or a crash of the
+      # Windows host mid-run -- and then the distro that run imported is still
+      # registered. This runner is labelled for this job alone and runs one job
+      # at a time, so any dotfiles-ci-* distro present now belongs to a run that
+      # is over (#501).
+      - name: Remove disposable distros an interrupted run left behind
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $registered = & wsl.exe --list --quiet
+          if ($LASTEXITCODE -ne 0) {
+            # wsl.exe also exits non-zero when no distribution is registered at
+            # all, which leaves nothing to sweep; the import below fails loudly
+            # if WSL itself is what is broken.
+            Write-Output "wsl --list exited $LASTEXITCODE; no distribution to sweep"
+            exit 0
+          }
+          # wsl.exe writes UTF-16; the NULs it leaves in each name are dropped.
+          foreach ($name in $registered) {
+            $name = ($name -replace "`0", '').Trim()
+            if ($name -like 'dotfiles-ci-*') {
+              Write-Output "Unregistering $name, left by an earlier run"
+              & wsl.exe --terminate $name 2>$null
+              & wsl.exe --unregister $name
+              if ($LASTEXITCODE -ne 0) {
+                throw "wsl --unregister $name failed with exit code $LASTEXITCODE"
+              }
+              $stale = Join-Path $env:RUNNER_TEMP $name
+              if (Test-Path -LiteralPath $stale) {
+                Remove-Item -LiteralPath $stale -Recurse -Force
+              }
+            }
+          }
+
       - name: Import clean disposable Fedora WSL distro
         shell: pwsh
         env:
@@ -531,6 +566,29 @@ jobs:
     runs-on: [self-hosted, Linux, X64, dotfiles-parrot-vm]
     timeout-minutes: 120
     steps:
+      # The guest cannot revert its own snapshot, so the job cannot guarantee a
+      # clean machine; it can refuse to count a dirty one. An earlier run's
+      # installation leaves its lifecycle state, its selections and mise's data
+      # behind, and evidence gathered on top of them is a rerun, not a first
+      # install (#501).
+      - name: Refuse a guest that was not reverted to its clean snapshot
+        run: |
+          set -euo pipefail
+          left=()
+          for path in "${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles" \
+            "${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles" \
+            "${XDG_DATA_HOME:-$HOME/.local/share}/mise"; do
+            if [[ -e "$path" ]]; then
+              left+=("$path")
+            fi
+          done
+          if ((${#left[@]})); then
+            printf 'This guest still carries an earlier installation:\n' >&2
+            printf '  %s\n' "${left[@]}" >&2
+            printf 'Revert it to its clean snapshot and dispatch the job again.\n' >&2
+            exit 1
+          fi
+
       - name: Check out repository in the guest
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -570,9 +628,13 @@ jobs:
           ./install.sh --platform parrot-ctf --theme macchiato --non-interactive
           ./platforms/parrot-ctf/scripts/verify.sh
 
-      - name: Idempotent rerun
+      # Verified again after the rerun, as the WSL job does: a rerun that exits 0
+      # and leaves a broken machine is the failure this step exists to catch.
+      - name: Idempotent rerun and verifier
         working-directory: dotfiles-ci
-        run: ./install.sh --platform parrot-ctf --theme macchiato --non-interactive
+        run: |
+          ./install.sh --platform parrot-ctf --theme macchiato --non-interactive
+          ./platforms/parrot-ctf/scripts/verify.sh
 
       - name: Selected-state transition and verifier
         working-directory: dotfiles-ci

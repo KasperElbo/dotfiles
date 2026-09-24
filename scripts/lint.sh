@@ -89,6 +89,7 @@ python3 ./scripts/render-install-flows.py --check
 python3 ./scripts/render-file-ownership.py --check
 python3 ./scripts/validate-actions.py
 python3 ./scripts/validate-docs.py
+python3 ./scripts/validate-acceptance-records.py
 
 printf 'Validating network-source provenance...\n'
 python3 ./scripts/validate-capabilities.py

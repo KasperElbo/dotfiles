@@ -206,8 +206,10 @@ cat >"$mock_bin/zsh" <<'EOF'
 # Both logins the tracked Zsh package produces, answered through the
 # verifier's own marker. .zshenv is read by every top-level Zsh and puts
 # ~/.local/bin first; mise is activated in .zshrc, so only the INTERACTIVE
-# login carries the shims. A fixture that answered both the same way would
-# model away the defect the second probe exists to catch.
+# login puts mise ahead of it, and a login that is not interactive gets the
+# shims behind ~/.local/bin only from the package's .zprofile, when this home
+# has that file. A fixture that answered both the same way would model away
+# the defect the second probe exists to catch.
 if [[ $# -eq 2 && "$2" == 'printf "login-path:%s\n" "$PATH"' ]]; then
   case "$1" in
   -lic)
@@ -215,7 +217,10 @@ if [[ $# -eq 2 && "$2" == 'printf "login-path:%s\n" "$PATH"' ]]; then
     exit 0
     ;;
   -lc)
-    printf 'login-path:%s\n' "$HOME/.local/bin:/usr/bin:/bin"
+    login_shims=""
+    [[ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.zprofile" ]] ||
+      login_shims="$MISE_SHIMS_DIR:"
+    printf 'login-path:%s\n' "$HOME/.local/bin:$login_shims/usr/bin:/bin"
     exit 0
     ;;
   esac
@@ -817,10 +822,10 @@ printf 'PASS: every ownership check of the full profile fails when its owner is 
 #
 # The configured login PATH is captured from an INTERACTIVE login, which is
 # the one shell where mise activation necessarily wins: the tracked Zsh
-# package activates mise in .zshrc, while .zshenv -- read by every top-level
-# Zsh -- puts ~/.local/bin first and adds no mise paths. So a non-mise copy in
-# ~/.local/bin was reported as mise-owned, although it is what the next
-# non-interactive login runs.
+# package activates mise in .zshrc. Every login reads .zshenv, which puts
+# ~/.local/bin first, and .zprofile, which puts mise's shims behind it. So a
+# non-mise copy in ~/.local/bin was reported as mise-owned, although it is
+# what the next non-interactive login runs, ahead of the shims.
 printf '#!/usr/bin/env bash\nexit 0\n' >"$home/.local/bin/claude"
 chmod +x "$home/.local/bin/claude"
 if login_shadow_output="$(env \
@@ -830,7 +835,7 @@ if login_shadow_output="$(env \
   MISE_INSTALLS_DIR="$mise_installs" \
   PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
   VERIFY_CONFIGURED_LOGIN_PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
-  VERIFY_NONINTERACTIVE_LOGIN_PATH="$home/.local/bin:$mock_bin" \
+  VERIFY_NONINTERACTIVE_LOGIN_PATH="$home/.local/bin:$mise_shims:$mock_bin" \
   "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf '%s\n' "$login_shadow_output" >&2
   printf 'verify-ai.sh accepted a non-mise claude that the non-interactive login runs\n' >&2
@@ -838,6 +843,9 @@ if login_shadow_output="$(env \
 fi
 assert_contains "$login_shadow_output" \
   'claude resolves outside mise in a login that is not interactive'
+# The shims were on that login's PATH, so the repair is the copy ahead of them.
+assert_contains "$login_shadow_output" \
+  "it sits ahead of mise's shims directory ($mise_shims) on that login's PATH; remove or rename it"
 rm -f -- "$home/.local/bin/claude"
 
 # The same two logins with nothing shadowing must pass, so the assertion above
@@ -849,7 +857,7 @@ if ! login_clean_output="$(env \
   MISE_INSTALLS_DIR="$mise_installs" \
   PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
   VERIFY_CONFIGURED_LOGIN_PATH="$mise_shims:$home/.local/bin:$mock_bin:$PATH" \
-  VERIFY_NONINTERACTIVE_LOGIN_PATH="$home/.local/bin:$mock_bin" \
+  VERIFY_NONINTERACTIVE_LOGIN_PATH="$home/.local/bin:$mise_shims:$mock_bin" \
   "$repo_root/common/verify-ai.sh" 2>&1)"; then
   printf '%s\n' "$login_clean_output" >&2
   printf 'verify-ai.sh failed a machine whose non-interactive login shadows nothing\n' >&2

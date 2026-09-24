@@ -372,6 +372,16 @@ text:
   entries and `~/.local/bin` still in front, on its own and layered under the
   Parrot and macOS platform PATH files;
 - macOS keeps Homebrew coreutils `gnubin` as the last entry;
+- a real `zsh -l -c` login that is not interactive, in a sandboxed home that
+  carries `.zshenv` and `.zprofile` the way Stow links them, resolves `python`
+  and `node` to mise's shims rather than to a system copy on the `PATH` it
+  inherited: the shims sit behind `~/.local/bin` and ahead of that system
+  directory, follow `MISE_DATA_DIR`, and are left out (silently) when the
+  directory does not exist, while a plain `zsh -c` is unaffected. Under the
+  simulated macOS `path_helper` they still lead the system directories, and
+  an interactive login still resolves through `mise activate` first. Only the
+  entries the fixture controls are compared, never a whole login `PATH`,
+  since the host's own `/etc/zprofile` takes part;
 - a shell with none of zoxide/fzf/mise/Starship on `PATH` still starts, stays
   silent, and reports the degradation only when `shell-integrations` is run;
 - `compinit` is called exactly once, still against the cached compdump, and no
@@ -1086,9 +1096,14 @@ test contract: it proves the installed `[interop] enabled=true` /
 `appendWindowsPath=false` policy after WSL has re-read `/etc/wsl.conf`, rather
 than merely checking the file written during the original session. The workflow
 then runs the idempotent install and selected-state transition before
-terminating/unregistering the distro and removing the imported files. Do not
-refresh the golden export from a previously provisioned validation run; rebuild
-or deliberately update it from a known-clean source instead.
+terminating/unregistering the distro and removing the imported files. That
+removal runs on success, failure and cancellation, but not when the runner
+itself is lost mid-run, so the job's first step unregisters any
+`dotfiles-ci-*` distro an interrupted run left behind. The runner is expected
+to serve this job alone, one job at a time; a second runner with the same
+label would have its in-flight distro swept. Do not refresh the golden export
+from a previously provisioned validation run; rebuild or deliberately update it
+from a known-clean source instead.
 
 The optional real Parrot VM job expects a runner labelled:
 
@@ -1101,7 +1116,50 @@ guest expected by the profile, including the normal guest-agent/SPICE channels.
 Revert its VM snapshot after each validation run; do not preserve `$HOME`, mise,
 Mason, package-manager or lifecycle state as a cache. The invalid-package check
 uses an isolated HOME and disposable repository copy, but the VM snapshot is
-still the authority for clean-machine state.
+still the authority for clean-machine state. The guest cannot revert its own
+snapshot, so the job cannot enforce a clean start; it refuses one that is
+visibly not clean instead. Its first step fails when the dotfiles lifecycle
+state, the saved selections or mise's data directory from an earlier
+installation are present, because evidence gathered on top of them is a rerun,
+not a first install. After the idempotent rerun the verifier runs again, as it
+does in the WSL job.
+
+Neither job runs on the weekly schedule, so each Monday
+`.github/workflows/self-hosted-evidence.yml` runs
+`scripts/check-self-hosted-evidence.py`, which finds each self-hosted job's
+newest successful dispatched run on a commit main contains. When one is more
+than 30 days old, or there is none, it opens the issue "Self-hosted real-install
+jobs have not succeeded this month", and the first run that finds both current
+closes it. Its report, in the run's summary, gives each job's last success date,
+commit and how far behind main that commit is. Clearing it means dispatching
+real-install.yml on main with `run_self_hosted_wsl` and
+`run_self_hosted_parrot` set, with the WSL runner up and the Parrot guest
+reverted to its clean snapshot.
+
+## Manual acceptance records
+
+Every tier above is automated, and none of it reaches a physical machine's
+firmware, a graphical login, suspend and resume, a second monitor, a privacy
+approval, an interactive sign-in or a microphone. Evidence from those
+boundaries is a different kind: a **manual acceptance record**, written by a
+person who worked through a checklist on real hardware, committed under
+`docs/testing/manual-acceptance/records/`, and naming the exact commit, date,
+machine and installer options it describes.
+
+The two kinds are never counted as each other. A green workflow run is not a
+record, and a record is not a workflow run: it is one observation, it goes
+stale, and it has its own rules for when it must be redone.
+[Manual acceptance records](testing/manual-acceptance/README.md) has the
+checklists, the template, the four outcomes (`pass`, `fail`, `not observed`,
+`not applicable`), what must stay out of a record, and those rerun rules.
+
+`scripts/validate-acceptance-records.py`, run by `./scripts/lint.sh`, holds
+each record to a full commit SHA that is in the history, a real date, one
+verdict per checklist item in that vocabulary, and none of the personal-data
+shapes a pattern can recognise; it holds each checklist to its own item shape.
+`tests/test-acceptance-records.sh` starts from a fixture record that passes and
+breaks it one rule at a time, including an unfilled copy of the real template
+and a shallow clone that cannot answer the ancestry question and must say so.
 
 ## Failure-propagation controls
 
@@ -1124,7 +1182,11 @@ Before a release or after changing bootstrap, login-shell, package-provider,
 lifecycle, Neovim bootstrap, VM boundary, or platform-specific installer code,
 review the latest real-install run. Where a platform still has an explicit
 self-hosted/manual gap, run that platform's manual job or the equivalent clean
-machine procedure before treating the release as fully validated.
+machine procedure before treating the release as fully validated. For the
+hardware and interactive boundaries no job reaches, the release review also
+checks that every target in use has a current
+[manual acceptance record](testing/manual-acceptance/README.md#when-a-record-must-be-redone),
+and says which boundary has none when one does not.
 
 The capability manifest remains authoritative for what each platform supports;
 this document describes **test evidence**, not a second capability matrix.

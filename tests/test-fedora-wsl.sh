@@ -634,13 +634,19 @@ PATH="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$XDG_DATA_HOME/mise/shi
 if [[ "$*" == *'login-path:'* ]]; then
   # The verifier asks both logins for their PATH through this marker, and the
   # two differ the way the real ones do: mise is activated in .zshrc, so only
-  # the interactive login carries the shims. The other gets .zshenv's
+  # the interactive login puts mise first. The other gets .zshenv's
   # ~/.local/bin ahead of the PATH it inherited from the verifier, which is
   # why the verifier has to start it from the PATH it was itself started with
-  # rather than one it has already put the shims into (issue #507, V4-11).
+  # rather than one it has already put the shims into (issue #507, V4-11), and
+  # the shims behind ~/.local/bin only when the zsh package's .zprofile, which
+  # adds them, is in this home.
   if [[ "${1:-}" == -lc ]]; then
+    login_shims=""
+    if [[ -e "$XDG_CONFIG_HOME/zsh/.zprofile" && -d "$XDG_DATA_HOME/mise/shims" ]]; then
+      login_shims="$XDG_DATA_HOME/mise/shims:"
+    fi
     printf 'login-path:%s\n' \
-      "${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$HOME/.local/bin:$system_path"
+      "${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$HOME/.local/bin:$login_shims$system_path"
   else
     printf 'login-path:%s\n' "$PATH"
   fi
@@ -745,10 +751,11 @@ fi
 printf 'PASS: Fedora WSL verification rejects a non-mise runtime shadowing the mise shim\n'
 
 # The same dnf copy placed where dnf actually puts it: on the PATH every login
-# inherits, behind the shims the interactive login adds. Only a login that is
-# not interactive runs it, and this verifier never asked one before #507
-# (V4-11). Asked from its own PATH, after it had added the shims to it, the
-# login would inherit them ahead of the copy and pass.
+# inherits, behind the shims the interactive login adds. This verifier never
+# asked a login that is not interactive before #507 (V4-11). Asked from its own
+# PATH, after it had added the shims to it, the login would inherit them ahead
+# of the copy and pass; asked from the PATH it was started with, it runs the
+# copy unless the zsh package's .zprofile puts the shims ahead of it.
 if grep -Fq 'runs a copy of' "$test_root/bootstrap.log"; then
   printf 'Fedora WSL verification could not ask a non-interactive login on a healthy machine:\n' >&2
   grep -F 'runs a copy of' "$test_root/bootstrap.log" >&2
@@ -757,6 +764,29 @@ fi
 dnf_system="$test_root/dnf-system-bin"
 mkdir -p "$dnf_system"
 cp "$bootstrap_bin/mock-command" "$dnf_system/node"
+# As bootstrapped, with .zprofile linked: the login runs the shim, and the
+# machine verifies. This is every real machine's shape, since dnf's runtimes
+# are always in /usr/bin.
+if ! "${bootstrap_environment[@]}" \
+  "PATH=$bootstrap_home/.local/bin:$bootstrap_bin:$dnf_system:$PATH" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/dnf-behind-shims.log" 2>&1; then
+  cat "$test_root/dnf-behind-shims.log" >&2
+  printf 'Fedora WSL verification failed a dnf node that the login shims shadow.\n' >&2
+  exit 1
+fi
+if grep -Fq 'resolves outside mise' "$test_root/dnf-behind-shims.log"; then
+  printf 'Fedora WSL verification reported a dnf node that .zprofile puts behind the shims.\n' >&2
+  exit 1
+fi
+grep -Fq "$bootstrap_config/zsh/.zprofile -> $(realpath "$repo_root/zsh/.config/zsh/.zprofile")" \
+  "$test_root/dnf-behind-shims.log"
+printf 'PASS: Fedora WSL verification accepts a dnf runtime that the login shims put mise ahead of\n'
+
+# Without .zprofile, as on a machine stowed before the file existed: that
+# login runs the dnf copy, and the missing link and the copy are both
+# reported, the second naming the repair.
+mv "$bootstrap_config/zsh/.zprofile" "$test_root/withheld-zprofile"
 if "${bootstrap_environment[@]}" \
   "PATH=$bootstrap_home/.local/bin:$bootstrap_bin:$dnf_system:$PATH" \
   "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
@@ -764,8 +794,11 @@ if "${bootstrap_environment[@]}" \
   printf 'Fedora WSL verification accepted a dnf node that a non-interactive login runs.\n' >&2
   exit 1
 fi
+mv "$test_root/withheld-zprofile" "$bootstrap_config/zsh/.zprofile"
+grep -Fq "$bootstrap_config/zsh/.zprofile is missing" "$test_root/dnf-system.log"
 grep -Fq "node resolves outside mise in a login that is not interactive: $dnf_system/node" \
   "$test_root/dnf-system.log"
+grep -Fq 'restow the zsh package so that file is linked' "$test_root/dnf-system.log"
 if grep -Fq 'node resolves outside mise in the configured login PATH' "$test_root/dnf-system.log"; then
   printf 'The interactive probe caught the dnf copy, so this case proves nothing about the other.\n' >&2
   exit 1

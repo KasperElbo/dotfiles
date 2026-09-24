@@ -209,6 +209,54 @@ Claude Code runs in any Git repository, including one checked out through
 below for how this repository gives an agent a safe, isolated worktree rather
 than pointing it at your primary checkout.
 
+### The permission-bypass command: `claude-unsafe`
+
+Where the AI profile is installed and `claude` is on `PATH`, the shell
+defines one alias:
+
+```zsh
+alias claude-unsafe='claude --dangerously-skip-permissions'
+```
+
+It starts Claude Code with **every permission prompt disabled**. The name is
+the policy (#503): a full bypass has to look intentional at the point of
+use, so it is never a short, ordinary-looking command. It used to be `cld`,
+and that name is gone rather than kept as a second spelling. Plain `claude`
+is unchanged and asks before it acts.
+
+What a session started this way can do without asking, for as long as it
+runs:
+
+- **Filesystem:** read, write and delete anything your user account can,
+  not only the repository it was started in: other checkouts, `~/.ssh`,
+  your dotfiles, and anything on a mounted volume.
+- **Command execution:** run any command as you, including `git push`,
+  package installs, `curl` to arbitrary hosts, and `sudo` if your
+  credentials are cached. Nothing is sandboxed.
+- **Credentials:** use every credential the shell or your home directory
+  holds: SSH keys and agent, `gh` and Git credential helpers, cloud CLI
+  profiles, API keys in the environment, and browser-login state for other
+  tools. A prompt injection in a file, issue or web page it reads acts with
+  all of that.
+
+Use it only in a checkout you are prepared to lose, ideally an isolated
+worktree (Treehouse, or `git worktree`) on a machine or account that holds
+no credentials you would not hand to the agent directly.
+
+The alias is defined only when both hold: the `ai` capability is recorded as
+installed, and `command -v claude` succeeds after `mise activate`. A
+recorded install whose `claude` has since gone away leaves no alias.
+
+The same name and warning appear in `config/actions.tsv`, the generated
+[keybinding reference](../reference/keybindings.md) and every printed cheat
+sheet, and `scripts/validate-actions.py` keeps it that way. It refuses a
+permission-bypass alias whose name does not say `unsafe`, a registry row that
+pins less than the alias's whole definition (so an appended flag cannot ride
+along unnoticed), a description or printed sheet without the warning, and
+any wrapper function or command on `PATH` that carries
+`--dangerously-skip-permissions` or Codex's
+`--dangerously-bypass-approvals-and-sandbox`.
+
 ## Shared agent instructions: AGENTS.md
 
 `--ai` unconditionally links a single instructions file to every installed

@@ -422,12 +422,17 @@ esac
 theme="$(tr -d '[:space:]' <"$XDG_CONFIG_HOME/dotfiles/theme" 2>/dev/null)"
 bat_theme="Catppuccin ${theme^}"
 login_path="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$XDG_DATA_HOME/mise/shims:$PATH"
-# A login that is not interactive reads .zshenv but not .zshrc, so it has
-# ~/.local/bin ahead of what it inherited and no mise shims at all. The host's
+# A login that is not interactive reads .zshenv and the zsh package's
+# .zprofile but not .zshrc, so it has ~/.local/bin ahead of what it inherited,
+# and mise's shims right behind it only when .zprofile is in this home and the
+# directory exists: a home stowed before the file existed has none. The host's
 # own /usr/bin and /bin are left out of that answer rather than borrowed: they
 # are the machine running the suite, not the Mac, and a Linux runner's
 # /usr/bin/python would read as a second copy of a mise-owned runtime.
 noninteractive_path="${MOCK_LOGIN_PATH_PREFIX:+$MOCK_LOGIN_PATH_PREFIX:}$HOME/.local/bin"
+if [[ -e "$XDG_CONFIG_HOME/zsh/.zprofile" && -d "$XDG_DATA_HOME/mise/shims" ]]; then
+  noninteractive_path="$noninteractive_path:$XDG_DATA_HOME/mise/shims"
+fi
 IFS=: read -r -a inherited <<<"$PATH"
 for entry in "${inherited[@]}"; do
   [[ "$entry" == /usr/bin || "$entry" == /bin ]] ||
@@ -489,6 +494,7 @@ EOF
 
 ln -s "$repo_root/zsh/.zshenv" "$home/.zshenv"
 ln -s "$repo_root/zsh/.config/zsh/.zshrc" "$config/zsh/.zshrc"
+ln -s "$repo_root/zsh/.config/zsh/.zprofile" "$config/zsh/.zprofile"
 for file in platform-env.zsh platform.zsh; do
   ln -s "$repo_root/platforms/macos/stow/zsh-platform/.config/zsh/$file" "$config/zsh/$file"
 done
@@ -885,18 +891,32 @@ expect_one_more_failure 'a Homebrew dotnet shadowing the mise-managed one fails 
   "dotnet resolves outside mise in the configured login PATH: $homebrew_bin/dotnet"
 
 # The same Homebrew copy behind the shims instead, on the PATH every login
-# inherits: the interactive login puts mise first and is satisfied, and only a
-# login that is not interactive runs Homebrew's node. This verifier never asked
-# that login before #507 (V4-11).
+# inherits: the interactive login puts mise first and is satisfied. This
+# verifier never asked a login that is not interactive before #507 (V4-11);
+# that login runs mise's shim when the zsh package's .zprofile is linked, and
+# Homebrew's node when it is not.
 brew_behind="$root/homebrew-behind-bin"
 mkdir -p "$brew_behind"
 printf '#!/usr/bin/env bash\n[[ "${1:-}" == -p ]] && printf "arm64\\n"\nexit 0\n' \
   >"$brew_behind/node"
 chmod +x "$brew_behind/node"
 run_verifier "PATH=$mock_bin:$brew_behind:/usr/bin:/bin"
-expect_one_more_failure 'a Homebrew node only a non-interactive login runs fails verification' \
+assert_eq "$baseline_failures" "$failures" \
+  'a Homebrew node behind the shims .zprofile adds: failure count'
+assert_not_contains "$TEST_OUTPUT" 'node resolves outside mise'
+printf 'PASS: a Homebrew node behind the login shims passes verification\n'
+
+mv "$config/zsh/.zprofile" "$root/withheld-zprofile"
+run_verifier "PATH=$mock_bin:$brew_behind:/usr/bin:/bin"
+assert_eq "$((baseline_failures + 2))" "$failures" \
+  'a Homebrew node and no .zprofile: failure count'
+assert_contains "$TEST_OUTPUT" "$config/zsh/.zprofile is missing"
+assert_contains "$TEST_OUTPUT" \
   "node resolves outside mise in a login that is not interactive: $brew_behind/node"
+assert_contains "$TEST_OUTPUT" 'restow the zsh package so that file is linked'
 assert_not_contains "$TEST_OUTPUT" 'node resolves outside mise in the configured login PATH'
+printf 'PASS: a Homebrew node only a login without .zprofile runs fails verification\n'
+mv "$root/withheld-zprofile" "$config/zsh/.zprofile"
 rm -r "$brew_behind"
 
 # A Neovim below the declared floor. It resolves and runs, so the command
@@ -943,6 +963,7 @@ cp "$repo_root/zsh/.zshenv" "$other_checkout/zsh/.zshenv"
 other_checkout="$(cd -- "$other_checkout" && pwd -P)"
 undeployed_links=(
   "$config/zsh/.zshrc"
+  "$config/zsh/.zprofile"
   "$config/zsh/platform.zsh"
   "$config/aerospace/aerospace.toml"
   "$home/.local/bin/aerospace-workspace-grid"
