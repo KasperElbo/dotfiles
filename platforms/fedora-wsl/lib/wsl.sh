@@ -39,6 +39,49 @@ systemd_is_running() {
   [[ "$(ps -p 1 -o comm= 2>/dev/null | tr -d '[:space:]')" == "systemd" ]]
 }
 
+# wsl_session_start_epoch: when this distribution's WSL instance started, in
+# whole seconds since the epoch. Prints nothing and fails when /proc cannot
+# answer.
+#
+# WSL reads /etc/wsl.conf once, as the instance starts, and never again until
+# "wsl --shutdown" or "wsl --terminate" stops it. So a wsl.conf that changed
+# after this moment has not been applied yet, however correct it is, and that
+# is the state every first install ends in: configure-interop.sh writes the
+# policy and the installer verifies straight after, in the same instance.
+#
+# PID 1 is this distribution's own init, systemd or WSL's, and it started with
+# the instance. Its start time is field 22 of /proc/1/stat, in clock ticks
+# since the kernel booted; /proc/stat's btime is that boot in epoch seconds.
+# Field 2 is the command name in parentheses and may itself contain spaces or
+# a ")", so the fields are counted from the last ")", where field 3 starts.
+wsl_session_start_epoch() {
+  local proc_root="${WSL_PROC_ROOT:-/proc}"
+  local init_stat=""
+  local -a init_fields=()
+  local key value
+  local boot_epoch=""
+  local clock_ticks=""
+
+  init_stat="$(cat "$proc_root/1/stat" 2>/dev/null)" || return 1
+  [[ "$init_stat" == *")"* ]] || return 1
+  read -r -a init_fields <<<"${init_stat##*)}"
+  [[ "${init_fields[19]:-}" =~ ^[0-9]+$ ]] || return 1
+
+  [[ -r "$proc_root/stat" ]] || return 1
+  while read -r key value _; do
+    if [[ "$key" == "btime" ]]; then
+      boot_epoch="$value"
+      break
+    fi
+  done <"$proc_root/stat"
+  [[ "$boot_epoch" =~ ^[0-9]+$ ]] || return 1
+
+  clock_ticks="$(getconf CLK_TCK 2>/dev/null)" || return 1
+  [[ "$clock_ticks" =~ ^[1-9][0-9]*$ ]] || return 1
+
+  printf '%s\n' "$((boot_epoch + init_fields[19] / clock_ticks))"
+}
+
 is_windows_path() {
   case "$1" in
   /mnt/[a-zA-Z]/* | *.exe | *.EXE) return 0 ;;

@@ -11,7 +11,7 @@ export LAZY_MOCK_INSTALL="$repo_root/tests/support/lazy-mock-install.sh"
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
-test_isolate_path git gzip jq sha256sum stow tar timeout
+test_isolate_path getconf git gzip jq sha256sum stow tar timeout
 test_new_root
 test_root="$TEST_ROOT"
 
@@ -858,17 +858,44 @@ grep -Fq "$enabled_append_conf sets [interop] appendWindowsPath=true" \
   "$test_root/wsl-conf-append-true.log"
 printf 'PASS: Fedora WSL verification names the value when appendWindowsPath is on\n'
 
+# WSL reads wsl.conf only as its instance starts, so whether a Windows entry
+# is a failure depends on when that was. write_wsl_proc <dir> <boot epoch>
+# <init start in seconds after boot> models /proc/stat's btime and field 22
+# of /proc/1/stat for the verifier's WSL_PROC_ROOT. The command name has a
+# space and a ")" in it, as a real one may: the fields are counted from the
+# last ")", and counting from the first would find no start time at all.
+wsl_clock_ticks="$(getconf CLK_TCK)"
+write_wsl_proc() {
+  local proc_dir="$1" boot_epoch="$2" start_seconds="$3"
+  local -a before_start=()
+  mkdir -p "$proc_dir/1"
+  printf 'cpu  1 2 3 4\nbtime %s\nprocesses 9\n' "$boot_epoch" >"$proc_dir/stat"
+  # Fields 3 to 21, then the start time as field 22, then the rest.
+  before_start=(S 0 1 1 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0)
+  printf '1 (init (wsl) x) %s %s 100 200\n' "${before_start[*]}" \
+    "$((start_seconds * wsl_clock_ticks))" >"$proc_dir/1/stat"
+}
+wsl_conf_written="$(stat -c %Y -- "$test_root/bootstrap-wsl.conf")"
+restarted_proc="$test_root/proc-restarted"
+write_wsl_proc "$restarted_proc" "$((wsl_conf_written - 3600))" 3660
+pending_proc="$test_root/proc-pending"
+write_wsl_proc "$pending_proc" "$((wsl_conf_written - 3600))" 10
+
 # With the wsl.conf policy in place but WSL still injecting Windows entries
-# (the file was written and never applied by "wsl --shutdown"), the sanitized
-# login PATH looks perfect -- the Zsh stripper removed the entry before the
-# verifier could see it. The unsanitized sample is what observes it, and it
-# must name the entry.
+# after a restart that should have applied it, the sanitized login PATH looks
+# perfect -- the Zsh stripper removed the entry before the verifier could see
+# it. The unsanitized sample is what observes it, and it must name the entry.
 injected_windows_entry="/mnt/c/Windows/System32"
 if "${bootstrap_environment[@]}" \
   "MOCK_SYSTEM_PATH_PREFIX=$injected_windows_entry" \
+  "WSL_PROC_ROOT=$restarted_proc" \
   "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
   >"$test_root/windows-path-injected.log" 2>&1; then
   printf 'Fedora WSL verification accepted a Windows entry in the unsanitized PATH.\n' >&2
+  exit 1
+fi
+if grep -Fq 'WSL has not restarted' "$test_root/windows-path-injected.log"; then
+  printf 'Fedora WSL verification blamed a restart on an instance that started after wsl.conf changed.\n' >&2
   exit 1
 fi
 grep -Fq \
@@ -883,6 +910,62 @@ fi
 grep -Fq 'The Zsh PATH sanitizer leaves only Linux filesystem entries' \
   "$test_root/windows-path-injected.log"
 printf 'PASS: Fedora WSL verification rejects a Windows entry the Zsh sanitizer hides\n'
+
+# The first install's own verify. configure-interop.sh has just written the
+# policy, and this instance started before it did, so the Windows entries are
+# still there and nothing inside WSL can apply the file. That is a restart to
+# ask for, once, not a failure per entry: on a clean install it was 53.
+assert_restart_pending() {
+  local log="$1"
+  grep -Fq "WSL has not restarted since $test_root/bootstrap-wsl.conf set appendWindowsPath=false, so this session still carries 2 Windows PATH entries" "$log"
+  grep -Fq "run 'wsl --shutdown' from Windows PowerShell" "$log"
+  grep -Fq 'Skipping explicit .exe lookup until WSL restarts' "$log"
+  if grep -Fq 'contains a Windows entry' "$log" ||
+    grep -Fq 'resolves through inherited Windows PATH' "$log"; then
+    printf 'Fedora WSL verification failed Windows entries a pending restart explains:\n' >&2
+    sed -n '1,120p' "$log" >&2
+    exit 1
+  fi
+}
+two_windows_entries="/mnt/c/Windows/System32:/mnt/c/Program Files/Git/cmd"
+if ! "${bootstrap_environment[@]}" \
+  "MOCK_SYSTEM_PATH_PREFIX=$two_windows_entries" \
+  "WSL_PROC_ROOT=$pending_proc" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/windows-path-restart-pending.log" 2>&1; then
+  printf 'Fedora WSL verification failed a first install whose WSL has not restarted yet:\n' >&2
+  sed -n '1,160p' "$test_root/windows-path-restart-pending.log" >&2
+  exit 1
+fi
+assert_restart_pending "$test_root/windows-path-restart-pending.log"
+grep -Fq '2 unobserved check(s)' "$test_root/windows-path-restart-pending.log"
+
+# The same from this machine's real /proc, which is what reads it on WSL: this
+# test wrote wsl.conf long after PID 1 started.
+if ! "${bootstrap_environment[@]}" \
+  "MOCK_SYSTEM_PATH_PREFIX=$two_windows_entries" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/windows-path-restart-pending-real-proc.log" 2>&1; then
+  printf 'Fedora WSL verification could not read the instance start from the real /proc:\n' >&2
+  sed -n '1,160p' "$test_root/windows-path-restart-pending-real-proc.log" >&2
+  exit 1
+fi
+assert_restart_pending "$test_root/windows-path-restart-pending-real-proc.log"
+
+# When /proc cannot say when the instance started, a restart cannot be told
+# from a policy WSL ignores, and the entries fail as they always did.
+if "${bootstrap_environment[@]}" \
+  "MOCK_SYSTEM_PATH_PREFIX=$injected_windows_entry" \
+  "WSL_PROC_ROOT=$test_root/proc-absent" \
+  "$repo_root/platforms/fedora-wsl/scripts/verify.sh" \
+  >"$test_root/windows-path-no-proc.log" 2>&1; then
+  printf 'Fedora WSL verification accepted a Windows entry without knowing when WSL started.\n' >&2
+  exit 1
+fi
+grep -Fq \
+  "The unsanitized system PATH contains a Windows entry: $injected_windows_entry" \
+  "$test_root/windows-path-no-proc.log"
+printf 'PASS: Fedora WSL verification asks for a WSL restart, not 53 failures, before wsl.conf applies\n'
 
 wsl_tmux_plugin="$bootstrap_data/tmux/plugins/catppuccin"
 rm -f -- "$wsl_tmux_plugin/catppuccin.tmux"
