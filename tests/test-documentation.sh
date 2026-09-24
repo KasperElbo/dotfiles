@@ -614,7 +614,7 @@ conventions="$repo_root/docs/architecture/repository-conventions.md"
 assert_file_contains "$conventions" "## Generated artifacts"
 while read -r renderer; do
   assert_file_contains "$conventions" "scripts/$renderer"
-done < <(grep -o 'scripts/render-[a-z-]*\.py' "$repo_root/scripts/lint.sh" |
+done < <(code_grep -o 'scripts/render-[a-z-]*\.py' "$repo_root/scripts/lint.sh" |
   sed 's|scripts/||' | sort -u)
 assert_file_contains "$conventions" "scripts/update-starship-themes.sh"
 printf 'PASS: every generator lint runs is in the generated-artifact list\n'

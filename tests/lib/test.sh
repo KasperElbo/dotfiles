@@ -212,6 +212,12 @@ assert_file_not_contains() {
   fi
 }
 
+# source_code, code_grep and the assert_code_* assertions: reading a tracked
+# source with its comments dropped. Their own file, so a suite that does not
+# use this library can still read code rather than text.
+# shellcheck source=source-code.sh
+source "$(dirname -- "${BASH_SOURCE[0]}")/source-code.sh"
+
 # files_identical <first> <second>: byte comparison without diffutils.
 #
 # The Fedora validation container ships no cmp or diff, and a missing tool must

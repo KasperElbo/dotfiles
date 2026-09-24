@@ -173,11 +173,11 @@ assert_contains "$TEST_OUTPUT" 'helper returned failure'
 
 printf 'Every suite that sources the library keeps its failure accumulator\n'
 for suite in "$repo_root"/tests/test-*.sh; do
-  grep -Fq 'source "$repo_root/tests/lib/test.sh"' "$suite" || continue
-  assert_file_contains "$suite" 'test_install_cleanup_trap'
+  code_grep -Fq 'source "$repo_root/tests/lib/test.sh"' "$suite" || continue
+  assert_code_contains "$suite" 'test_install_cleanup_trap'
   # A suite-owned EXIT trap replaces the library's and drops the check; extra
   # cleanup belongs in the test_install_cleanup_trap hook instead.
-  if grep -Eq '^[[:space:]]*trap[[:space:]].*EXIT' "$suite"; then
+  if code_grep -Eq '^[[:space:]]*trap[[:space:]].*EXIT' "$suite"; then
     _test_die "$suite installs its own EXIT trap; pass cleanup to test_install_cleanup_trap"
   fi
 done
@@ -330,5 +330,89 @@ assert_verifier_failures "$(cat "$root/verifier-clean.log")"
 run_suite '-uo pipefail' "assert_verifier_failures \"\$(cat $root/verifier-extra.log)\""
 assert_status 1
 assert_contains "$TEST_OUTPUT" 'reported, never declared: a check that fails on every run'
+
+# --- Source assertions read code, not comments (#537) -----------------------
+#
+# A raw search for a call cannot tell it from a comment naming it, so a suite
+# asserting a call was there passed when the call was replaced by a comment
+# that named it. The assert_code_* assertions read the file through the
+# shared readers with comments dropped; each case below is that mutation, on
+# a copy of a tracked source, in the language it is written in.
+printf 'Source assertions do not accept a comment naming the call\n'
+code_fixtures="$root/source-code"
+mkdir -p "$code_fixtures"
+
+# A real verifier call and a real PowerShell function, each replaced by a
+# comment naming it: the raw-text assertion still passes, the code one fails.
+sed 's/^check_catppuccin_tmux$/# check_catppuccin_tmux runs after the theme is applied/' \
+  "$repo_root/platforms/macos/scripts/verify.sh" >"$code_fixtures/verify.sh"
+! cmp -s "$repo_root/platforms/macos/scripts/verify.sh" "$code_fixtures/verify.sh" ||
+  _test_die 'the macOS verifier fixture no longer finds its check_catppuccin_tmux call'
+sed 's/^function Invoke-ElevatedWslUpdate {$/# function Invoke-ElevatedWslUpdate { is defined in the elevated phase/' \
+  "$repo_root/platforms/windows/install.ps1" >"$code_fixtures/install.ps1"
+! cmp -s "$repo_root/platforms/windows/install.ps1" "$code_fixtures/install.ps1" ||
+  _test_die 'the Windows installer fixture no longer finds Invoke-ElevatedWslUpdate'
+for mutated in "$code_fixtures/verify.sh:check_catppuccin_tmux" \
+  "$code_fixtures/install.ps1:function Invoke-ElevatedWslUpdate"; do
+  mutated_file="${mutated%%:*}" needle="${mutated#*:}"
+  run_capture assert_file_contains "$mutated_file" "$needle"
+  assert_success
+  run_capture assert_code_contains "$mutated_file" "$needle"
+  assert_status 1
+  assert_contains "$TEST_OUTPUT" '(comments dropped)'
+done
+assert_code_contains "$repo_root/platforms/macos/scripts/verify.sh" 'check_catppuccin_tmux'
+assert_code_contains "$repo_root/platforms/windows/install.ps1" 'function Invoke-ElevatedWslUpdate'
+printf 'PASS: a call replaced by a comment naming it fails the code assertion\n'
+
+# What the PowerShell reader keeps and drops. A `#` inside a string, a
+# here-string or a bareword is text; one that starts a token opens a comment,
+# and <# #> spans lines without moving the ones after it.
+cat >"$code_fixtures/reader.ps1" <<'POWERSHELL'
+Write-Host "a # b" # trailing Invoke-Hidden
+$x = 1 <# Invoke-Hidden #> + 2
+<#
+Invoke-Hidden
+#>
+$tag = 'it''s # kept'
+$escaped = "`"# kept"
+$here = @'
+# kept in a here-string
+'@
+a#b
+POWERSHELL
+assert_eq 'Write-Host "a # b"
+$x = 1  + 2
+
+
+
+$tag = '"'it''s # kept'"'
+$escaped = "`"# kept"
+$here = @'"'"'
+# kept in a here-string
+'"'"'@
+a#b' "$(source_code "$code_fixtures/reader.ps1" | sed 's/[[:space:]]*$//')" \
+  'the PowerShell reader (trailing blanks trimmed for the comparison)'
+printf '$x = "never closed\n' >"$code_fixtures/unterminated.ps1"
+run_capture source_code "$code_fixtures/unterminated.ps1"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'ends inside a string'
+printf 'PASS: PowerShell comments are dropped and strings are kept, line for line\n'
+
+# A reader that cannot read ends the suite rather than answering "no match",
+# which a negative assertion would take for a pass; and a data file is not
+# silently read as code.
+run_capture bash -c '
+  set -uo pipefail
+  source "$1/tests/lib/source-code.sh"
+  if code_grep -Fq anything "$2"; then printf "matched\n"; fi
+  printf "suite reached its end\n"
+' _ "$repo_root" "$code_fixtures/unterminated.ps1"
+assert_status 1
+assert_not_contains "$TEST_OUTPUT" 'suite reached its end'
+run_capture source_code "$repo_root/platforms/macos/Brewfile"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'neither shell nor PowerShell'
+printf 'PASS: an unreadable or non-code file is a failure, never a quiet miss\n'
 
 printf 'Shared test-support tests passed.\n'

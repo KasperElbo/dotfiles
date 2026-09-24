@@ -190,13 +190,13 @@ assert_contains "$off_plan" 'Local voice dictation profile: false'
 assert_not_contains "$off_plan" 'Install the optional dictation profile'
 printf 'PASS: --no-dictation turns the selection back off\n'
 
-assert_file_contains "$repo_root/platforms/macos/lib/usage-options.sh" '--dictation/--no-dictation'
+assert_code_contains "$repo_root/platforms/macos/lib/usage-options.sh" '--dictation/--no-dictation'
 printf 'PASS: the platform help advertises the flag\n'
 
 # The step's preflight is what refuses an account that cannot write to
 # /Applications before any other step has run. A dry run stops before
 # preflight, so its plan cannot show the wiring; the plan registration can.
-assert_file_contains "$repo_root/platforms/macos/install.sh" \
+assert_code_contains "$repo_root/platforms/macos/install.sh" \
   'apply dictation_preflight apply_dictation'
 printf 'PASS: the dictation step registers its write-access preflight\n'
 

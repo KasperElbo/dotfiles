@@ -271,6 +271,7 @@ if [[ "${pinned_rpm%.rpm}" == "$pinned_nvra" ]]; then
 separately: upstream publishes Handy-<version>-1.x86_64.rpm and rpm records
 handy-<version>-1.x86_64, so deriving either from the other is wrong'
 fi
+# Raw text on purpose: the provenance annotation this looks for is a comment.
 grep -Fq '# network-source: handy-release' "$dictation_lib" ||
   _test_die 'the pinned download must name its registered network source'
 grep -Fq '# network-source: handy-release' "$installer" ||
@@ -371,7 +372,7 @@ printf 'PASS: no dnf signature check is relaxed to install the pinned rpm\n'
 for forbidden in usermod gpasswd dotool uinput; do
   assert_file_not_contains "$command_log" "$forbidden"
 done
-if grep -Eq '(^|[^a-z-])usermod([^a-z-]|$)' "$installer"; then
+if code_grep -Eq '(^|[^a-z-])usermod([^a-z-]|$)' "$installer"; then
   _test_die 'the dictation installer must never add the user to a group'
 fi
 assert_file_contains "$state_file" 'paste_backend=wtype'

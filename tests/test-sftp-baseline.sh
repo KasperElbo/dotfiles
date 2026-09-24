@@ -107,15 +107,15 @@ printf 'PASS: removing the declared package from a platform fails\n'
 # macOS requires Apple's /usr/bin client. Both run only on their own platform,
 # so this asserts the contract each platform's CI then exercises for real.
 fedora_verify="$repo_root/platforms/fedora/scripts/verify.sh"
-assert_file_contains "$fedora_verify" "rpm -qf --queryformat '%{NAME}'"
-assert_file_contains "$fedora_verify" "expected Fedora's openssh-clients"
-assert_file_contains "$fedora_verify" 'for cmd in sftp scp ssh'
+assert_code_contains "$fedora_verify" "rpm -qf --queryformat '%{NAME}'"
+assert_code_contains "$fedora_verify" "expected Fedora's openssh-clients"
+assert_code_contains "$fedora_verify" 'for cmd in sftp scp ssh'
 
 macos_verify="$repo_root/platforms/macos/scripts/verify.sh"
-assert_file_contains "$macos_verify" 'SFTP client baseline'
-assert_file_contains "$macos_verify" "Apple's system OpenSSH"
+assert_code_contains "$macos_verify" 'SFTP client baseline'
+assert_code_contains "$macos_verify" "Apple's system OpenSSH"
 # shellcheck disable=SC2016 # Matching the literal expression in verify.sh.
-assert_file_contains "$macos_verify" '/usr/bin/"$name"'
+assert_code_contains "$macos_verify" '/usr/bin/"$name"'
 
 if grep -Fqi 'openssh' "$repo_root/platforms/macos/Brewfile" ||
   grep -Fqi 'filezilla' "$repo_root/platforms/macos/Brewfile"; then
@@ -125,9 +125,9 @@ printf 'PASS: verifiers prove provider ownership instead of accepting any binary
 
 # KDE's sftp:// path is reused from kio-extras rather than duplicated, and no
 # platform installs a dedicated GUI client.
-assert_file_contains "$repo_root/platforms/fedora/scripts/install-kde-theme.sh" \
+assert_code_contains "$repo_root/platforms/fedora/scripts/install-kde-theme.sh" \
   'kio-extras'
-assert_file_contains "$fedora_verify" 'kio-extras'
+assert_code_contains "$fedora_verify" 'kio-extras'
 for package_file in \
   "$repo_root/platforms/fedora/scripts/install-system.sh" \
   "$repo_root/platforms/fedora/scripts/install-sway.sh" \
@@ -137,7 +137,7 @@ for package_file in \
   fi
 done
 
-if grep -Eq -- '--(no-)?openssh|--(no-)?sftp' \
+if code_grep -Eq -- '--(no-)?openssh|--(no-)?sftp' \
   "$repo_root/platforms/fedora/install.sh"; then
   _test_die 'SFTP capability must not be gated behind an installer flag'
 fi
