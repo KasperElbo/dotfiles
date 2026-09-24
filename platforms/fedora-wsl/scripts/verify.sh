@@ -143,6 +143,7 @@ section "Windows PATH injection policy"
 # the renderer configure-interop.sh writes with.
 wsl_conf_file="${WSL_CONF_FILE:-/etc/wsl.conf}"
 wsl_conf_remedy="run platforms/fedora-wsl/scripts/configure-interop.sh, then 'wsl --shutdown' from Windows PowerShell (this affects every WSL distribution, not just this one) and reopen this distribution"
+append_windows_path=""
 
 if [[ -r "$wsl_conf_file" ]]; then
   wsl_conf_content="$(cat "$wsl_conf_file")"
@@ -181,26 +182,56 @@ system_path="$(
     sed -n 's/^__DOTFILES_VERIFY_SYSTEM_PATH__//p' |
     tail -n 1
 )"
+#
+# A Windows entry is a failure unless this WSL instance started before
+# wsl.conf got its policy. WSL reads the file only as an instance starts, so
+# until the next restart the entries are expected, and whether the policy
+# removes them cannot be observed from inside: that is what every first
+# install sees, since the installer verifies in the instance it configured
+# (53 failures on a clean install, 24 September 2026). The file's
+# modification time against the instance's start is what tells the two apart,
+# and when /proc cannot give the start, the entries fail as before.
+wsl_restart_pending="false"
+if [[ "$append_windows_path" == "false" ]]; then
+  wsl_conf_modified="$(stat -c %Y -- "$wsl_conf_file" 2>/dev/null || true)"
+  wsl_session_started="$(wsl_session_start_epoch || true)"
+  if [[ "$wsl_conf_modified" =~ ^[0-9]+$ && "$wsl_session_started" =~ ^[0-9]+$ ]] &&
+    ((wsl_conf_modified > wsl_session_started)); then
+    wsl_restart_pending="true"
+  fi
+fi
+
+system_path_windows_entries=()
+system_path_restart_reported="false"
 if [[ -z "$system_path" ]]; then
   fail "Could not inspect the unsanitized system PATH"
 else
-  system_path_has_windows_entry="false"
   IFS=: read -r -a system_path_entries <<<"$system_path"
   for path_entry in "${system_path_entries[@]}"; do
     if is_windows_path "$path_entry"; then
-      fail "The unsanitized system PATH contains a Windows entry: $path_entry ($wsl_conf_remedy)"
-      system_path_has_windows_entry="true"
+      system_path_windows_entries+=("$path_entry")
     fi
   done
 
-  if [[ "$system_path_has_windows_entry" == "false" ]]; then
+  if ((${#system_path_windows_entries[@]} == 0)); then
     pass "The unsanitized system PATH contains only Linux filesystem entries"
+  elif [[ "$wsl_restart_pending" == "true" ]]; then
+    not_observed "WSL has not restarted since $wsl_conf_file set appendWindowsPath=false, so this session still carries ${#system_path_windows_entries[@]} Windows PATH entries and the policy cannot be observed yet: run 'wsl --shutdown' from Windows PowerShell (this affects every WSL distribution, not just this one), reopen this distribution, and run platforms/fedora-wsl/scripts/verify.sh again"
+    system_path_restart_reported="true"
+  else
+    for path_entry in "${system_path_windows_entries[@]}"; do
+      fail "The unsanitized system PATH contains a Windows entry: $path_entry ($wsl_conf_remedy)"
+    done
   fi
 fi
 
 # Without a system PATH these lookups would run against an empty PATH and
-# report vacuous passes. The probe failure is already recorded above.
-if [[ -n "$system_path" ]]; then
+# report vacuous passes. The probe failure is already recorded above. Before
+# the restart they would only find .exe files in the entries the restart
+# removes, so they wait for it too.
+if [[ -n "$system_path" && "$system_path_restart_reported" == "true" ]]; then
+  not_observed "Skipping explicit .exe lookup until WSL restarts and applies $wsl_conf_file"
+elif [[ -n "$system_path" ]]; then
   for command_name in node.exe dotnet.exe python.exe claude.exe codex.exe; do
     check_windows_path_command_absent "$command_name"
   done
