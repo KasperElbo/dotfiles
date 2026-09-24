@@ -409,9 +409,9 @@ the terminal actually emits one of the bound sequences — press `Home`, `End`,
 `Delete`, `Ctrl+Left`, `Ctrl+Right` and prefix-filtered `Up`/`Down` once in
 that terminal.
 
-`./scripts/benchmark-shell-startup.sh` measures interactive and
-non-interactive startup and can enforce a budget with `--interactive-ms` /
-`--non-interactive-ms`. It is deliberately **not** in `./scripts/test.sh`:
+`./scripts/benchmark-shell-startup.sh` measures interactive login,
+interactive and non-interactive startup and can enforce a budget with
+`--interactive-login-ms`, `--interactive-ms` / `--non-interactive-ms`. It is deliberately **not** in `./scripts/test.sh`:
 wall-clock timing is machine- and load-dependent, so a timing assertion in the
 fast suite would be a flaky gate rather than evidence.
 
