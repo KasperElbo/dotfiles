@@ -230,7 +230,11 @@ $(cat "$test_root/$name.log")"
 }
 # The obvious failure: tar exits 2 and leaves nothing behind.
 failing_tar_run tar-extracts-nothing false
-printf 'PASS: Parrot stops when tar fails and extracts nothing\n'
+# The shape that got past it: tar extracts the whole binary, then exits 2. The
+# regular-file check after it passes and install is the last command, so only
+# tar's own guard can report the failure.
+failing_tar_run tar-extracts-then-fails true
+printf 'PASS: Parrot stops when tar fails, whether or not it extracted\n'
 grep -Fq 'sudo apt-get update' "$command_log"
 grep -Fq 'apt-get install -y --no-install-recommends bat build-essential' "$command_log"
 grep -Fq 'starship' "$command_log"
