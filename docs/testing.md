@@ -958,6 +958,14 @@ so the pull-request run and the push run validate the same tree. The main
 evidence check reports the setting as a finding for as long as it is absent,
 reading it from GitHub's public rules endpoint for the branch.
 
+`REQUIRED_JOBS` in `scripts/validate-repository-hygiene.py` is the one list of
+those four jobs and their names. `validate.yml` has to define exactly them,
+none carrying an `if:` or `continue-on-error` or waiting on a job with an
+`if:`, because GitHub counts a skipped job as a passing required check. The job
+table under [Fast PR validation](#fast-pr-validation) and the paragraph above
+have to name the same jobs, so renaming one fails lint until the list, this
+page and the ruleset change together.
+
 ## Secret scanning
 
 `./scripts/scan-secrets.sh` is the gate behind the README's claim that nothing

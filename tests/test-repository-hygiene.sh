@@ -42,6 +42,7 @@ concurrency:
 jobs:
   repository:
     runs-on: ubuntu-latest
+    name: Repository validation
     steps:
       - name: Scan for committed credentials
         run: ./scripts/scan-secrets.sh
@@ -49,12 +50,39 @@ jobs:
         run: ./scripts/lint.sh
       - name: Test bootstrap and installer behavior
         run: ./scripts/test.sh
+  cheatsheets:
+    runs-on: ubuntu-latest
+    name: Printable cheat sheets
+    steps:
+      - run: "true"
   windows:
     runs-on: windows-latest
+    name: Windows PowerShell validation
     steps:
       - name: Analyse every tracked PowerShell file
         shell: pwsh
         run: ./tests/test-windows-static-analysis.ps1
+  macos:
+    runs-on: macos-26
+    name: macOS 26 arm64 validation
+    steps:
+      - run: "true"
+EOF
+  # Where the required jobs are named for a reader, which has to agree with
+  # the workflow; the real page is copied in by new_real_workflow_tree.
+  cat >"$tree/docs/testing.md" <<'EOF'
+# Testing
+
+| Job | Runner / image | What it runs |
+| --- | --- | --- |
+| `repository` (Repository validation) | `ubuntu-latest` | the suite |
+| `cheatsheets` (Printable cheat sheets) | `ubuntu-latest` | the sheets |
+| `windows` (Windows PowerShell validation) | `windows-latest` | the analysis |
+| `macos` (macOS 26 arm64 validation) | `macos-26` | lint |
+
+**Merging should require the four Validate jobs on an up-to-date branch.**
+The rule names `Repository validation`, `Printable cheat sheets`,
+`Windows PowerShell validation` and `macOS 26 arm64 validation`.
 EOF
   cat >"$tree/docs/reference/third-party-notices.md" <<'EOF'
 # Third-party notices
@@ -939,6 +967,7 @@ printf 'PASS: commenting the CI step out is refused\n'
 new_real_workflow_tree() {
   new_clean_tree
   cp "$repo_root/.github/workflows/validate.yml" "$tree/.github/workflows/validate.yml"
+  cp "$repo_root/docs/testing.md" "$tree/docs/testing.md"
 }
 
 new_real_workflow_tree
@@ -1336,5 +1365,126 @@ run_capture python3 "$validator" --root "$tree"
 assert_failure
 assert_contains "$TEST_OUTPUT" 'concurrency `cancel-in-progress` is nothing'
 printf 'PASS: the accepted value in a comment does not count\n'
+
+# --- The required jobs are exactly the ones merging waits for (#538) ------
+#
+# REQUIRED_STEPS pins four commands, and neither `cheatsheets` nor `macos`
+# carries one that `repository` or `windows` does not already satisfy. So
+# `continue-on-error: true` or an `if:` on either, or a new `name:` that the
+# branch rules no longer match, passed every check, and GitHub counts a skipped
+# job as a passing required check. Each case edits the real validate.yml.
+
+# drop_job <key>: that job, from its key to the next job or the end.
+drop_job() {
+  python3 - "$tree/.github/workflows/validate.yml" "$1" <<'PYTHON'
+import pathlib
+import sys
+
+workflow, key = pathlib.Path(sys.argv[1]), sys.argv[2]
+lines = workflow.read_text(encoding="utf-8").splitlines(keepends=True)
+starts = [index for index, line in enumerate(lines) if line == f"  {key}:\n"]
+if len(starts) != 1:
+    raise SystemExit(f"the fixture workflow has {len(starts)} jobs keyed {key!r}")
+end = starts[0] + 1
+while end < len(lines) and (not lines[end].strip() or lines[end].startswith("    ")):
+    end += 1
+workflow.write_text("".join(lines[:starts[0]] + lines[end:]), encoding="utf-8")
+PYTHON
+}
+
+# edit_doc <old> <new>: one exact replacement in the fixture's docs/testing.md.
+edit_doc() {
+  python3 - "$tree/docs/testing.md" "$1" "$2" <<'PYTHON'
+import pathlib
+import sys
+
+page, old, new = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+text = page.read_text(encoding="utf-8")
+if old not in text:
+    raise SystemExit(f"the fixture page has no {old!r} to replace")
+page.write_text(text.replace(old, new, 1), encoding="utf-8")
+PYTHON
+}
+
+new_real_workflow_tree
+edit_workflow '    name: Printable cheat sheets' $'    name: Printable cheat sheets\n    continue-on-error: true'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line 'continue-on-error: true'): job \`cheatsheets\` carries \`continue-on-error: true\`, so its failure is not one"
+printf 'PASS: a required job whose failure is tolerated is refused, naming the line\n'
+
+# Tolerated only where it matters: on pull requests, the runs merging waits for.
+new_real_workflow_tree
+edit_workflow '    name: Printable cheat sheets' \
+  $'    name: Printable cheat sheets\n    continue-on-error: ${{ github.event_name == \'pull_request\' }}'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line 'continue-on-error: ${{'): job \`cheatsheets\` carries \`continue-on-error: \${{ github.event_name == 'pull_request' }}\`"
+printf 'PASS: a required job tolerated only on pull requests is refused\n'
+
+new_real_workflow_tree
+edit_workflow '    name: Printable cheat sheets' \
+  $'    name: Printable cheat sheets\n    if: github.event_name != \'pull_request\''
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line "if: github.event_name != 'pull_request'"): job \`cheatsheets\` carries \`if: github.event_name != 'pull_request'\`, so it can be skipped"
+printf 'PASS: a required job that skips pull requests is refused, naming the line\n'
+
+# The job itself is clean; the one it waits on is not, so it is skipped with it.
+new_real_workflow_tree
+edit_workflow '    name: Printable cheat sheets' $'    name: Printable cheat sheets\n    needs: macos'
+edit_workflow '    name: macOS 26 arm64 validation' \
+  $'    name: macOS 26 arm64 validation\n    if: github.event_name == \'push\''
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" "job \`cheatsheets\` waits on \`macos\`, which carries \`if: github.event_name == 'push'\`"
+printf 'PASS: a required job behind a job that can be skipped is refused\n'
+
+new_real_workflow_tree
+edit_workflow '    name: Printable cheat sheets' '    name: Cheat sheets (informational)'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line 'name: Cheat sheets (informational)'): job \`cheatsheets\` is named \`Cheat sheets (informational)\`, not \`Printable cheat sheets\`"
+printf 'PASS: renaming a required job is refused, naming the line\n'
+
+# A rename the branch rule would not match, however small, and one carried
+# through to docs/testing.md as well: the page agreeing is not the rule agreeing.
+new_real_workflow_tree
+edit_workflow '    name: Printable cheat sheets' '    name: Printable Cheat Sheets'
+edit_doc '`Printable cheat sheets`' '`Printable Cheat Sheets`'
+edit_doc '`cheatsheets` (Printable cheat sheets)' '`cheatsheets` (Printable Cheat Sheets)'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'job `cheatsheets` is named `Printable Cheat Sheets`, not `Printable cheat sheets`'
+printf 'PASS: a case-only rename, even one the page follows, is refused\n'
+
+new_real_workflow_tree
+drop_job macos
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '.github/workflows/validate.yml has no job `macos` (`macOS 26 arm64 validation`)'
+printf 'PASS: deleting a required job is refused by name\n'
+
+new_real_workflow_tree
+edit_workflow $'  windows:\n' $'  extra:\n    name: Extra\n    runs-on: ubuntu-latest\n    steps:\n      - run: "true"\n\n  windows:\n'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line '  extra:'): job \`extra\` is not one of REQUIRED_JOBS"
+printf 'PASS: a job merging does not wait for is refused\n'
+
+# The page is held to the same names, so it cannot drift from the workflow.
+new_real_workflow_tree
+edit_doc '`Printable cheat sheets`,' '`Cheat sheets`,'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'docs/testing.md: the paragraph on merge rules does not name `Printable cheat sheets`'
+printf 'PASS: a merge-rules paragraph naming another check is refused\n'
+
+new_real_workflow_tree
+edit_doc '`macos` (macOS 26 arm64 validation)' '`macos` (macOS arm64 validation)'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'docs/testing.md: the job table names `macos` as `macOS arm64 validation`, not `macOS 26 arm64 validation`'
+printf 'PASS: a job table naming a job differently is refused\n'
 
 printf '\nAll repository hygiene checks passed.\n'
