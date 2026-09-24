@@ -629,17 +629,12 @@ service_bin="$root/service-bin"
 mkdir -p "$service_bin"
 cat >"$service_bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
-scope=system
-if [[ "${1:-}" == --user ]]; then
-  scope=user
-  shift
-fi
 case "${1:-} ${2:-}" in
 "is-enabled --quiet") units="$MOCK_ENABLED" ;;
 "is-active --quiet") units="$MOCK_ACTIVE" ;;
 *) exit 96 ;;
 esac
-[[ " $units " == *" $scope:$3 "* ]]
+[[ " $units " == *" $3 "* ]]
 EOF
 chmod +x "$service_bin/systemctl"
 
@@ -651,20 +646,20 @@ check_service() {
 }
 
 verify_reset
-check_service system:firewalld.service system:firewalld.service \
+check_service firewalld.service firewalld.service \
   check_system_service_enabled_and_active firewalld.service
 assert_verifier_counts 1 0 0
 assert_file_contains "$root/service.out" 'firewalld.service is enabled and active'
 
 verify_reset
-check_service "" system:firewalld.service \
+check_service "" firewalld.service \
   check_system_service_enabled_and_active firewalld.service
 assert_verifier_counts 0 1 0
 assert_file_contains "$root/service.out" \
   'firewalld.service is active but not enabled; it will not start after a reboot'
 
 verify_reset
-check_service system:auditd.service "" \
+check_service auditd.service "" \
   check_system_service_enabled_and_active auditd.service
 assert_verifier_counts 0 1 0
 assert_file_contains "$root/service.out" 'auditd.service is enabled but not active'
@@ -674,14 +669,13 @@ check_service "" "" check_system_service_enabled_and_active auditd.service
 assert_verifier_counts 0 1 0
 assert_file_contains "$root/service.out" 'auditd.service is neither enabled nor active'
 
-# The user scope is its own unit namespace: a system unit of the same name
-# must not satisfy it.
-verify_reset
-check_service "system:podman.socket user:podman.socket" system:podman.socket \
-  check_user_service_enabled_and_active podman.socket
-assert_verifier_counts 0 1 0
-assert_file_contains "$root/service.out" \
-  'podman.socket is enabled for the user but not active'
+# The user-scope counterpart was retired uncalled: no verifier ran it, and
+# only the case that used to stand here named it, which the reachability audit
+# below took for a caller. podman.socket, the one user unit an installer
+# enables, is checked by verify-containers.sh against its recorded intent.
+if declare -F check_user_service_enabled_and_active >/dev/null; then
+  _test_die "check_user_service_enabled_and_active must stay retired; no verifier calls it"
+fi
 
 printf 'Mason inventory\n'
 mason_mock_install="$repo_root/tests/support/mason-mock-install.sh"
