@@ -131,14 +131,14 @@ jobs:
         # ("API rate limit exceeded for 13.105.117.77") with nothing wrong on
         # its own side. The workflow's own token raises it to 5000/hour.
         #
-        # This deliberately puts a token in the environment of staged
-        # third-party installers, which is why it is scoped to the two steps
-        # that run them, and why the workflow's permissions are contents:read
-        # -- the token can read this repository's contents and nothing else.
-        # See docs/supply-chain.md, "Authenticating the rate-limited API".
-        # Both spellings: an upstream that reads either finds it, and the
-        # installer offers the same token through a netrc for the ones that
-        # read neither.
+        # The staged third-party installers never see it as a variable: they
+        # run under the minimal installer environment, which drops
+        # GITHUB_TOKEN and GH_TOKEN, and are offered it only as a netrc entry
+        # for api.github.com. It is set only on the steps that install, and
+        # the workflow's permissions are contents:read, so it can read this
+        # repository and nothing else. See docs/supply-chain.md,
+        # "Authenticating the rate-limited API". Both spellings, because
+        # install-ai.sh takes either.
         #
         # --tailscale is selected here, not left off: this step is the
         # real-installation evidence config/capabilities.tsv claims for that
