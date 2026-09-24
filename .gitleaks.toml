@@ -12,8 +12,8 @@ useDefault = true
 
 # The allowlist is deliberately empty.
 #
-# It is empty because it can be: the working tree and all 604 commits of
-# history scan clean against the default rules. Every future entry therefore
+# It is empty because it can be: the working tree and its whole history scan
+# clean against the default rules. Every future entry therefore
 # has to justify itself against that, rather than being added to an existing
 # pile nobody re-reads.
 #
