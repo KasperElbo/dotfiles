@@ -1096,9 +1096,14 @@ test contract: it proves the installed `[interop] enabled=true` /
 `appendWindowsPath=false` policy after WSL has re-read `/etc/wsl.conf`, rather
 than merely checking the file written during the original session. The workflow
 then runs the idempotent install and selected-state transition before
-terminating/unregistering the distro and removing the imported files. Do not
-refresh the golden export from a previously provisioned validation run; rebuild
-or deliberately update it from a known-clean source instead.
+terminating/unregistering the distro and removing the imported files. That
+removal runs on success, failure and cancellation, but not when the runner
+itself is lost mid-run, so the job's first step unregisters any
+`dotfiles-ci-*` distro an interrupted run left behind. The runner is expected
+to serve this job alone, one job at a time; a second runner with the same
+label would have its in-flight distro swept. Do not refresh the golden export
+from a previously provisioned validation run; rebuild or deliberately update it
+from a known-clean source instead.
 
 The optional real Parrot VM job expects a runner labelled:
 
@@ -1111,7 +1116,25 @@ guest expected by the profile, including the normal guest-agent/SPICE channels.
 Revert its VM snapshot after each validation run; do not preserve `$HOME`, mise,
 Mason, package-manager or lifecycle state as a cache. The invalid-package check
 uses an isolated HOME and disposable repository copy, but the VM snapshot is
-still the authority for clean-machine state.
+still the authority for clean-machine state. The guest cannot revert its own
+snapshot, so the job cannot enforce a clean start; it refuses one that is
+visibly not clean instead. Its first step fails when the dotfiles lifecycle
+state, the saved selections or mise's data directory from an earlier
+installation are present, because evidence gathered on top of them is a rerun,
+not a first install. After the idempotent rerun the verifier runs again, as it
+does in the WSL job.
+
+Neither job runs on the weekly schedule, so each Monday
+`.github/workflows/self-hosted-evidence.yml` runs
+`scripts/check-self-hosted-evidence.py`, which finds each self-hosted job's
+newest successful dispatched run on a commit main contains. When one is more
+than 30 days old, or there is none, it opens the issue "Self-hosted real-install
+jobs have not succeeded this month", and the first run that finds both current
+closes it. Its report, in the run's summary, gives each job's last success date,
+commit and how far behind main that commit is. Clearing it means dispatching
+real-install.yml on main with `run_self_hosted_wsl` and
+`run_self_hosted_parrot` set, with the WSL runner up and the Parrot guest
+reverted to its clean snapshot.
 
 ## Manual acceptance records
 
