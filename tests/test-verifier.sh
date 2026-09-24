@@ -1421,11 +1421,16 @@ printf 'PASS: a failing sub-verifier over leftover state is a failure too\n'
 # So only shell files are read, through the shared reader, with comments,
 # quoted text and heredoc bodies blanked out -- prose may name a helper, and a
 # definition of the same name (a test's stub) is not a call to it either.
+#
+# And a caller is a verifier or a library, not a suite. A suite that drives a
+# helper directly proves the helper works, not that any verifier runs it:
+# check_user_service_enabled_and_active was reached only by tests/ passing it
+# to a probe as an argument, and the gate counted that as a caller (#537).
 printf 'Shared verifier helper reachability\n'
 
 # uncalled_verify_helpers <tree>: the check_* helpers <tree>'s
 # common/lib/verify.sh defines that no other tracked shell file in <tree>
-# calls, one per line. Fails if the library defines none.
+# outside tests/ calls, one per line. Fails if the library defines none.
 uncalled_verify_helpers() {
   PYTHONPATH="$repo_root/scripts/lib" python3 - "$1" <<'PYTHON'
 import pathlib
@@ -1462,7 +1467,7 @@ def is_shell(path: pathlib.Path) -> bool:
 
 code = []
 for name in tracked:
-    if not name or name == library:
+    if not name or name == library or name.startswith("tests/"):
         continue
     path = tree / name
     if is_shell(path):
@@ -1509,6 +1514,20 @@ for call in 'check_nothing' 'if check_nothing; then :; fi' \
   git -C "$helper_tree" add -A
   assert_eq '' "$(uncalled_verify_helpers "$helper_tree")" \
     "a verifier that calls check_nothing ($call)"
+done
+printf '#!/usr/bin/env bash\ncheck_real\n' >"$helper_tree/common/verify-fixture.sh"
+# A suite is not a caller, however it reaches the helper: named outright in a
+# test, or only passed as an argument by a tests/ helper, the shape that kept
+# check_user_service_enabled_and_active looking called.
+mkdir -p "$helper_tree/tests/lib"
+for suite_use in 'tests/test-fixture.sh:check_nothing' \
+  'tests/lib/probe.sh:run_capture probe_counts check_nothing'; do
+  rm -f "$helper_tree/tests/test-fixture.sh" "$helper_tree/tests/lib/probe.sh"
+  printf '#!/usr/bin/env bash\n%s\n' "${suite_use#*:}" \
+    >"$helper_tree/${suite_use%%:*}"
+  git -C "$helper_tree" add -A
+  assert_eq 'check_nothing' "$(uncalled_verify_helpers "$helper_tree")" \
+    "check_nothing reached only from ${suite_use%%:*} (${suite_use#*:})"
 done
 
 printf 'PASS: all shared check_* helpers are called by shell code, not only named\n'
