@@ -1465,25 +1465,236 @@ for kept in HOME PATH HTTPS_PROXY MISE_INSTALL_PATH PROBE_REPORT_DIR \
   [[ " $probe_names " == *" $kept "* ]] ||
     _test_die "a staged installer was not given $kept"
 done
+# The allowlist, spelled out here and not read from the library. Building the
+# expected set by sourcing common/lib/fetch.sh made this check agree with
+# whatever the array held, so `LD_PRELOAD NPM_TOKEN` appended to it (and to the
+# bootstrap's copy, which is held equal to it below) passed (issue #537,
+# V5-23). A change to the array is now a change to this list too, made in the
+# same review. In order: the bootstrap's copy is compared in order as well.
+expected_installer_environment=(
+  HOME USER LOGNAME PATH SHELL TERM LANG LC_ALL LC_CTYPE LC_MESSAGES TMPDIR
+  XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+  XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
+  http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY
+  all_proxy ALL_PROXY SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE
+)
+# And a shape no name may have, whoever updates both lists: a credential by
+# its usual name, or a variable that loads code into the process -- the
+# dynamic loader's, or the one non-interactive Bash sources before the script,
+# since the installer runs as `/bin/bash "$installer"`.
+installer_environment_denied='TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_|^BASH_ENV$|^ENV$'
+
+# installer_environment_problems <fetch.sh>: what is wrong with the array that
+# file defines once sourced, one problem per line; nothing when it is right.
+installer_environment_problems() {
+  local names name
+  # shellcheck disable=SC2016 # The inner bash expands these.
+  names="$(bash -c 'set -euo pipefail; source "$1"; printf "%s\n" "${DOTFILES_INSTALLER_ENVIRONMENT[@]}"' _ "$1")" || {
+    printf '%s did not define DOTFILES_INSTALLER_ENVIRONMENT when sourced\n' "$1"
+    return 0
+  }
+  [[ "$names" == "$(printf '%s\n' "${expected_installer_environment[@]}")" ]] ||
+    printf 'DOTFILES_INSTALLER_ENVIRONMENT is not the reviewed list: %s\n' "$(tr '\n' ' ' <<<"$names")"
+  for name in $names; do
+    [[ ! "$name" =~ $installer_environment_denied ]] ||
+      printf 'DOTFILES_INSTALLER_ENVIRONMENT hands a staged installer %s\n' "$name"
+  done
+}
+
+environment_problems="$(installer_environment_problems "$repo_root/common/lib/fetch.sh")"
+[[ -z "$environment_problems" ]] || _test_die "$environment_problems"
+
 # Only allowlisted names, plus what the call site stated, plus whatever the
 # shell itself defines on startup: nothing the allowlist does not explain.
-allowed=" $(bash -c 'source "$1/common/lib/fetch.sh"; printf "%s " "${DOTFILES_INSTALLER_ENVIRONMENT[@]}"' _ "$repo_root") MISE_INSTALL_PATH PROBE_REPORT_DIR PWD SHLVL OLDPWD _ "
+allowed=" ${expected_installer_environment[*]} MISE_INSTALL_PATH PROBE_REPORT_DIR PWD SHLVL OLDPWD _ "
 for name in $probe_names; do
   [[ "$allowed" == *" $name "* ]] ||
     _test_die "a staged installer inherited a name outside the allowlist: $name"
 done
 printf 'PASS: a staged installer inherits only the allowlisted environment\n'
 
+# The check has to reject a widened array. NPM_TOKEN is the obvious one; the
+# subtle one, NODE_OPTIONS (which can --require code into every node the
+# installer starts), has no deny-listed shape and is caught only because the
+# expected list is not the library's.
+environment_fixtures="$test_root/installer-environment"
+
+# widened_fetch_library <case>: a copy of common/lib/fetch.sh beside the
+# common.sh it sources, so the copy runs as the library does; prints its path.
+widened_fetch_library() {
+  local library="$environment_fixtures/$1/common/lib"
+  mkdir -p "$library"
+  cp "$repo_root/common/lib/common.sh" "$library/common.sh"
+  printf '%s\n' "$library/fetch.sh"
+}
+
+for added in NPM_TOKEN 'LD_PRELOAD NPM_TOKEN' NODE_OPTIONS; do
+  widened="$(widened_fetch_library "${added// /-}")"
+  sed "s/^  all_proxy ALL_PROXY SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE\$/& $added/" \
+    "$repo_root/common/lib/fetch.sh" >"$widened"
+  ! cmp -s "$repo_root/common/lib/fetch.sh" "$widened" ||
+    _test_die 'the widened fetch.sh fixture no longer finds the end of the allowlist'
+  widened_problems="$(installer_environment_problems "$widened")"
+  assert_contains "$widened_problems" "is not the reviewed list:"
+  assert_contains "$widened_problems" " ${added##* } "
+  [[ "$added" == NODE_OPTIONS ]] ||
+    assert_contains "$widened_problems" "hands a staged installer ${added##* }"
+done
+# A name appended later in the file, not in the literal, is the array too.
+widened="$(widened_fetch_library appended)"
+printf '\nDOTFILES_INSTALLER_ENVIRONMENT+=(GITHUB_TOKEN)\n' |
+  cat "$repo_root/common/lib/fetch.sh" - >"$widened"
+assert_contains "$(installer_environment_problems "$widened")" \
+  'hands a staged installer GITHUB_TOKEN'
+# And the unchanged library, copied the same way, has nothing wrong with it:
+# the rejections above are the additions, not the copying.
+unchanged="$(widened_fetch_library unchanged)"
+cp "$repo_root/common/lib/fetch.sh" "$unchanged"
+assert_eq '' "$(installer_environment_problems "$unchanged")" \
+  'an unchanged copy of common/lib/fetch.sh'
+printf 'PASS: a widened installer allowlist is rejected, credential-shaped or not\n'
+
 # Every place a staged remote installer is executed goes through that runner.
 # A bare `sh "$installer"` hands the script every variable the caller has.
-unwrapped_runs="$(grep -rnE '(^|[[:space:];&|(])(sh|bash|/bin/bash|/bin/sh)[[:space:]]+"\$[A-Za-z_]*(installer|staged)[A-Za-z_]*"' \
-  "$repo_root/common" "$repo_root/scripts" "$repo_root/platforms" 2>/dev/null |
-  grep -vE ':[[:space:]]*#' | grep -vE 'fetch_run_installer|env -i' || true)"
+#
+# This used to look only for variables named *installer* or *staged*, so the
+# same bare run of `"$no_mistakes_payload"` passed (issue #537, V5-24). The
+# name says nothing about what the file is, so every sh or bash (dash, or any
+# of them by absolute path) given an expansion to run, as a file, a -c string
+# or stdin, is reported unless it is part of a fetch_run_installer or `env -i`
+# command -- the same simple command, not merely the same line -- or the line
+# above it carries `# not-a-staged-installer: <why>`. Read through the shared
+# reader, so a comment is not a run, and a quoted script's text is not one
+# either; a backslash-newline continues the command. `sh -c 'script' NAME` is
+# the script's $0, and -n parses without running.
+#
+# unwrapped_shell_runs <tree> <directory>...: each such run under the given
+# directories of <tree>, as path:line: command.
+unwrapped_shell_runs() {
+  PYTHONPATH="$repo_root/scripts/lib" python3 - "$@" <<'PYTHON'
+import pathlib
+import re
+import sys
+
+from shell import UnreadableShell, blank_text, code_text
+
+SHELL = r"(?:(?:/usr)?/bin/)?(?:ba|da)?sh"
+RUN = re.compile(rf"(?<![\w./-])(?P<shell>{SHELL})(?P<options>(?:\s+[-+][-\w]*)*)\s+(?=\S)")
+STRING = r"(?:'[^']*'|\"[^\"]*\"|\S+)"
+DOLLAR_ZERO = re.compile(rf"(?<![\w./-]){SHELL}(?:\s+[-+]\w+)*\s+-c\s+{STRING}\s+$")
+WRAPPER = re.compile(r"(?<![\w-])(?:fetch_run_installer|env\s+-i)(?![\w-])")
+MARKER = re.compile(r"^\s*# not-a-staged-installer: \S")
+EXPANSION = re.compile(r'(?:<\s*)?"?\$')
+
+
+def is_shell(path: pathlib.Path) -> bool:
+    if path.suffix == ".sh":
+        return True
+    if path.suffix or not path.is_file():
+        return False
+    with path.open("rb") as handle:
+        first = handle.readline()
+    return first.startswith(b"#!") and re.search(rb"\b(ba|da)?sh\b", first) is not None
+
+
+def runs(tree: pathlib.Path, path: pathlib.Path):
+    text = path.read_text()
+    raw_lines = text.splitlines()
+    # Both views keep every character where it was, so a run found in the
+    # blanked line is read back from the code line at the same offset.
+    blank_lines = blank_text(text).split("\n")
+    code_lines = code_text(text).split("\n")
+    code_lines += [""] * (len(blank_lines) - len(code_lines))
+    if any(len(b) != len(c) for b, c in zip(blank_lines, code_lines)):
+        raise UnreadableShell(f"{path}: the blanked and code views disagree")
+    number = 0
+    while number < len(blank_lines):
+        first = number
+        blank_command = code_command = ""
+        while True:
+            blank, code = blank_lines[number], code_lines[number]
+            number += 1
+            if blank.endswith("\\") and number < len(blank_lines):
+                blank_command += blank[:-1] + " "
+                code_command += code[:-1] + " "
+                continue
+            blank_command += blank
+            code_command += code
+            break
+        for match in RUN.finditer(blank_command):
+            if not EXPANSION.match(code_command, match.end()):
+                continue
+            if any(re.fullmatch(r"-\w*n\w*", option) for option in match.group("options").split()):
+                continue
+            before = blank_command[: match.start()]
+            if DOLLAR_ZERO.search(before):
+                continue
+            wrapper = None
+            for wrapper in WRAPPER.finditer(before):
+                pass
+            if wrapper is not None and not re.search(r"[;&|]", before[wrapper.end():]):
+                continue
+            if first > 0 and MARKER.match(raw_lines[first - 1]):
+                continue
+            yield f"{path.relative_to(tree)}:{first + 1}: {' '.join(code_command.split())}"
+
+
+tree = pathlib.Path(sys.argv[1])
+for directory in sys.argv[2:]:
+    for path in sorted((tree / directory).rglob("*")):
+        if is_shell(path):
+            for run in runs(tree, path):
+                print(run)
+PYTHON
+}
+
+unwrapped_runs="$(unwrapped_shell_runs "$repo_root" common scripts platforms)" ||
+  _test_die 'the staged-installer audit could not read the tree'
 if [[ -n "$unwrapped_runs" ]]; then
   printf 'A staged installer runs with the caller'"'"'s whole environment:\n%s\n' \
     "$unwrapped_runs" >&2
   exit 1
 fi
+
+# The audit has to report a bare run whatever the variable is called and
+# however the command is spelled, and still let the wrapped and annotated
+# shapes through. Each case is appended to a copy of common/install-ai.sh.
+runs_tree="$test_root/unwrapped-runs"
+mkdir -p "$runs_tree/common"
+# unwrapped_run_case <expected: reported|clean> <shell text>
+unwrapped_run_case() {
+  local found
+  {
+    cat "$repo_root/common/install-ai.sh"
+    printf '\nno_mistakes_payload="$HOME/.cache/no-mistakes-postinstall.sh"\n%s\n' "$2"
+  } >"$runs_tree/common/install-ai.sh"
+  found="$(unwrapped_shell_runs "$runs_tree" common)" ||
+    _test_die "the staged-installer audit could not read: $2"
+  if [[ "$1" == reported ]]; then
+    [[ "$found" == *'common/install-ai.sh:'* ]] ||
+      _test_die "a bare installer run was not reported: $2"
+  else
+    assert_eq '' "$found" "a run the audit must accept: $2"
+  fi
+}
+# shellcheck disable=SC2016 # Shell text for the fixture, not for this shell.
+{
+  unwrapped_run_case reported 'sh "$no_mistakes_payload"'
+  unwrapped_run_case reported 'bash -- "${no_mistakes_payload}"'
+  unwrapped_run_case reported '/bin/sh $no_mistakes_payload'
+  unwrapped_run_case reported $'bash \\\n  "$no_mistakes_payload"'
+  unwrapped_run_case reported 'sh <"$no_mistakes_payload"'
+  unwrapped_run_case reported 'bash -c "$(cat "$no_mistakes_payload")"'
+  unwrapped_run_case reported 'fetch_run_installer -- true && sh "$no_mistakes_payload"'
+  unwrapped_run_case reported $'# not-a-staged-installer:\nsh "$no_mistakes_payload"'
+  unwrapped_run_case clean '# sh "$no_mistakes_payload" would hand it everything'
+  unwrapped_run_case clean 'fetch_run_installer HOME="$HOME" -- sh "$no_mistakes_payload"'
+  unwrapped_run_case clean $'fetch_run_installer \\\n  -- sh "$no_mistakes_payload"'
+  unwrapped_run_case clean 'env -i PATH="$PATH" /bin/bash "$no_mistakes_payload"'
+  unwrapped_run_case clean 'sh -c '"'"'command -v "$1"'"'"' sh "$no_mistakes_payload"'
+  unwrapped_run_case clean 'bash -n "$no_mistakes_payload"'
+  unwrapped_run_case clean $'# not-a-staged-installer: fixture\nsh "$no_mistakes_payload"'
+}
 printf 'PASS: every staged installer runs through the minimal-environment runner\n'
 
 # scripts/bootstrap-macos.sh runs under Apple's Bash 3.2 before any library

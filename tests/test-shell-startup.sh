@@ -777,21 +777,137 @@ grep -Fq "command tar -xf" "$zshrc" ||
 printf 'PASS: the native tar CLI is preserved in full\n'
 
 # --- Initialization order ---------------------------------------------------
+#
+# zsh-syntax-highlighting wraps every ZLE widget that exists when it loads, so
+# it has to come after the prompt and after autosuggestions. This used to be
+# read off the configuration text as line numbers, taking the last line that
+# named each file, so one trailing comment naming platform.zsh or the plugin
+# satisfied it while the real order was reversed (issue #537, V5-09). What is
+# checked now is the order a real interactive Zsh does things in: the prompt
+# and both plugins are stubs that record themselves when they run, and the
+# trace they leave is compared, not the text that asks for them.
+init_order_bin="$root/init-order-bin"
+mkdir -p "$init_order_bin"
+cat >"$init_order_bin/starship" <<'EOF'
+#!/usr/bin/env bash
+# `starship init zsh` is the only call the prompt makes during startup; any
+# other argv is a startup file asking this stub something it does not model.
+[[ "$*" == 'init zsh' ]] || {
+  printf 'strict starship fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+}
+printf 'starship\n' >>"$DOTFILES_TEST_TRACE"
+EOF
+chmod +x "$init_order_bin/starship"
 
-platform_line="$(grep -n 'zsh/platform.zsh' "$zshrc" | tail -n1 | cut -d: -f1)"
-starship_line="$(grep -n 'starship init zsh' "$zshrc" | tail -n1 | cut -d: -f1)"
-((platform_line > starship_line)) ||
-  _test_die 'platform.zsh (syntax highlighting) must stay after the prompt'
+# init_order_trace <zshrc> <platform.zsh>
+#
+# Starts an interactive Zsh on the given .zshrc with the given platform file
+# installed where .zshrc looks for it, and prints what ran, in order. Platform
+# files source their plugins from a package manager's absolute path; the copy
+# installed here points those paths at stubs in the sandbox, so nothing is
+# read from the host and a host that has the real plugins changes nothing.
+init_order_runs=0
+init_order_trace() {
+  local zshrc_file="$1" platform_file="$2" sandbox plugin
+  local -a rewrites
+  init_order_runs=$((init_order_runs + 1))
+  sandbox="$root/init-order/$init_order_runs"
+  mkdir -p "$sandbox/home" "$sandbox/config/zsh" "$sandbox/plugins"
+  cp "$zshenv" "$sandbox/home/.zshenv"
+  cp "$zshrc_file" "$sandbox/config/zsh/.zshrc"
+  rewrites=()
+  for plugin in zsh-autosuggestions zsh-syntax-highlighting; do
+    mkdir -p "$sandbox/plugins/$plugin"
+    # shellcheck disable=SC2016 # The stub expands it when Zsh sources it.
+    printf 'print -r -- %s >>"$DOTFILES_TEST_TRACE"\n' "${plugin#zsh-}" \
+      >"$sandbox/plugins/$plugin/$plugin.zsh"
+    rewrites+=(-e "s#[^[:space:]\"']*/$plugin/$plugin\\.zsh#$sandbox/plugins/$plugin/$plugin.zsh#g")
+  done
+  sed -E "${rewrites[@]}" "$platform_file" >"$sandbox/config/zsh/platform.zsh"
+  : >"$sandbox/trace"
+  env -i \
+    HOME="$sandbox/home" \
+    XDG_CONFIG_HOME="$sandbox/config" \
+    XDG_DATA_HOME="$sandbox/data" \
+    XDG_STATE_HOME="$sandbox/state" \
+    XDG_CACHE_HOME="$sandbox/cache" \
+    TERM=xterm-256color \
+    PATH="$init_order_bin:$sandbox_bin" \
+    DOTFILES_TEST_TRACE="$sandbox/trace" \
+    "$zsh_path" --no-globalrcs -i -c 'exit 0' >/dev/null 2>&1 </dev/null ||
+    _test_die "an interactive Zsh on $zshrc_file and $platform_file did not start cleanly"
+  tr '\n' ' ' <"$sandbox/trace" | sed 's/ $//'
+}
 
+init_order_expected='starship autosuggestions syntax-highlighting'
+platform_count=0
 for platform_file in "$repo_root"/platforms/*/stow/zsh-platform/.config/zsh/platform.zsh; do
   [[ -f "$platform_file" ]] || continue
-  grep -Fq 'zsh-syntax-highlighting' "$platform_file" || continue
-  highlighting_line="$(grep -n 'zsh-syntax-highlighting' "$platform_file" | tail -n1 | cut -d: -f1)"
-  suggestions_line="$(grep -n 'zsh-autosuggestions' "$platform_file" | tail -n1 | cut -d: -f1)"
-  ((highlighting_line > suggestions_line)) ||
-    _test_die "syntax highlighting must be initialized last in $platform_file"
+  platform_count=$((platform_count + 1))
+  assert_eq "$init_order_expected" "$(init_order_trace "$zshrc" "$platform_file")" \
+    "startup order with $platform_file"
 done
-printf 'PASS: syntax highlighting stays last in the initialization order\n'
+((platform_count > 0)) ||
+  _test_die 'no platform.zsh was found, so the initialization order proves nothing'
+printf 'PASS: an interactive shell starts the prompt, then autosuggestions, then highlighting\n'
+
+# The check has to be able to fail, on the mutations that defeated the line
+# numbers as well as on the plain ones. Each is a copy; the tracked files are
+# not touched.
+order_fixtures="$root/init-order-fixtures"
+mkdir -p "$order_fixtures"
+reference_platform="$repo_root/platforms/fedora/stow/zsh-platform/.config/zsh/platform.zsh"
+
+# .zshrc with the platform block moved above the prompt; then the same with a
+# trailing comment naming the file, which is what the line numbers accepted.
+python3 - "$zshrc" "$order_fixtures/zshrc-swapped" <<'PYTHON'
+import sys
+
+text = open(sys.argv[1]).read()
+block = (
+    'if [[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/platform.zsh" ]]; then\n'
+    '  source "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/platform.zsh"\n'
+    'fi\n'
+)
+if text.count(block) != 1 or text.count("# Prompt\n") != 1:
+    sys.exit("the .zshrc fixture no longer finds the platform block or the prompt")
+text = text.replace(block, "").replace("# Prompt\n", block + "\n# Prompt\n")
+open(sys.argv[2], "w").write(text)
+PYTHON
+cp "$order_fixtures/zshrc-swapped" "$order_fixtures/zshrc-swapped-commented"
+printf '# Syntax highlighting: see zsh/platform.zsh, sourced after starship init zsh.\n' \
+  >>"$order_fixtures/zshrc-swapped-commented"
+
+# A platform file with highlighting sourced before autosuggestions; then the
+# same with a trailing comment naming zsh-syntax-highlighting.
+python3 - "$reference_platform" "$order_fixtures/platform-swapped" <<'PYTHON'
+import sys
+
+text = open(sys.argv[1]).read()
+block = (
+    "[[ ! -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]] ||\n"
+    "  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh\n"
+)
+if text.count(block) != 1:
+    sys.exit("the platform fixture no longer finds the autosuggestions block")
+open(sys.argv[2], "w").write(text.replace(block, "") + block)
+PYTHON
+cp "$order_fixtures/platform-swapped" "$order_fixtures/platform-swapped-commented"
+printf '# zsh-syntax-highlighting stays last.\n' \
+  >>"$order_fixtures/platform-swapped-commented"
+
+for mutation in zshrc-swapped zshrc-swapped-commented; do
+  mutated="$(init_order_trace "$order_fixtures/$mutation" "$reference_platform")"
+  [[ "$mutated" != "$init_order_expected" ]] ||
+    _test_die "the initialization-order check accepted $mutation"
+done
+for mutation in platform-swapped platform-swapped-commented; do
+  mutated="$(init_order_trace "$zshrc" "$order_fixtures/$mutation")"
+  [[ "$mutated" != "$init_order_expected" ]] ||
+    _test_die "the initialization-order check accepted $mutation"
+done
+printf 'PASS: a reversed order is caught, with or without a comment naming the file\n'
 
 # --- The theme wrapper's exit-status handling (#148) ------------------------
 #

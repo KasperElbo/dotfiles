@@ -364,6 +364,7 @@ run_suite() {
   if [[ -x "$test_path" ]]; then
     "${limit[@]}" "$test_path"
   else
+    # not-a-staged-installer: a suite tracked in this repository.
     "${limit[@]}" bash "$test_path"
   fi
 }
