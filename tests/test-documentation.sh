@@ -194,6 +194,56 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "\`--smoke-test\` is not an option of --platform macos"
 printf 'PASS: a transient control the platform rejects fails\n'
 
+# An installer command line that names no platform used to be read by nothing,
+# so a renamed flag in `./install.sh --flag` rotted silently (#539, V5-04).
+# add_doc_line <text>: append one line to the fixture page and stage it.
+add_doc_line() {
+  printf '\n%s\n' "$1" >>"$tree/docs/platforms/fedora.md"
+  git -C "$tree" add -A
+}
+
+# The obvious drift: a flag no platform declares, on the root installer.
+new_tree
+add_doc_line 'Run `./install.sh --nonexistent-flag` to enable widgets.'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '`--nonexistent-flag` is not an option of ./install.sh on any platform'
+printf 'PASS: an undeclared flag on an installer line without --platform fails\n'
+
+# The subtle one: a real flag, on the installer of a platform that does not
+# declare it, and the root installer's --rerun passed to a platform directly.
+new_tree
+add_doc_line 'Or run `platforms/macos/install.sh --kde` directly.'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '`--kde` is not an option of platforms/macos/install.sh'
+new_tree
+add_doc_line 'Or run `./platforms/fedora/install.sh --rerun` directly.'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '`--rerun` is not an option of platforms/fedora/install.sh'
+printf 'PASS: a flag on a platform installer that platform does not declare fails\n'
+
+# What those entry points really accept passes, and a comment is not a flag.
+new_tree
+add_doc_line '`./install.sh --rerun --dry-run   # --anything in a comment is prose`'
+add_doc_line '`./install.sh --kde --non-interactive` or `platforms/fedora/install.sh --no-kde --dry-run`'
+run_capture python3 "$validator" --root "$tree"
+assert_success
+printf 'PASS: declared and transient flags on either entry point are accepted\n'
+
+# A backticked word written as a capability must be one.
+new_tree
+printf 'capability\tplatform\nkde\tfedora\n' >"$tree/config/capabilities.tsv"
+add_doc_line 'The `kde` capability is installed by default on Fedora.'
+run_capture python3 "$validator" --root "$tree"
+assert_success
+add_doc_line 'The `widgets` capability is installed by default on Fedora.'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '`widgets` is written as a capability, but config/capabilities.tsv has no such capability'
+printf 'PASS: a capability name the registry does not hold fails\n'
+
 # --- Generated documentation must be current -------------------------------
 
 matrix="$repo_root/docs/reference/capability-matrix.md"
@@ -647,6 +697,7 @@ assert_file_contains "$repo_root/docs/README.md" "## Document roles"
 assert_file_contains "$repo_root/docs/README.md" "reference/capability-matrix.md"
 assert_file_contains "$repo_root/docs/README.md" "cheatsheets/"
 printf 'PASS: the documentation index states the document roles\n'
+
 
 # --- The README is an entry point, not the manual --------------------------
 
