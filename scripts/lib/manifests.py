@@ -251,8 +251,13 @@ def role_pattern_matches(pattern: str, name: str) -> bool:
 # A shell interpreter this repository's Bash toolchain can parse. `bash -n` and
 # `shellcheck -s bash` read both dialects; `zsh` is deliberately absent, because
 # neither tool can parse it and the tracked `.zsh` files are Zsh configuration
-# rather than programs.
+# rather than programs. `zsh_files` below is their set, for `zsh -n`.
 SHELL_SHEBANG = re.compile(rb"^#![^\n]*\b(?:ba)?sh\b")
+ZSH_SHEBANG = re.compile(rb"^#![^\n]*\bzsh\b")
+
+# The names Zsh itself reads at startup, wherever ZDOTDIR points. They carry no
+# extension, so, like a command on PATH, the name is what says what reads them.
+ZSH_STARTUP_FILES = frozenset({".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"})
 
 
 def tracked_files(root: pathlib.Path) -> list[str]:
@@ -279,12 +284,7 @@ def has_shell_shebang(path: pathlib.Path) -> bool:
     Read as bytes and only the first line, so a binary blob or an unreadable
     file answers "no" instead of raising somewhere further up.
     """
-    try:
-        with path.open("rb") as stream:
-            first = stream.readline(256)
-    except OSError:
-        return False
-    return SHELL_SHEBANG.match(first) is not None
+    return _first_line_matches(path, SHELL_SHEBANG)
 
 
 def shell_files(root: pathlib.Path) -> list[str]:
@@ -306,3 +306,38 @@ def shell_files(root: pathlib.Path) -> list[str]:
         if name.endswith(".sh") or has_shell_shebang(path):
             names.append(name)
     return sorted(names)
+
+
+def zsh_files(root: pathlib.Path) -> list[str]:
+    """Every tracked file Zsh reads, for the lint gate's `zsh -n` pass.
+
+    `shell_files` leaves these out because neither `bash -n` nor ShellCheck can
+    parse Zsh, and for as long as that was the whole story nothing parsed them:
+    an unterminated `[[` at the top of the Fedora WSL platform-env.zsh -- which
+    strips Windows' /mnt/<drive> entries from PATH in every shell -- passed
+    lint and every suite (issue #536, V5-08). A startup file is recognised by
+    the name Zsh looks for, since it has no extension to go by.
+    """
+    names: list[str] = []
+    for name in tracked_files(root):
+        path = root / name
+        if not path.is_file():
+            continue
+        if (
+            name.endswith(".zsh")
+            or pathlib.PurePosixPath(name).name in ZSH_STARTUP_FILES
+            or _first_line_matches(path, ZSH_SHEBANG)
+        ):
+            names.append(name)
+    return sorted(names)
+
+
+def _first_line_matches(path: pathlib.Path, pattern: re.Pattern[bytes]) -> bool:
+    """Read as bytes and only the first line, so a binary blob or an unreadable
+    file answers "no" instead of raising."""
+    try:
+        with path.open("rb") as stream:
+            first = stream.readline(256)
+    except OSError:
+        return False
+    return pattern.match(first) is not None
