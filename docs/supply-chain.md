@@ -239,8 +239,9 @@ A staged installer is code this repository did not write, and where it is
 what it needs. `fetch_run_installer` in `common/lib/fetch.sh` runs it under
 `env -i` with the names in `DOTFILES_INSTALLER_ENVIRONMENT` that are set
 (`HOME`, `USER`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, the locale, `TMPDIR`,
-the four XDG roots, and the proxy and CA-bundle settings its own downloads
-need), plus the inputs the call site names: `MISE_INSTALL_PATH` for mise,
+the four XDG roots, `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` so an
+installer that manages a user service can reach the user's own service
+manager, and the proxy and CA-bundle settings its own downloads need), plus the inputs the call site names: `MISE_INSTALL_PATH` for mise,
 `NONINTERACTIVE` for Homebrew, and `PATH` and `CURL_HOME` for Treehouse and
 No Mistakes. Nothing else crosses: not `GITHUB_TOKEN` or `GH_TOKEN`, not an
 `ANTHROPIC_API_KEY` or cloud profile in the user's shell, not

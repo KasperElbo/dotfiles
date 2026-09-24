@@ -1434,6 +1434,8 @@ status=0
 env GITHUB_TOKEN=fixture-not-a-credential GH_TOKEN=fixture-not-a-credential \
   ANTHROPIC_API_KEY=fixture-not-an-api-key SSH_AUTH_SOCK=/nonexistent/agent \
   AWS_SECRET_ACCESS_KEY=fixture-not-a-key HTTPS_PROXY=http://proxy.invalid:3128 \
+  XDG_RUNTIME_DIR=/run/user/4242 \
+  DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/4242/bus \
   bash -c '
   set -euo pipefail
   source "$1/common/lib/common.sh"
@@ -1447,7 +1449,11 @@ for leaked in GITHUB_TOKEN GH_TOKEN ANTHROPIC_API_KEY SSH_AUTH_SOCK AWS_SECRET_A
   [[ " $probe_names " != *" $leaked "* ]] ||
     _test_die "a staged installer inherited $leaked"
 done
-for kept in HOME PATH HTTPS_PROXY MISE_INSTALL_PATH PROBE_REPORT_DIR; do
+# The user's own service manager, which No Mistakes' installer drives to stop
+# and restart its daemon: without these, a rerun on systemd died with "Failed
+# to connect to user scope bus" (Fedora WSL, 24 September 2026).
+for kept in HOME PATH HTTPS_PROXY MISE_INSTALL_PATH PROBE_REPORT_DIR \
+  XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
   [[ " $probe_names " == *" $kept "* ]] ||
     _test_die "a staged installer was not given $kept"
 done

@@ -46,6 +46,7 @@ run_homebrew_installer() {
   set --
   for name in HOME USER LOGNAME PATH SHELL TERM LANG LC_ALL LC_CTYPE LC_MESSAGES TMPDIR \
     XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME \
+    XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS \
     http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY \
     all_proxy ALL_PROXY SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE; do
     if value="$(printenv "$name")"; then
