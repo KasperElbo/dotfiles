@@ -442,6 +442,10 @@ row whose tier and integrity mechanism contradict each other, and on one whose
 reference — a digest the job does not pull is a claim about a run that never
 happens. It fails, too, on a `reviewed-live` row with no decision in
 `config/live-sources.tsv`, and on a decision whose source is no longer live.
+Liveness is read from what a source is as well as from its tier: a
+`remote-script` whose integrity is `https-tls` or `registry-tls` runs whatever
+upstream serves, so it must be `reviewed-live` and carry a decision whatever
+tier its row claims (#534).
 
 A construct counts however it is written. A clone or a download spelled as an
 argument vector — `vim.fn.system({ "git", "clone", … })` or

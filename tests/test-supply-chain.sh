@@ -1672,4 +1672,72 @@ done
 lint_fixture >/dev/null
 printf 'PASS: the real transfer-primitive calls and URL assignments need their annotations\n'
 
+# --- Liveness is derived, not declared (#534 V5-22) -------------------------
+#
+# The decision registry was closed over the `tier` column, and nothing tied
+# the tier to what a source is. Retiering the No Mistakes installer to
+# version-line and deleting its decision left lint green while install-ai.sh
+# still ran whatever the live URL served. The Treehouse row was only caught
+# because the cases above happen to name it. So every decision is removed in
+# turn, and every remote script is retiered in turn, rather than one by name.
+live_ids=()
+while IFS=$'\t' read -r source_id _; do
+  [[ "$source_id" != id ]] || continue
+  live_ids+=("$source_id")
+done <"$repo_root/config/live-sources.tsv"
+((${#live_ids[@]} > 0)) || _test_die 'config/live-sources.tsv records no decisions to remove'
+
+for source_id in "${live_ids[@]}"; do
+  awk -F '\t' -v id="$source_id" 'NR == 1 || $1 != id' \
+    "$repo_root/config/live-sources.tsv" >"$live_fixture"
+  if lint_output="$(LIVE_SOURCE_MANIFEST="$live_fixture" \
+    python3 "$repo_root/scripts/validate-network-sources.py" 2>&1)"; then
+    printf 'The linter accepted %s with its live-source decision removed.\n' "$source_id" >&2
+    exit 1
+  fi
+  assert_contains "$lint_output" "$source_id is reviewed-live, so nothing verifies it before use"
+done
+printf 'PASS: removing any one live-source decision fails the linter\n'
+
+# retier_live_script <id> <tier> [requested]: the registry with <id> moved to
+# <tier> (and its requested ref to [requested]), and its decision deleted, so
+# both registries agree the source is not live. Only the paperwork changes.
+retier_live_script() {
+  awk -F '\t' -v id="$1" -v tier="$2" -v requested="${3:-}" 'BEGIN { OFS = "\t" }
+    NR > 1 && $1 == id { $7 = tier; if (requested != "") $8 = requested }
+    { print }' "$repo_root/config/network-sources.tsv" >"$manifest_fixture"
+  awk -F '\t' -v id="$1" 'NR == 1 || $1 != id' \
+    "$repo_root/config/live-sources.tsv" >"$live_fixture"
+  run_capture env NETWORK_SOURCE_MANIFEST="$manifest_fixture" \
+    LIVE_SOURCE_MANIFEST="$live_fixture" \
+    python3 "$repo_root/scripts/validate-network-sources.py"
+}
+
+# Every remote script that nothing authenticates, read from the registry
+# rather than named here.
+live_scripts=()
+while IFS=$'\t' read -r source_id _ _ kind _ _ _ _ _ integrity _; do
+  [[ "$kind" == remote-script ]] || continue
+  [[ "$integrity" == https-tls || "$integrity" == registry-tls ]] || continue
+  live_scripts+=("$source_id")
+done <"$repo_root/config/network-sources.tsv"
+[[ " ${live_scripts[*]} " == *' no-mistakes-installer '* ]] ||
+  _test_die 'no-mistakes-installer is no longer an unauthenticated remote script'
+
+for source_id in "${live_scripts[@]}"; do
+  retier_live_script "$source_id" version-line
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "$source_id is a remote script whose integrity is"
+  assert_contains "$TEST_OUTPUT" "its tier must be reviewed-live, not 'version-line'"
+done
+printf 'PASS: retiering an unauthenticated remote script away from reviewed-live fails\n'
+
+# The subtle one: a tier that reads as a pin, with a requested version to
+# match, still authenticates nothing the script serves.
+retier_live_script no-mistakes-installer exact-version v1.0.0
+assert_failure
+assert_contains "$TEST_OUTPUT" "its tier must be reviewed-live, not 'exact-version'"
+assert_contains "$TEST_OUTPUT" 'no-mistakes-installer is live, so nothing verifies it before use'
+printf 'PASS: an exact-version claim does not make a live remote script pinned\n'
+
 printf 'Supply-chain policy tests passed.\n'

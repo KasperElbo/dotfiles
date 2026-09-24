@@ -101,6 +101,11 @@ VERIFIED_INTEGRITY = {
 
 EXACT_REF_INTEGRITY = VERIFIED_INTEGRITY | {"git-tag-pinned", "git-commit-pinned"}
 
+# Integrity that authenticates the channel and nothing it serves. A remote
+# script fetched this way runs whatever upstream publishes that day, which is
+# what `reviewed-live` means, whatever tier its row declares.
+UNAUTHENTICATED_INTEGRITY = {"https-tls", "registry-tls"}
+
 PRIVILEGES = {"user", "root"}
 
 # The `resolved` column of a digest-pinned image row.
@@ -700,7 +705,22 @@ def check_live_decisions(rows: list[dict[str, str]]) -> int:
         return 1
 
     by_id = {row["id"]: row for row in rows}
+    # Liveness is derived as well as declared. The closure below used to be
+    # over the `tier` column alone, and nothing tied the tier to what the
+    # source is: retiering the No Mistakes installer to version-line and
+    # deleting its decision left lint green while the installer still ran
+    # whatever the live URL served (#534 V5-22).
     live = {row["id"] for row in rows if row["tier"] == "reviewed-live"}
+    for row in rows:
+        if row["kind"] == "remote-script" and row["integrity"] in UNAUTHENTICATED_INTEGRITY:
+            live.add(row["id"])
+            if row["tier"] != "reviewed-live":
+                fail(
+                    f"{row['id']} is a remote script whose integrity is "
+                    f"{row['integrity']!r}, so nothing authenticates it before it "
+                    f"runs: its tier must be reviewed-live, not {row['tier']!r}"
+                )
+                errors += 1
     seen: set[str] = set()
     for line, decision in enumerate(decisions, 2):
         source_id = decision["id"]
@@ -749,8 +769,10 @@ def check_live_decisions(rows: list[dict[str, str]]) -> int:
             errors += 1
 
     for source_id in sorted(live - seen):
+        declared = by_id[source_id]["tier"] == "reviewed-live"
         fail(
-            f"{source_id} is reviewed-live, so nothing verifies it before use, but "
+            f"{source_id} is {'reviewed-live' if declared else 'live'}, so nothing "
+            f"verifies it before use, but "
             f"{LIVE_REGISTRY.name} records no decision for it: pin it, or record why not"
         )
         errors += 1
