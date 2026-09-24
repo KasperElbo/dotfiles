@@ -360,6 +360,8 @@ cat >"$windows_root/System32/WindowsPowerShell/v1.0/powershell.exe" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$*" == *'Get-Clipboard'* ]]; then
   printf 'first\r\nsecond\r\n'
+elif [[ -n "${DOTFILES_WSL_OPEN_URL:-}" ]]; then
+  printf '%s\n' "$DOTFILES_WSL_OPEN_URL" >"$OPEN_LOG"
 else
   printf '%s\n' "$*" >"$POWERSHELL_LOG"
 fi
@@ -376,7 +378,13 @@ if [[ "$1" == /c && "$2" == echo && "$3" == interop-ok ]]; then
 fi
 exit 1
 EOF
+mkdir -p "$test_root/wslpath-bin"
+cat >"$test_root/wslpath-bin/wslpath" <<'EOF'
+#!/usr/bin/env bash
+printf 'C:\\converted\n'
+EOF
 chmod +x \
+  "$test_root/wslpath-bin/wslpath" \
   "$windows_root/System32/clip.exe" \
   "$windows_root/System32/WindowsPowerShell/v1.0/powershell.exe" \
   "$windows_root/explorer.exe" \
@@ -395,6 +403,12 @@ WINDOWS_SYSTEM_ROOT="$windows_root" OPEN_LOG="$test_root/open.log" \
   "$repo_root/platforms/fedora-wsl/stow/interop/.local/bin/wsl-open" \
   'https://example.invalid/path?q=one two'
 grep -Fqx 'https://example.invalid/path?q=one two' "$test_root/open.log"
+
+# Paths still go to Explorer.
+WINDOWS_SYSTEM_ROOT="$windows_root" OPEN_LOG="$test_root/open.log" \
+  PATH="$test_root/wslpath-bin:$PATH" \
+  "$repo_root/platforms/fedora-wsl/stow/interop/.local/bin/wsl-open" "$test_root"
+grep -Fqx 'C:\converted' "$test_root/open.log"
 
 HOME="$real_home" XDG_CONFIG_HOME="$real_home/.config" \
   WINDOWS_SYSTEM_ROOT="$windows_root" POWERSHELL_LOG="$test_root/powershell.log" \

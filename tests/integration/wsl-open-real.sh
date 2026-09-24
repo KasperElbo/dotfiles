@@ -15,7 +15,10 @@ trap 'rm -rf -- "$test_root"' EXIT
 windows_root="$test_root/windows"
 work_root="$test_root/work"
 argument_log="$test_root/arguments"
-mkdir -p "$windows_root" "$work_root/directory with spaces"
+url_log="$test_root/urls"
+powershell="$windows_root/System32/WindowsPowerShell/v1.0/powershell.exe"
+mkdir -p "$windows_root" "$(dirname -- "$powershell")" \
+  "$work_root/directory with spaces"
 touch "$work_root/æøå-文件.txt"
 
 # wsl-open invokes Explorer once per argument, so the log must accumulate.
@@ -25,23 +28,45 @@ cat >"$windows_root/explorer.exe" <<'EOF'
 printf '%s\0' "$@" >>"$EXPLORER_ARGUMENT_LOG"
 exit 1
 EOF
-chmod +x "$windows_root/explorer.exe"
+cat >"$powershell" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\0' "$DOTFILES_WSL_OPEN_URL" >>"$POWERSHELL_URL_LOG"
+EOF
+chmod +x "$windows_root/explorer.exe" "$powershell"
 : >"$argument_log"
+: >"$url_log"
 
 # Explorer is handed this URL as an argument and nothing fetches it, so it is
 # not written as a URL assignment, which the network-source scan reads as a
 # download to register.
 printf -v url '%s' 'https://example.invalid/path?q=one two'
-EXPLORER_ARGUMENT_LOG="$argument_log" WINDOWS_SYSTEM_ROOT="$windows_root" \
+EXPLORER_ARGUMENT_LOG="$argument_log" POWERSHELL_URL_LOG="$url_log" \
+  WINDOWS_SYSTEM_ROOT="$windows_root" \
   "$repo_root/platforms/fedora-wsl/stow/interop/.local/bin/wsl-open" \
   "$work_root/æøå-文件.txt" "$work_root/directory with spaces" "$url"
 
 mapfile -d '' -t actual <"$argument_log"
 expected_file="$(wslpath -w "$work_root/æøå-文件.txt")"
 expected_directory="$(wslpath -w "$work_root/directory with spaces")"
-[[ "${#actual[@]}" -eq 3 ]]
+[[ "${#actual[@]}" -eq 2 ]]
 [[ "${actual[0]}" == "$expected_file" ]]
 [[ "${actual[1]}" == "$expected_directory" ]]
-[[ "${actual[2]}" == "$url" ]]
+mapfile -d '' -t urls <"$url_log"
+[[ "${#urls[@]}" -eq 1 && "${urls[0]}" == "$url" ]]
+
+# wsl-open hands a URL to Windows through WSLENV rather than a command line.
+# Prove on real WSL interop that real Windows PowerShell reads it back intact.
+real_powershell=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+printf -v login_url '%s' 'https://example.invalid/authorize?code=true&client_id=a%2Fb&state="x y"'
+# $env: belongs to PowerShell.
+# shellcheck disable=SC2016
+seen_url="$(DOTFILES_WSL_OPEN_URL="$login_url" \
+  WSLENV="DOTFILES_WSL_OPEN_URL${WSLENV:+:$WSLENV}" \
+  "$real_powershell" -NoLogo -NoProfile -NonInteractive -Command \
+  '[Console]::Out.Write($env:DOTFILES_WSL_OPEN_URL)' </dev/null)"
+[[ "$seen_url" == "$login_url" ]] || {
+  printf 'Windows PowerShell read %q, expected %q\n' "$seen_url" "$login_url" >&2
+  exit 1
+}
 
 printf 'Real WSL path conversion boundary passed.\n'
