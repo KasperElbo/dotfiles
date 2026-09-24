@@ -1089,6 +1089,10 @@ bootstrap, login-shell, package-provider, lifecycle, Neovim bootstrap, VM
 boundary or platform installer code are reviewed against the latest real-install
 run before a release rather than against their own checks.
 
+That bound is watched, not assumed: the
+[real-install evidence check](#self-hosted-runner-contracts) reports any job
+whose newest success is older than its allowed age, the hosted four included.
+
 Revisit this only if a real-install run actually catches something the mocked
 tier missed, or if the gap between a merge and its evidence starts costing more
 than the runner time would. Until then, the weekly cadence is the decision, and
@@ -1144,17 +1148,27 @@ installation are present, because evidence gathered on top of them is a rerun,
 not a first install. After the idempotent rerun the verifier runs again, as it
 does in the WSL job.
 
-Neither job runs on the weekly schedule, so each Monday
-`.github/workflows/self-hosted-evidence.yml` runs
-`scripts/check-self-hosted-evidence.py`, which finds each self-hosted job's
-newest successful dispatched run on a commit main contains. When one is more
-than 30 days old, or there is none, it opens the issue "Self-hosted real-install
-jobs have not succeeded this month", and the first run that finds both current
-closes it. Its report, in the run's summary, gives each job's last success date,
-commit and how far behind main that commit is. Clearing it means dispatching
-real-install.yml on main with `run_self_hosted_wsl` and
-`run_self_hosted_parrot` set, with the WSL runner up and the Parrot guest
-reverted to its clean snapshot.
+Neither job runs on the weekly schedule, and the hosted four are only as
+current as the schedule that runs them, so each Monday
+`.github/workflows/real-install-evidence.yml` runs
+`scripts/check-real-install-evidence.py`. It finds, for every job in
+`real-install.yml`, the newest scheduled or dispatched run in which that job
+succeeded on a commit main contains, and holds it to the job's age in the
+script's `MAX_AGE_DAYS` table: ten days for the four hosted jobs, which allows
+one missed Sunday and reports the second, and 30 days for the two self-hosted
+ones. The table has to name exactly the workflow's jobs, so which jobs are
+watched never depends on a runner label, and adding, renaming or deleting a job
+without changing the table fails `tests/test-real-install-evidence.sh`. When a
+job is older than its age, or has no success at all, the check opens the issue
+"Real-install jobs have not succeeded recently", and the first run that finds
+every job current closes it. Its report, in the run's summary, gives each job's
+last success date, commit and how far behind main that commit is. Clearing a
+hosted job means finding out why its schedule stopped going green; clearing a
+self-hosted one means dispatching real-install.yml on main with
+`run_self_hosted_wsl` and `run_self_hosted_parrot` set, with the WSL runner up
+and the Parrot guest reverted to its clean snapshot. The two label lists above
+are pinned, exactly, by `tests/test-self-hosted-jobs.sh`, which reads both
+jobs' `runs-on` from the workflow and this page's label blocks.
 
 ## Manual acceptance records
 

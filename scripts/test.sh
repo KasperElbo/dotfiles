@@ -103,7 +103,7 @@ default_tests=(
   tests/test-pin-freshness.sh
   tests/test-main-evidence.sh
   tests/test-self-hosted-jobs.sh
-  tests/test-self-hosted-evidence.sh
+  tests/test-real-install-evidence.sh
   tests/test-profile-state.sh
   tests/test-execution-plan.sh
   tests/test-cli-contract.sh
