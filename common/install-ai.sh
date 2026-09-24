@@ -389,6 +389,35 @@ own_check_firstmate() {
 no_mistakes_units_dir="$HOME/.config/systemd/user"
 no_mistakes_agents_dir="$HOME/Library/LaunchAgents"
 
+# no_mistakes_clear_dead_daemon <root>: remove the daemon's PID file and socket
+# when the PID file names a process that no longer exists. A daemon killed
+# without its teardown -- `wsl --shutdown`, a crash, a power loss -- leaves both
+# behind, and upstream's `daemon restart` (the installer's last step) and
+# `daemon stop` then fail with "inspect daemon pid N: exit status 1" instead of
+# treating the daemon as stopped. These two files are exactly what upstream's
+# own cleanup removes once a daemon has exited. `kill -0` fails for a PID that
+# is gone and for one held by another user, and the daemon runs as this user,
+# so either way it is not the daemon. A PID file this cannot read, or one naming
+# a live process of ours, is left for upstream to judge.
+no_mistakes_clear_dead_daemon() {
+  local root="$1" pid_file="$1/daemon.pid" record pid
+
+  [[ -f "$pid_file" && ! -L "$pid_file" ]] || return 0
+  record="$(<"$pid_file")" || return 0
+  if [[ "$record" =~ ^[[:space:]]*([0-9]{1,9})[[:space:]]*$ ]]; then
+    pid="${BASH_REMATCH[1]}"
+  elif [[ "$record" =~ \"pid\"[[:space:]]*:[[:space:]]*([0-9]{1,9})[^0-9] ]]; then
+    pid="${BASH_REMATCH[1]}"
+  else
+    return 0
+  fi
+  ((10#$pid > 0)) || return 0
+  ! kill -0 "$((10#$pid))" 2>/dev/null || return 0
+
+  info "Removing the leftovers of a No Mistakes daemon that is no longer running (pid $pid): $pid_file, $root/socket"
+  rm -f -- "$pid_file" "$root/socket"
+}
+
 # A definition is ours when every program it starts is the owned binary, some
 # other install's when none is, and neither when it cannot be read: that third
 # answer is a blocker, never "not ours", because a removal that skipped it
@@ -904,6 +933,7 @@ for entry in ${removal_paths[@]+"${removal_paths[@]}"}; do
   removal_path="${entry#*|}"
   removal_path="${removal_path%%|*}"
   info "Stopping the ${entry##*|}: $removal_path daemon stop"
+  no_mistakes_clear_dead_daemon "${NM_HOME:-$HOME/.no-mistakes}"
   "$removal_path" daemon stop ||
     die "The ${entry##*|} did not stop ($removal_path daemon stop); nothing was changed. Stop it, then rerun."
 done
@@ -1452,6 +1482,9 @@ if [[ "$install_firstmate" == "true" ]]; then
   info "Treehouse installed binary: $(describe_binary_path "$treehouse_target" "$treehouse_target_path")"
   info "Treehouse installed binary digest: $treehouse_target_digest"
 
+  # The staged installer's environment carries no NM_HOME, so its daemon lives
+  # in the default root.
+  no_mistakes_clear_dead_daemon "$HOME/.no-mistakes"
   # network-source: no-mistakes-installer
   install_staged_script "No Mistakes" \
     "$no_mistakes_install_script" "$no_mistakes_target" "$no_mistakes_expected_sha256"
