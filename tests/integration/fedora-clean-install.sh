@@ -235,9 +235,10 @@ docker exec --user dotfiles --env HOME=/home/dotfiles "$container" \
 # api.github.com, and mise asks the same API about its GitHub-backed tools.
 # Unauthenticated that is 60 requests an hour shared with every other tenant on
 # the runner's address, which the macOS job has failed on with nothing wrong on
-# its own side. Both spellings, because an upstream that reads either finds it.
-# They are empty outside CI and the workflow's permissions are contents:read,
-# so the token can read this repository and nothing else.
+# its own side. Both spellings, because install-ai.sh takes either; the staged
+# upstream installers never see either variable, only a netrc entry for
+# api.github.com. They are empty outside CI and the workflow's permissions are
+# contents:read, so the token can read this repository and nothing else.
 run_as_user() {
   docker exec --user dotfiles \
     --env HOME=/home/dotfiles \
