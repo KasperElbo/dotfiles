@@ -1087,7 +1087,9 @@ self-hosted, Windows, X64, dotfiles-wsl
 The runner must provide an immutable export tar of a clean Fedora WSL distro at
 the path supplied by the `wsl_base_tar` workflow input. The archive must contain
 the non-root user named by `wsl_user` with non-interactive `sudo`, networking,
-Git, and the normal WSL prerequisites needed by the bootstrap. The workflow
+and Git, and nothing else added: the installer's Fedora base bootstrap installs
+Gawk, which the clean image lacks, and anything else it runs before its package
+step, so the job proves that a clean distro is enough. The workflow
 imports that archive under a run-specific distro name and install directory,
 clones the selected commit into the distro's Linux filesystem, and performs the
 first install. It then explicitly terminates the imported distro and launches it

@@ -107,6 +107,7 @@ default_tests=(
   tests/test-execution-plan.sh
   tests/test-cli-contract.sh
   tests/test-installer-preflight.sh
+  tests/test-base-bootstrap.sh
   tests/test-doctor.sh
   tests/test-install-lifecycle.sh
   tests/test-install-rerun.sh

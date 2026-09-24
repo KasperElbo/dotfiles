@@ -170,10 +170,15 @@ wsl --list --verbose
 Using the name returned by `wsl --list --online` avoids tying the repository to
 a Fedora Store image name that changes with releases. Complete the Fedora
 first-launch user setup with `wsl --distribution <Fedora-name>`, then clone this
-repository from inside Fedora:
+repository from inside Fedora. The distro needs nothing else from you: a clean
+Fedora WSL image has no Gawk, and the installer's first act is to install it,
+and any other package it runs before its own package step, with `sudo dnf`
+(see [Troubleshooting](../troubleshooting.md#the-installer-first-installs-gawk-or-another-base-package)).
+Git is installed here only because the clone needs it first:
 
 ```bash
 sudo dnf upgrade --refresh
+sudo dnf install -y git
 mkdir -p ~/src
 git clone <REPOSITORY_URL> ~/src/dotfiles
 cd ~/src/dotfiles

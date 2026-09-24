@@ -22,6 +22,7 @@ COMMANDS = pathlib.Path(
 PLATFORMS = {"fedora", "fedora-wsl", "macos", "parrot-ctf"}
 CLASSIFICATIONS = {
     "bootstrap-prerequisite",
+    "bootstrap-package",
     "baseline-package",
     "repository-file",
     "supported-base",
@@ -58,6 +59,13 @@ def main() -> int:
         (row["platform"], row["capability"]): row
         for row in capabilities
         if row["status"] == "implemented"
+    }
+    # common/lib/base-bootstrap.sh installs a bootstrap-package provider with
+    # dnf, so only a platform whose base packages come from dnf may have one.
+    dnf_platforms = {
+        platform
+        for (platform, capability), row in rows.items()
+        if capability == "base" and row["provider"].split("+")[0] == "dnf"
     }
     package_owners: dict[tuple[str, str], list[str]] = {}
     for row in capabilities:
@@ -129,6 +137,19 @@ def main() -> int:
                     f"owned exactly once by {owner}; owners={rendered}"
                 )
                 errors += 1
+        elif classification == "bootstrap-package" and platform not in dnf_platforms:
+            fail(
+                f"line {line}: {platform} command {command!r} is a bootstrap-package, "
+                "but only a platform whose base provider is dnf has the bootstrap "
+                "that installs one (common/lib/base-bootstrap.sh)"
+            )
+            errors += 1
+        elif classification == "bootstrap-package" and "/" in provider:
+            fail(
+                f"line {line}: bootstrap-package provider {provider!r} for {command!r} "
+                "must be a package name the bootstrap can install"
+            )
+            errors += 1
         elif classification == "repository-file":
             source = ROOT / provider
             if not source.is_file():

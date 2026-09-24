@@ -54,7 +54,7 @@ Preflight runs before anything is changed, and refuses rather than half-installi
 ```text
 Missing bootstrap-prerequisite command: xcode-select (provider: macos)
 Missing bootstrap-prerequisite command: sudo (provider: sudo)
-Missing supported-base command: awk (provider: gawk)
+Missing supported-base command: wslpath (provider: wsl-runtime)
 Path is not writable: /home/you/.config
 XDG_CONFIG_HOME is /srv/config, but this repository deploys to /home/you/.config.
 Not enough free disk space for /home/you/.local/share: 812 MiB available, 3072 MiB required
@@ -73,7 +73,10 @@ Install the named command — the message names the package that provides it —
 or fix the ownership of the named path, then rerun. `bootstrap-prerequisite`
 is something the installer needs before it can install anything at all;
 `supported-base` is a command the finished environment is defined to have.
-Both come from `config/command-providers.tsv`. The installer making no
+Both come from `config/command-providers.tsv`. A `bootstrap-package` command,
+such as `awk` from `gawk`, is not normally reported here: on Fedora the base
+bootstrap installs its package before the installer starts (see
+[below](#the-installer-first-installs-gawk-or-another-base-package)). The installer making no
 changes at all is the intended outcome here, not a failure to recover from.
 
 The disk figures are floors for "certainly not enough" -- one package-manager
@@ -104,6 +107,28 @@ here.
 build when a step's declaration does not match the scripts it runs, or when a
 script can reach a source whose registry row does not name it. A step cannot
 be added that downloads from a host nothing probes.
+
+## The installer first installs gawk or another base package
+
+A fresh Fedora WSL distro has no `awk`, and a minimal Fedora image may lack
+more of what the installer runs before its own package step. Before it reads
+anything else, `./install.sh --platform fedora-wsl` (or `fedora`) installs
+those packages itself:
+
+```text
+The installer needs gawk before its own package step, and this machine does not have awk.
+The Fedora base bootstrap installs them first: sudo dnf install -y gawk
+Install them now? [Y/n]
+```
+
+On a machine that already has them it prints nothing. `--dry-run` shows the
+same `sudo dnf install -y ...` line and stops, because the full plan is
+rendered with those commands; `--non-interactive` needs cached sudo
+(`sudo -v` first), and `--help` explains why it cannot show the help yet
+instead of installing. The image needs only a regular user who may use sudo,
+and Git to clone this repository with. An older checkout stops instead with
+`manifest.sh: line 52: awk: command not found`; update it, or run
+`sudo dnf install -y gawk` once, and rerun.
 
 ## Stow conflicts
 
