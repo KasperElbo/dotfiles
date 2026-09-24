@@ -8,19 +8,30 @@ set -euo pipefail
 
 windows_root="${WINDOWS_SYSTEM_ROOT:-/mnt/c/Windows}"
 explorer="$windows_root/explorer.exe"
+powershell="$windows_root/System32/WindowsPowerShell/v1.0/powershell.exe"
 
-[[ -x "$explorer" ]] || {
-  printf 'Windows Explorer executable not found: %s\n' "$explorer" >&2
-  exit 1
+# URLs go to the default browser through PowerShell, paths go to Explorer.
+# explorer.exe is no URL opener: handed a long URL with a query string, such as
+# an OAuth login link, it opens a File Explorer window instead of the browser,
+# and exits the same way either way.
+url_arguments=()
+path_arguments=()
+
+# Each target's Windows program is checked before anything is converted or
+# dispatched, so a missing one is named rather than swallowed by `|| true`.
+require_windows_program() {
+  [[ -x "$2" ]] || {
+    printf 'Windows %s executable not found: %s\n' "$1" "$2" >&2
+    exit 1
+  }
 }
-
-converted_arguments=()
 for argument in "$@"; do
   if [[ "$argument" =~ ^[[:alpha:]][[:alnum:].+-]*: ]]; then
     scheme="${argument%%:*}"
     case "${scheme,,}" in
     http | https | ftp | ftps | mailto | file)
-      converted_arguments+=("$argument")
+      require_windows_program PowerShell "$powershell"
+      url_arguments+=("$argument")
       continue
       ;;
     esac
@@ -35,6 +46,7 @@ for argument in "$@"; do
     exit 1
   fi
 
+  require_windows_program Explorer "$explorer"
   if [[ -d "$argument" ]]; then
     absolute_path="$(cd -P -- "$argument" && pwd)"
   else
@@ -46,12 +58,31 @@ for argument in "$@"; do
     printf 'Could not convert Linux path for Windows: %s\n' "$argument" >&2
     exit 1
   }
-  converted_arguments+=("$windows_path")
+  path_arguments+=("$windows_path")
+done
+
+# The URL travels in an environment variable shared through WSLENV, so no
+# Windows command-line quoting ever sees it: `&`, `%`, quotes and spaces reach
+# Start-Process exactly as given. Start-Process fails when Windows has no
+# handler, so this status is real and is passed on to the caller.
+status=0
+for url_argument in "${url_arguments[@]}"; do
+  # $env: and $ErrorActionPreference belong to PowerShell.
+  # shellcheck disable=SC2016
+  DOTFILES_WSL_OPEN_URL="$url_argument" \
+    WSLENV="DOTFILES_WSL_OPEN_URL${WSLENV:+:$WSLENV}" \
+    "$powershell" -NoLogo -NoProfile -NonInteractive -Command \
+    '$ErrorActionPreference = "Stop"; Start-Process -FilePath $env:DOTFILES_WSL_OPEN_URL' \
+    </dev/null || {
+    printf 'Windows could not open URL: %s\n' "$url_argument" >&2
+    status=1
+  }
 done
 
 # Explorer reports a nonzero exit status even when it opens the target, so the
 # status cannot distinguish success from failure. Dispatch every argument and
 # ignore the status; aborting here would silently drop the remaining targets.
-for converted_argument in "${converted_arguments[@]}"; do
-  "$explorer" "$converted_argument" || true
+for path_argument in "${path_arguments[@]}"; do
+  "$explorer" "$path_argument" || true
 done
+exit "$status"

@@ -11,8 +11,11 @@ test_root="$TEST_ROOT"
 windows_root="$test_root/windows"
 work_root="$test_root/work"
 argument_log="$test_root/explorer-arguments"
+url_log="$test_root/powershell-urls"
 wslpath_log="$test_root/wslpath-arguments"
-mkdir -p "$windows_root" "$work_root/bin" "$work_root/directory with spaces"
+powershell="$windows_root/System32/WindowsPowerShell/v1.0/powershell.exe"
+mkdir -p "$windows_root" "$(dirname -- "$powershell")" "$work_root/bin" \
+  "$work_root/directory with spaces"
 
 cat >"$windows_root/explorer.exe" <<'EOF'
 #!/usr/bin/env bash
@@ -24,7 +27,17 @@ cat >"$work_root/bin/wslpath" <<'EOF'
 printf '%s\0' "$2" >>"$WSLPATH_ARGUMENT_LOG"
 printf 'C:\\converted\\%s\n' "${2##*/}"
 EOF
-chmod +x "$windows_root/explorer.exe" "$work_root/bin/wslpath"
+# The PowerShell stand-in records the URL the way Windows would see it: only
+# variables WSLENV names cross into a Windows process, and the command must
+# read the URL from one of them rather than from its own command line.
+cat >"$powershell" <<'EOF'
+#!/usr/bin/env bash
+[[ "$*" == *'Start-Process -FilePath $env:DOTFILES_WSL_OPEN_URL'* ]] || exit 91
+[[ ":$WSLENV:" == *:DOTFILES_WSL_OPEN_URL:* ]] || exit 92
+[[ -n "${POWERSHELL_EXIT:-}" ]] && exit "$POWERSHELL_EXIT"
+printf '%s\0' "$DOTFILES_WSL_OPEN_URL" >>"$POWERSHELL_URL_LOG"
+EOF
+chmod +x "$windows_root/explorer.exe" "$work_root/bin/wslpath" "$powershell"
 
 touch "$work_root/file.txt"
 touch "$work_root/directory with spaces/spaced file.txt"
@@ -33,8 +46,10 @@ touch "$work_root/http"
 
 run_open() {
   : >"$argument_log"
+  : >"$url_log"
   : >"$wslpath_log"
   EXPLORER_ARGUMENT_LOG="$argument_log" \
+    POWERSHELL_URL_LOG="$url_log" \
     WSLPATH_ARGUMENT_LOG="$wslpath_log" \
     WINDOWS_SYSTEM_ROOT="$windows_root" \
     PATH="$work_root/bin:$PATH" \
@@ -91,15 +106,43 @@ assert_logged_arguments "$wslpath_log" "$work_root/http"
 : >"$wslpath_log"
 url='https://example.invalid/path?q=one two'
 run_open "$url"
-assert_logged_arguments "$argument_log" "$url"
+assert_logged_arguments "$url_log" "$url"
+assert_file_empty "$argument_log"
 assert_file_empty "$wslpath_log"
 
-: >"$wslpath_log"
+# A URL never goes to Explorer. Handed Claude Code's OAuth login link through
+# the BROWSER this profile sets, explorer.exe opened a File Explorer window
+# instead of the browser. Every character of the link must reach Windows.
+login_url='https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile&code_challenge=Ab-_c&state="x y"'
+run_open "$login_url"
+assert_logged_arguments "$url_log" "$login_url"
+assert_file_empty "$argument_log"
+
+WSLENV='EXISTING/p' run_open "$login_url"
+assert_logged_arguments "$url_log" "$login_url"
+
 run_open "$work_root/file.txt" "$url" "$work_root/directory with spaces"
 assert_logged_arguments "$argument_log" \
-  'C:\converted\file.txt' "$url" 'C:\converted\directory with spaces'
+  'C:\converted\file.txt' 'C:\converted\directory with spaces'
+assert_logged_arguments "$url_log" "$url"
 assert_logged_arguments "$wslpath_log" \
   "$work_root/file.txt" "$work_root/directory with spaces"
+
+# Start-Process fails when Windows cannot open the URL, and that failure is the
+# caller's to see: Claude Code prints the link for copying only when its
+# opener exits nonzero.
+POWERSHELL_EXIT=1 run_capture run_open "$url"
+assert_failure
+assert_contains "$TEST_OUTPUT" "Windows could not open URL: $url"
+
+# A URL needs PowerShell, not Explorer, and is refused by name without it.
+mv "$powershell" "$powershell.away"
+run_capture run_open "$url"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "Windows PowerShell executable not found: $powershell"
+assert_file_empty "$argument_log"
+mv "$powershell.away" "$powershell"
 
 : >"$argument_log"
 : >"$wslpath_log"
@@ -113,6 +156,7 @@ run_capture run_open 'custom-scheme:value'
 assert_failure
 assert_contains "$TEST_OUTPUT" 'Unsupported URI or nonexistent path: custom-scheme:value'
 assert_file_empty "$argument_log"
+assert_file_empty "$url_log"
 
 # Real explorer.exe exits nonzero even when it opens the target. Every argument
 # must still be dispatched, and wsl-open must not inherit that status.
@@ -126,7 +170,8 @@ chmod +x "$windows_root/explorer.exe"
 : >"$wslpath_log"
 run_open "$work_root/file.txt" "$url" "$work_root/directory with spaces"
 assert_logged_arguments "$argument_log" \
-  'C:\converted\file.txt' "$url" 'C:\converted\directory with spaces'
+  'C:\converted\file.txt' 'C:\converted\directory with spaces'
+assert_logged_arguments "$url_log" "$url"
 
 # Interop off is a state this repository deliberately moves toward, and it is
 # what a user hits when /etc/wsl.conf disables it or the Windows mount is not
