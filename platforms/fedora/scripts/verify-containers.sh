@@ -470,6 +470,7 @@ fi
 # "is this reachable" check anyway.
 serve_smoke_content='mkdir -p /srv && echo dotfiles-podman-smoke > /srv/index.html && httpd -f -p 8080 -h /srv'
 
+# not-a-staged-installer: this repository's own script, run inside the container.
 if podman run -d --rm --name "$smoke_container" \
   -p "127.0.0.1:$smoke_port:8080" "$smoke_image" \
   sh -c "$serve_smoke_content" >/dev/null 2>&1; then
@@ -485,6 +486,7 @@ else
 fi
 
 if podman network create "$smoke_network" >/dev/null 2>&1 &&
+  # not-a-staged-installer: the same script, inside the container.
   podman run -d --rm --network "$smoke_network" --name "$smoke_server" \
     "$smoke_image" sh -c "$serve_smoke_content" >/dev/null 2>&1; then
   if wait_for_content 10 "dotfiles-podman-smoke" \
