@@ -74,9 +74,9 @@ remove or replace any terminal already installed on Windows.
 The script discovers the newest official `FedoraLinux` name advertised by WSL,
 prompts for elevation only for WSL installation or conversion, and installs
 Noctty for the current user through its official Scoop bucket. If Scoop
-itself is not already installed, the script first downloads and runs the
-official installer from `https://get.scoop.sh` to bootstrap it, before adding
-the Noctty bucket. It is safe to
+itself is not already installed, the script first bootstraps it with Scoop's
+official installer, fetched at a pinned commit and checked against its pinned
+SHA-256 before it runs, before adding the Noctty bucket. It is safe to
 run again: an installed Fedora WSL 2 distribution and Noctty are retained, and
 only the script's marked Noctty configuration block is updated. That block
 loads the synchronized `ghostty/.config/ghostty/shared.conf`, which is also

@@ -194,7 +194,7 @@ printf 'PASS: a source line the closure cannot follow is a build error\n'
 
 # Everything the audit named as a trust source is actually registered.
 for source_id in terra-repo terra-signing-key rpmfusion-free-release \
-  rpmfusion-nonfree-release tailscale-repo mise-installer starship-installer \
+  rpmfusion-nonfree-release tailscale-repo mise-release starship-release \
   homebrew-installer homebrew-formulae scoop-installer catppuccin-tmux \
   catppuccin-kde firstmate-repo treehouse-installer no-mistakes-installer \
   npm-registry opam-repository lazyvim-plugins mason-registry \
@@ -734,6 +734,78 @@ if lint_output="$(NETWORK_SOURCE_MANIFEST="$manifest_fixture" \
 fi
 assert_contains "$lint_output" 'wildcard'
 printf 'PASS: a wildcard is never accepted as an exact pin\n'
+
+# --- Every live source carries a recorded decision (#504) -----------------
+
+# A reviewed-live row is content nothing authenticates before it is used, so it
+# is only acceptable as a written decision in config/live-sources.tsv. Each
+# case differs from the tracked registries in exactly one way.
+live_fixture="$test_root/live-sources.tsv"
+
+# A new live source with no decision.
+grep -v '^treehouse-installer	' "$repo_root/config/live-sources.tsv" >"$live_fixture"
+if lint_output="$(LIVE_SOURCE_MANIFEST="$live_fixture" \
+  python3 "$repo_root/scripts/validate-network-sources.py" 2>&1)"; then
+  printf 'The linter accepted a live source with no recorded decision.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'treehouse-installer is reviewed-live, so nothing verifies it before use'
+printf 'PASS: a reviewed-live source without a recorded decision is rejected\n'
+
+# A decision left behind after its source was pinned.
+awk -F '\t' 'BEGIN { OFS = "\t" }
+  NR > 1 && $1 == "treehouse-installer" { $7 = "immutable-verified"; $10 = "sha256-pinned" }
+  { print }' "$repo_root/config/network-sources.tsv" >"$manifest_fixture"
+if lint_output="$(NETWORK_SOURCE_MANIFEST="$manifest_fixture" \
+  python3 "$repo_root/scripts/validate-network-sources.py" 2>&1)"; then
+  printf 'The linter accepted a live-source decision for a pinned source.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" "treehouse-installer records a live-source decision, but its tier is 'immutable-verified'"
+printf 'PASS: a decision for a source that is no longer live is rejected\n'
+
+# A script that claims it is never executed.
+awk -F '\t' 'BEGIN { OFS = "\t" }
+  NR > 1 && $1 == "treehouse-installer" { $2 = "data"; $3 = "not-executed" }
+  { print }' "$repo_root/config/live-sources.tsv" >"$live_fixture"
+if lint_output="$(LIVE_SOURCE_MANIFEST="$live_fixture" \
+  python3 "$repo_root/scripts/validate-network-sources.py" 2>&1)"; then
+  printf 'The linter accepted a remote script recorded as never executed.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" 'treehouse-installer is a remote script, so it executes as a script'
+printf 'PASS: a remote script cannot be recorded as data that never runs\n'
+
+# Data recorded with a decision only a script can have.
+awk -F '\t' 'BEGIN { OFS = "\t" }
+  NR > 1 && $1 == "wsl-distribution-catalog" { $3 = "owner-accepted" }
+  { print }' "$repo_root/config/live-sources.tsv" >"$live_fixture"
+if lint_output="$(LIVE_SOURCE_MANIFEST="$live_fixture" \
+  python3 "$repo_root/scripts/validate-network-sources.py" 2>&1)"; then
+  printf 'The linter accepted data with a script decision.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" "wsl-distribution-catalog pairs executes='data' with decision='owner-accepted'"
+printf 'PASS: data and executed scripts carry the decisions that fit them\n'
+
+# The generated inventory says what is checked before use, and never counts a
+# digest recorded after a script ran.
+inventory="$repo_root/docs/supply-chain-sources.md"
+assert_file_contains "$inventory" '| Checked before use |'
+assert_file_contains "$inventory" '## Accepted live sources'
+# Read into variables first: a quiet grep at the end of a pipe exits at its
+# first match and can fail the producer under pipefail.
+accepted_section="$(sed -n '/^## Accepted live sources/,/^## /p' "$inventory")"
+while IFS=$'\t' read -r source_id _; do
+  [[ "$source_id" != id ]] || continue
+  [[ "$accepted_section" == *"| \`$source_id\` |"* ]] ||
+    _test_die "the generated inventory does not list the live decision for $source_id"
+done <"$repo_root/config/live-sources.tsv"
+tls_rows="$(grep -E '^\| `[a-z0-9-]+` \|.*`https-tls`' "$inventory" || true)"
+if [[ "$tls_rows" == *"| yes:"* ]]; then
+  _test_die 'the generated inventory claims a TLS-only source is checked before use'
+fi
+printf 'PASS: the generated inventory shows what is authenticated before use and each accepted live source\n'
 
 # --- A digest pin the consumer does not use is not a pin -------------------
 #
@@ -1348,6 +1420,138 @@ if digest_output="$(bash -c '
 fi
 assert_contains "$digest_output" 'SHA-256 mismatch for the payload'
 printf 'PASS: wrong-shape and wrong-digest content is rejected\n'
+
+# --- A staged installer inherits only a minimal environment (#504) --------
+
+# Code this repository did not write -- and, for a reviewed-live source, could
+# not authenticate before running -- gets the allowlisted names and the inputs
+# its call site states, and nothing else the caller happened to export.
+installer_probe="$test_root/installer-probe.sh"
+printf '#!/bin/sh\nenv | sort >"$PROBE_REPORT_DIR/report"\nexit 7\n' >"$installer_probe"
+probe_dir="$test_root/probe"
+mkdir -p "$probe_dir"
+status=0
+env GITHUB_TOKEN=fixture-not-a-credential GH_TOKEN=fixture-not-a-credential \
+  ANTHROPIC_API_KEY=fixture-not-an-api-key SSH_AUTH_SOCK=/nonexistent/agent \
+  AWS_SECRET_ACCESS_KEY=fixture-not-a-key HTTPS_PROXY=http://proxy.invalid:3128 \
+  bash -c '
+  set -euo pipefail
+  source "$1/common/lib/common.sh"
+  source "$1/common/lib/fetch.sh"
+  fetch_run_installer PROBE_REPORT_DIR="$2" MISE_INSTALL_PATH=/tmp/mise -- sh "$3"
+' _ "$repo_root" "$probe_dir" "$installer_probe" || status=$?
+[[ "$status" == 7 ]] ||
+  _test_die "fetch_run_installer did not return the installer's own status (got $status)"
+probe_names="$(cut -d= -f1 <"$probe_dir/report" | sort -u | tr '\n' ' ')"
+for leaked in GITHUB_TOKEN GH_TOKEN ANTHROPIC_API_KEY SSH_AUTH_SOCK AWS_SECRET_ACCESS_KEY; do
+  [[ " $probe_names " != *" $leaked "* ]] ||
+    _test_die "a staged installer inherited $leaked"
+done
+for kept in HOME PATH HTTPS_PROXY MISE_INSTALL_PATH PROBE_REPORT_DIR; do
+  [[ " $probe_names " == *" $kept "* ]] ||
+    _test_die "a staged installer was not given $kept"
+done
+# Only allowlisted names, plus what the call site stated, plus whatever the
+# shell itself defines on startup: nothing the allowlist does not explain.
+allowed=" $(bash -c 'source "$1/common/lib/fetch.sh"; printf "%s " "${DOTFILES_INSTALLER_ENVIRONMENT[@]}"' _ "$repo_root") MISE_INSTALL_PATH PROBE_REPORT_DIR PWD SHLVL OLDPWD _ "
+for name in $probe_names; do
+  [[ "$allowed" == *" $name "* ]] ||
+    _test_die "a staged installer inherited a name outside the allowlist: $name"
+done
+printf 'PASS: a staged installer inherits only the allowlisted environment\n'
+
+# Every place a staged remote installer is executed goes through that runner.
+# A bare `sh "$installer"` hands the script every variable the caller has.
+unwrapped_runs="$(grep -rnE '(^|[[:space:];&|(])(sh|bash|/bin/bash|/bin/sh)[[:space:]]+"\$[A-Za-z_]*(installer|staged)[A-Za-z_]*"' \
+  "$repo_root/common" "$repo_root/scripts" "$repo_root/platforms" 2>/dev/null |
+  grep -vE ':[[:space:]]*#' | grep -vE 'fetch_run_installer|env -i' || true)"
+if [[ -n "$unwrapped_runs" ]]; then
+  printf 'A staged installer runs with the caller'"'"'s whole environment:\n%s\n' \
+    "$unwrapped_runs" >&2
+  exit 1
+fi
+printf 'PASS: every staged installer runs through the minimal-environment runner\n'
+
+# scripts/bootstrap-macos.sh runs under Apple's Bash 3.2 before any library
+# exists, so it spells the list out. The two lists must not drift apart.
+library_names="$(bash -c 'source "$1/common/lib/fetch.sh"; printf "%s\n" "${DOTFILES_INSTALLER_ENVIRONMENT[@]}"' _ "$repo_root")"
+bootstrap_function="$(sed -n '/^run_homebrew_installer() {$/,/^}$/p' "$repo_root/scripts/bootstrap-macos.sh")"
+[[ -n "$bootstrap_function" ]] ||
+  _test_die 'scripts/bootstrap-macos.sh no longer defines run_homebrew_installer'
+bootstrap_names="$(sed -n '/for name in/,/; do/p' <<<"$bootstrap_function" |
+  sed -e 's/for name in//' -e 's/; do//' -e 's/\\//g' | tr -s '[:space:]' '\n' | sed '/^$/d')"
+assert_eq "$library_names" "$bootstrap_names" \
+  'the Homebrew bootstrap and common/lib/fetch.sh must allowlist the same names'
+
+# And the bootstrap function behaves like the library, run from its real text.
+bootstrap_probe="$test_root/bootstrap-probe"
+mkdir -p "$bootstrap_probe"
+printf '#!/bin/bash\nenv | sort >"$HOME/report"\n' >"$bootstrap_probe/installer"
+env -i HOME="$bootstrap_probe" PATH="$PATH" GITHUB_TOKEN=fixture-not-a-credential \
+  ANTHROPIC_API_KEY=fixture-not-an-api-key \
+  bash -c "set -e; $bootstrap_function"'
+run_homebrew_installer "$1" true' _ "$bootstrap_probe/installer"
+bootstrap_report="$(cut -d= -f1 <"$bootstrap_probe/report" | tr '\n' ' ')"
+[[ " $bootstrap_report " != *" GITHUB_TOKEN "* && " $bootstrap_report " != *" ANTHROPIC_API_KEY "* ]] ||
+  _test_die "the Homebrew bootstrap installer inherited a credential: $bootstrap_report"
+[[ " $bootstrap_report " == *" NONINTERACTIVE "* && " $bootstrap_report " == *" HOME "* ]] ||
+  _test_die "the Homebrew bootstrap installer lost a stated input: $bootstrap_report"
+printf 'PASS: the Apple Bash 3.2 Homebrew bootstrap uses the same allowlist\n'
+
+# --- The Homebrew installer is pinned and checked before it runs (#504) -----
+
+homebrew_lib="$repo_root/platforms/macos/lib/homebrew-installer.sh"
+homebrew_url="$(bash -c 'source "$1"; homebrew_installer_url' _ "$homebrew_lib")"
+homebrew_commit="$(bash -c 'source "$1"; printf %s "$DOTFILES_HOMEBREW_INSTALLER_COMMIT"' _ "$homebrew_lib")"
+[[ "$homebrew_commit" =~ ^[0-9a-f]{40}$ ]] ||
+  _test_die "the Homebrew installer is not pinned to a full commit: $homebrew_commit"
+assert_eq "https://raw.githubusercontent.com/Homebrew/install/$homebrew_commit/install.sh" \
+  "$homebrew_url" 'the Homebrew installer must be fetched at the pinned commit'
+if grep -rFq 'Homebrew/install/HEAD' "$repo_root/scripts" "$repo_root/platforms"; then
+  _test_die 'an installer still fetches the moving HEAD of Homebrew/install'
+fi
+
+# The Bash 3.2 check itself: the pinned bytes pass, any other bytes fail and
+# say so. The expected digest is read at call time, so the case can name the
+# fixture's own digest as the pin without touching the tracked value.
+# The library runs on macOS, where shasum is part of the system. Linux
+# runners may lack it (the Fedora CI container does), so there a shim with
+# the one call shape the library uses stands in for it.
+homebrew_path="$PATH"
+if ! command -v shasum >/dev/null 2>&1; then
+  mkdir -p "$test_root/shasum-bin"
+  printf '%s\n' '#!/bin/bash' \
+    '[[ "$1" == -a && "$2" == 256 && $# -eq 3 ]] || exit 2' \
+    'exec sha256sum -- "$3"' >"$test_root/shasum-bin/shasum"
+  chmod +x "$test_root/shasum-bin/shasum"
+  homebrew_path="$test_root/shasum-bin:$PATH"
+fi
+homebrew_fixture="$test_root/homebrew-install.sh"
+printf '#!/bin/bash\necho reviewed\n' >"$homebrew_fixture"
+homebrew_fixture_digest="$(sha256sum "$homebrew_fixture" | cut -d' ' -f1)"
+PATH="$homebrew_path" bash -c 'source "$1"; DOTFILES_HOMEBREW_INSTALLER_SHA256="$2"; homebrew_installer_verify "$3"' \
+  _ "$homebrew_lib" "$homebrew_fixture_digest" "$homebrew_fixture" ||
+  _test_die 'the pinned Homebrew installer content was refused'
+printf '#!/bin/bash\necho tampered\n' >"$homebrew_fixture"
+if homebrew_output="$(PATH="$homebrew_path" bash -c 'source "$1"; DOTFILES_HOMEBREW_INSTALLER_SHA256="$2"; homebrew_installer_verify "$3"' \
+  _ "$homebrew_lib" "$homebrew_fixture_digest" "$homebrew_fixture" 2>&1)"; then
+  _test_die 'a Homebrew installer that differs from its pin was accepted'
+fi
+assert_contains "$homebrew_output" 'SHA-256 mismatch for the Homebrew installer'
+
+# Both consumers check the pin before the line that runs the script.
+line_of() { grep -nF -- "$2" "$1" | head -n1 | cut -d: -f1; }
+bootstrap="$repo_root/scripts/bootstrap-macos.sh"
+system_installer="$repo_root/platforms/macos/scripts/install-system.sh"
+[[ -n "$(line_of "$bootstrap" 'homebrew_installer_verify "$installer"')" &&
+  "$(line_of "$bootstrap" 'homebrew_installer_verify "$installer"')" -lt \
+  "$(line_of "$bootstrap" 'run_homebrew_installer "$installer"')" ]] ||
+  _test_die 'scripts/bootstrap-macos.sh must verify the Homebrew installer before running it'
+[[ -n "$(line_of "$system_installer" 'fetch_verify_sha256 "$installer" "$DOTFILES_HOMEBREW_INSTALLER_SHA256"')" &&
+  "$(line_of "$system_installer" 'fetch_verify_sha256 "$installer" "$DOTFILES_HOMEBREW_INSTALLER_SHA256"')" -lt \
+  "$(line_of "$system_installer" 'fetch_run_installer NONINTERACTIVE=1')" ]] ||
+  _test_die 'the macOS system installer must verify the Homebrew installer before running it'
+printf 'PASS: the Homebrew installer is fetched at its pinned commit and refused unless it matches\n'
 
 # --- No installer pipes remote content into a shell -------------------------
 

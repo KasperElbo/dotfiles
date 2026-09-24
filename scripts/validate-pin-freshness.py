@@ -73,8 +73,15 @@ LITERAL_PIN = re.compile(r"^v?[0-9][0-9A-Za-z.-]*$|^[0-9a-f]{40}$")
 
 
 def assignment(path: pathlib.Path, key: str) -> list[str]:
-    """Every `key="value"` assignment in a file, as the report reads them."""
-    pattern = re.compile(rf'^{re.escape(key)}="([^"]*)"$', re.MULTILINE)
+    """Every `key="value"` assignment in a file, as the report reads them.
+
+    A PowerShell data file spells the same thing `Key = 'value'`, indented,
+    and the report reads a `.psd1` pin that way.
+    """
+    if path.suffix == ".psd1":
+        pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*'([^']*)'\s*$", re.MULTILINE)
+    else:
+        pattern = re.compile(rf'^{re.escape(key)}="([^"]*)"$', re.MULTILINE)
     return pattern.findall(path.read_text(encoding="utf-8"))
 
 

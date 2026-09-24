@@ -97,7 +97,9 @@ while (($#)); do
 done
 
 # pin_value <file> <key>: the value of a `key="value"` assignment, which is the
-# shape every pinned literal in this repository is written in. Exactly one
+# shape every pinned literal in this repository is written in -- or, in a
+# PowerShell data file (.psd1), of a `Key = 'value'` entry, which is how the
+# Windows manifest spells one. Exactly one
 # match is required: no match means the pin moved or was renamed, and several
 # mean the file states it twice, and both are reasons to stop rather than to
 # report a comparison against a value that may not be the live one.
@@ -110,7 +112,12 @@ pin_value() {
     return 1
   }
 
-  matches="$(sed -n "s/^${key}=\"\\([^\"]*\\)\"\$/\\1/p" "$file")" || return 1
+  if [[ "$file" == *.psd1 ]]; then
+    matches="$(sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*'\\([^']*\\)'[[:space:]]*\$/\\1/p" "$file")" ||
+      return 1
+  else
+    matches="$(sed -n "s/^${key}=\"\\([^\"]*\\)\"\$/\\1/p" "$file")" || return 1
+  fi
   [[ -n "$matches" ]] || {
     printf 'no %s="..." assignment in %s\n' "$key" "$file" >&2
     return 1

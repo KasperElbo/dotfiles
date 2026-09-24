@@ -87,8 +87,10 @@ first-run user setup, then clone this repository inside Fedora and run
 
 The terminal capability is **Noctty**, installed for the current user from its
 own Scoop bucket (`noctty/noctty`), which the script adds if it is not already
-present. If Scoop itself is missing, the official installer from
-`https://get.scoop.sh` is downloaded to a temporary file, run, and deleted.
+present. If Scoop itself is missing, Scoop's official installer is downloaded
+at the commit `platforms/windows/manifest.psd1` pins, refused unless its
+SHA-256 matches the pinned one, then run with a minimal environment and
+deleted.
 Nothing is installed twice: an existing `noctty` command, or a current
 executable under `~\scoop\apps\`, is left alone.
 

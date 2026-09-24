@@ -59,23 +59,28 @@ security, not provenance, and never earns that tier.
   `gnhf`, the `*-axi` tools, `backpass`, `acpx`) request `latest`. These are
   fast-moving agent tools where running a months-old release is its own
   hazard. mise records what it installed.
-- **The mise, Starship, Scoop, and Homebrew install scripts** are
-  `reviewed-live`: each upstream publishes only a live script, with no release
-  artifact and no checksum to pin. They are downloaded to a private file,
-  validated, and executed by an explicit interpreter — never piped into a
-  shell.
-- **Treehouse and No Mistakes** are `reviewed-live` for the same reason. What
-  the repository adds is accountability: the SHA-256 of the script that
-  actually ran is recorded in the AI profile state.
+- **Treehouse and No Mistakes** are `reviewed-live`: each upstream publishes
+  its installer as a live script, and the owner chose on 22 September 2026 to
+  keep them rolling rather than re-vouch for a new digest on every upstream
+  change. They are downloaded to a private file, validated, and executed by an
+  explicit interpreter with a minimal environment — never piped into a shell.
+  What the repository adds after they run is accountability, not
+  authentication: the SHA-256 of the script that ran is recorded in the AI
+  profile state. The decision, its reason, the environment they are given and
+  how an update is reviewed are rows in `config/live-sources.tsv`, shown in
+  the generated [inventory](supply-chain-sources.md#accepted-live-sources).
 - **FirstMate** is a deliberate rolling channel on its upstream default branch;
   it publishes no releases. The resolved commit is recorded, so the installed
   revision is always knowable and restorable.
 
 The repository deliberately does **not** hash a live, mutable URL at install
 time and call the result a pin. A digest computed from whatever was served this
-minute proves only that the download was not corrupted in flight; it says
-nothing about what the next machine will get. Where such a digest is recorded,
-it is recorded as an audit record of what ran, and is labelled that way.
+minute authenticates nothing: it is taken after the fact, from the same bytes
+it would be checking, and says nothing about what the next machine will get.
+Where such a digest is recorded, it is recorded after the script has already
+run, as an audit record of what ran for diagnosis and rollback, and is
+labelled that way. The generated inventory's "Checked before use" column never
+counts it.
 
 ### Noticing that a pinned source has moved
 
@@ -140,6 +145,30 @@ the digest together, rerun the installer — which reinstalls precisely because
 the recorded digest no longer matches the pinned one — and rerun the verifier.
 Reviewing the new release is the whole reason the pin exists.
 
+### Bumping a bootstrap tool
+
+Four tools arrive before any package manager this repository configures, and
+until #504 each came from a live upstream script. Each is now pinned and
+checked before anything runs:
+
+| Source | Pinned in | What is checked |
+|---|---|---|
+| `mise-release` | `common/lib/bootstrap-tools.sh` | The release archive's SHA-256, per architecture; the binary is copied out and nothing from the archive runs. |
+| `starship-release` | `common/lib/bootstrap-tools.sh` | The same, for Starship on Fedora WSL. |
+| `homebrew-installer` | `platforms/macos/lib/homebrew-installer.sh` | `install.sh` at one commit of Homebrew/install, by SHA-256, before it runs with `sudo`. |
+| `scoop-installer` | `platforms/windows/manifest.psd1` | `install.ps1` at one commit of ScoopInstaller/Install, by SHA-256, before it runs. |
+
+To bump one, read what changed upstream, then edit the version or commit and
+its digests together. For mise and Starship take the digests from the
+release's own checksum file (`SHASUMS256.txt`, or the `.sha256` beside each
+Starship archive) and confirm them against the archives you download. For
+Homebrew and Scoop there is no published checksum: the digest is of the
+script you read, fetched from the commit's `raw.githubusercontent.com` URL.
+A test fails if a pinned download's content differs from its pin, so a
+digest that was not updated with its version cannot ship. Rolling back is the
+same edit in reverse; an installed binary is replaced by removing it and
+rerunning the installer, as each row's `rollback` says.
+
 ## Bounded network behaviour
 
 [`common/lib/fetch.sh`](../common/lib/fetch.sh) is the only sanctioned way for
@@ -185,7 +214,8 @@ repository runs is instead:
    that does not look like a shell script at all;
 3. checked against a pinned digest when one exists;
 4. executed only then, by an explicit interpreter, so a missing or hostile
-   shebang cannot choose one;
+   shebang cannot choose one, and with only the minimal environment described
+   in "What a remote installer is given";
 5. removed immediately afterwards;
 6. followed by verification of the exact expected command path — which must
    resolve to a regular file, owned by the invoking user, executable, and able
@@ -201,6 +231,30 @@ upstream installed, not just the launcher pointing at it, and refuses when the
 command now resolves somewhere else.
 
 Only after that verification may any state record the component as installed.
+
+## What a remote installer is given
+
+A staged installer is code this repository did not write, and where it is
+`reviewed-live`, code nothing authenticated before it ran. So it is handed only
+what it needs. `fetch_run_installer` in `common/lib/fetch.sh` runs it under
+`env -i` with the names in `DOTFILES_INSTALLER_ENVIRONMENT` that are set
+(`HOME`, `USER`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, the locale, `TMPDIR`,
+the four XDG roots, and the proxy and CA-bundle settings its own downloads
+need), plus the inputs the call site names: `MISE_INSTALL_PATH` for mise,
+`NONINTERACTIVE` for Homebrew, and `PATH` and `CURL_HOME` for Treehouse and
+No Mistakes. Nothing else crosses: not `GITHUB_TOKEN` or `GH_TOKEN`, not an
+`ANTHROPIC_API_KEY` or cloud profile in the user's shell, not
+`SSH_AUTH_SOCK`. `scripts/bootstrap-macos.sh`, which runs under Apple's Bash
+3.2 before any library exists, spells the same list out, and
+`tests/test-supply-chain.sh` holds the two lists equal and fails on any staged
+installer run outside the runner.
+
+This bounds what the script is handed, not what it can do. It still runs as
+you, can read your files, and can reach any host; no host allowlist is
+enforced, because a script running as the user has no network sandbox to
+enforce one in. That is the risk each `reviewed-live` row accepts, and why
+each one's decision is written down in `config/live-sources.tsv` and shown in
+the generated [inventory](supply-chain-sources.md#accepted-live-sources).
 
 ## The Terra trust boundary
 
@@ -363,7 +417,12 @@ present, naming the `--no-<component>` flag that would remove it.
    integrity mechanism, cadence, rollback strategy, and consumers.
 2. Annotate the call site with `# network-source: <id>`, on the construct's own
    line or in the comment block directly above it (up to four lines).
-3. Run `./scripts/render-supply-chain.py` to refresh the generated inventory.
+3. If the tier is `reviewed-live`, nothing authenticates the source before it
+   is used, so add its decision to `config/live-sources.tsv`: whether it runs
+   as a script or is read as data, why it is not pinned, the environment it is
+   given, and how an update is reviewed. A script also has to run through
+   `fetch_run_installer` (see "What a remote installer is given").
+4. Run `./scripts/render-supply-chain.py` to refresh the generated inventory.
 
 `./scripts/lint.sh` runs `scripts/validate-network-sources.py`, which fails on
 an unregistered `curl`, `wget`, PowerShell download, remote `git clone`/`fetch`,
@@ -378,7 +437,8 @@ repository and runs what comes back. It also fails on a registry
 row whose tier and integrity mechanism contradict each other, and on one whose
 `integrity` is `image-digest-pinned` while a consumer names some other
 reference — a digest the job does not pull is a claim about a run that never
-happens.
+happens. It fails, too, on a `reviewed-live` row with no decision in
+`config/live-sources.tsv`, and on a decision whose source is no longer live.
 
 A construct counts however it is written. A clone or a download spelled as an
 argument vector — `vim.fn.system({ "git", "clone", … })` or
@@ -518,9 +578,11 @@ The boundaries are the reason this is acceptable:
   repository and do nothing else, and it exists for the life of one CI job;
 - it is exported only on the steps that install, never job-wide, and the
   verifiers, smoke tests and probes run without it;
-- offering it through `netrc` widens nothing — a token exported into a step is
-  already in the environment of every process that step runs, including these
-  scripts; this only makes it usable for the one request it was exported for;
+- the staged installers never see it as a variable: they run under the
+  minimal installer environment described in "What a remote installer is
+  given" below, which drops `GITHUB_TOKEN` and `GH_TOKEN` along with
+  everything else, so the `netrc` is the only form in which they can use it —
+  for `api.github.com`, and for no other host;
 - the file is written `0600` inside the `0700` staging directory and is
   deleted with it when the script returns.
 

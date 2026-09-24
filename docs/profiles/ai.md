@@ -441,8 +441,9 @@ commit no longer matches what is on disk, because that is also the point at
 which a `--no-firstmate` removal will refuse to delete the file.
 
 The digests above are audit records of what was installed, **not** integrity
-pins: hashing a live, mutable URL at install time proves the download was not
-corrupted in flight, and nothing about what the next machine will receive. If
+pins: they are taken after the script has already run, from the bytes that
+were served, so they authenticate nothing and say nothing about what the next
+machine will receive. If
 an upstream later publishes a real checksum, set
 `TREEHOUSE_INSTALL_SCRIPT_SHA256` or `NO_MISTAKES_INSTALL_SCRIPT_SHA256` and
 the installer enforces it as a hard precondition. See

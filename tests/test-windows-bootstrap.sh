@@ -157,7 +157,14 @@ for windows_script in "$installer" "$windows_verifier"; do
   fi
 done
 
-grep -Fq 'https://get.scoop.sh' "$installer"
+# Scoop's installer comes from one pinned commit, never the moving get.scoop.sh
+# (#504); the digest check and its failing case live in the PowerShell suite.
+grep -Fq 'https://raw.githubusercontent.com/ScoopInstaller/Install/{0}/install.ps1' "$installer"
+if grep -Fq 'get.scoop.sh' "$installer"; then
+  printf 'The Windows bootstrap must not fetch the moving get.scoop.sh installer.\n' >&2
+  exit 1
+fi
+grep -Eq "^ +InstallerSha256 = '[0-9a-f]{64}'$" "$windows_manifest"
 grep -Fq 'https://github.com/amanthanvi/scoop-noctty' "$windows_manifest"
 grep -Fq "QualifiedName = 'noctty/noctty'" "$windows_manifest"
 
