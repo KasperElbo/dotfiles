@@ -679,6 +679,7 @@ where that decision is written down instead of being a property of each file
 | `scripts/validate-check-outcomes.py` | No | `verify.ps1` writes no trace; `tests/test-windows-verifier.ps1` asserts its failure paths directly |
 | `scripts/validate-command-provider-closure.py` | No | The pre-mutation command closure is a Bash installer's; `install.ps1` runs on a stock Windows |
 | `scripts/validate-docs.py` | Yes | Every page, the Windows ones included |
+| `scripts/validate-errexit-conditions.py` | Not applicable | It reads Bash for a `set -e` Bash ignores; PowerShell has no errexit to suppress |
 | `scripts/validate-install-options.py` | Partly | The Bash installers' parsers; `install.ps1`'s switches are its own `param` block, exercised by `tests/test-windows-bootstrap.ps1`, and the theme script's `ValidateSet` is a registered option consumer |
 | `scripts/validate-library-guards.py` | Not applicable | `common/lib` is Bash; the PowerShell libraries are dot-sourced by path |
 | `scripts/validate-neovim-plugin-specs.py` | Not applicable | Neovim runs inside the WSL distribution, which is the Fedora WSL platform |
