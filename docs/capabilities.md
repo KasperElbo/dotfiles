@@ -398,9 +398,8 @@ the repository once per rule, proving each one can fail:
 The shared library carries the checks these rules lead to.
 `check_command <name> --probe` runs a command instead of only finding it on
 PATH, with a documented probe for the few commands that do not answer
-`--version`. `check_system_service_enabled_and_active` and its `_user_`
-counterpart require a service to survive a reboot as well as be running, and
-name which half is missing. `check_mason_inventory`, `check_catppuccin_tmux`
+`--version`. `check_system_service_enabled_and_active` requires a service to
+survive a reboot as well as be running, and names which half is missing. `check_mason_inventory`, `check_catppuccin_tmux`
 and `check_mise_owned` are the component and ownership checks every workstation
 verifier shares.
 
