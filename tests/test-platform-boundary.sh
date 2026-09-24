@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -23,25 +25,28 @@ if grep -R -E -n \
   exit 1
 fi
 
-if grep -E -n '\b(dnf|rpm)\b' \
-  "$repo_root/common/install-ocaml.sh" \
-  "$repo_root/common/verify-ocaml.sh"; then
-  printf 'Portable OCaml scripts contain Fedora-specific package management.\n' >&2
-  exit 1
-fi
+for portable_script in common/install-ocaml.sh common/verify-ocaml.sh; do
+  if code_grep -E -n '\b(dnf|rpm)\b' "$repo_root/$portable_script"; then
+    printf 'Portable OCaml script %s contains Fedora-specific package management.\n' \
+      "$portable_script" >&2
+    exit 1
+  fi
+done
 
-if grep -E -n '\b(dnf|rpm|systemctl|plasmashell|swaymsg|lookandfeeltool)\b' \
-  "$repo_root/common/install-ai.sh" \
-  "$repo_root/common/verify-ai.sh"; then
-  printf 'Portable AI profile scripts contain Fedora/desktop-specific integration.\n' >&2
-  exit 1
-fi
+for portable_script in common/install-ai.sh common/verify-ai.sh; do
+  if code_grep -E -n '\b(dnf|rpm|systemctl|plasmashell|swaymsg|lookandfeeltool)\b' \
+    "$repo_root/$portable_script"; then
+    printf 'Portable AI profile script %s contains Fedora/desktop-specific integration.\n' \
+      "$portable_script" >&2
+    exit 1
+  fi
+done
 
-grep -Fq 'zsh/platform.zsh' \
+code_grep -Fq 'zsh/platform.zsh' \
   "$repo_root/zsh/.config/zsh/.zshrc"
-grep -Fq '/usr/share/zsh-autosuggestions' \
+code_grep -Fq '/usr/share/zsh-autosuggestions' \
   "$repo_root/platforms/fedora/stow/zsh-platform/.config/zsh/platform.zsh"
-grep -Fq '/opt/homebrew/share/zsh-autosuggestions' \
+code_grep -Fq '/opt/homebrew/share/zsh-autosuggestions' \
   "$repo_root/platforms/macos/stow/zsh-platform/.config/zsh/platform.zsh"
 
 mock_bin="$test_root/bin"

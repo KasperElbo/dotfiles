@@ -20,7 +20,7 @@ roles="$repo_root/config/shell-file-roles.tsv"
 deprecated_wrappers() {
   local wrapper target
   for wrapper in "$repo_root"/scripts/*.sh; do
-    grep -Fq 'deprecated_wrapper "' "$wrapper" || continue
+    code_grep -Fq 'deprecated_wrapper "' "$wrapper" || continue
     # shellcheck disable=SC2016 # The sed script matches literal shell text.
     target="$(sed -n 's|^exec "\$repo_root/\(.*\)" "\$@"$|\1|p' "$wrapper")"
     printf '%s\t%s\n' "${wrapper##*/}" "$target"
@@ -86,7 +86,7 @@ printf 'PASS: every wrapper announces its own path\n'
 
 # --- The window is one decision, in one place -------------------------------
 
-assert_file_contains "$repo_root/common/lib/deprecation.sh" 'DOTFILES_DEPRECATION_REMOVAL_DATE='
+assert_code_contains "$repo_root/common/lib/deprecation.sh" 'DOTFILES_DEPRECATION_REMOVAL_DATE='
 removal_date="$(
   sed -n 's/^DOTFILES_DEPRECATION_REMOVAL_DATE="\(.*\)"$/\1/p' \
     "$repo_root/common/lib/deprecation.sh"
@@ -97,8 +97,8 @@ if [[ "$removal_date" < "$(date -u +%F)" ]]; then
   _test_die "the deprecation window has expired ($removal_date); removal is now a separate change"
 fi
 for wrapper in "$repo_root"/scripts/*.sh; do
-  grep -Fq 'deprecated_wrapper "' "$wrapper" || continue
-  grep -Fq "$removal_date" "$wrapper" &&
+  code_grep -Fq 'deprecated_wrapper "' "$wrapper" || continue
+  code_grep -Fq "$removal_date" "$wrapper" &&
     _test_die "${wrapper##*/} hard-codes the removal date instead of sharing one constant"
 done
 printf 'PASS: the removal milestone (%s) lives in exactly one place\n' "$removal_date"
@@ -108,10 +108,10 @@ printf 'PASS: the removal milestone (%s) lives in exactly one place\n' "$removal
 for portable in install-ai install-mise install-neovim-tools install-tmux-theme verify-ai; do
   wrapper="$repo_root/scripts/$portable.sh"
   [[ -f "$wrapper" ]] || _test_die "scripts/$portable.sh is missing"
-  if grep -Fq 'deprecated_wrapper' "$wrapper"; then
+  if code_grep -Fq 'deprecated_wrapper' "$wrapper"; then
     _test_die "scripts/$portable.sh forwards to a portable common/ script and must not be deprecated"
   fi
-  grep -Fq 'common/' "$wrapper" ||
+  code_grep -Fq 'common/' "$wrapper" ||
     _test_die "scripts/$portable.sh must forward to its common/ implementation"
 done
 printf 'PASS: portable aliases for common/ scripts are not marked deprecated\n'

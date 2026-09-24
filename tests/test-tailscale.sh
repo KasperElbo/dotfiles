@@ -518,9 +518,9 @@ printf 'PASS: a probe of a command that never returns comes back, as a timeout\n
 
 # What the verifier does with that outcome: a warning naming it, so a machine
 # whose Tailscale cannot answer is reported rather than waited on.
-assert_file_contains "$repo_root/platforms/macos/scripts/verify.sh" \
+assert_code_contains "$repo_root/platforms/macos/scripts/verify.sh" \
   'macos_tailscale_probe_timed_out "$version_status"'
-assert_file_contains "$repo_root/platforms/macos/scripts/verify.sh" \
+assert_code_contains "$repo_root/platforms/macos/scripts/verify.sh" \
   'macos_tailscale_probe_timed_out "$status_probe"'
 printf 'PASS: the macOS verifier handles a probe that did not answer\n'
 

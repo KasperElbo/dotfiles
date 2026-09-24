@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 macos_root="$repo_root/platforms/macos"
 # shellcheck source=../platforms/macos/lib/macos.sh
 source "$macos_root/lib/macos.sh"
@@ -101,15 +103,15 @@ tailscale_dry_run="$("$repo_root"/install.sh --platform macos --dry-run --tailsc
 assert_contains "$tailscale_dry_run" 'Tailscale networking profile: true'
 assert_contains "$tailscale_dry_run" \
   'Install the optional Tailscale profile (Homebrew cask, interactive login).'
-grep -Fq -- '--cask tailscale-app' "$macos_root/scripts/install-tailscale.sh"
-grep -Fq -- '--tailscale' "$macos_root/scripts/verify.sh"
+code_grep -Fq -- '--cask tailscale-app' "$macos_root/scripts/install-tailscale.sh"
+code_grep -Fq -- '--tailscale' "$macos_root/scripts/verify.sh"
 systemd_references="$(rg_matches -n 'systemctl|tailscaled\.service' \
   "$macos_root/scripts/install-tailscale.sh" "$macos_root/scripts/verify.sh")"
 if [[ -n "$systemd_references" ]]; then
   printf 'macOS Tailscale profile reuses Fedora systemd/tailscaled assumptions.\n' >&2
   exit 1
 fi
-if grep -Fq 'tailscale up' "$macos_root/scripts/install-tailscale.sh"; then
+if code_grep -Fq 'tailscale up' "$macos_root/scripts/install-tailscale.sh"; then
   printf "macOS Tailscale installer runs 'tailscale up' automatically.\n" >&2
   exit 1
 fi
@@ -120,7 +122,7 @@ for package in bash bat coreutils eza fd fzf gh git git-delta mise neovim ripgre
 done
 grep -Fq 'cask "ghostty"' "$brewfile"
 grep -Fq 'cask "nikitabobko/tap/aerospace"' "$brewfile"
-grep -Fq 'Intel Homebrew exists at /usr/local/bin/brew' \
+code_grep -Fq 'Intel Homebrew exists at /usr/local/bin/brew' \
   "$macos_root/scripts/install-system.sh"
 for package in lazygit node python dotnet uv; do
   if grep -Eq "^brew \"$package\"$" "$brewfile"; then
@@ -258,8 +260,8 @@ if [[ -n "$xdg_open_references" ]]; then
   printf 'macOS implementation references the Linux-only xdg-open.\n' >&2
   exit 1
 fi
-grep -Fq 'nvim-macos' "$macos_root/scripts/stow.sh"
-grep -Fq 'nvim-macos' "$macos_root/scripts/verify.sh"
+code_grep -Fq 'nvim-macos' "$macos_root/scripts/stow.sh"
+code_grep -Fq 'nvim-macos' "$macos_root/scripts/verify.sh"
 grep -Fq './scripts/test-dev-workflows.sh --latex' "$repo_root/docs/platforms/macos.md"
 grep -Fq './install.sh --platform macos --dev-workflows' "$repo_root/docs/platforms/macos.md"
 
@@ -268,16 +270,16 @@ grep -Fq './install.sh --platform macos --dev-workflows' "$repo_root/docs/platfo
 # keeps a fixed PATH index in a login shell: the verifier must assert tool
 # resolution, and the PATH itself must leave Apple's tools in front.
 platform_env="$macos_root/stow/zsh-platform/.config/zsh/platform-env.zsh"
-grep -Fq 'timeout --version' "$macos_root/scripts/verify.sh" || {
+code_grep -Fq 'timeout --version' "$macos_root/scripts/verify.sh" || {
   printf 'macOS verifier must assert a GNU timeout is available.\n' >&2
   exit 1
 }
-grep -Fq "shadows Apple's coreutils" "$macos_root/scripts/verify.sh" || {
+code_grep -Fq "shadows Apple's coreutils" "$macos_root/scripts/verify.sh" || {
   printf 'macOS verifier must assert Apple coreutils are not shadowed.\n' >&2
   exit 1
 }
 # shellcheck disable=SC2016 # Matching the literal expression in verify.sh.
-if grep -Fq '${PATH%%:*}' "$macos_root/scripts/verify.sh"; then
+if code_grep -Fq '${PATH%%:*}' "$macos_root/scripts/verify.sh"; then
   printf 'macOS verifier must not assert a fixed first PATH entry.\n' >&2
   exit 1
 fi
@@ -299,13 +301,13 @@ fi
 # HOMEBREW_PREFIX to find Homebrew. Two of them fall back to /opt/homebrew when
 # it is unset, so nothing fails today and nothing proved it was ever set.
 for variable in HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY INFOPATH MANPATH; do
-  grep -Eq "^\[ -z .*$variable|^export $variable=" "$platform_env" || {
+  code_grep -Eq "^\[ -z .*$variable|^export $variable=" "$platform_env" || {
     printf 'platform-env.zsh must export %s, as brew shellenv does.\n' "$variable" >&2
     exit 1
   }
 done
 # The verifier proves it on a real login shell rather than trusting the file.
-grep -Fq 'HOMEBREW_PREFIX' "$macos_root/scripts/verify.sh" || {
+code_grep -Fq 'HOMEBREW_PREFIX' "$macos_root/scripts/verify.sh" || {
   printf 'macOS verifier must assert the login shell exports HOMEBREW_PREFIX.\n' >&2
   exit 1
 }
@@ -315,19 +317,19 @@ printf 'PASS: the macOS platform environment exports what brew shellenv does\n'
 # hand it the Homebrew prefix so opam ownership is provable rather than assumed
 # from a PATH hit. A macOS-only OCaml check would be a second implementation.
 macos_verifier="$macos_root/scripts/verify.sh"
-grep -Fq 'common/verify-ocaml.sh' "$macos_verifier" || {
+code_grep -Fq 'common/verify-ocaml.sh' "$macos_verifier" || {
   printf 'macOS verifier does not run the shared OCaml verifier.\n' >&2
   exit 1
 }
-grep -Fq 'DOTFILES_NATIVE_PREFIX=' "$macos_verifier" || {
+code_grep -Fq 'DOTFILES_NATIVE_PREFIX=' "$macos_verifier" || {
   printf 'macOS verifier does not pass its native prefix to the OCaml verifier.\n' >&2
   exit 1
 }
-if grep -Eq 'opam (switch|exec|var)' "$macos_verifier"; then
+if code_grep -Eq 'opam (switch|exec|var)' "$macos_verifier"; then
   printf 'macOS verifier duplicates OCaml checks instead of reusing the shared one.\n' >&2
   exit 1
 fi
-if grep -Fq -- '--ocaml' "$macos_verifier"; then
+if code_grep -Fq -- '--ocaml' "$macos_verifier"; then
   printf 'macOS verifier takes a redundant --ocaml flag instead of reading state.\n' >&2
   exit 1
 fi
@@ -337,27 +339,27 @@ fi
 # three, and must prove mise ownership of the runtimes mise manages rather than
 # accept whichever copy PATH finds. tests/test-macos-verification.sh runs these
 # sections against a mocked machine; this asserts they stay in the file.
-grep -Fq 'section "Theme"' "$macos_verifier" || {
+code_grep -Fq 'section "Theme"' "$macos_verifier" || {
   printf 'macOS verifier has no theme section.\n' >&2
   exit 1
 }
 # shellcheck disable=SC2016 # Matching the literal path expression in verify.sh.
-grep -Fq 'theme_file="$XDG_CONFIG_HOME/dotfiles/theme"' "$macos_verifier" || {
+code_grep -Fq 'theme_file="$XDG_CONFIG_HOME/dotfiles/theme"' "$macos_verifier" || {
   printf 'macOS verifier does not read the machine-local theme state.\n' >&2
   exit 1
 }
 # shellcheck disable=SC2016 # Matching the literal call in verify.sh.
-grep -Fq 'check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"' \
+code_grep -Fq 'check_mason_inventory "$DOTFILES_ROOT/nvim-lazyvim/.config/nvim/mason-packages.txt"' \
   "$macos_verifier" || {
   printf 'macOS verifier does not iterate the tracked Mason inventory.\n' >&2
   exit 1
 }
-grep -Fq 'check_catppuccin_tmux' "$macos_verifier" || {
+code_grep -Fq 'check_catppuccin_tmux' "$macos_verifier" || {
   printf 'macOS verifier does not check the pinned Catppuccin tmux plugin.\n' >&2
   exit 1
 }
 # shellcheck disable=SC2016 # Matching the literal loop in verify.sh.
-grep -Fq 'for name in "${mise_tools[@]}"; do check_mise_owned "$name"; done' "$macos_verifier" || {
+code_grep -Fq 'for name in "${mise_tools[@]}"; do check_mise_owned "$name"; done' "$macos_verifier" || {
   printf 'macOS verifier does not prove mise ownership of its runtimes.\n' >&2
   exit 1
 }
@@ -397,7 +399,7 @@ while IFS=$'\t' read -r capability platform _ cli_flag _ dependencies _ _ _ _ ve
   [[ "$cli_flag" != - ]] || continue
 
   assert_contains "$macos_help" "$cli_flag"
-  grep -Fq -- "  $cli_flag)" "$macos_installer" ||
+  code_grep -Fq -- "  $cli_flag)" "$macos_installer" ||
     { printf 'macOS parser does not accept the implemented flag %s.\n' "$cli_flag" >&2; exit 1; }
 
   # A flag the manifest calls implemented must actually resolve a plan, with

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -85,7 +87,7 @@ if "${test_environment[@]}" env OCAML_COMPILER_VERSION=trunk \
 fi
 
 # shellcheck disable=SC2016 # The test asserts the literal shell configuration.
-grep -Fq 'source "$HOME/.opam/opam-init/init.zsh"' \
+code_grep -Fq 'source "$HOME/.opam/opam-init/init.zsh"' \
   "$repo_root/zsh/.config/zsh/.zshrc"
 
 printf 'Optional OCaml profile ownership and idempotency checks passed.\n'

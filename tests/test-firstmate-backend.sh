@@ -21,9 +21,9 @@ assert_contains "$TEST_OUTPUT" "$root/data/firstmate/config/backend"
 assert_contains "$TEST_OUTPUT" "to 'herdr'"
 assert_contains "$TEST_OUTPUT" "without an FM_BACKEND prefix"
 
-assert_file_contains "$repo_root/common/install-ai.sh" \
+assert_code_contains "$repo_root/common/install-ai.sh" \
   'firstmate_backend_file="$firstmate_dir/config/backend"'
-assert_file_contains "$repo_root/common/install-ai.sh" \
+assert_code_contains "$repo_root/common/install-ai.sh" \
   'printf '\''herdr\n'\'' | atomic_write_file "$firstmate_backend_file"'
 
 printf 'PASS: FirstMate installation defaults its local runtime backend to Herdr\n'

@@ -72,7 +72,7 @@ installers_expose_the_canonical_flag() {
     "$repo_root/platforms/macos/install.sh"; do
     assert_file_contains "$installer" '--dev-workflows)' || return 1
   done
-  assert_file_contains "$repo_root/platforms/macos/lib/usage.sh" \
+  assert_code_contains "$repo_root/platforms/macos/lib/usage.sh" \
     '--dev-workflows/--no-dev-workflows' || return 1
   assert_file_contains "$repo_root/docs/workflows/development.md" \
     './install.sh --platform fedora --dev-workflows'
@@ -118,8 +118,8 @@ check "Fedora WSL --smoke-test warns and resolves to --dev-workflows" \
 
 wsl_verifier_accepts_both_spellings() {
   local verifier="$repo_root/platforms/fedora-wsl/scripts/verify.sh"
-  assert_file_contains "$verifier" '--dev-workflows)' || return 1
-  assert_file_contains "$verifier" '--smoke-test is deprecated'
+  assert_code_contains "$verifier" '--dev-workflows)' || return 1
+  assert_code_contains "$verifier" '--smoke-test is deprecated'
 }
 check "the Fedora WSL verifier accepts both spellings" \
   wsl_verifier_accepts_both_spellings
@@ -127,7 +127,7 @@ check "the Fedora WSL verifier accepts both spellings" \
 # The unrelated VM-host --smoke-test renders a guest definition; it is a
 # different option on a different script and must keep its own meaning.
 vm_host_flag_is_untouched() {
-  assert_file_contains "$repo_root/platforms/fedora/scripts/install-vm-host.sh" \
+  assert_code_contains "$repo_root/platforms/fedora/scripts/install-vm-host.sh" \
     '--smoke-test       Render a representative guest definition without creating it'
 }
 check "the VM-host --smoke-test keeps its unrelated meaning" \
@@ -147,7 +147,7 @@ parrot_rejects_the_capability() {
 
   # Rejecting the flag is only honest if the profile really has no workstation
   # runtime to exercise, so it must not have quietly acquired one.
-  assert_file_not_contains "$repo_root/platforms/parrot-ctf/install.sh" \
+  assert_code_not_contains "$repo_root/platforms/parrot-ctf/install.sh" \
     'test-dev-workflows.sh'
 }
 check "the reduced Parrot profile rejects the capability explicitly" \

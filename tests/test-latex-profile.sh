@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 latex_installer="$repo_root/platforms/fedora/scripts/install-latex.sh"
 latex_config="$repo_root/nvim-lazyvim/.config/nvim/lua/plugins/latex.lua"
 wsl_config="$repo_root/platforms/fedora-wsl/stow/nvim-wsl/.config/nvim/lua/plugins/wsl.lua"
@@ -20,7 +22,7 @@ assert_contains() {
 }
 
 for package in latexmk biber texlive-biblatex texlive-latexindent; do
-  assert_contains "$latex_installer" "  $package"
+  assert_code_contains "$latex_installer" "  $package"
 done
 
 assert_contains "$repo_root/nvim-lazyvim/.config/nvim/lua/config/profile.lua" \
@@ -49,10 +51,10 @@ assert_contains "$fixture/sections/details.tex" '% !TeX root = ../main.tex'
 assert_contains "$fixture/sections/details.tex" '\ref{sec:introduction}'
 assert_contains "$fixture/sections/details.tex" '\parencite{vimtex}'
 
-assert_contains "$repo_root/scripts/test-dev-workflows.sh" '--latex'
-assert_contains "$repo_root/scripts/test-dev-workflows.sh" \
+assert_code_contains "$repo_root/scripts/test-dev-workflows.sh" '--latex'
+assert_code_contains "$repo_root/scripts/test-dev-workflows.sh" \
   "latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex"
-assert_contains "$repo_root/scripts/test-dev-workflows.sh" \
+assert_code_contains "$repo_root/scripts/test-dev-workflows.sh" \
   'ThisCommandDeliberatelyDoesNotExist'
 
 # ---------------------------------------------------------------------------
@@ -106,8 +108,8 @@ assert_contains "$macos_docs_file" 'macOS itself, through'
 
 # The smoke runner distinguishes an expected absence from a broken install.
 dev_workflows="$repo_root/scripts/test-dev-workflows.sh"
-assert_contains "$dev_workflows" 'install_lifecycle_capability_selected latex'
-assert_contains "$dev_workflows" 'TeX is externally managed on macOS'
+assert_code_contains "$dev_workflows" 'install_lifecycle_capability_selected latex'
+assert_code_contains "$dev_workflows" 'TeX is externally managed on macOS'
 
 # ---------------------------------------------------------------------------
 # Fedora verifier contract

@@ -539,7 +539,7 @@ bypass_tree() {
 }
 
 bypass_alias="alias claude-unsafe='claude --dangerously-skip-permissions'"
-grep -Fq -- "$bypass_alias" "$repo_root/zsh/.config/zsh/.zshrc" ||
+code_grep -Fq -- "$bypass_alias" "$repo_root/zsh/.config/zsh/.zshrc" ||
   _test_die "the tracked .zshrc no longer defines: $bypass_alias"
 
 # The registry used to pin only the prefix `alias cld='claude`, so any flag
@@ -671,7 +671,7 @@ for sheet in "$repo_root"/docs/cheatsheets/*.tex; do
   name="${sheet##*/}"
   name="${name%.tex}"
   grep -Fq '\documentclass' "$sheet" || continue
-  grep -Eq "^  \[$name\]=[0-9]+$" "$repo_root/docs/cheatsheets/verify.sh" ||
+  code_grep -Eq "^  \[$name\]=[0-9]+$" "$repo_root/docs/cheatsheets/verify.sh" ||
     _test_die "docs/cheatsheets/verify.sh declares no page budget for $name"
 done
 printf 'PASS: every printable sheet has a declared page budget\n'

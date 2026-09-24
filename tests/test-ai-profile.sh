@@ -782,7 +782,7 @@ mkdir -p "$broken_installs"
 for tool in claude herdr codex; do
   cp -R "$mise_installs/$tool" "$broken_installs/$tool"
 done
-assert_file_line "$repo_root/zsh/.zshenv" 'export DISABLE_UPDATES=1'
+assert_code_line "$repo_root/zsh/.zshenv" 'export DISABLE_UPDATES=1'
 rm -- "$home/.zshenv"
 grep -v '^export DISABLE_UPDATES=' "$repo_root/zsh/.zshenv" >"$home/.zshenv"
 mv -- "$treehouse_target" "$test_root/treehouse.moved"

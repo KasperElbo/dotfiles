@@ -326,7 +326,7 @@ if rg -q 'alias x-copy=' "$repo_root/platforms/fedora-wsl"; then
   exit 1
 fi
 
-if grep -Eiq 'metasploit|nmap|sqlmap|burpsuite|parrot-tools' \
+if code_grep -Eiq 'metasploit|nmap|sqlmap|burpsuite|parrot-tools' \
   "$repo_root/platforms/parrot-ctf/scripts/install-system.sh"; then
   printf 'Parrot profile contains a duplicated offensive-tool catalogue.\n' >&2
   exit 1

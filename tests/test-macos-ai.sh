@@ -40,9 +40,9 @@ while IFS=$'\t' read -r capability platform _ cli_flag _ _ _ _ _ _ _ _ _ _ _ sta
   [[ "$platform" == macos ]] || continue
   case "$capability" in ai | codex | firstmate | gnhf | backpass) ;; *) continue ;; esac
   [[ "$status" == implemented ]] || continue
-  grep -Fq -- "$cli_flag" "$macos_root/lib/usage-options.sh" ||
+  code_grep -Fq -- "$cli_flag" "$macos_root/lib/usage-options.sh" ||
     _test_die "macOS help does not advertise the implemented $cli_flag"
-  grep -Fq -- "  $cli_flag)" "$macos_root/install.sh" ||
+  code_grep -Fq -- "  $cli_flag)" "$macos_root/install.sh" ||
     _test_die "macOS parser does not accept the implemented $cli_flag"
 done <"$manifest"
 printf 'PASS: manifest, help and parser advertise the same AI options\n'
@@ -136,9 +136,14 @@ printf 'PASS: an unsupported component can still be removed\n'
 # No macOS-specific fork
 # ---------------------------------------------------------------------------
 
-if grep -Eq 'npm (install|i) .*-g|brew install .*(claude|codex|herdr)' \
-  "$macos_root/install.sh" "$macos_root/scripts/"*.sh "$macos_root/Brewfile"; then
-  _test_die 'macOS installs an AI tool through Homebrew or a global npm prefix'
+for macos_script in "$macos_root/install.sh" "$macos_root/scripts/"*.sh; do
+  if code_grep -Eq 'npm (install|i) .*-g|brew install .*(claude|codex|herdr)' "$macos_script"; then
+    _test_die "macOS installs an AI tool through Homebrew or a global npm prefix: $macos_script"
+  fi
+done
+# The Brewfile is Homebrew's own format, not shell, so its text is the input.
+if grep -Eq '^(brew|cask) "(claude|codex|herdr)' "$macos_root/Brewfile"; then
+  _test_die 'the Brewfile installs an AI tool through Homebrew'
 fi
 for package in claude claude-code codex herdr gnhf backpass treehouse; do
   if grep -Eq "^brew \"$package\"$|^cask \"$package\"$" "$macos_root/Brewfile"; then
@@ -147,9 +152,9 @@ for package in claude claude-code codex herdr gnhf backpass treehouse; do
 done
 printf 'PASS: macOS adds no Homebrew or global npm duplicate of an AI tool\n'
 
-grep -Fq 'common/install-ai.sh' "$macos_root/install.sh" ||
+code_grep -Fq 'common/install-ai.sh' "$macos_root/install.sh" ||
   _test_die 'the macOS installer does not call the shared AI installer'
-grep -Fq 'common/verify-ai.sh' "$macos_root/scripts/verify.sh" ||
+code_grep -Fq 'common/verify-ai.sh' "$macos_root/scripts/verify.sh" ||
   _test_die 'the macOS verifier does not call the shared AI verifier'
 for forked in install-ai verify-ai; do
   if [[ -e "$macos_root/scripts/$forked.sh" ]]; then
@@ -160,7 +165,7 @@ printf 'PASS: macOS reuses the shared AI installer and verifier\n'
 
 # The macOS verifier owns the one question the shared verifier cannot answer.
 macos_verifier="$macos_root/scripts/verify.sh"
-grep -Fq 'would need Rosetta' "$macos_verifier" ||
+code_grep -Fq 'would need Rosetta' "$macos_verifier" ||
   _test_die 'the macOS verifier does not reject an Intel-only AI binary'
 printf 'PASS: macOS verification adds the arm64 check\n'
 
@@ -168,9 +173,9 @@ printf 'PASS: macOS verification adds the arm64 check\n'
 # the same duplicate undetected on Fedora. It belongs to the shared verifier
 # now, so assert it there -- and assert it is gone from here, or the two could
 # drift back apart without anything noticing.
-grep -Fq 'check_no_global_npm_duplicate' "$repo_root/common/verify-ai.sh" ||
+code_grep -Fq 'check_no_global_npm_duplicate' "$repo_root/common/verify-ai.sh" ||
   _test_die 'the shared AI verifier does not rule out a global npm duplicate'
-! grep -Fq 'npm ls --global' "$macos_verifier" ||
+! code_grep -Fq 'npm ls --global' "$macos_verifier" ||
   _test_die 'the macOS verifier still inspects the global npm prefix itself'
 printf 'PASS: the global npm prefix is ruled out once, for every platform\n'
 
@@ -178,7 +183,7 @@ printf 'PASS: the global npm prefix is ruled out once, for every platform\n'
 # Rerun and lifecycle
 # ---------------------------------------------------------------------------
 
-grep -Fq 'macos_selected_capabilities' "$macos_root/install.sh" ||
+code_grep -Fq 'macos_selected_capabilities' "$macos_root/install.sh" ||
   _test_die 'the macOS lifecycle record does not use the resolved selection'
 
 # The AI selection must serialize through the shared persistent-selection
@@ -190,7 +195,7 @@ for option in ai codex firstmate gnhf backpass; do
   awk -F '\t' -v o="$option" \
     '$1 == "macos" && $2 == o { found = 1 } END { exit !found }' "$options_manifest" ||
     _test_die "the option manifest does not declare macos/$option as persistent"
-  grep -Fq "install_selection_set $option " "$macos_root/install.sh" ||
+  code_grep -Fq "install_selection_set $option " "$macos_root/install.sh" ||
     _test_die "the macOS installer does not record $option in the persistent selection"
 done
 # Tristates, so an omitted sub-flag round-trips as "inherit" rather than being
@@ -201,7 +206,7 @@ for option in codex firstmate gnhf backpass; do
   [[ "$kind" == tristate ]] ||
     _test_die "macos/$option is declared $kind; an omitted AI sub-flag must stay distinguishable"
 done
-if grep -Fq 'build_rerun_command' "$macos_root/install.sh"; then
+if code_grep -Fq 'build_rerun_command' "$macos_root/install.sh"; then
   _test_die 'macOS still builds its own rerun command instead of using the shared selection model'
 fi
 printf 'PASS: the AI selection serializes through the shared persistent-selection model\n'
@@ -210,7 +215,7 @@ printf 'PASS: the AI selection serializes through the shared persistent-selectio
 # it prints must reproduce the selection of the run that failed -- including
 # its AI subcomponents -- rather than this platform's defaults.
 # shellcheck disable=SC2016 # Matching the literal assignment in install.sh.
-grep -Fq 'DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command macos "$install_selection" "${rerun_controls[@]}")"' \
+code_grep -Fq 'DOTFILES_RERUN_COMMAND="$(install_lifecycle_rerun_command macos "$install_selection" "${rerun_controls[@]}")"' \
   "$macos_root/install.sh" ||
   _test_die 'the macOS failure hint is not rendered from the resolved selection'
 printf 'PASS: a failed macOS install names the command that reproduces its selection\n'

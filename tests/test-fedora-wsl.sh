@@ -274,7 +274,7 @@ if grep -Fq ' starship' "$command_log"; then
   exit 1
 fi
 
-if grep -Fq 'awk ' "$repo_root/platforms/fedora-wsl/lib/wsl.sh"; then
+if code_grep -Fq 'awk ' "$repo_root/platforms/fedora-wsl/lib/wsl.sh"; then
   printf 'Fedora WSL preflight must not require awk before prerequisites are installed.\n' >&2
   exit 1
 fi
@@ -338,11 +338,11 @@ platform_zsh="$repo_root/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/plat
 # would match the source of a file no test ever interprets -- and did, while an
 # inverted sanitizer that kept every Windows path passed the whole gate stack.
 # tests/test-wsl-path-sanitizer.sh runs the tracked file under real Zsh instead.
-grep -Fq 'export BROWSER=wsl-open' "$platform_env"
+code_grep -Fq 'export BROWSER=wsl-open' "$platform_env"
 grep -Fq 'vim.g.vimtex_view_general_viewer = "wsl-open"' \
   "$repo_root/platforms/fedora-wsl/stow/nvim-wsl/.config/nvim/lua/plugins/wsl.lua"
-grep -Fq 'platform-env.zsh' "$repo_root/zsh/.zshenv"
-grep -Fq '/usr/share/zsh-autosuggestions' "$platform_zsh"
+code_grep -Fq 'platform-env.zsh' "$repo_root/zsh/.zshenv"
+code_grep -Fq '/usr/share/zsh-autosuggestions' "$platform_zsh"
 
 nvim_wsl="$repo_root/platforms/fedora-wsl/stow/nvim-wsl/.config/nvim/lua/plugins/wsl.lua"
 grep -Fq 'vim.fn.has("wsl")' "$nvim_wsl"

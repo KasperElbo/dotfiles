@@ -278,7 +278,7 @@ printf 'PASS: the generator fails closed on unusable sources\n'
 # --- Runtime selection contract (unchanged by #125) -------------------------
 
 # shellcheck disable=SC2016 # Matching the literal text in .zshrc.
-assert_file_contains "$repo_root/zsh/.config/zsh/.zshrc" \
+assert_code_contains "$repo_root/zsh/.config/zsh/.zshrc" \
   'starship/catppuccin-${DOTFILES_THEME}.toml'
 printf 'PASS: the STARSHIP_CONFIG selection contract is unchanged\n'
 
