@@ -67,6 +67,7 @@ public-entrypoint	755	scripts/validate-symlink-checks.py	Validates that every ch
 public-entrypoint	755	scripts/validate-tool-floors.py	Validates the dependency version-floor registry and its enforcement
 public-entrypoint	755	scripts/check-main-evidence.py	Reports main commits without their own green Validate run, for .github/workflows/main-evidence.yml
 public-entrypoint	755	scripts/check-self-hosted-evidence.py	Reports self-hosted real-install jobs with no success this month, for .github/workflows/self-hosted-evidence.yml
+public-entrypoint	755	scripts/validate-errexit-conditions.py	Validates that no shell file turns errexit on inside a condition, where Bash ignores it
 platform-entrypoint	644	platforms/windows/install.ps1	Platform installer, the Windows host pieces for Fedora WSL
 internal-executable	644	platforms/windows/verify.ps1	Verifier implementation behind ./verify.ps1
 platform-command	644	platforms/windows/set-noctty-theme.ps1	Windows Noctty theme command; safe to run directly

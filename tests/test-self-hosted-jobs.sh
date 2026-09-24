@@ -61,6 +61,26 @@ for left in .local/state/dotfiles .config/dotfiles .local/share/mise; do
 done
 printf 'PASS: lifecycle state, saved selections and mise data each refuse the guest\n'
 
+# A leftover that is a symlink whose target is gone is still a leftover (#539,
+# V5-19): `-e` follows the link and reports false, so the guard read it as
+# absent. The obvious case is a dangling link; the subtle one is a link that
+# loops, which `-e` also follows and also reports false.
+for left in .local/state/dotfiles .config/dotfiles .local/share/mise; do
+  test_new_root
+  mkdir -p "$TEST_ROOT/home/$(dirname "$left")"
+  ln -s "$TEST_ROOT/gone" "$TEST_ROOT/home/$left"
+  run_guard
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "  $TEST_ROOT/home/$left"
+done
+test_new_root
+mkdir -p "$TEST_ROOT/home/.config"
+ln -s dotfiles "$TEST_ROOT/home/.config/dotfiles"
+run_guard
+assert_failure
+assert_contains "$TEST_OUTPUT" "  $TEST_ROOT/home/.config/dotfiles"
+printf 'PASS: a dangling or looping symlink left behind refuses the guest\n'
+
 # The XDG roots the installer honours are the ones the guard reads.
 test_new_root
 mkdir -p "$TEST_ROOT/xdg-state/dotfiles"

@@ -350,4 +350,144 @@ run_fixture_validator
 assert_success
 printf 'PASS: a prose requested value is left to the reader, not compared\n'
 
+# --- --coherence: each pinned digest belongs to its pinned address ---------
+#
+# #539 (V5-27): a digest replaced by another valid 64-hex value passed every
+# offline gate. The real run downloads, so here curl is a stub serving files
+# the suite writes, keyed by the address's last component; an address with no
+# file is a failed download, never an empty success.
+
+coherence_bin="$root/coherence-bin"
+artifacts="$root/artifacts"
+mkdir -p "$coherence_bin" "$artifacts"
+cat >"$coherence_bin/curl" <<'EOF_CURL'
+#!/usr/bin/env bash
+set -uo pipefail
+output="" url=""
+while (($#)); do
+  case "$1" in
+  --output) output="$2"; shift 2 ;;
+  https://*) url="$1"; shift ;;
+  *) shift ;;
+  esac
+done
+served="$STUB_ARTIFACT_DIR/${url##*/}"
+if [[ -z "$output" || ! -f "$served" ]]; then
+  printf 'curl stub: nothing served at %s\n' "$url" >&2
+  exit 22
+fi
+cp -- "$served" "$output"
+EOF_CURL
+chmod +x "$coherence_bin/curl"
+
+run_coherence() {
+  local manifest="$1"
+  shift
+  run_capture env \
+    PATH="$coherence_bin:$PATH" \
+    STUB_ARTIFACT_DIR="$artifacts" \
+    DOTFILES_FETCH_ATTEMPTS=1 \
+    PIN_FRESHNESS_MANIFEST="$manifest" \
+    "$checker" --coherence "$@"
+}
+
+# The real manifest, listed without a download: every row is answered, either
+# with a pinned address and digest or with the reason it pins none, so a row
+# added to config/pin-freshness.tsv cannot sit outside the check.
+run_capture "$checker" --coherence --list
+assert_success
+assert_contains "$TEST_OUTPUT" '0 could not be confirmed.'
+while IFS=$'\t' read -r source probe _; do
+  [[ "$source" != source && "$probe" != none ]] || continue
+  assert_contains "$TEST_OUTPUT" "  $source  "
+done <"$repo_root/config/pin-freshness.tsv"
+printf 'PASS: every probed pin row has a coherence answer\n'
+
+# The Homebrew installer, pinned to what the stub serves at its commit.
+printf '#!/bin/bash\necho installer\n' >"$artifacts/install.sh"
+served_digest="$(sha256sum "$artifacts/install.sh" | cut -d' ' -f1)"
+homebrew_pin="$root/homebrew-installer.sh"
+sed "s/^DOTFILES_HOMEBREW_INSTALLER_SHA256=.*/DOTFILES_HOMEBREW_INSTALLER_SHA256=\"$served_digest\"/" \
+  "$repo_root/platforms/macos/lib/homebrew-installer.sh" >"$homebrew_pin"
+coherence_manifest="$root/coherence.tsv"
+test_manifest "$coherence_manifest" \
+  "$(printf 'homebrew-installer\tgit-head\thttps://example.invalid/install.git\t%s\tDOTFILES_HOMEBREW_INSTALLER_COMMIT\t-' "$homebrew_pin")"
+run_coherence "$coherence_manifest"
+assert_success
+assert_contains "$TEST_OUTPUT" '1 coherent, 0 without a pinned digest, 0 could not be confirmed.'
+printf 'PASS: a digest that matches what its pinned address serves is coherent\n'
+
+# The obvious mutation: the digest replaced by another well-formed one.
+sed -i "s/^DOTFILES_HOMEBREW_INSTALLER_SHA256=.*/DOTFILES_HOMEBREW_INSTALLER_SHA256=\"$(printf '%064d' 0)\"/" \
+  "$homebrew_pin"
+run_coherence "$coherence_manifest"
+assert_failure
+assert_contains "$TEST_OUTPUT" "MISMATCH: pinned $(printf '%064d' 0), served $served_digest"
+printf 'PASS: a well-formed digest that is not the pinned artifact'"'"'s is refused\n'
+
+# The subtle mutation: a real digest from the same release, on the wrong line.
+# The architecture a runner does not have is the one nothing else exercises,
+# so both of mise's are fetched, not only this machine's.
+bootstrap_dir="$root/bootstrap/lib"
+mkdir -p "$bootstrap_dir"
+ln -s "$repo_root/common/lib/common.sh" "$bootstrap_dir/common.sh"
+ln -s "$repo_root/common/lib/fetch.sh" "$bootstrap_dir/fetch.sh"
+mise_version="$(sed -n 's/^BOOTSTRAP_MISE_VERSION="\(.*\)"$/\1/p' "$repo_root/common/lib/bootstrap-tools.sh")"
+printf 'x64 archive\n' >"$artifacts/mise-v$mise_version-linux-x64.tar.gz"
+printf 'arm64 archive\n' >"$artifacts/mise-v$mise_version-linux-arm64.tar.gz"
+x64_digest="$(sha256sum "$artifacts/mise-v$mise_version-linux-x64.tar.gz" | cut -d' ' -f1)"
+sed -e "s/^BOOTSTRAP_MISE_SHA256_X64=.*/BOOTSTRAP_MISE_SHA256_X64=\"$x64_digest\"/" \
+  -e "s/^BOOTSTRAP_MISE_SHA256_ARM64=.*/BOOTSTRAP_MISE_SHA256_ARM64=\"$x64_digest\"/" \
+  "$repo_root/common/lib/bootstrap-tools.sh" >"$bootstrap_dir/bootstrap-tools.sh"
+test_manifest "$coherence_manifest" \
+  "$(printf 'mise-release\tgit-tags\thttps://example.invalid/mise.git\t%s\tBOOTSTRAP_MISE_VERSION\t-' "$bootstrap_dir/bootstrap-tools.sh")"
+run_coherence "$coherence_manifest"
+assert_failure
+assert_contains "$TEST_OUTPUT" "mise-v$mise_version-linux-arm64.tar.gz"$'\n'"    MISMATCH: pinned $x64_digest"
+assert_contains "$TEST_OUTPUT" "mise-v$mise_version-linux-x64.tar.gz"$'\n'"    coherent"
+printf 'PASS: the other architecture'"'"'s digest copied onto one line is refused\n'
+
+# An address that serves nothing is a failure, not a pass.
+rm -f -- "$artifacts/install.sh"
+test_manifest "$coherence_manifest" \
+  "$(printf 'homebrew-installer\tgit-head\thttps://example.invalid/install.git\t%s\tDOTFILES_HOMEBREW_INSTALLER_COMMIT\t-' "$homebrew_pin")"
+run_coherence "$coherence_manifest"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'download failed'
+printf 'PASS: a pinned address that serves nothing fails the check\n'
+
+# A row the check has no rule for is refused rather than skipped.
+test_manifest "$coherence_manifest" \
+  "$(printf 'demo\tgit-tags\thttps://example.invalid/demo.git\t%s\tversion\t-' "$pin_file")"
+run_coherence "$coherence_manifest" --list
+assert_failure
+assert_contains "$TEST_OUTPUT" 'no coherence rule for demo'
+printf 'PASS: a pin row with no coherence rule is refused\n'
+
+# The coherence job runs on a pull request that touches a pin, so its path
+# filter must name every file config/pin-freshness.tsv says holds one; a pin
+# moved to a new file would otherwise be bumped without the check running.
+run_capture python3 - "$repo_root" <<'PYTHON'
+import csv
+import importlib.util
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location(
+    "hygiene", root / "scripts" / "validate-repository-hygiene.py")
+hygiene = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hygiene)
+workflow = hygiene.read_workflow(root / ".github/workflows/pin-freshness.yml", "pin-freshness.yml")
+paths = {item.value for item in workflow.get("on").get("pull_request").get("paths").value}
+with (root / "config/pin-freshness.tsv").open(encoding="utf-8") as handle:
+    files = {row["pin_file"] for row in csv.DictReader(handle, delimiter="\t")} - {"-"}
+files |= {"config/pin-freshness.tsv", "scripts/check-pin-freshness.sh"}
+missing = sorted(files - paths)
+if missing:
+    raise SystemExit("pin-freshness.yml's pull_request paths miss: " + ", ".join(missing))
+PYTHON
+assert_success
+printf 'PASS: the coherence job runs on a pull request that touches any pin file\n'
+
 printf '\nAll pin freshness checks passed.\n'
