@@ -1081,4 +1081,45 @@ claim_negative octo docs/workflows/git.md \
 
 printf 'PASS: each counted-claim check fails on its own drift\n'
 
+# --- The gitleaks allowlist rationale states no commit count (#539, V5-28) ---
+#
+# .gitleaks.toml justified its empty allowlist with "all 604 commits of history
+# scan clean" while the scanner reported 659 and the branch held 1035: a count
+# of a history that grows with every merge, which nothing re-derived. The
+# claim is that the history scans clean, and ./scripts/scan-secrets.sh is what
+# proves it on every run, so the file states no number at all.
+commit_count_claims() {
+  python3 - "$1" <<'PY_COMMITS'
+import pathlib
+import re
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+counted = re.compile(
+    r"\b(?:\d[\d,]*|(?:[a-z]+[ -])*(?:hundred|thousand))\s+(?:\w+\s+){0,2}commits\b",
+    re.IGNORECASE,
+)
+for number, line in enumerate(text.splitlines(), 1):
+    if counted.search(line):
+        print(f"{sys.argv[1]}:{number}: states a count of commits: {line.strip()}")
+PY_COMMITS
+}
+run_capture commit_count_claims "$repo_root/.gitleaks.toml"
+assert_success
+assert_eq '' "$TEST_OUTPUT" '.gitleaks.toml states no count of commits'
+
+commit_scratch="$TEST_ROOT/gitleaks-claims"
+mkdir -p "$commit_scratch"
+# The obvious drift: the number the file carried, put back.
+sed 's/the working tree and its whole history scan/the working tree and all 604 commits of history scan/' \
+  "$repo_root/.gitleaks.toml" >"$commit_scratch/digits.toml"
+run_capture commit_count_claims "$commit_scratch/digits.toml"
+assert_contains "$TEST_OUTPUT" 'states a count of commits'
+# The subtle drift: the same claim spelled out, with a word between.
+sed 's/the working tree and its whole history scan/the working tree and six hundred reachable commits scan/' \
+  "$repo_root/.gitleaks.toml" >"$commit_scratch/words.toml"
+run_capture commit_count_claims "$commit_scratch/words.toml"
+assert_contains "$TEST_OUTPUT" 'states a count of commits'
+printf 'PASS: the gitleaks allowlist rationale states no commit count\n'
+
 printf '\nAll documentation checks passed.\n'

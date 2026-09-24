@@ -127,15 +127,23 @@ install_bootstrap_tool() {
 
   work_dir="$(mktemp -d)" || die "Could not create a staging directory for $tool"
   chmod 700 -- "$work_dir"
+  # Every step carries its own guard. The subshell is the condition of an
+  # `if !`, where Bash suppresses errexit and a `set -e` inside does not bring
+  # it back, so a step without one is carried past and only the last command's
+  # status is reported: a tar that extracted the binary and then failed ended
+  # in a successful install (#539). scripts/validate-errexit-conditions.py
+  # refuses the `set -e` that used to stand here claiming otherwise.
   if ! (
-    set -euo pipefail
     fetch_to_file "$url" "$work_dir/$artifact" "the pinned $tool release"
     fetch_verify_sha256 "$work_dir/$artifact" "$digest" "the pinned $tool release"
-    tar -xzf "$work_dir/$artifact" -C "$work_dir" -- "$member"
+    tar -xzf "$work_dir/$artifact" -C "$work_dir" -- "$member" ||
+      die "Could not extract $member from $artifact"
     [[ -f "$work_dir/$member" && ! -L "$work_dir/$member" ]] ||
       die "The pinned $tool release has no regular file at $member"
-    ensure_dir "$(dirname -- "$destination")"
-    install -m 0755 -- "$work_dir/$member" "$destination"
+    ensure_dir "$(dirname -- "$destination")" ||
+      die "Could not create the directory for $destination"
+    install -m 0755 -- "$work_dir/$member" "$destination" ||
+      die "Could not install $tool at $destination"
   ); then
     rm -rf -- "$work_dir"
     die "The pinned $tool release was not installed; nothing from it was executed."
