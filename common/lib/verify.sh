@@ -1009,15 +1009,19 @@ check_catppuccin_tmux() {
 # after `zsh -lic 'claude --version'` (24 September 2026). Without job control
 # the probe never takes the terminal; it still reads .zshrc, since it is still
 # interactive.
+#
+# +m goes on every probe rather than on the ones that look interactive. The
+# helper once tested "$1" for a single-dash bundle holding an i, and `-l -i -c`
+# or `--login -i -c` -- the same interactive login -- took the terminal
+# (issue #536). Zsh reads -o NAME, +o NAME, case- and underscore-blind long
+# names and a later +i as well, so no scan of the spelling is as sure as not
+# scanning. A login that is not interactive starts with job control off
+# anyway, so +m changes nothing there.
 verify_login_zsh() {
   (
     unset ZDOTDIR
     builtin cd -- "$HOME" || exit
-    if [[ "${1:-}" == -[!-]* && "${1:-}" == *i* ]]; then
-      zsh +m "$@"
-    else
-      zsh "$@"
-    fi
+    zsh +m "$@"
   )
 }
 

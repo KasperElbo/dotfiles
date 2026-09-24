@@ -180,4 +180,92 @@ assert_failure
 assert_contains "$TEST_OUTPUT" 'platforms/fedora/assets/dotfiles-sway'
 printf 'PASS: removing the session command from the role inventory fails validation\n'
 
+# ---------------------------------------------------------------------------
+# zsh -n reaches the Zsh files
+
+# Neither bash -n nor ShellCheck can parse Zsh, so the files Zsh reads were in
+# neither set above and nothing parsed them at all: an unterminated `[[` at the
+# top of the Fedora WSL platform-env.zsh -- which no suite sources -- passed
+# lint and every suite (issue #536, V5-08). Named here for the same reason as
+# the extensionless programs: a derived list would shrink with the bug.
+zsh_named=(
+  platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform-env.zsh
+  platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform.zsh
+  platforms/fedora/stow/zsh-platform/.config/zsh/platform.zsh
+  platforms/macos/stow/zsh-platform/.config/zsh/platform-env.zsh
+  platforms/macos/stow/zsh-platform/.config/zsh/platform.zsh
+  platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform-env.zsh
+  platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh
+  zsh/.config/zsh/.zprofile
+  zsh/.config/zsh/.zshrc
+  zsh/.zshenv
+)
+zsh_listed="$root/zsh-listed"
+run_capture "$repo_root/scripts/list-shell-files.py" --zsh --lines
+assert_success
+printf '%s\n' "$TEST_OUTPUT" >"$zsh_listed"
+for name in "${zsh_named[@]}"; do
+  assert_file_line "$zsh_listed" "$name"
+done
+overlap="$(comm -12 <(sort "$zsh_listed") <(sort "$listed"))"
+[[ -z "$overlap" ]] ||
+  _test_die "files in both the Zsh and the Bash lint sets, which bash -n cannot parse: $overlap"
+printf 'PASS: the Zsh lint file set names all %d tracked Zsh files and none of the Bash set\n' \
+  "${#zsh_named[@]}"
+
+# Each case stops at a ShellCheck stub that says it was reached, so a gate that
+# let the broken file through is seen as that rather than as some other failure
+# further on. Three shapes: the unterminated `[[` as line 1 of the file no
+# suite sources; the same block at the end of the macOS file, where it swallows
+# none of the PATH lines the shell-startup suite asserts on, so that suite
+# passed; and a startup file with no .zsh extension, which a rule by extension
+# would never reach.
+cat >"$stub_bin/shellcheck" <<'STUB'
+#!/usr/bin/env bash
+printf 'shellcheck stub reached\n'
+exit 1
+STUB
+zsh_root="$root/zsh-broken"
+scratch_repo "$zsh_root"
+zsh_break() {
+  local name="$1" where="$2" file="$zsh_root/$1"
+  case "$where" in
+  first) { printf '[[ -n "$broken"\n' && cat "$repo_root/$name"; } >"$file" ;;
+  last) printf '\n[[ -n "$broken"\n' >>"$file" ;;
+  esac
+  run_capture lint_in "$zsh_root" "PATH=$stub_bin:$PATH"
+  cp -p "$repo_root/$name" "$file"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "Zsh syntax check failed: $name"
+  assert_not_contains "$TEST_OUTPUT" 'shellcheck stub reached'
+  printf 'PASS: a Zsh syntax error at the %s line of %s fails ./scripts/lint.sh\n' "$where" "$name"
+}
+zsh_break platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform-env.zsh first
+zsh_break platforms/macos/stow/zsh-platform/.config/zsh/platform-env.zsh last
+zsh_break zsh/.config/zsh/.zprofile last
+
+# The unbroken copy passes the Zsh check and goes on to ShellCheck.
+run_capture lint_in "$zsh_root" "PATH=$stub_bin:$PATH"
+assert_contains "$TEST_OUTPUT" "Checking Zsh syntax in ${#zsh_named[@]} tracked files"
+assert_contains "$TEST_OUTPUT" 'shellcheck stub reached'
+printf 'PASS: every tracked Zsh file parses\n'
+
+# A machine without Zsh says it skipped the check, rather than passing it in
+# silence. PATH is the host's with zsh left out, so nothing else changes.
+no_zsh_bin="$root/no-zsh-bin"
+mkdir -p "$no_zsh_bin"
+IFS=: read -r -a host_path <<<"$PATH"
+for directory in "${host_path[@]}"; do
+  for command_path in "$directory"/*; do
+    name="${command_path##*/}"
+    [[ -x "$command_path" && ! -d "$command_path" && "$name" != zsh &&
+      ! -e "$no_zsh_bin/$name" ]] || continue
+    ln -s "$command_path" "$no_zsh_bin/$name"
+  done
+done
+run_capture lint_in "$zsh_root" "PATH=$stub_bin:$no_zsh_bin"
+assert_contains "$TEST_OUTPUT" 'SKIP: Zsh syntax check: zsh is not installed'
+assert_contains "$TEST_OUTPUT" 'shellcheck stub reached'
+printf 'PASS: without Zsh the check reports SKIP and lint goes on\n'
+
 printf 'Lint file-selection checks passed.\n'

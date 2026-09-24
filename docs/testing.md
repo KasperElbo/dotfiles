@@ -653,6 +653,16 @@ The reader enforces its own floor: every file the old `*.sh` glob matched must
 still be in the set it returns, or it fails rather than printing a shorter
 list, so a regression in the reader cannot quietly narrow coverage back.
 
+The files Zsh reads are a set of their own, `list-shell-files.py --zsh`: every
+tracked `.zsh` file, every file named as a Zsh startup file (`.zshenv`,
+`.zprofile`, `.zshrc`, `.zlogin`, `.zlogout`) and every file with a `zsh`
+shebang. Neither `bash -n` nor ShellCheck can parse Zsh, and for as long as
+that was the reason to leave them out nothing parsed them at all: an
+unterminated `[[` at the top of the Fedora WSL `platform-env.zsh`, which strips
+Windows' `/mnt/<drive>` entries from `PATH` in every shell, passed lint and
+every suite (issue #536, V5-08). The gate runs `zsh -f -n` on each, and prints
+`SKIP` rather than passing when `zsh` is not installed.
+
 `tests/test-lint-file-selection.sh` proves the effect rather than the wiring.
 It breaks each extensionless program in a scratch copy of the tree and runs the
 real entry point against it, and it records the argv ShellCheck is actually
@@ -661,6 +671,10 @@ set that looks right in one place and is narrower in another. It also asserts
 that removing the session command's row from `config/shell-file-roles.tsv`
 fails validation: `governed()` claims any `platforms/*/assets/*` file carrying
 a shell shebang, so that program's mode is somebody's responsibility too.
+It breaks three Zsh files the same way -- as the first line of the file no
+suite sources, as the last line of one that a suite does source, and in
+`.zprofile`, which has no extension -- and checks that lint names each one, and
+that a machine without Zsh reports the check as skipped.
 
 ### Every verify check is proven able to fail
 
