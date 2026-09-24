@@ -21,6 +21,14 @@ each is the kind of thing that quietly goes wrong in a hand-written file:
    `not observed` or `not applicable`. A missing row is the silent gap the
    records exist to prevent; a free-form word such as "ok" or "skipped" is a
    verdict nobody can compare. Every outcome other than `pass` carries a note.
+   And the verdict agrees with the record's own selection: where an item's
+   **Applies when** is decided by installer options -- "`-Handy` is selected",
+   "`-SkipNoctty` was not passed" -- an item the record's installer command
+   and selected options make inapplicable must say `not applicable`, and one
+   they make applicable must not. The README says the outcome "is decided by
+   the selection and the hardware, never by what was convenient to test"; a
+   record passing WIN-07 while its own command omitted `-Handy` used to pass
+   every gate (#539, V5-18).
 3. **Nothing personal.** Email addresses, MAC addresses, IP addresses outside
    the documentation ranges, `*.ts.net` tailnet names, UUIDs, serial-number
    fields and home-directory paths are refused. The report names the line and
@@ -80,6 +88,21 @@ SECTION = re.compile(r"^##\s+(?P<title>.+?)\s*$")
 SUBSECTION = re.compile(r"^###\s+(?P<title>.+?)\s*$")
 ITEM_ID = re.compile(r"^(?P<id>(?P<prefix>[A-Z]{3})-\d{2})\s+\S")
 SEPARATOR_CELL = re.compile(r"^:?-+:?$")
+# One option clause of an **Applies when** condition. A clause is a necessary
+# condition: several joined by "and" must all hold, and a condition with "or"
+# in it is not decided here, because either side might be what applied.
+OPTION_CLAUSE = re.compile(
+    r"`(?P<flag>-{1,2}[A-Za-z][A-Za-z0-9-]*)`\s+"
+    r"(?P<verb>is selected|is not selected|was passed|was not passed)"
+)
+DISJUNCTION = re.compile(r"\bor\b", re.IGNORECASE)
+# What is left of a condition that is nothing but option clauses.
+ONLY_CLAUSES = re.compile(r"^[\s.,;()]*(?:and[\s.,;()]*)*$", re.IGNORECASE)
+# An option as a record states it: a flag on the command line, or a `name:value`
+# pair of the reconstructed selection.
+FLAG_TOKEN = re.compile(r"(?<![\w-])(-{1,2}[A-Za-z][A-Za-z0-9-]*)")
+SELECTION_PAIR = re.compile(r"(?<![\w-])([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^\s,]+)")
+UNSELECTED_VALUES = {"false", "off", "no", "none", "0", "disabled"}
 
 # --- Personal-data shapes -------------------------------------------------
 
@@ -222,6 +245,8 @@ def read_checklist(path: pathlib.Path, problems: Problems) -> tuple[str, list[st
     prefixes: set[str] = set()
     current: str | None = None
     seen_fields: dict[str, set[str]] = {}
+    applies: dict[str, str] = {}
+    reading: str | None = None
     ok = True
 
     for number, line in items_body:
@@ -246,9 +271,17 @@ def read_checklist(path: pathlib.Path, problems: Problems) -> tuple[str, list[st
             continue
         if current is None:
             continue
-        field = re.match(r"^- \*\*(?P<field>[^*]+?):\*\*", line)
+        field = re.match(r"^- \*\*(?P<field>[^*]+?):\*\*(?P<text>.*)$", line)
         if field:
             seen_fields[current].add(field.group("field"))
+            reading = field.group("field")
+            if reading == "Applies when":
+                applies[current] = field.group("text").strip()
+        elif reading == "Applies when" and line.startswith("  ") and line.strip():
+            # A hard-wrapped condition continues on indented lines.
+            applies[current] += " " + line.strip()
+        else:
+            reading = None
 
     for item in ids:
         missing = [name for name in ITEM_FIELDS if name not in seen_fields.get(item, set())]
@@ -293,7 +326,7 @@ def read_checklist(path: pathlib.Path, problems: Problems) -> tuple[str, list[st
             )
             ok = False
 
-    return (prefixes.pop(), ids) if ok else None
+    return (prefixes.pop(), ids, applies) if ok else None
 
 
 # --- Records --------------------------------------------------------------
@@ -426,9 +459,55 @@ def check_privacy(path: pathlib.Path, lines: list[str], problems: Problems) -> N
             problems.add(path, number, f"contains {kind}; records must not carry personal data")
 
 
+def selected_options(fields: dict[str, tuple[int, str]]) -> set[str]:
+    """Every option the record's installer command and selection name as chosen.
+
+    Compared without dashes, underscores or case, so `--secure-boot`,
+    `secure_boot:true` and PowerShell's case-insensitive `-handy` all name the
+    option their checklist spells `--secure-boot` or `-Handy`.
+    """
+    chosen: set[str] = set()
+    for field in ("Installer command", "Selected options"):
+        value = fields.get(field, (0, ""))[1]
+        for flag in FLAG_TOKEN.findall(value):
+            chosen.add(option_key(flag))
+        for name, setting in SELECTION_PAIR.findall(value):
+            if setting.strip("`").lower() not in UNSELECTED_VALUES:
+                chosen.add(option_key(name))
+    return chosen
+
+
+def option_key(option: str) -> str:
+    return re.sub(r"[-_]", "", option).lower()
+
+
+def applicability(condition: str, chosen: set[str]) -> tuple[bool, bool] | None:
+    """Whether the selection makes the item applicable, and whether that is all.
+
+    None when the condition names no option or is a disjunction. Otherwise
+    (applies, decided): `applies` is False when any option clause fails, and
+    `decided` says the condition is nothing but option clauses, so their
+    holding makes the item applicable rather than merely not excluded.
+    """
+    if DISJUNCTION.search(condition):
+        return None
+    clauses = list(OPTION_CLAUSE.finditer(condition))
+    if not clauses:
+        return None
+    applies = True
+    for clause in clauses:
+        present = option_key(clause.group("flag")) in chosen
+        wanted = clause.group("verb") in ("is selected", "was passed")
+        if present != wanted:
+            applies = False
+    decided = ONLY_CLAUSES.match(OPTION_CLAUSE.sub("", condition)) is not None
+    return applies, decided
+
+
 def check_record(
     path: pathlib.Path,
     checklists: dict[str, list[str] | None],
+    conditions: dict[str, dict[str, str]],
     history: History,
     today: datetime.date,
     problems: Problems,
@@ -501,6 +580,7 @@ def check_record(
 
     # The checklist it follows.
     checklist_ids: list[str] | None = None
+    checklist_conditions: dict[str, str] = {}
     checklist_stem = None
     if "Checklist" in fields:
         number, value = fields["Checklist"]
@@ -511,6 +591,7 @@ def check_record(
                 problems.add(path, number, f"Checklist {value} is not a checklist here (known: {known})")
             else:
                 checklist_ids = checklists[value]
+                checklist_conditions = conditions.get(value, {})
                 checklist_stem = value.removesuffix(".md")
 
     # The file name agrees with the record.
@@ -533,6 +614,7 @@ def check_record(
     if rows is None:
         return
     seen: dict[str, int] = {}
+    chosen = selected_options(fields)
     for number, (item, outcome, note) in rows:
         if item in seen:
             problems.add(path, number, f"{item} has more than one result (first on line {seen[item]})")
@@ -549,6 +631,25 @@ def check_record(
             )
         elif outcome in NOTE_REQUIRED and not note:
             problems.add(path, number, f"{item}: a '{outcome}' outcome needs a note saying why")
+        if outcome in OUTCOMES and item in checklist_conditions:
+            decision = applicability(checklist_conditions[item], chosen)
+            if decision is None:
+                continue
+            applies, decided = decision
+            condition = checklist_conditions[item]
+            if not applies and outcome != "not applicable":
+                problems.add(
+                    path, number,
+                    f"{item} applies when {condition!r}, which this record's installer "
+                    f"command and selected options do not meet, so its outcome is "
+                    f"'not applicable', not '{outcome}'",
+                )
+            elif applies and decided and outcome == "not applicable":
+                problems.add(
+                    path, number,
+                    f"{item} applies when {condition!r}, which this record's installer "
+                    f"command and selected options meet, so it cannot be 'not applicable'",
+                )
     if checklist_ids is not None:
         missing = [item for item in checklist_ids if item not in seen]
         if missing:
@@ -572,6 +673,7 @@ def main() -> int:
         problems.add(ACCEPTANCE_DIR, None, "the manual acceptance directory is missing")
     else:
         checklists: dict[str, list[str] | None] = {}
+        conditions: dict[str, dict[str, str]] = {}
         prefixes: dict[str, str] = {}
         for path in sorted(directory.glob("*.md")):
             if path.name in NOT_CHECKLISTS:
@@ -581,7 +683,8 @@ def main() -> int:
                 # Known, so a record naming it is not also told it does not exist.
                 checklists[path.name] = None
                 continue
-            prefix, ids = result
+            prefix, ids, applies = result
+            conditions[path.name] = applies
             if prefix in prefixes:
                 problems.add(path, None, f"item prefix {prefix} is also used by {prefixes[prefix]}")
             prefixes[prefix] = path.name
@@ -597,7 +700,7 @@ def main() -> int:
                 if not path.is_file() or path.suffix != ".md":
                     problems.add(path, None, "records/ may hold only record .md files")
                     continue
-                check_record(path, checklists, history, today, problems, notes)
+                check_record(path, checklists, conditions, history, today, problems, notes)
 
     for note in notes:
         print(f"Acceptance records: {_relative(note, root)}", file=sys.stderr)

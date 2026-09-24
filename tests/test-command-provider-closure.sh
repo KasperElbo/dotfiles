@@ -89,7 +89,7 @@ assert_registry_backed_preflight() {
         "$relative"
       status=1
     fi
-    grep -Fq "preflight_platform_command_providers $platform" "$installer" || {
+    code_grep -Fq "preflight_platform_command_providers $platform" "$installer" || {
       printf '%s never checks its config/command-providers.tsv rows.\n' "$relative"
       status=1
     }

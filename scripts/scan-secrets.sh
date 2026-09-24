@@ -133,6 +133,43 @@ installed_version() {
 # `die` inside resolve_gitleaks is what ends the run.
 staging=""
 
+# verify_cached_gitleaks <archive> <expected> <binary>: stop unless <archive>
+# is the pinned release and <binary> is byte for byte the gitleaks in it.
+#
+# The pin is a digest of the release archive, not of the executable, so the
+# archive is kept beside the binary and both are checked on every run. A cache
+# hit used to be any executable that answered `version` with the pinned
+# version: a five-line stub doing that turned a planted credential into
+# "No credentials found" (#534). One hash and one extraction cost far less
+# than the history scan that follows.
+verify_cached_gitleaks() {
+  local archive="$1" expected="$2" binary="$3"
+  local cache pinned cached
+
+  cache="$(dirname -- "$binary")"
+  fetch_verify_sha256 "$archive" "$expected" "the cached gitleaks $version archive"
+  [[ -f "$binary" && ! -L "$binary" ]] ||
+    die "The cached gitleaks at $binary is not a regular file; refusing to scan with it. Remove $cache to fetch the pinned release again."
+
+  staging="$(mktemp -d "$cache/.verify.XXXXXX")" ||
+    die "Could not create a staging directory in $cache"
+  trap 'rm -rf -- "$staging"' EXIT
+  tar --no-same-owner -xzf "$archive" -C "$staging" gitleaks ||
+    die "Could not extract gitleaks from the cached $(basename -- "$archive"); refusing to scan."
+  [[ -f "$staging/gitleaks" && ! -L "$staging/gitleaks" ]] ||
+    die "The cached $(basename -- "$archive") has no gitleaks executable in it; refusing to scan."
+  pinned="$(fetch_sha256 "$staging/gitleaks")" ||
+    die "Could not compute the SHA-256 of the gitleaks in the pinned archive"
+  cached="$(fetch_sha256 "$binary")" ||
+    die "Could not compute the SHA-256 of the cached gitleaks at $binary"
+  rm -rf -- "$staging"
+  staging=""
+  trap - EXIT
+
+  [[ "$cached" == "$pinned" ]] ||
+    die "The cached gitleaks at $binary is not the gitleaks in the pinned archive (its SHA-256 is $cached, the release's is $pinned); refusing to scan with it. Remove $cache to fetch the pinned release again."
+}
+
 # resolve_gitleaks: set `gitleaks` to the pinned scanner, downloading it once
 # into the cache if it is not already there.
 #
@@ -143,7 +180,7 @@ staging=""
 # "No credentials found" (#498). Each step also checks its own status, so the
 # function stays correct wherever it is called from.
 resolve_gitleaks() {
-  local platform artifact expected cache binary reported
+  local platform artifact expected cache binary archive reported
 
   platform="$(platform_artifact)" || exit 1
   IFS=$'\t' read -r artifact expected <<<"$platform"
@@ -160,8 +197,15 @@ resolve_gitleaks() {
 
   cache="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/gitleaks/$version"
   binary="$cache/gitleaks"
+  archive="$cache/$artifact"
 
-  if [[ -x "$binary" && "$(installed_version "$binary")" == "$version" ]]; then
+  # A cache without its archive -- one written before the archive was kept, or
+  # one a failed run left half-populated -- is a miss, never a guess.
+  if [[ -e "$archive" && -e "$binary" ]]; then
+    verify_cached_gitleaks "$archive" "$expected" "$binary"
+    reported="$(installed_version "$binary")"
+    [[ "$reported" == "$version" ]] ||
+      die "The cached gitleaks does not report $version (it reports ${reported:-nothing}); refusing to scan with it."
     gitleaks="$binary"
     return 0
   fi
@@ -199,6 +243,10 @@ resolve_gitleaks() {
 
   mv -f "$staging/gitleaks" "$binary" ||
     die "Could not move the downloaded gitleaks into the cache at $binary"
+  # The archive after the binary: a cache hit needs both, so a run that stops
+  # between the two moves leaves a miss behind, not a binary with no pin.
+  mv -f "$staging/$artifact" "$archive" ||
+    die "Could not keep the pinned archive in the cache at $archive"
 
   rm -rf -- "$staging"
   staging=""

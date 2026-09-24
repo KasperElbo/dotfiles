@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 python3 "$repo_root/scripts/validate-capabilities.py"
 python3 "$repo_root/scripts/render-capability-matrix.py" --check
 
@@ -397,7 +399,7 @@ hardware_packages="$(awk -F '\t' '$1=="hardware" && $2=="fedora" {print $9; exit
 fedora_installer="$repo_root/platforms/fedora/install.sh"
 # The selection is resolved by one function, whose every consumer -- the
 # selection check, preflight and the lifecycle record -- calls it.
-grep -Fq "\"\$hardware_selected:hardware\"" "$fedora_installer"
+code_grep -Fq "\"\$hardware_selected:hardware\"" "$fedora_installer"
 [[ "$(grep -Fc 'fedora_selected_capabilities' "$fedora_installer")" -ge 4 ]] || {
   printf 'Fedora hardware selection is not shared by the selection check, preflight and lifecycle capability resolution.\n' >&2
   exit 1
@@ -405,16 +407,16 @@ grep -Fq "\"\$hardware_selected:hardware\"" "$fedora_installer"
 # The command a failed run prints is rendered from the resolved selection by
 # the shared library, not by a per-platform renderer (#225, DOC-036), so the
 # hardware options reach it through the recorded selection.
-grep -Fq "DOTFILES_RERUN_COMMAND=\"\$(install_lifecycle_rerun_command fedora \"\$install_selection\" \"\${rerun_controls[@]}\")\"" \
+code_grep -Fq "DOTFILES_RERUN_COMMAND=\"\$(install_lifecycle_rerun_command fedora \"\$install_selection\" \"\${rerun_controls[@]}\")\"" \
   "$fedora_installer"
-if grep -Fq 'build_rerun_command' "$fedora_installer"; then
+if code_grep -Fq 'build_rerun_command' "$fedora_installer"; then
   printf 'Fedora still builds its own rerun command instead of using the shared selection model.\n' >&2
   exit 1
 fi
-grep -Fq "install_selection_set hardware \"\${hardware_model:--}\"" "$fedora_installer"
+code_grep -Fq "install_selection_set hardware \"\${hardware_model:--}\"" "$fedora_installer"
 # shellcheck disable=SC2016 # Matching the literal assignment in install.sh.
-grep -Fq 'install_selection_set secure-boot "$hardware_secure_boot"' "$fedora_installer"
-grep -Fq "install_selection_set charge-limit \"\${hardware_charge_limit:--}\"" "$fedora_installer"
+code_grep -Fq 'install_selection_set secure-boot "$hardware_secure_boot"' "$fedora_installer"
+code_grep -Fq "install_selection_set charge-limit \"\${hardware_charge_limit:--}\"" "$fedora_installer"
 
 hardware_dry_run="$(
   "$repo_root/install.sh" --dry-run --no-kde --no-latex \

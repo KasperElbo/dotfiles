@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 home="$test_root/home"
@@ -91,7 +93,7 @@ grep -Eq '^font_version="[0-9]+\.[0-9]+\.[0-9]+"$' \
   "$repo_root/platforms/parrot-ctf/scripts/install-terminal.sh"
 grep -Eq '^font_sha256="[0-9a-f]{64}"$' \
   "$repo_root/platforms/parrot-ctf/scripts/install-terminal.sh"
-grep -Fq 'bat_theme_commit="6810349b28055dce54076712fc05fc68da4b8ec0"' \
+code_grep -Fq 'bat_theme_commit="6810349b28055dce54076712fc05fc68da4b8ec0"' \
   "$repo_root/platforms/parrot-ctf/scripts/install-terminal.sh"
 
 printf 'Parrot Konsole, Nerd Font, and bat theme tests passed.\n'

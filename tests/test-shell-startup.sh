@@ -328,6 +328,45 @@ resolved="$(run_login -lc 'command -v python' "MISE_DATA_DIR=$relocated")"
 assert_eq "$relocated/shims/python" "$resolved" 'MISE_DATA_DIR must decide where the shims are'
 printf 'PASS: the shims directory follows MISE_DATA_DIR\n'
 
+# MISE_SHIMS_DIR names the shims directory outright, and wins over
+# MISE_DATA_DIR, which is the precedence check_mise_owned in
+# common/lib/verify.sh applies. Dropping it from .zprofile passed every suite
+# while a machine that sets it had the shell and the verifier looking in two
+# places, and the verifier telling the user to restow a .zprofile that was
+# linked and working (#539, V5-12).
+explicit_shims="$root/explicit-shims"
+mkdir -p "$explicit_shims"
+printf '#!/bin/sh\nprintf "explicit python\\n"\n' >"$explicit_shims/python"
+chmod +x "$explicit_shims/python"
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+resolved="$(run_login -lc 'command -v python' "MISE_SHIMS_DIR=$explicit_shims")"
+assert_eq "$explicit_shims/python" "$resolved" 'MISE_SHIMS_DIR must decide where the shims are'
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+resolved="$(run_login -lc 'command -v python' "MISE_SHIMS_DIR=$explicit_shims" "MISE_DATA_DIR=$relocated")"
+assert_eq "$explicit_shims/python" "$resolved" 'MISE_SHIMS_DIR must win over MISE_DATA_DIR'
+printf 'PASS: MISE_SHIMS_DIR names the shims directory, ahead of MISE_DATA_DIR\n'
+
+# The startup benchmark measures what a terminal pays, which is a login shell:
+# .zprofile included. It measured `zsh -i` alone and called that the terminal's
+# cost, so anything added to .zprofile was invisible to it (#539, V5-13). Each
+# startup file here records that it ran; one run per shape must read .zprofile
+# exactly once, from the interactive login, and .zshrc twice.
+bench_home="$root/bench-home"
+bench_log="$root/bench.log"
+mkdir -p "$bench_home"
+: >"$bench_log"
+printf 'print -r -- zshenv >>"$BENCH_LOG"\n' >"$bench_home/.zshenv"
+printf 'print -r -- zprofile >>"$BENCH_LOG"\n' >"$bench_home/.zprofile"
+printf 'print -r -- zshrc >>"$BENCH_LOG"\n' >"$bench_home/.zshrc"
+run_capture env -i HOME="$bench_home" BENCH_LOG="$bench_log" TERM=dumb \
+  PATH="$(dirname "$zsh_path"):$sandbox_bin" \
+  "$repo_root/scripts/benchmark-shell-startup.sh" --runs 1
+assert_success
+assert_contains "$TEST_OUTPUT" 'interactive-login  runs=1'
+assert_eq '3 1 2' "$(grep -cx zshenv "$bench_log") $(grep -cx zprofile "$bench_log") $(grep -cx zshrc "$bench_log")" \
+  'one run of each shape reads .zshenv three times, .zprofile once and .zshrc twice'
+printf 'PASS: the startup benchmark measures the login shell a terminal starts\n'
+
 # A machine without mise's shims directory is left alone: nothing is added,
 # the system copy is what runs, and startup stays silent and clean.
 mv "$login_shims" "$root/withheld-login-shims"
@@ -570,17 +609,17 @@ printf 'PASS: startup finishes with a clean exit status\n'
 
 # --- Completion (#157/#168) -------------------------------------------------
 
-compinit_calls="$(grep -c '^[[:space:]]*compinit' "$zshrc" || true)"
+# Read as code, not text: a comment naming a call is not the call (#537).
+compinit_calls="$(code_grep -c '^[[:space:]]*compinit' "$zshrc" || true)"
 assert_eq 1 "$compinit_calls" 'the shared profile must call compinit exactly once'
 # shellcheck disable=SC2016 # Matching the literal text in .zshrc.
-grep -Fq 'compinit -d "$ZSH_COMPDUMP"' "$zshrc" ||
-  _test_die 'compinit must keep using the cached compdump'
+assert_code_contains "$zshrc" 'compinit -d "$ZSH_COMPDUMP"'
 
 for platform_file in \
   "$repo_root"/platforms/*/stow/zsh-platform/.config/zsh/platform.zsh \
   "$repo_root"/platforms/*/stow/zsh-platform/.config/zsh/platform-env.zsh; do
   [[ -f "$platform_file" ]] || continue
-  assert_file_not_contains "$platform_file" 'compinit'
+  assert_code_not_contains "$platform_file" 'compinit'
 done
 printf 'PASS: exactly one cached compinit across shared and platform config\n'
 
@@ -655,7 +694,7 @@ assert_binding xterm-256color "\$'\\eOC'" forward-char 'Right (application)'
 printf 'PASS: plain Left/Right are not captured by the word-motion bindings\n'
 
 # Ctrl-R stays fzf's. The shared config must not bind it at all.
-assert_file_not_contains "$zshrc" "bindkey '^R'"
+assert_code_not_contains "$zshrc" "bindkey '^R'"
 ctrl_r_bare="$(run_zsh bare xterm-256color "bindkey -- '^R'")"
 assert_contains "$ctrl_r_bare" 'history-incremental-search-backward'
 ctrl_r_full="$(run_zsh full xterm-256color "bindkey -- '^R'")"
@@ -772,26 +811,141 @@ run_capture run_zsh bare xterm-256color "untar \"\$DOTFILES_TEST_WORK/missing.ta
 assert_failure
 
 # untar must call the real tar, not re-enter the helper.
-grep -Fq "command tar -xf" "$zshrc" ||
-  _test_die 'untar must invoke command tar'
+assert_code_contains "$zshrc" 'command tar -xf'
 printf 'PASS: the native tar CLI is preserved in full\n'
 
 # --- Initialization order ---------------------------------------------------
+#
+# zsh-syntax-highlighting wraps every ZLE widget that exists when it loads, so
+# it has to come after the prompt and after autosuggestions. This used to be
+# read off the configuration text as line numbers, taking the last line that
+# named each file, so one trailing comment naming platform.zsh or the plugin
+# satisfied it while the real order was reversed (issue #537, V5-09). What is
+# checked now is the order a real interactive Zsh does things in: the prompt
+# and both plugins are stubs that record themselves when they run, and the
+# trace they leave is compared, not the text that asks for them.
+init_order_bin="$root/init-order-bin"
+mkdir -p "$init_order_bin"
+cat >"$init_order_bin/starship" <<'EOF'
+#!/usr/bin/env bash
+# `starship init zsh` is the only call the prompt makes during startup; any
+# other argv is a startup file asking this stub something it does not model.
+[[ "$*" == 'init zsh' ]] || {
+  printf 'strict starship fixture rejected unsupported argv: %s\n' "$*" >&2
+  exit 96
+}
+printf 'starship\n' >>"$DOTFILES_TEST_TRACE"
+EOF
+chmod +x "$init_order_bin/starship"
 
-platform_line="$(grep -n 'zsh/platform.zsh' "$zshrc" | tail -n1 | cut -d: -f1)"
-starship_line="$(grep -n 'starship init zsh' "$zshrc" | tail -n1 | cut -d: -f1)"
-((platform_line > starship_line)) ||
-  _test_die 'platform.zsh (syntax highlighting) must stay after the prompt'
+# init_order_trace <zshrc> <platform.zsh>
+#
+# Starts an interactive Zsh on the given .zshrc with the given platform file
+# installed where .zshrc looks for it, and prints what ran, in order. Platform
+# files source their plugins from a package manager's absolute path; the copy
+# installed here points those paths at stubs in the sandbox, so nothing is
+# read from the host and a host that has the real plugins changes nothing.
+init_order_runs=0
+init_order_trace() {
+  local zshrc_file="$1" platform_file="$2" sandbox plugin
+  local -a rewrites
+  init_order_runs=$((init_order_runs + 1))
+  sandbox="$root/init-order/$init_order_runs"
+  mkdir -p "$sandbox/home" "$sandbox/config/zsh" "$sandbox/plugins"
+  cp "$zshenv" "$sandbox/home/.zshenv"
+  cp "$zshrc_file" "$sandbox/config/zsh/.zshrc"
+  rewrites=()
+  for plugin in zsh-autosuggestions zsh-syntax-highlighting; do
+    mkdir -p "$sandbox/plugins/$plugin"
+    # shellcheck disable=SC2016 # The stub expands it when Zsh sources it.
+    printf 'print -r -- %s >>"$DOTFILES_TEST_TRACE"\n' "${plugin#zsh-}" \
+      >"$sandbox/plugins/$plugin/$plugin.zsh"
+    rewrites+=(-e "s#[^[:space:]\"']*/$plugin/$plugin\\.zsh#$sandbox/plugins/$plugin/$plugin.zsh#g")
+  done
+  sed -E "${rewrites[@]}" "$platform_file" >"$sandbox/config/zsh/platform.zsh"
+  : >"$sandbox/trace"
+  env -i \
+    HOME="$sandbox/home" \
+    XDG_CONFIG_HOME="$sandbox/config" \
+    XDG_DATA_HOME="$sandbox/data" \
+    XDG_STATE_HOME="$sandbox/state" \
+    XDG_CACHE_HOME="$sandbox/cache" \
+    TERM=xterm-256color \
+    PATH="$init_order_bin:$sandbox_bin" \
+    DOTFILES_TEST_TRACE="$sandbox/trace" \
+    "$zsh_path" --no-globalrcs -i -c 'exit 0' >/dev/null 2>&1 </dev/null ||
+    _test_die "an interactive Zsh on $zshrc_file and $platform_file did not start cleanly"
+  tr '\n' ' ' <"$sandbox/trace" | sed 's/ $//'
+}
 
+init_order_expected='starship autosuggestions syntax-highlighting'
+platform_count=0
 for platform_file in "$repo_root"/platforms/*/stow/zsh-platform/.config/zsh/platform.zsh; do
   [[ -f "$platform_file" ]] || continue
-  grep -Fq 'zsh-syntax-highlighting' "$platform_file" || continue
-  highlighting_line="$(grep -n 'zsh-syntax-highlighting' "$platform_file" | tail -n1 | cut -d: -f1)"
-  suggestions_line="$(grep -n 'zsh-autosuggestions' "$platform_file" | tail -n1 | cut -d: -f1)"
-  ((highlighting_line > suggestions_line)) ||
-    _test_die "syntax highlighting must be initialized last in $platform_file"
+  platform_count=$((platform_count + 1))
+  assert_eq "$init_order_expected" "$(init_order_trace "$zshrc" "$platform_file")" \
+    "startup order with $platform_file"
 done
-printf 'PASS: syntax highlighting stays last in the initialization order\n'
+((platform_count > 0)) ||
+  _test_die 'no platform.zsh was found, so the initialization order proves nothing'
+printf 'PASS: an interactive shell starts the prompt, then autosuggestions, then highlighting\n'
+
+# The check has to be able to fail, on the mutations that defeated the line
+# numbers as well as on the plain ones. Each is a copy; the tracked files are
+# not touched.
+order_fixtures="$root/init-order-fixtures"
+mkdir -p "$order_fixtures"
+reference_platform="$repo_root/platforms/fedora/stow/zsh-platform/.config/zsh/platform.zsh"
+
+# .zshrc with the platform block moved above the prompt; then the same with a
+# trailing comment naming the file, which is what the line numbers accepted.
+python3 - "$zshrc" "$order_fixtures/zshrc-swapped" <<'PYTHON'
+import sys
+
+text = open(sys.argv[1]).read()
+block = (
+    'if [[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/platform.zsh" ]]; then\n'
+    '  source "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/platform.zsh"\n'
+    'fi\n'
+)
+if text.count(block) != 1 or text.count("# Prompt\n") != 1:
+    sys.exit("the .zshrc fixture no longer finds the platform block or the prompt")
+text = text.replace(block, "").replace("# Prompt\n", block + "\n# Prompt\n")
+open(sys.argv[2], "w").write(text)
+PYTHON
+cp "$order_fixtures/zshrc-swapped" "$order_fixtures/zshrc-swapped-commented"
+printf '# Syntax highlighting: see zsh/platform.zsh, sourced after starship init zsh.\n' \
+  >>"$order_fixtures/zshrc-swapped-commented"
+
+# A platform file with highlighting sourced before autosuggestions; then the
+# same with a trailing comment naming zsh-syntax-highlighting.
+python3 - "$reference_platform" "$order_fixtures/platform-swapped" <<'PYTHON'
+import sys
+
+text = open(sys.argv[1]).read()
+block = (
+    "[[ ! -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]] ||\n"
+    "  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh\n"
+)
+if text.count(block) != 1:
+    sys.exit("the platform fixture no longer finds the autosuggestions block")
+open(sys.argv[2], "w").write(text.replace(block, "") + block)
+PYTHON
+cp "$order_fixtures/platform-swapped" "$order_fixtures/platform-swapped-commented"
+printf '# zsh-syntax-highlighting stays last.\n' \
+  >>"$order_fixtures/platform-swapped-commented"
+
+for mutation in zshrc-swapped zshrc-swapped-commented; do
+  mutated="$(init_order_trace "$order_fixtures/$mutation" "$reference_platform")"
+  [[ "$mutated" != "$init_order_expected" ]] ||
+    _test_die "the initialization-order check accepted $mutation"
+done
+for mutation in platform-swapped platform-swapped-commented; do
+  mutated="$(init_order_trace "$zshrc" "$order_fixtures/$mutation")"
+  [[ "$mutated" != "$init_order_expected" ]] ||
+    _test_die "the initialization-order check accepted $mutation"
+done
+printf 'PASS: a reversed order is caught, with or without a comment naming the file\n'
 
 # --- The theme wrapper's exit-status handling (#148) ------------------------
 #
@@ -846,8 +1000,8 @@ printf 'PASS: the theme wrapper refreshes on a partial apply but not on a failur
 # the tool. #168 must not redefine that policy, and its helpers must keep
 # working underneath it.
 parrot_zsh="$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh"
-assert_file_not_contains "$zshrc" 'NOMATCH'
-assert_file_not_contains "$zshrc" 'noglob'
+assert_code_not_contains "$zshrc" 'NOMATCH'
+assert_code_not_contains "$zshrc" 'noglob'
 
 parrot_state="$(
   env -i HOME="$root/home" XDG_CONFIG_HOME="$root/config" \

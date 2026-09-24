@@ -95,6 +95,7 @@ require_fedora() {
 
 TERRA_KEY_MANIFEST="${TERRA_KEY_MANIFEST:-$DOTFILES_ROOT/config/terra-keys.tsv}"
 # The host is stated once; the key and repository URLs are paths on it.
+# network-source: terra-signing-key,terra-repo
 TERRA_HOST_URL="${TERRA_HOST_URL:-https://repos.fyralabs.com}"
 TERRA_KEY_URL_TEMPLATE="${TERRA_KEY_URL_TEMPLATE:-$TERRA_HOST_URL/terra%s/key.asc}"
 TERRA_REPO_URL_TEMPLATE="${TERRA_REPO_URL_TEMPLATE:-$TERRA_HOST_URL/terra%s}"

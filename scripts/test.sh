@@ -103,7 +103,7 @@ default_tests=(
   tests/test-pin-freshness.sh
   tests/test-main-evidence.sh
   tests/test-self-hosted-jobs.sh
-  tests/test-self-hosted-evidence.sh
+  tests/test-real-install-evidence.sh
   tests/test-profile-state.sh
   tests/test-execution-plan.sh
   tests/test-cli-contract.sh
@@ -364,6 +364,7 @@ run_suite() {
   if [[ -x "$test_path" ]]; then
     "${limit[@]}" "$test_path"
   else
+    # not-a-staged-installer: a suite tracked in this repository.
     "${limit[@]}" bash "$test_path"
   fi
 }

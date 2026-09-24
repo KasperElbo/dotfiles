@@ -164,7 +164,7 @@ done
 assert_no_shell_mutation
 
 printf "The macOS preflight establishes sudo for that change\n"
-grep -Fq 'macos_login_shell_change_required || needs_sudo=true' \
+code_grep -Fq 'macos_login_shell_change_required || needs_sudo=true' \
   "$repo_root/platforms/macos/install.sh" ||
   {
     printf 'The macOS preflight no longer consults the login-shell requirement.\n' >&2

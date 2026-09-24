@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Prove that a verifier's checks can fail, not only that they exist.
+"""Prove that a Bash verifier's checks can fail, not only that they exist.
+
+Its scope is the Bash verifiers `VERIFIER_GLOBS` names. The Windows verifier,
+`platforms/windows/verify.ps1`, is outside it: PowerShell has no producer for
+`DOTFILES_VERIFY_TRACE`, so it generates no coverage data, and its failure
+paths are asserted directly by `tests/test-windows-verifier.ps1` instead
+(docs/testing.md, "What the gates cover on Windows"; #539, V5-02).
 
 Every other gate in this repository reads files. This one cannot: whether a
 `check_*` call site is able to fail is a statement about what ran. A predicate

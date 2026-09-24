@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -449,7 +451,7 @@ printf 'PASS: no supported Bash gives a focused diagnostic, not a declare error\
 # ordering is asserted rather than left to the next edit of the file.
 theme_command="$repo_root/bin/.local/bin/theme"
 guard_line="$(grep -n '^modern_bash_reexec ' "$theme_command" | head -n 1 | cut -d: -f1)"
-first_modern_source="$(grep -n '^source "\$repo_root/common/lib/' "$theme_command" | head -n 1 | cut -d: -f1)"
+first_modern_source="$(code_grep -n '^source "\$repo_root/common/lib/' "$theme_command" | head -n 1 | cut -d: -f1)"
 [[ -n "$guard_line" && -n "$first_modern_source" ]] ||
   { printf 'The theme command no longer has both a guard and a library source\n' >&2; exit 1; }
 ((guard_line < first_modern_source)) ||

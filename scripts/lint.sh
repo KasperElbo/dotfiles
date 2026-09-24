@@ -57,6 +57,29 @@ for file in "${shell_files[@]}"; do
   bash -n "$file"
 done
 
+# The Zsh startup files and platform snippets are outside the set above, since
+# neither bash -n nor ShellCheck can parse Zsh, and nothing parsed them
+# instead: an unterminated `[[` at the top of the Fedora WSL platform-env.zsh,
+# which strips Windows' /mnt/<drive> entries from PATH in every shell, passed
+# lint and every suite (issue #536, V5-08). -f keeps the contributor's own
+# startup files out of it. A machine without Zsh cannot run this check and
+# says so rather than passing it; CI's Fedora and macOS jobs both have Zsh.
+if command -v zsh >/dev/null 2>&1; then
+  zsh_file_list="$(mktemp)"
+  trap 'rm -f "$shell_file_list" "$zsh_file_list"' EXIT
+  ./scripts/list-shell-files.py --zsh --print0 >"$zsh_file_list"
+  mapfile -d '' zsh_files <"$zsh_file_list"
+  printf 'Checking Zsh syntax in %d tracked files...\n' "${#zsh_files[@]}"
+  for file in "${zsh_files[@]}"; do
+    zsh -f -n "$file" || {
+      printf 'Zsh syntax check failed: %s\n' "$file" >&2
+      exit 1
+    }
+  done
+else
+  printf 'SKIP: Zsh syntax check: zsh is not installed\n'
+fi
+
 if ! command -v shellcheck >/dev/null 2>&1; then
   printf 'ShellCheck is required but was not found in PATH.\n' >&2
   exit 1

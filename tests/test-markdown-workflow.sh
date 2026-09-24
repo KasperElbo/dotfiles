@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 lazyvim_config="$repo_root/nvim-lazyvim/.config/nvim"
 
 fail() {
@@ -71,7 +73,7 @@ done
 for package_file in \
   "$repo_root/platforms/fedora/scripts/install-system.sh" \
   "$repo_root/platforms/parrot-ctf/scripts/install-system.sh"; do
-  assert_contains "$package_file" '  xdg-utils'
+  assert_code_contains "$package_file" '  xdg-utils'
 done
 
 wsl_config="$repo_root/platforms/fedora-wsl/stow/nvim-wsl/.config/nvim/lua/plugins/wsl.lua"

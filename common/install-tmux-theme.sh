@@ -8,6 +8,7 @@ require_command git
 
 version="v2.3.0"
 install_dir="$XDG_DATA_HOME/tmux/plugins/catppuccin"
+# network-source: catppuccin-tmux
 repo="https://github.com/catppuccin/tmux.git"
 
 ensure_dir "$(dirname "$install_dir")"

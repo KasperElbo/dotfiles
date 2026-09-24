@@ -229,6 +229,12 @@ record, it requires:
 - one results row for every item in the named checklist, none missing, none
   repeated and none invented, each with one of the four outcomes and a note
   wherever that outcome requires one;
+- an outcome that agrees with the record's own selection: where an item's
+  **Applies when** names installer options ("`-Handy` is selected",
+  "`-SkipNoctty` was not passed"), an item the **Installer command** and
+  **Selected options** exclude must be `not applicable`, and one whose
+  condition is nothing but options they meet must not be. A condition with
+  "or" in it, or one that also depends on the hardware, is left to the reader;
 - none of the personal-data shapes listed under
   [keeping personal data out](#keeping-personal-data-out). The report names
   the line and the kind of match, never the matched text, so the CI log does

@@ -3,7 +3,7 @@
 
 ``config/tool-floors.tsv`` is the one place a documented minimum version is
 stated for a tool this repository's toolchain preflights; ``docs/testing.md``
-names the two floors deliberately kept outside it. Before it existed, three documentation pages stated two different
+names the one floor deliberately kept outside it. Before it existed, three documentation pages stated two different
 Neovim minimums and nothing enforced either one, so this validator checks the
 three ways that can regress:
 
@@ -43,7 +43,18 @@ three ways that can regress:
    one attributable to neither is reported, never skipped, unless the subject
    written directly before it is something the registry deliberately does not
    track (``UNTRACKED_SUBJECTS``).
-3. **A pinned version falls below its own floor.** The mise configurations
+3. **A floor enforced before any reader can run drifts.** Bash is the
+   interpreter every reader runs under, so its floor is decided while the
+   shell may still be Apple's 3.2, before ``common/lib/tool-floors.sh`` can be
+   sourced. Its enforcement sites are the ``BASH_VERSINFO`` comparisons
+   themselves, four of them, plus the constants and messages that restate the
+   number. Each comparison is read for the version it actually admits -- it is
+   evaluated, not pattern-matched, so ``> 4`` where ``>= 4`` was meant is a
+   4.5 floor and is refused -- and every restatement must equal the row. A
+   non-test shell file that compares ``BASH_VERSINFO`` without being one of
+   the row's consumers is refused too, so a fifth site cannot be added
+   outside the registry (#539, V5-03).
+4. **A pinned version falls below its own floor.** The mise configurations
    this repository provisions are the one place it controls an installed
    version, so a pin for a registry tool must satisfy that tool's floor;
    otherwise raising the floor leaves the machine provisioning less than the
@@ -72,10 +83,11 @@ import sys
 import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import ManifestSchemaError, read_tsv  # noqa: E402
+from manifests import ManifestSchemaError, read_tsv, shell_files  # noqa: E402
 from shell import (  # noqa: E402
     UnreadableShell,
     close_over,
+    code_text,
     commands,
     outside_functions,
     shell_functions,
@@ -116,9 +128,6 @@ MENTION = r"(?<![\w.-])%s(?![\w-])"
 # Neovim's. A floor that belongs to neither this table nor the registry, and
 # names no tool at all, is reported rather than skipped.
 UNTRACKED_SUBJECTS = {
-    "bash": "the interpreter every check runs under, enforced by "
-    "scripts/bootstrap-macos.sh and common/lib/modern-bash.sh before any "
-    "registry reader can start (docs/testing.md)",
     "kernel": "the distribution's, enforced by "
     "platforms/fedora/scripts/install-asus-hardware.sh (docs/testing.md)",
     "macos": "the operating system a third-party application requires, "
@@ -161,6 +170,25 @@ PIN_VERSION = re.compile(r"^(?:prefix:)?(?P<version>[0-9]+(?:\.[0-9]+)*)$")
 UNVERSIONED = {"latest"}
 # What `interpret_pin` returns for a pin it cannot read at all.
 UNREADABLE = object()
+# The tool whose floor is enforced by comparing BASH_VERSINFO rather than by a
+# reader: the reader library needs the Bash this floor is about.
+VERSINFO_TOOL = "bash"
+# One `(( ... ))` arithmetic test that reads BASH_VERSINFO, on one line.
+VERSINFO_TEST = re.compile(r"\(\((?P<expression>[^\n]*BASH_VERSINFO[^\n]*)\)\)")
+# The only tokens such a test may contain, so evaluating it is evaluating
+# arithmetic over two version components and nothing else.
+VERSINFO_TOKEN = re.compile(
+    r"\s*(?:(?P<field>BASH_VERSINFO\[(?P<index>[01])\])|(?P<number>[0-9]+)"
+    r"|(?P<operator>>=|<=|==|!=|>|<|\|\||&&|!|\(|\)))"
+)
+# A restated Bash floor: `Bash 4.4 or newer`, `Bash 4.4+`, in a message.
+VERSINFO_STATED = re.compile(r"\bBash\s+(?P<version>[0-9]+\.[0-9]+)(?=\s+or\s+newer|\+)")
+# A restated Bash floor held in a variable: MODERN_BASH_MINIMUM="4.4".
+VERSINFO_ASSIGNED = re.compile(
+    r"^\s*(?:export\s+|readonly\s+|local\s+)?(?P<name>\w*(?:bash\w*min|min\w*bash)\w*)="
+    r"[\"']?(?P<version>[0-9]+(?:\.[0-9]+)+)[\"']?\s*$",
+    re.IGNORECASE,
+)
 # What starts a statement of its own: a list item, a table row, a heading. A
 # blank line ends one. Everything else continues the statement above it, which
 # is how a hard-wrapped sentence keeps the tool it named.
@@ -220,6 +248,94 @@ def enforces(path: pathlib.Path, reader_names: set[str]) -> bool:
     text = path.read_text(encoding="utf-8")
     bodies = shell_functions(text)
     return bool(close_over(commands(outside_functions(text)), bodies) & reader_names)
+
+
+def admitted_floor(expression: str) -> str:
+    """The Bash version a BASH_VERSINFO test admits from, as `major.minor`.
+
+    The test is evaluated over every version it could be asked about, rather
+    than matched against the spelling this repository happens to use, so the
+    two polarities -- `> 4 || (== 4 && >= 4)` admitting, `< 4 || (== 4 && < 4)`
+    refusing -- and any rewording of either are read alike. A test that is not
+    a floor at all (it admits an older version and refuses a newer one) is
+    unreadable rather than guessed at.
+    """
+    python: list[str] = []
+    position = 0
+    while position < len(expression):
+        if not expression[position:].strip():
+            break
+        token = VERSINFO_TOKEN.match(expression, position)
+        if token is None or token.end() == position:
+            raise UnreadableShell(
+                f"the BASH_VERSINFO test {expression.strip()!r} uses "
+                f"{expression[position:].strip()[:12]!r}, which this check cannot evaluate"
+            )
+        position = token.end()
+        if token.group("field"):
+            python.append(f"version[{token.group('index')}]")
+        elif token.group("number"):
+            python.append(token.group("number"))
+        else:
+            python.append({"||": " or ", "&&": " and ", "!": " not "}.get(
+                token.group("operator"), token.group("operator")))
+    try:
+        test = compile("".join(python), "<BASH_VERSINFO>", "eval")
+    except SyntaxError as error:
+        raise UnreadableShell(
+            f"the BASH_VERSINFO test {expression.strip()!r} does not parse: {error.msg}"
+        ) from None
+    grid = [(major, minor) for major in range(10) for minor in range(40)]
+    outcome = {
+        version: bool(eval(test, {"__builtins__": {}}, {"version": version}))  # noqa: S307
+        for version in grid
+    }
+    # An admitting test is true for the newest version; a refusing one false.
+    admits = outcome if outcome[grid[-1]] else {v: not r for v, r in outcome.items()}
+    admitted = [version for version in grid if admits[version]]
+    if not admitted or admits[grid[0]]:
+        raise UnreadableShell(
+            f"the BASH_VERSINFO test {expression.strip()!r} is not a minimum version"
+        )
+    floor = admitted[0]
+    if any(admits[version] != (version >= floor) for version in grid):
+        raise UnreadableShell(
+            f"the BASH_VERSINFO test {expression.strip()!r} admits versions out of order"
+        )
+    return f"{floor[0]}.{floor[1]}"
+
+
+def versinfo_sites(
+    path: pathlib.Path, strict: bool = True
+) -> tuple[list[tuple[int, str]], list[tuple[int, str, str]]]:
+    """The file's BASH_VERSINFO tests, and every other statement of the floor.
+
+    Read as code with its comments dropped: a comparison in a comment enforces
+    nothing, and a message or a constant in a string still tells the user a
+    number. Returns (line, admitted floor) for each test, and (line, what,
+    version) for each restatement.
+
+    In a consumer (``strict``), any other read of BASH_VERSINFO is unreadable:
+    a floor spelled some other way would be one this check silently skipped.
+    Elsewhere a plain read -- printing the version -- is not a floor at all.
+    """
+    text = code_text(path.read_text(encoding="utf-8"))
+    tests: list[tuple[int, str]] = []
+    stated: list[tuple[int, str, str]] = []
+    for number, line in enumerate(text.splitlines(), 1):
+        found = list(VERSINFO_TEST.finditer(line))
+        if strict and "BASH_VERSINFO" in line and not found:
+            raise UnreadableShell(
+                f"line {number} reads BASH_VERSINFO outside a (( )) test this check can evaluate"
+            )
+        for match in found:
+            tests.append((number, admitted_floor(match.group("expression"))))
+        for match in VERSINFO_STATED.finditer(line):
+            stated.append((number, "a message", match.group("version")))
+        assigned = VERSINFO_ASSIGNED.match(line)
+        if assigned:
+            stated.append((number, assigned.group("name"), assigned.group("version")))
+    return tests, stated
 
 
 def satisfies(pin: str, minimum: str) -> bool:
@@ -478,6 +594,23 @@ def main() -> int:
                 continue
             try:
                 enforced = enforces(path, reader_names)
+                if tool == VERSINFO_TOOL:
+                    tests, stated = versinfo_sites(path)
+                    enforced = enforced or bool(tests)
+                    for number, admitted in tests:
+                        if admitted != minimum:
+                            fail(
+                                f"{consumer}:{number} compares BASH_VERSINFO so that it "
+                                f"admits Bash {admitted}; {manifest.name} says {minimum}"
+                            )
+                            errors += 1
+                    for number, what, version in stated:
+                        if version != minimum:
+                            fail(
+                                f"{consumer}:{number} states Bash {version} as the "
+                                f"minimum in {what}; {manifest.name} says {minimum}"
+                            )
+                            errors += 1
             except UnreadableShell as unreadable:
                 fail(
                     f"{consumer} cannot be read as shell: {unreadable}. Until it "
@@ -493,6 +626,32 @@ def main() -> int:
                     f"it; call {named} instead of restating {minimum}. A mention in a "
                     f"comment, in a string, or in a function nothing calls does not "
                     f"count"
+                )
+                errors += 1
+
+    # The other direction for the Bash floor: a comparison nobody registered is
+    # a fifth statement of the number that nothing holds to the row.
+    if VERSINFO_TOOL in floors:
+        registered = {
+            name.strip()
+            for row in rows
+            if (row["tool"] or "").strip() == VERSINFO_TOOL
+            for name in row["consumers"].split(",")
+        }
+        for name in shell_files(root):
+            if name.startswith("tests/") or name in registered:
+                continue
+            try:
+                tests, _ = versinfo_sites(root / name, strict=False)
+            except UnreadableShell as unreadable:
+                fail(f"{name} cannot be read for a Bash floor: {unreadable}")
+                errors += 1
+                continue
+            if tests:
+                fail(
+                    f"{name}:{tests[0][0]} compares BASH_VERSINFO but is not a consumer "
+                    f"of the {VERSINFO_TOOL} row in {manifest.name}; add it there so "
+                    f"its floor is checked"
                 )
                 errors += 1
 

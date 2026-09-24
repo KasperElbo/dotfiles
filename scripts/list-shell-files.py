@@ -15,12 +15,16 @@ one definition of "a shell file this repository lints" rather than a glob in a
 shell script that nothing checks. `scripts/validate-shell-file-roles.py` shares
 the same shebang predicate for the files whose mode it governs.
 
+`--zsh` prints the tracked Zsh files instead, which neither of those checks can
+parse and which lint.sh gives to `zsh -n`. The Bash set leaves them out, so the
+two sets never overlap.
+
 Output is NUL-separated by default, because a `git ls-files -z` reader is what
 replaced it and the caller should not have to care whether a path can contain a
 newline.
 
 Usage:
-    scripts/list-shell-files.py [--root DIR] [--print0 | --lines]
+    scripts/list-shell-files.py [--root DIR] [--zsh] [--print0 | --lines]
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
-from manifests import shell_files  # noqa: E402
+from manifests import shell_files, zsh_files  # noqa: E402
 
 
 def main() -> int:
@@ -39,6 +43,7 @@ def main() -> int:
     parser.add_argument(
         "--root", type=pathlib.Path, default=pathlib.Path(__file__).resolve().parents[1]
     )
+    parser.add_argument("--zsh", action="store_true", help="list the tracked Zsh files")
     separator = parser.add_mutually_exclusive_group()
     separator.add_argument(
         "--print0", dest="separator", action="store_const", const="\0", default="\0"
@@ -48,6 +53,14 @@ def main() -> int:
     )
     arguments = parser.parse_args()
     root = arguments.root.resolve()
+
+    if arguments.zsh:
+        names = zsh_files(root)
+        if not names:
+            print("list-shell-files: no tracked Zsh files found.", file=sys.stderr)
+            return 1
+        sys.stdout.write(arguments.separator.join(names) + arguments.separator)
+        return 0
 
     names = shell_files(root)
 

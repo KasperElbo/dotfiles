@@ -1,3 +1,4 @@
 tool	min_version	requirement	consumers
 nvim	0.12	The tracked LazyVim configuration requires Neovim 0.12 or newer	scripts/test.sh,common/install-neovim-tools.sh,platforms/fedora/scripts/verify.sh,platforms/fedora-wsl/scripts/verify.sh,platforms/macos/scripts/verify.sh,platforms/parrot-ctf/scripts/verify.sh
 python3	3.11	Every scripts/*.py validator and generator targets Python 3.11	scripts/test.sh,scripts/lint.sh
+bash	4.4	Every entry point past the macOS compatibility bootstrap uses Bash 4.4 features; Apple ships 3.2	common/lib/modern-bash.sh,scripts/bootstrap-macos.sh,scripts/install-main.sh,platforms/macos/install.sh,scripts/test.sh

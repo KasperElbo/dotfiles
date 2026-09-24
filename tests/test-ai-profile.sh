@@ -210,15 +210,15 @@ cat >"$mock_bin/zsh" <<'EOF'
 # shims behind ~/.local/bin only from the package's .zprofile, when this home
 # has that file. A fixture that answered both the same way would model away
 # the defect the second probe exists to catch.
-# An interactive login arrives without job control, as verify_login_zsh starts
-# one, so "+m -lic" is the interactive spelling and a bare -lic is not.
+# Every login arrives without job control, as verify_login_zsh starts one, so
+# "+m -lic" and "+m -lc" are the spellings and a bare -lic or -lc is not.
 if [[ $# -eq 3 && "$1" == +m && "$2" == -lic &&
   "$3" == 'printf "login-path:%s\n" "$PATH"' ]]; then
   printf 'login-path:%s\n' "$MISE_SHIMS_DIR:$HOME/.local/bin:$PATH"
   exit 0
 fi
-if [[ $# -eq 2 && "$2" == 'printf "login-path:%s\n" "$PATH"' ]]; then
-  case "$1" in
+if [[ $# -eq 3 && "$1" == +m && "$3" == 'printf "login-path:%s\n" "$PATH"' ]]; then
+  case "$2" in
   -lc)
     login_shims=""
     [[ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.zprofile" ]] ||
@@ -235,10 +235,10 @@ fi
 # never deployed the zsh package into, so there is no login to model there and
 # the probe is refused like any other unmodelled call: answering "<unset>"
 # would fail every case that is about something else.
-if [[ $# -eq 2 && "$1" == -lc &&
-  "$2" == "printf 'login-env:%s\n' \"\${"*"-<unset>}\"" &&
+if [[ $# -eq 3 && "$1" == +m && "$2" == -lc &&
+  "$3" == "printf 'login-env:%s\n' \"\${"*"-<unset>}\"" &&
   -r "$HOME/.zshenv" ]]; then
-  name="${2#*\$\{}"
+  name="${3#*\$\{}"
   name="${name%%-<unset>*}"
   if [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
     assignment="$(grep -E "^export $name=" "$HOME/.zshenv" | tail -n 1)"
@@ -782,7 +782,7 @@ mkdir -p "$broken_installs"
 for tool in claude herdr codex; do
   cp -R "$mise_installs/$tool" "$broken_installs/$tool"
 done
-assert_file_line "$repo_root/zsh/.zshenv" 'export DISABLE_UPDATES=1'
+assert_code_line "$repo_root/zsh/.zshenv" 'export DISABLE_UPDATES=1'
 rm -- "$home/.zshenv"
 grep -v '^export DISABLE_UPDATES=' "$repo_root/zsh/.zshenv" >"$home/.zshenv"
 mv -- "$treehouse_target" "$test_root/treehouse.moved"

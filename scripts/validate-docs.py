@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Mechanical documentation checks.
 
-Prose cannot be verified, but five kinds of documentation rot can be, and all
-five are the kinds that quietly make a document wrong:
+Prose cannot be verified, but six kinds of documentation rot can be, and all
+six are the kinds that quietly make a document wrong:
 
 1. **Broken internal links.** Every relative link between tracked Markdown
    files must resolve, and a link with an anchor must name a heading that
@@ -21,7 +21,18 @@ five are the kinds that quietly make a document wrong:
 5. **Invalid platform-support claims.** An `./install.sh --platform X` command
    line in documentation may only pass options that platform's manifest
    declares. This is what stops a guide from advertising a Fedora-only flag on
-   macOS.
+   macOS. The same holds for an installer command line that names no
+   platform: `./install.sh --flag` must pass a flag some platform declares,
+   and `platforms/<name>/install.sh --flag` one that platform declares, each
+   besides the transient controls that entry point accepts. A renamed flag is
+   the likeliest single cause of rot here, and before this a command without
+   `--platform` was not read at all (#539, V5-04). Only installer command
+   lines are read: most backticked `--flag`s in the corpus belong to git, dnf
+   or brew, and measured against the tree this reads 93 root and 14 platform
+   command lines with nothing to report.
+6. **Unknown capability names.** A backticked word written directly before or
+   after the word "capability" names a capability, so it must be a row of
+   `config/capabilities.tsv`.
 
 Generated documents are checked by their own renderers (`--check`), which
 `./scripts/lint.sh` runs alongside this.
@@ -61,6 +72,17 @@ STALE_CLAIM = re.compile(
 )
 
 INSTALL_COMMAND = re.compile(r"\./install\.sh\b[^\n]*")
+# Any installer command line, up to the end of its code span or a comment: the
+# root entry point, or one platform's installer run directly.
+INSTALLER_LINE = re.compile(
+    r"(?:(?<![\w/.-])\./install\.sh|(?<![\w.-])(?:\./)?platforms/(?P<platform>[a-z-]+)/install\.sh)"
+    r"\b(?P<arguments>[^\n`#]*)"
+)
+CAPABILITY_NAME = re.compile(
+    r"`(?P<before>[A-Za-z0-9_.:/-]+)`\s+capabilit(?:y|ies)\b"
+    r"|\bcapabilit(?:y|ies)\s+`(?P<after>[A-Za-z0-9_.:/-]+)`",
+    re.IGNORECASE,
+)
 PLATFORM_ARGUMENT = re.compile(r"--platform[ =]([a-z-]+)")
 OPTION_ARGUMENT = re.compile(r"(?<![\w-])--[a-z][a-z0-9-]*")
 
@@ -297,6 +319,77 @@ def check_platform_options(root: pathlib.Path, documents: list[pathlib.Path], pr
                     )
 
 
+def check_installer_lines(
+    root: pathlib.Path, documents: list[pathlib.Path], problems: list[str]
+) -> None:
+    """Flags on installer command lines that name no platform (item 5)."""
+    manifest = root / "config" / "install-options.tsv"
+    if not manifest.exists():
+        return
+    declared: dict[str, set[str]] = {}
+    for row in read_tsv(manifest):
+        flags = declared.setdefault(row["platform"], set())
+        for column in ("on_flag", "off_flag"):
+            if row[column] not in {"", "-"}:
+                flags.add(row[column])
+    # The root installer resolves the platform itself, so any platform's
+    # options and transient controls may follow it; `--platform` lines are
+    # check_platform_options' and are held to that one platform.
+    root_accepts = set().union(*declared.values(), TRANSIENT_FLAGS, *PLATFORM_TRANSIENT_FLAGS.values())
+    # A platform installer run directly has no --platform to take, and --rerun
+    # belongs to the root installer (platforms/parrot-ctf/install.sh says so).
+    direct_transients = TRANSIENT_FLAGS - {"--platform", "--rerun"}
+
+    for document in documents:
+        relative = document.relative_to(root)
+        for number, line in every_line(document):
+            for command in INSTALLER_LINE.finditer(line):
+                arguments = command.group("arguments")
+                platform = command.group("platform")
+                if platform is None and PLATFORM_ARGUMENT.search(arguments):
+                    continue
+                if platform is None:
+                    accepted, where = root_accepts, "./install.sh on any platform"
+                elif platform not in declared:
+                    problems.append(
+                        f"{relative}:{number}: unknown platform installer: platforms/{platform}/install.sh"
+                    )
+                    continue
+                else:
+                    accepted = declared[platform] | direct_transients | PLATFORM_TRANSIENT_FLAGS.get(platform, set())
+                    where = f"platforms/{platform}/install.sh"
+                for flag in OPTION_ARGUMENT.findall(arguments):
+                    if flag not in accepted:
+                        problems.append(
+                            f"{relative}:{number}: `{flag}` is not an option of {where} "
+                            f"(config/install-options.tsv): {command.group(0).strip()}"
+                        )
+
+
+def every_line(document: pathlib.Path) -> list[tuple[int, str]]:
+    """Every line, fenced or not: a command in a code block is still advertised."""
+    return list(enumerate(document.read_text(encoding="utf-8").splitlines(), 1))
+
+
+def check_capability_names(
+    root: pathlib.Path, documents: list[pathlib.Path], problems: list[str]
+) -> None:
+    manifest = root / "config" / "capabilities.tsv"
+    if not manifest.exists():
+        return
+    known = {row["capability"] for row in read_tsv(manifest)}
+    for document in documents:
+        relative = document.relative_to(root)
+        for number, line in outside_fences(document):
+            for match in CAPABILITY_NAME.finditer(line):
+                name = match.group("before") or match.group("after")
+                if name not in known:
+                    problems.append(
+                        f"{relative}:{number}: `{name}` is written as a capability, but "
+                        f"config/capabilities.tsv has no such capability"
+                    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -314,6 +407,8 @@ def main() -> int:
     check_orphans(root, documents, problems)
     check_stale_claims(root, documents, problems)
     check_platform_options(root, documents, problems)
+    check_installer_lines(root, documents, problems)
+    check_capability_names(root, documents, problems)
 
     for problem in problems:
         print(f"Documentation: {problem}", file=sys.stderr)

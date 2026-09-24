@@ -612,18 +612,26 @@ lint_fixture >/dev/null
 printf 'PASS: a repointed Scoop bucket is not covered by its old annotation\n'
 
 # A shell assignment is not a manifest declaration. Spaces around the `=` are
-# what tells them apart, and a shell variable holding a URL is covered by
-# whatever construct then fetches it.
+# what tells them apart. It is a construct of its own all the same: the
+# assignment is where the host is written, and the construct that later
+# fetches `$url` names none, so an annotation there could cover any host
+# (#534 V5-21).
 cat >"$fixture_repo/scripts/plain-assignment.sh" <<'EOF'
 #!/usr/bin/env bash
 url='https://example.invalid/path'
 printf '%s\n' "$url"
 EOF
 git -C "$fixture_repo" add -A
-lint_fixture >/dev/null
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered URL assignment.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" '/plain-assignment.sh:2: unregistered url-assignment network source'
+assert_not_contains "$lint_output" 'manifest-url'
 rm -f -- "$fixture_repo/scripts/plain-assignment.sh"
 git -C "$fixture_repo" add -A
-printf 'PASS: a shell URL assignment is not read as a manifest declaration\n'
+lint_fixture >/dev/null
+printf 'PASS: a shell URL assignment is its own construct, not a manifest declaration\n'
 
 # The walk that finds an annotation above a continued construct stops at the
 # first line of code, and a list element is not a continuation of the one
@@ -830,6 +838,8 @@ printf 'PASS: a recorded image digest must be the one its consumers pull\n'
 # --- Terra: no --nogpgcheck, and the key is fingerprint-pinned -------------
 
 # Comments may still explain why the flag is gone; a live invocation may not.
+# Raw text on purpose: an absence check over every file in these trees, shell
+# or not, can only err toward failing, and a whole-line comment is let through.
 nogpgcheck_uses="$(grep -rn -- '--nogpgcheck' "$repo_root/platforms" \
   "$repo_root/common" "$repo_root/scripts" 2>/dev/null |
   grep -vE ':[[:space:]]*#' || true)"
@@ -837,9 +847,9 @@ if [[ -n "$nogpgcheck_uses" ]]; then
   printf 'An installer still passes --nogpgcheck:\n%s\n' "$nogpgcheck_uses" >&2
   exit 1
 fi
-assert_file_contains "$repo_root/platforms/fedora/lib/fedora.sh" \
+assert_code_contains "$repo_root/platforms/fedora/lib/fedora.sh" \
   'terra_pinned_fingerprint'
-assert_file_contains "$repo_root/platforms/fedora/lib/fedora.sh" \
+assert_code_contains "$repo_root/platforms/fedora/lib/fedora.sh" \
   '--setopt=terra.gpgcheck=1'
 while IFS=$'\t' read -r releasever fingerprint; do
   [[ "$releasever" != \#* && -n "$releasever" ]] || continue
@@ -1001,7 +1011,7 @@ printf 'PASS: an acknowledgement does not cover a second key in the same file\n'
 # The bootstrap returns early once terra-release is installed, so these cases
 # drive the read-only verifier section with the same stubs. MOCK_LOG records
 # every sudo, import and install; the verifier must leave it empty.
-assert_file_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
+assert_code_contains "$repo_root/platforms/fedora/scripts/verify.sh" \
   'verify_terra_trust_root'
 
 # run_terra_verify <terra-release installed?> <releasever> <gpgcheck>
@@ -1278,6 +1288,16 @@ printf 'PASS: a missing reviewed key refuses the bootstrap instead of falling ba
 # here until both halves exist. fedora-os-repos is the one row with no entry:
 # it is the distribution's own set, configured by the Fedora installation
 # rather than by anything in this repository.
+# platform_code_contains <needle>: some shell library under platforms/ has the
+# needle in its code, not only in a comment (#537). The raw search only picks
+# the candidate files; each is then read as code.
+platform_code_contains() {
+  local file
+  while IFS= read -r file; do
+    ! code_grep -Fq -- "$1" "$file" || return 0
+  done < <(grep -rlF --include='*.sh' -- "$1" "$repo_root/platforms" || true)
+  return 1
+}
 verified_repo_pairs=(terra-repo:terra tailscale-repo:tailscale)
 unchecked_repos=''
 while IFS= read -r registry_id; do
@@ -1291,7 +1311,7 @@ while IFS= read -r registry_id; do
     unchecked_repos+="${unchecked_repos:+, }$registry_id (no verifier)"
     continue
   fi
-  grep -rqF "verify_repo_trust_root $dnf_repo_id " "$repo_root/platforms" ||
+  platform_code_contains "verify_repo_trust_root $dnf_repo_id " ||
     unchecked_repos+="${unchecked_repos:+, }$registry_id (never verified)"
 done < <(awk -F'\t' 'NR > 1 && $4 == "rpm-repo" { print $1 }' \
   "$repo_root/config/network-sources.tsv")
@@ -1457,25 +1477,236 @@ for kept in HOME PATH HTTPS_PROXY MISE_INSTALL_PATH PROBE_REPORT_DIR \
   [[ " $probe_names " == *" $kept "* ]] ||
     _test_die "a staged installer was not given $kept"
 done
+# The allowlist, spelled out here and not read from the library. Building the
+# expected set by sourcing common/lib/fetch.sh made this check agree with
+# whatever the array held, so `LD_PRELOAD NPM_TOKEN` appended to it (and to the
+# bootstrap's copy, which is held equal to it below) passed (issue #537,
+# V5-23). A change to the array is now a change to this list too, made in the
+# same review. In order: the bootstrap's copy is compared in order as well.
+expected_installer_environment=(
+  HOME USER LOGNAME PATH SHELL TERM LANG LC_ALL LC_CTYPE LC_MESSAGES TMPDIR
+  XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+  XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
+  http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY
+  all_proxy ALL_PROXY SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE
+)
+# And a shape no name may have, whoever updates both lists: a credential by
+# its usual name, or a variable that loads code into the process -- the
+# dynamic loader's, or the one non-interactive Bash sources before the script,
+# since the installer runs as `/bin/bash "$installer"`.
+installer_environment_denied='TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_|^BASH_ENV$|^ENV$'
+
+# installer_environment_problems <fetch.sh>: what is wrong with the array that
+# file defines once sourced, one problem per line; nothing when it is right.
+installer_environment_problems() {
+  local names name
+  # shellcheck disable=SC2016 # The inner bash expands these.
+  names="$(bash -c 'set -euo pipefail; source "$1"; printf "%s\n" "${DOTFILES_INSTALLER_ENVIRONMENT[@]}"' _ "$1")" || {
+    printf '%s did not define DOTFILES_INSTALLER_ENVIRONMENT when sourced\n' "$1"
+    return 0
+  }
+  [[ "$names" == "$(printf '%s\n' "${expected_installer_environment[@]}")" ]] ||
+    printf 'DOTFILES_INSTALLER_ENVIRONMENT is not the reviewed list: %s\n' "$(tr '\n' ' ' <<<"$names")"
+  for name in $names; do
+    [[ ! "$name" =~ $installer_environment_denied ]] ||
+      printf 'DOTFILES_INSTALLER_ENVIRONMENT hands a staged installer %s\n' "$name"
+  done
+}
+
+environment_problems="$(installer_environment_problems "$repo_root/common/lib/fetch.sh")"
+[[ -z "$environment_problems" ]] || _test_die "$environment_problems"
+
 # Only allowlisted names, plus what the call site stated, plus whatever the
 # shell itself defines on startup: nothing the allowlist does not explain.
-allowed=" $(bash -c 'source "$1/common/lib/fetch.sh"; printf "%s " "${DOTFILES_INSTALLER_ENVIRONMENT[@]}"' _ "$repo_root") MISE_INSTALL_PATH PROBE_REPORT_DIR PWD SHLVL OLDPWD _ "
+allowed=" ${expected_installer_environment[*]} MISE_INSTALL_PATH PROBE_REPORT_DIR PWD SHLVL OLDPWD _ "
 for name in $probe_names; do
   [[ "$allowed" == *" $name "* ]] ||
     _test_die "a staged installer inherited a name outside the allowlist: $name"
 done
 printf 'PASS: a staged installer inherits only the allowlisted environment\n'
 
+# The check has to reject a widened array. NPM_TOKEN is the obvious one; the
+# subtle one, NODE_OPTIONS (which can --require code into every node the
+# installer starts), has no deny-listed shape and is caught only because the
+# expected list is not the library's.
+environment_fixtures="$test_root/installer-environment"
+
+# widened_fetch_library <case>: a copy of common/lib/fetch.sh beside the
+# common.sh it sources, so the copy runs as the library does; prints its path.
+widened_fetch_library() {
+  local library="$environment_fixtures/$1/common/lib"
+  mkdir -p "$library"
+  cp "$repo_root/common/lib/common.sh" "$library/common.sh"
+  printf '%s\n' "$library/fetch.sh"
+}
+
+for added in NPM_TOKEN 'LD_PRELOAD NPM_TOKEN' NODE_OPTIONS; do
+  widened="$(widened_fetch_library "${added// /-}")"
+  sed "s/^  all_proxy ALL_PROXY SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE\$/& $added/" \
+    "$repo_root/common/lib/fetch.sh" >"$widened"
+  ! cmp -s "$repo_root/common/lib/fetch.sh" "$widened" ||
+    _test_die 'the widened fetch.sh fixture no longer finds the end of the allowlist'
+  widened_problems="$(installer_environment_problems "$widened")"
+  assert_contains "$widened_problems" "is not the reviewed list:"
+  assert_contains "$widened_problems" " ${added##* } "
+  [[ "$added" == NODE_OPTIONS ]] ||
+    assert_contains "$widened_problems" "hands a staged installer ${added##* }"
+done
+# A name appended later in the file, not in the literal, is the array too.
+widened="$(widened_fetch_library appended)"
+printf '\nDOTFILES_INSTALLER_ENVIRONMENT+=(GITHUB_TOKEN)\n' |
+  cat "$repo_root/common/lib/fetch.sh" - >"$widened"
+assert_contains "$(installer_environment_problems "$widened")" \
+  'hands a staged installer GITHUB_TOKEN'
+# And the unchanged library, copied the same way, has nothing wrong with it:
+# the rejections above are the additions, not the copying.
+unchanged="$(widened_fetch_library unchanged)"
+cp "$repo_root/common/lib/fetch.sh" "$unchanged"
+assert_eq '' "$(installer_environment_problems "$unchanged")" \
+  'an unchanged copy of common/lib/fetch.sh'
+printf 'PASS: a widened installer allowlist is rejected, credential-shaped or not\n'
+
 # Every place a staged remote installer is executed goes through that runner.
 # A bare `sh "$installer"` hands the script every variable the caller has.
-unwrapped_runs="$(grep -rnE '(^|[[:space:];&|(])(sh|bash|/bin/bash|/bin/sh)[[:space:]]+"\$[A-Za-z_]*(installer|staged)[A-Za-z_]*"' \
-  "$repo_root/common" "$repo_root/scripts" "$repo_root/platforms" 2>/dev/null |
-  grep -vE ':[[:space:]]*#' | grep -vE 'fetch_run_installer|env -i' || true)"
+#
+# This used to look only for variables named *installer* or *staged*, so the
+# same bare run of `"$no_mistakes_payload"` passed (issue #537, V5-24). The
+# name says nothing about what the file is, so every sh or bash (dash, or any
+# of them by absolute path) given an expansion to run, as a file, a -c string
+# or stdin, is reported unless it is part of a fetch_run_installer or `env -i`
+# command -- the same simple command, not merely the same line -- or the line
+# above it carries `# not-a-staged-installer: <why>`. Read through the shared
+# reader, so a comment is not a run, and a quoted script's text is not one
+# either; a backslash-newline continues the command. `sh -c 'script' NAME` is
+# the script's $0, and -n parses without running.
+#
+# unwrapped_shell_runs <tree> <directory>...: each such run under the given
+# directories of <tree>, as path:line: command.
+unwrapped_shell_runs() {
+  PYTHONPATH="$repo_root/scripts/lib" python3 - "$@" <<'PYTHON'
+import pathlib
+import re
+import sys
+
+from shell import UnreadableShell, blank_text, code_text
+
+SHELL = r"(?:(?:/usr)?/bin/)?(?:ba|da)?sh"
+RUN = re.compile(rf"(?<![\w./-])(?P<shell>{SHELL})(?P<options>(?:\s+[-+][-\w]*)*)\s+(?=\S)")
+STRING = r"(?:'[^']*'|\"[^\"]*\"|\S+)"
+DOLLAR_ZERO = re.compile(rf"(?<![\w./-]){SHELL}(?:\s+[-+]\w+)*\s+-c\s+{STRING}\s+$")
+WRAPPER = re.compile(r"(?<![\w-])(?:fetch_run_installer|env\s+-i)(?![\w-])")
+MARKER = re.compile(r"^\s*# not-a-staged-installer: \S")
+EXPANSION = re.compile(r'(?:<\s*)?"?\$')
+
+
+def is_shell(path: pathlib.Path) -> bool:
+    if path.suffix == ".sh":
+        return True
+    if path.suffix or not path.is_file():
+        return False
+    with path.open("rb") as handle:
+        first = handle.readline()
+    return first.startswith(b"#!") and re.search(rb"\b(ba|da)?sh\b", first) is not None
+
+
+def runs(tree: pathlib.Path, path: pathlib.Path):
+    text = path.read_text()
+    raw_lines = text.splitlines()
+    # Both views keep every character where it was, so a run found in the
+    # blanked line is read back from the code line at the same offset.
+    blank_lines = blank_text(text).split("\n")
+    code_lines = code_text(text).split("\n")
+    code_lines += [""] * (len(blank_lines) - len(code_lines))
+    if any(len(b) != len(c) for b, c in zip(blank_lines, code_lines)):
+        raise UnreadableShell(f"{path}: the blanked and code views disagree")
+    number = 0
+    while number < len(blank_lines):
+        first = number
+        blank_command = code_command = ""
+        while True:
+            blank, code = blank_lines[number], code_lines[number]
+            number += 1
+            if blank.endswith("\\") and number < len(blank_lines):
+                blank_command += blank[:-1] + " "
+                code_command += code[:-1] + " "
+                continue
+            blank_command += blank
+            code_command += code
+            break
+        for match in RUN.finditer(blank_command):
+            if not EXPANSION.match(code_command, match.end()):
+                continue
+            if any(re.fullmatch(r"-\w*n\w*", option) for option in match.group("options").split()):
+                continue
+            before = blank_command[: match.start()]
+            if DOLLAR_ZERO.search(before):
+                continue
+            wrapper = None
+            for wrapper in WRAPPER.finditer(before):
+                pass
+            if wrapper is not None and not re.search(r"[;&|]", before[wrapper.end():]):
+                continue
+            if first > 0 and MARKER.match(raw_lines[first - 1]):
+                continue
+            yield f"{path.relative_to(tree)}:{first + 1}: {' '.join(code_command.split())}"
+
+
+tree = pathlib.Path(sys.argv[1])
+for directory in sys.argv[2:]:
+    for path in sorted((tree / directory).rglob("*")):
+        if is_shell(path):
+            for run in runs(tree, path):
+                print(run)
+PYTHON
+}
+
+unwrapped_runs="$(unwrapped_shell_runs "$repo_root" common scripts platforms)" ||
+  _test_die 'the staged-installer audit could not read the tree'
 if [[ -n "$unwrapped_runs" ]]; then
   printf 'A staged installer runs with the caller'"'"'s whole environment:\n%s\n' \
     "$unwrapped_runs" >&2
   exit 1
 fi
+
+# The audit has to report a bare run whatever the variable is called and
+# however the command is spelled, and still let the wrapped and annotated
+# shapes through. Each case is appended to a copy of common/install-ai.sh.
+runs_tree="$test_root/unwrapped-runs"
+mkdir -p "$runs_tree/common"
+# unwrapped_run_case <expected: reported|clean> <shell text>
+unwrapped_run_case() {
+  local found
+  {
+    cat "$repo_root/common/install-ai.sh"
+    printf '\nno_mistakes_payload="$HOME/.cache/no-mistakes-postinstall.sh"\n%s\n' "$2"
+  } >"$runs_tree/common/install-ai.sh"
+  found="$(unwrapped_shell_runs "$runs_tree" common)" ||
+    _test_die "the staged-installer audit could not read: $2"
+  if [[ "$1" == reported ]]; then
+    [[ "$found" == *'common/install-ai.sh:'* ]] ||
+      _test_die "a bare installer run was not reported: $2"
+  else
+    assert_eq '' "$found" "a run the audit must accept: $2"
+  fi
+}
+# shellcheck disable=SC2016 # Shell text for the fixture, not for this shell.
+{
+  unwrapped_run_case reported 'sh "$no_mistakes_payload"'
+  unwrapped_run_case reported 'bash -- "${no_mistakes_payload}"'
+  unwrapped_run_case reported '/bin/sh $no_mistakes_payload'
+  unwrapped_run_case reported $'bash \\\n  "$no_mistakes_payload"'
+  unwrapped_run_case reported 'sh <"$no_mistakes_payload"'
+  unwrapped_run_case reported 'bash -c "$(cat "$no_mistakes_payload")"'
+  unwrapped_run_case reported 'fetch_run_installer -- true && sh "$no_mistakes_payload"'
+  unwrapped_run_case reported $'# not-a-staged-installer:\nsh "$no_mistakes_payload"'
+  unwrapped_run_case clean '# sh "$no_mistakes_payload" would hand it everything'
+  unwrapped_run_case clean 'fetch_run_installer HOME="$HOME" -- sh "$no_mistakes_payload"'
+  unwrapped_run_case clean $'fetch_run_installer \\\n  -- sh "$no_mistakes_payload"'
+  unwrapped_run_case clean 'env -i PATH="$PATH" /bin/bash "$no_mistakes_payload"'
+  unwrapped_run_case clean 'sh -c '"'"'command -v "$1"'"'"' sh "$no_mistakes_payload"'
+  unwrapped_run_case clean 'bash -n "$no_mistakes_payload"'
+  unwrapped_run_case clean $'# not-a-staged-installer: fixture\nsh "$no_mistakes_payload"'
+}
 printf 'PASS: every staged installer runs through the minimal-environment runner\n'
 
 # scripts/bootstrap-macos.sh runs under Apple's Bash 3.2 before any library
@@ -1513,6 +1744,8 @@ homebrew_commit="$(bash -c 'source "$1"; printf %s "$DOTFILES_HOMEBREW_INSTALLER
   _test_die "the Homebrew installer is not pinned to a full commit: $homebrew_commit"
 assert_eq "https://raw.githubusercontent.com/Homebrew/install/$homebrew_commit/install.sh" \
   "$homebrew_url" 'the Homebrew installer must be fetched at the pinned commit'
+# Raw text on purpose: absence over every file in both trees, where a comment
+# naming the moving URL costs nothing to reword.
 if grep -rFq 'Homebrew/install/HEAD' "$repo_root/scripts" "$repo_root/platforms"; then
   _test_die 'an installer still fetches the moving HEAD of Homebrew/install'
 fi
@@ -1546,7 +1779,9 @@ fi
 assert_contains "$homebrew_output" 'SHA-256 mismatch for the Homebrew installer'
 
 # Both consumers check the pin before the line that runs the script.
-line_of() { grep -nF -- "$2" "$1" | head -n1 | cut -d: -f1; }
+# Read as code: a comment naming the verify call above the real run line would
+# otherwise stand in for it (#537). source_code keeps every line in place.
+line_of() { code_grep -nF -- "$2" "$1" | head -n1 | cut -d: -f1; }
 bootstrap="$repo_root/scripts/bootstrap-macos.sh"
 system_installer="$repo_root/platforms/macos/scripts/install-system.sh"
 [[ -n "$(line_of "$bootstrap" 'homebrew_installer_verify "$installer"')" &&
@@ -1561,6 +1796,8 @@ printf 'PASS: the Homebrew installer is fetched at its pinned commit and refused
 
 # --- No installer pipes remote content into a shell -------------------------
 
+# Raw text on purpose: absence over every file in these trees can only err
+# toward failing, and a whole-line comment is let through.
 piped_downloads="$(grep -rnE 'curl[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh' \
   "$repo_root/common" "$repo_root/scripts" "$repo_root/platforms" 2>/dev/null |
   grep -vE ':[[:space:]]*#' || true)"
@@ -1570,5 +1807,246 @@ if [[ -n "$piped_downloads" ]]; then
   exit 1
 fi
 printf 'PASS: no installer pipes a download straight into a shell\n'
+
+# --- The transfer primitives are network constructs too (#534 V5-21) -------
+#
+# install_staged_script replaced `curl ... | sh` for the two reviewed-live
+# installers, the only remote code this repository runs without
+# authenticating it, and no pattern matched it: a bogus annotation above the
+# real call, and a new call fetching from an unregistered host, both left the
+# validator at exit 0. Each case edits the copied fixture and restores it.
+ai_installer=common/install-ai.sh
+
+# The acceptance case: a new staged install from a host nothing registers.
+printf '%s\n' 'install_staged_script X "https://unregistered.example.invalid/i.sh" "$HOME/.local/bin/x"' \
+  >>"$fixture_repo/$ai_installer"
+appended_line="$(wc -l <"$fixture_repo/$ai_installer")"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered install_staged_script source.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$ai_installer:$appended_line: unregistered install_staged_script network source"
+git -C "$fixture_repo" checkout -q -- "$ai_installer"
+lint_fixture >/dev/null
+printf 'PASS: an unregistered install_staged_script call fails the linter, naming its line\n'
+
+# The shape that got through: the real call, its annotation naming a source
+# that does not exist.
+sed -i 's/# network-source: no-mistakes-installer$/# network-source: bogus-source/' \
+  "$fixture_repo/$ai_installer"
+staged_call_line="$(grep -n 'install_staged_script "No Mistakes"' "$fixture_repo/$ai_installer" | cut -d: -f1)"
+[[ -n "$staged_call_line" ]] ||
+  _test_die "the No Mistakes install_staged_script call this case annotates is gone"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an install_staged_script call under a bogus source id.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$ai_installer:$staged_call_line: unknown network-source id 'bogus-source'"
+git -C "$fixture_repo" checkout -q -- "$ai_installer"
+lint_fixture >/dev/null
+printf 'PASS: an install_staged_script call under an unknown source id fails the linter\n'
+
+# The URL is a shell assignment far above the call, so the call names no host.
+# Repointing it keeps every annotation in place, and must still be refused.
+sed -i 's|https://kunchenguid.github.io/treehouse/install.sh|https://attacker.example.invalid/install.sh|' \
+  "$fixture_repo/$ai_installer"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted a repointed installer URL.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$ai_installer:$(grep -n '^treehouse_install_script=' "$fixture_repo/$ai_installer" | cut -d: -f1): this url-assignment downloads from attacker.example.invalid"
+git -C "$fixture_repo" checkout -q -- "$ai_installer"
+lint_fixture >/dev/null
+printf 'PASS: a repointed installer URL is not covered by its old annotation\n'
+
+# And a new URL held in a variable, fetched under an annotation borrowed from
+# a real source: the assignment is where the host is written, so it is the
+# line that has to be registered.
+cat >>"$fixture_repo/$ai_installer" <<'EOF'
+widget_install_script="https://unregistered.example.invalid/i.sh"
+# network-source: treehouse-installer
+install_staged_script Widget "$widget_install_script" "$HOME/.local/bin/widget"
+EOF
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered URL behind a borrowed annotation.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$ai_installer:$(grep -n '^widget_install_script=' "$fixture_repo/$ai_installer" | cut -d: -f1): unregistered url-assignment network source"
+git -C "$fixture_repo" checkout -q -- "$ai_installer"
+lint_fixture >/dev/null
+printf 'PASS: an unregistered URL in a variable fails the linter where it is written\n'
+
+# Every real call site of either primitive, and every URL assignment, is held
+# by its annotation alone.
+for annotated in common/install-ai.sh:treehouse-installer:install_staged_script \
+  common/install-ai.sh:no-mistakes-installer:install_staged_script \
+  platforms/macos/scripts/install-system.sh:homebrew-installer:fetch_to_file \
+  common/lib/bootstrap-tools.sh:mise-release,starship-release:fetch_to_file \
+  platforms/fedora/lib/fedora.sh:terra-signing-key,terra-repo:url-assignment \
+  common/install-tmux-theme.sh:catppuccin-tmux:url-assignment \
+  platforms/windows/install.ps1:wsl-distribution-catalog:powershell-url-assignment \
+  platforms/windows/install.ps1:scoop-installer:powershell-url-assignment \
+  common/lib/preflight.sh:caller-provided:fetch_host_reachable; do
+  IFS=: read -r annotated_file annotated_id annotated_label <<<"$annotated"
+  sed -i "/network-source: $annotated_id\$/d" "$fixture_repo/$annotated_file"
+  if lint_output="$(lint_fixture)"; then
+    printf 'The linter accepted %s without its %s annotation.\n' \
+      "$annotated_file" "$annotated_id" >&2
+    exit 1
+  fi
+  assert_contains "$lint_output" "unregistered $annotated_label network source"
+  git -C "$fixture_repo" checkout -q -- "$annotated_file"
+done
+lint_fixture >/dev/null
+printf 'PASS: the real transfer-primitive calls and URL assignments need their annotations\n'
+
+# --- A PowerShell URL assignment is a construct too --------------------------
+#
+# The shell rule needs `name=` with no spaces and the manifest rule a bare
+# identifier, so `$Var = 'https://...'` matched neither. The Windows installer
+# names the WSL catalog and builds the Scoop installer URL that way, then
+# fetches `-Uri $installerUrl`, which names no host.
+windows_installer=platforms/windows/install.ps1
+
+# The obvious one: a new URL nothing registers.
+printf '%s\n' "\$WidgetInstallerUrl = 'https://unregistered.example.invalid/install.ps1'" \
+  >>"$fixture_repo/$windows_installer"
+appended_line="$(wc -l <"$fixture_repo/$windows_installer")"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered PowerShell URL assignment.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$windows_installer:$appended_line: unregistered powershell-url-assignment network source"
+git -C "$fixture_repo" checkout -q -- "$windows_installer"
+lint_fixture >/dev/null
+printf 'PASS: an unregistered PowerShell URL assignment fails the linter, naming its line\n'
+
+# The shape that got through: the pinned Scoop installer repointed under its
+# own annotations. The download line fetches `$installerUrl` and names no host,
+# so only the assignment can tell the new host from the registered one.
+sed -i 's|https://raw.githubusercontent.com/ScoopInstaller/Install/{0}/install.ps1|https://attacker.example.invalid/{0}/install.ps1|' \
+  "$fixture_repo/$windows_installer"
+! git -C "$fixture_repo" diff --quiet -- "$windows_installer" ||
+  _test_die "the Scoop installer URL this case repoints is gone from $windows_installer"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted a repointed Scoop installer URL.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$windows_installer:$(grep -n '^ *\$installerUrl = ' "$fixture_repo/$windows_installer" | cut -d: -f1): this powershell-url-assignment downloads from attacker.example.invalid"
+git -C "$fixture_repo" checkout -q -- "$windows_installer"
+lint_fixture >/dev/null
+printf 'PASS: a repointed PowerShell URL is not covered by its old annotation\n'
+
+# --- The preflight probe is a construct too ----------------------------------
+#
+# fetch_host_reachable asks only for headers, but it opens a TLS session to
+# whatever it is handed before the run changes anything, and no pattern
+# matched it.
+preflight_lib=common/lib/preflight.sh
+
+# The obvious one: a probe of a host nothing registers.
+printf '%s\n' 'fetch_host_reachable "https://unregistered.example.invalid/"' \
+  >>"$fixture_repo/$preflight_lib"
+appended_line="$(wc -l <"$fixture_repo/$preflight_lib")"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered fetch_host_reachable probe.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$preflight_lib:$appended_line: unregistered fetch_host_reachable network source"
+git -C "$fixture_repo" checkout -q -- "$preflight_lib"
+lint_fixture >/dev/null
+printf 'PASS: an unregistered fetch_host_reachable probe fails the linter, naming its line\n'
+
+# A probe under an annotation borrowed from a real source: the host it names
+# is not one that source is served from.
+cat >>"$fixture_repo/$preflight_lib" <<'EOF'
+# network-source: mise-release
+fetch_host_reachable "https://attacker.example.invalid/"
+EOF
+appended_line="$(wc -l <"$fixture_repo/$preflight_lib")"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted a fetch_host_reachable probe under a borrowed annotation.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$preflight_lib:$appended_line: this fetch_host_reachable downloads from attacker.example.invalid"
+git -C "$fixture_repo" checkout -q -- "$preflight_lib"
+lint_fixture >/dev/null
+printf 'PASS: a fetch_host_reachable probe is not covered by an unrelated annotation\n'
+
+# --- Liveness is derived, not declared (#534 V5-22) -------------------------
+#
+# The decision registry was closed over the `tier` column, and nothing tied
+# the tier to what a source is. Retiering the No Mistakes installer to
+# version-line and deleting its decision left lint green while install-ai.sh
+# still ran whatever the live URL served. The Treehouse row was only caught
+# because the cases above happen to name it. So every decision is removed in
+# turn, and every remote script is retiered in turn, rather than one by name.
+live_ids=()
+while IFS=$'\t' read -r source_id _; do
+  [[ "$source_id" != id ]] || continue
+  live_ids+=("$source_id")
+done <"$repo_root/config/live-sources.tsv"
+((${#live_ids[@]} > 0)) || _test_die 'config/live-sources.tsv records no decisions to remove'
+
+for source_id in "${live_ids[@]}"; do
+  awk -F '\t' -v id="$source_id" 'NR == 1 || $1 != id' \
+    "$repo_root/config/live-sources.tsv" >"$live_fixture"
+  if lint_output="$(LIVE_SOURCE_MANIFEST="$live_fixture" \
+    python3 "$repo_root/scripts/validate-network-sources.py" 2>&1)"; then
+    printf 'The linter accepted %s with its live-source decision removed.\n' "$source_id" >&2
+    exit 1
+  fi
+  assert_contains "$lint_output" "$source_id is reviewed-live, so nothing verifies it before use"
+done
+printf 'PASS: removing any one live-source decision fails the linter\n'
+
+# retier_live_script <id> <tier> [requested]: the registry with <id> moved to
+# <tier> (and its requested ref to [requested]), and its decision deleted, so
+# both registries agree the source is not live. Only the paperwork changes.
+retier_live_script() {
+  awk -F '\t' -v id="$1" -v tier="$2" -v requested="${3:-}" 'BEGIN { OFS = "\t" }
+    NR > 1 && $1 == id { $7 = tier; if (requested != "") $8 = requested }
+    { print }' "$repo_root/config/network-sources.tsv" >"$manifest_fixture"
+  awk -F '\t' -v id="$1" 'NR == 1 || $1 != id' \
+    "$repo_root/config/live-sources.tsv" >"$live_fixture"
+  run_capture env NETWORK_SOURCE_MANIFEST="$manifest_fixture" \
+    LIVE_SOURCE_MANIFEST="$live_fixture" \
+    python3 "$repo_root/scripts/validate-network-sources.py"
+}
+
+# Every remote script that nothing authenticates, read from the registry
+# rather than named here.
+live_scripts=()
+while IFS=$'\t' read -r source_id _ _ kind _ _ _ _ _ integrity _; do
+  [[ "$kind" == remote-script ]] || continue
+  [[ "$integrity" == https-tls || "$integrity" == registry-tls ]] || continue
+  live_scripts+=("$source_id")
+done <"$repo_root/config/network-sources.tsv"
+[[ " ${live_scripts[*]} " == *' no-mistakes-installer '* ]] ||
+  _test_die 'no-mistakes-installer is no longer an unauthenticated remote script'
+
+for source_id in "${live_scripts[@]}"; do
+  retier_live_script "$source_id" version-line
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "$source_id is a remote script whose integrity is"
+  assert_contains "$TEST_OUTPUT" "its tier must be reviewed-live, not 'version-line'"
+done
+printf 'PASS: retiering an unauthenticated remote script away from reviewed-live fails\n'
+
+# The subtle one: a tier that reads as a pin, with a requested version to
+# match, still authenticates nothing the script serves.
+retier_live_script no-mistakes-installer exact-version v1.0.0
+assert_failure
+assert_contains "$TEST_OUTPUT" "its tier must be reviewed-live, not 'exact-version'"
+assert_contains "$TEST_OUTPUT" 'no-mistakes-installer is live, so nothing verifies it before use'
+printf 'PASS: an exact-version claim does not make a live remote script pinned\n'
 
 printf 'Supply-chain policy tests passed.\n'

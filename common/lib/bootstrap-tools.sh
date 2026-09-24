@@ -134,6 +134,7 @@ install_bootstrap_tool() {
   # in a successful install (#539). scripts/validate-errexit-conditions.py
   # refuses the `set -e` that used to stand here claiming otherwise.
   if ! (
+    # network-source: mise-release,starship-release
     fetch_to_file "$url" "$work_dir/$artifact" "the pinned $tool release"
     fetch_verify_sha256 "$work_dir/$artifact" "$digest" "the pinned $tool release"
     tar -xzf "$work_dir/$artifact" -C "$work_dir" -- "$member" ||

@@ -15,6 +15,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/hardening.sh"
 
 verify_reset
 
+# How long a privileged probe may take to answer. Verification has to finish
+# on a machine where one cannot answer at all, and say so, rather than wait.
+HARDENING_PROBE_TIMEOUT="${HARDENING_PROBE_TIMEOUT:-30s}"
+
 # ---------------------------------------------------------------------------
 # Every check below is one of exactly three kinds, and the kind decides the
 # outcome. Conflating them is what let a machine lose its hardening controls
@@ -154,6 +158,68 @@ check_owned_root_file() {
   pass "$label is present, mode $expected_mode, and unmodified: $path"
 }
 
+# check_faillock_policy
+#
+# pam_faillock reads one file, /etc/security/faillock.conf, and then its own
+# module arguments, which win over the file (pam_faillock.c applies argv after
+# read_config_file). So the file is the policy, and reading it the way
+# pam_faillock does says what is in effect: the dotfiles block has to be there
+# as written and each of its keys has to resolve to the block's value, and no
+# pam_faillock line in the PAM stack authselect writes may pass the same key
+# as an argument. Until #535 this profile wrote a faillock.conf.d drop-in
+# nothing read, and this check compared that file with itself.
+check_faillock_policy() {
+  local path status content problem pam_file overrides in_effect key value
+
+  path="$(hardening_dropin_path faillock)"
+  managed_root_file_exists "$path"
+  status=$?
+  case "$status" in
+  0) ;;
+  1)
+    fail "$path is missing, so pam_faillock runs on its built-in defaults" \
+      "(deny = 3, unlock_time = 600) -- re-run ./scripts/install-hardening.sh"
+    return 1
+    ;;
+  *)
+    unreadable_without_password "faillock policy" "$path"
+    return 0
+    ;;
+  esac
+
+  status=0
+  content="$(managed_root_file_read "$path")" || status=$?
+  if ((status == 2)); then
+    unreadable_without_password "faillock policy" "$path"
+    return 0
+  fi
+
+  problem="$(faillock_config_problem <<<"$content")"
+  if [[ -n "$problem" ]]; then
+    fail "the faillock policy in $path is not in effect: $problem -- re-run" \
+      "./scripts/install-hardening.sh"
+    return 1
+  fi
+
+  in_effect=""
+  while read -r key _ value; do
+    [[ -n "$key" && "$key" != \#* ]] || continue
+    in_effect+="${in_effect:+, }$key = $value"
+    for pam_file in system-auth password-auth; do
+      overrides="$(awk -v key="$key" '
+        /^[[:space:]]*#/ || !/pam_faillock\.so/ { next }
+        { for (i = 1; i <= NF; i++) if (index($i, key "=") == 1 || index($i, "conf=") == 1) print $i }
+      ' "${HARDENING_ROOT:-}/etc/pam.d/$pam_file" 2>/dev/null | head -n1)"
+      [[ -z "$overrides" ]] && continue
+      fail "/etc/pam.d/$pam_file passes $overrides to pam_faillock, which" \
+        "overrides $path -- remove it, or re-select the authselect profile"
+      return 1
+    done
+  done < <(hardening_dropin_content faillock)
+
+  pass "pam_faillock reads $in_effect from $path"
+}
+
 # check_sshd_effective_policy
 #
 # A byte-identical drop-in proves what the file says, not what sshd does.
@@ -165,6 +231,10 @@ check_owned_root_file() {
 # configuration sshd resolved, so every directive the drop-in declares is
 # looked up there, the way auditd is checked against the loaded ruleset and
 # sysctl against live values.
+#
+# It is asked under the same timeout as sudo -l, for the same reason:
+# verification has to finish, and say what it could not see, on a machine
+# where the privileged probe never answers.
 check_sshd_effective_policy() {
   local effective status=0 keyword value actual in_effect="" failed=0
 
@@ -176,8 +246,13 @@ check_sshd_effective_policy() {
     return 0
   fi
 
-  effective="$(sudo -n sshd -T 2>&1)" || status=$?
-  if ((status != 0)); then
+  effective="$(timeout --kill-after=5s "$HARDENING_PROBE_TIMEOUT" \
+    sudo -n sshd -T 2>&1)" || status=$?
+  if ((status == 124 || status == 137)); then
+    not_observed "sshd -T did not answer within $HARDENING_PROBE_TIMEOUT," \
+      "so whether the SSH policy is in effect was not checked"
+    return 0
+  elif ((status != 0)); then
     not_observed "sshd -T could not report the configuration sshd would run" \
       "with (exit $status: $(head -n1 <<<"$effective")), so whether the SSH" \
       "policy is in effect was not checked"
@@ -202,6 +277,118 @@ check_sshd_effective_policy() {
 
   ((failed == 0)) || return 1
   pass "sshd's effective configuration has $in_effect"
+}
+
+# sudo_defaults_entries: reads Defaults entries -- a sudoers `Defaults` line
+# without its keyword, or the body of sudo -l's "Matching Defaults entries"
+# section -- on stdin and prints one per line, in order, as `name=value`,
+# `!name` or `name`. Entries are split on commas outside double quotes; a
+# backslash takes the next character literally, which is how sudo -l prints a
+# value holding its own separators (secure_path=/sbin\:/bin), and the quotes
+# it puts around a value holding whitespace are dropped. Lines are joined
+# first, because sudo wraps a long list at whitespace.
+sudo_defaults_entries() {
+  local text char current="" quoted=false escaped=false i
+
+  text="$(tr '\n' ' ')"
+  sudo_defaults_flush() {
+    [[ "$current" =~ ^[[:space:]]*(!*)([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*(([+-]?=)[[:space:]]*(.*[^[:space:]]|))?[[:space:]]*$ ]] ||
+      return 0
+    printf '%s%s%s%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" \
+      "${BASH_REMATCH[4]}" "${BASH_REMATCH[5]}"
+  }
+  for ((i = 0; i < ${#text}; i++)); do
+    char="${text:i:1}"
+    if [[ "$escaped" == true ]]; then
+      current+="$char"
+      escaped=false
+    elif [[ "$char" == \\ ]]; then
+      escaped=true
+    elif [[ "$char" == '"' ]]; then
+      [[ "$quoted" == true ]] && quoted=false || quoted=true
+    elif [[ "$char" == , && "$quoted" == false ]]; then
+      sudo_defaults_flush
+      current=""
+    else
+      current+="$char"
+    fi
+  done
+  sudo_defaults_flush
+}
+
+# check_sudo_effective_policy
+#
+# The same gap check_sshd_effective_policy closes, with the precedence running
+# the other way: sudoers(5) keeps the last Defaults entry it reads for a
+# setting, and #includedir reads /etc/sudoers.d in lexical order, so a
+# `Defaults !logfile` in a drop-in sorting after 90-dotfiles-hardening, or
+# below the includedir line in /etc/sudoers, turns sudo command logging off
+# while this profile's drop-in stays byte-identical (#535). `sudo -l` prints
+# every Defaults entry that applies to the user running it, in the order sudo
+# read them, so each setting the drop-in declares is resolved there, last
+# entry winning. It is asked as this user, not through `sudo sudo -l`, which
+# would list root's defaults and miss a `Defaults:<user> !logfile`.
+#
+# The listing is asked for under LC_ALL=C because its section header is
+# translated, and under a timeout because verification must finish on a
+# machine where sudo cannot answer (an unreachable sssd, say).
+check_sudo_effective_policy() {
+  local listing status=0 entries expected name actual in_effect="" failed=0
+
+  if ! hardening_privileged_read_available; then
+    not_observed "reading sudo's effective policy needs sudo, and" \
+      "verification never asks for a password, so whether sudo command" \
+      "logging is in effect was not checked -- run 'sudo -v' first, or run" \
+      "verification as root"
+    return 0
+  fi
+
+  listing="$(LC_ALL=C timeout --kill-after=5s "$HARDENING_PROBE_TIMEOUT" \
+    sudo -n -l 2>&1)" || status=$?
+  if ((status == 124 || status == 137)); then
+    not_observed "sudo -l did not answer within $HARDENING_PROBE_TIMEOUT," \
+      "so whether sudo command logging is in effect was not checked"
+    return 0
+  elif ((status != 0)); then
+    not_observed "sudo -l could not report the policy sudo applies" \
+      "(exit $status: $(head -n1 <<<"$listing")), so whether sudo command" \
+      "logging is in effect was not checked"
+    return 0
+  fi
+
+  # The section runs from its header to the first line that is not indented:
+  # the blank line before the next section, or the next header.
+  if ! grep -q '^Matching Defaults entries for ' <<<"$listing"; then
+    not_observed "sudo -l answered without a 'Matching Defaults entries'" \
+      "section, so whether sudo command logging is in effect was not checked"
+    return 0
+  fi
+  entries="$(awk '
+    /^Matching Defaults entries for / { inside = 1; next }
+    inside && !/^[[:space:]]+[^[:space:]]/ { exit }
+    inside { print }
+  ' <<<"$listing" | sudo_defaults_entries)"
+
+  while IFS= read -r expected; do
+    name="${expected#!}"
+    name="${name%%[+=-]*}"
+    # The last entry that sets, negates or names this setting is the one sudo
+    # applies; none at all means it is unset.
+    actual="$(grep -E "^!*${name}([+-]?=|$)" <<<"$entries" | tail -n1 || true)"
+    if [[ "$actual" != "$expected" ]]; then
+      fail "sudo's effective policy has ${actual:-$name unset}, but the" \
+        "hardening drop-in declares $expected; a Defaults entry sudo reads" \
+        "later, in a drop-in sorting after" \
+        "$(hardening_dropin_path sudo-logfile) or below the includedir line" \
+        "in /etc/sudoers, overrides it -- check: sudo -l"
+      failed=1
+    fi
+    in_effect+="${in_effect:+, }$expected"
+  done < <(hardening_dropin_content sudo-logfile |
+    sed -n 's/^Defaults[[:space:]]\{1,\}//p' | sudo_defaults_entries)
+
+  ((failed == 0)) || return 1
+  pass "sudo's effective policy has $in_effect"
 }
 
 # ---------------------------------------------------------------------------
@@ -333,7 +520,7 @@ else
         "not in effect -- run: sudo authselect enable-feature with-faillock"
     fi
 
-    check_owned_root_file "faillock policy drop-in" faillock
+    check_faillock_policy
   else
     warning "the installer could not enable pam_faillock on this machine" \
       "(recorded faillock=${state_faillock:-unknown}); account lockout is" \
@@ -351,6 +538,7 @@ else
       "is not configured by this profile on this machine"
   else
     check_owned_root_file "sudo logfile drop-in" sudo-logfile
+    check_sudo_effective_policy
   fi
 
   # -------------------------------------------------------------------------

@@ -267,8 +267,8 @@ cat >"$mock_bin/zsh" <<'EOF'
 login_shims=""
 [[ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.zprofile" ]] ||
   login_shims="$MISE_SHIMS_DIR:"
-case "${1:-}" in
--lc) printf 'login-path:%s\n' "$HOME/.local/bin:$login_shims/usr/bin:/bin" ;;
+case "${1:-} ${2:-}" in
+'+m -lc') printf 'login-path:%s\n' "$HOME/.local/bin:$login_shims/usr/bin:/bin" ;;
 *) printf 'login-path:%s\n' "$HOME/.local/bin:$MISE_SHIMS_DIR:$PATH" ;;
 esac
 EOF

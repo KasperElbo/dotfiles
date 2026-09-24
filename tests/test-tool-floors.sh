@@ -181,10 +181,10 @@ assert_contains "$TEST_OUTPUT" \
   'docs/workflows/editor.md:1 states a 0.12 minimum before naming the tool'
 
 # A floor for something the registry does not track is left alone; the pages
-# state minimums for a kernel and a system Bash that this registry never owns.
+# state minimums for a kernel and an operating system this registry never owns.
+# (Bash was a third until its floor joined the registry, #539.)
 {
   printf -- '- the hardware installer requires a kernel of at least 7.1\n'
-  printf -- '- the entry point re-executes with Bash 4.4 or newer\n'
   printf -- '- the dictation app runs on macOS 14.0+ only\n'
 } >"$requirements"
 git -C "$fixture" add -A
@@ -636,5 +636,86 @@ else:
 PY
 assert_success
 assert_contains "$TEST_OUTPUT" 'refused: no function in tool-floors.sh mentions'
+
+# --- The Bash floor, enforced where no reader can run (#539, V5-03) --------
+#
+# Four entry points decide the Bash floor under whatever Bash started them,
+# before the reader library can be sourced, so each compares BASH_VERSINFO
+# itself. The validator evaluates each comparison for the version it admits and
+# holds it, and every restatement of the number, to the registry row. Before
+# the row existed, one site moved to 4.2 left lint green.
+bash_fixture="$root/bash-floor"
+bash_sites=(common/lib/modern-bash.sh scripts/bootstrap-macos.sh scripts/install-main.sh platforms/macos/install.sh)
+mkdir -p "$bash_fixture/config" "$bash_fixture/docs"
+for site in "${bash_sites[@]}"; do
+  mkdir -p "$bash_fixture/$(dirname "$site")"
+  cp "$repo_root/$site" "$bash_fixture/$site"
+done
+{
+  printf 'tool\tmin_version\trequirement\tconsumers\n'
+  printf 'bash\t4.4\tEntry points use Bash 4.4 features\t%s\n' "$(IFS=,; printf '%s' "${bash_sites[*]}")"
+} >"$bash_fixture/config/tool-floors.tsv"
+{
+  printf '| Tool | Minimum version | Used by |\n'
+  printf '| --- | --- | --- |\n'
+  printf '| Bash (`bash`) | >= 4.4 | every entry point |\n'
+} >"$bash_fixture/docs/testing.md"
+git init -q "$bash_fixture"
+git -C "$bash_fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$bash_fixture"
+assert_success
+printf 'PASS: the four Bash floor sites agree with the registry row\n'
+
+# bash_floor_mutation <site> <sed expression> <expected message>
+bash_floor_mutation() {
+  local site="$1" expression="$2" expected="$3"
+  cp "$repo_root/$site" "$bash_fixture/$site"
+  sed -i "$expression" "$bash_fixture/$site"
+  if cmp -s "$repo_root/$site" "$bash_fixture/$site"; then
+    _test_die "the mutation '$expression' no longer changes $site"
+  fi
+  run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$bash_fixture"
+  cp "$repo_root/$site" "$bash_fixture/$site"
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "$expected"
+}
+
+# The obvious drift, the one the audit made: one refusing test moved to 4.2.
+bash_floor_mutation scripts/install-main.sh \
+  's/BASH_VERSINFO\[1\] < 4)))/BASH_VERSINFO[1] < 2)))/' \
+  'scripts/install-main.sh:5 compares BASH_VERSINFO so that it admits Bash 4.2; tool-floors.tsv says 4.4'
+
+# The subtle one: the number 4 is still written everywhere, but `>=` became
+# `>`, so the admitting test now wants 4.5. A check that looked for the
+# literal would pass it.
+bash_floor_mutation common/lib/modern-bash.sh \
+  's/BASH_VERSINFO\[1\] >= 4)))/BASH_VERSINFO[1] > 4)))/' \
+  'common/lib/modern-bash.sh:32 compares BASH_VERSINFO so that it admits Bash 4.5'
+
+# The fifth statement, used only for the error message, is held too.
+bash_floor_mutation common/lib/modern-bash.sh \
+  's/^MODERN_BASH_MINIMUM="4.4"/MODERN_BASH_MINIMUM="4.2"/' \
+  'states Bash 4.2 as the minimum in MODERN_BASH_MINIMUM'
+printf 'PASS: a Bash floor site that drifts from the row is refused, however it drifts\n'
+
+# A comparison in a file the row does not name is a floor nothing checks. The
+# name is composed, because the hygiene gate refuses a tracked file naming a
+# repository path that does not exist.
+unregistered="scripts/unregistered-floor"
+printf '#!/usr/bin/env bash\nif ((BASH_VERSINFO[0] < 5)); then exit 2; fi\n' \
+  >"$bash_fixture/$unregistered.sh"
+git -C "$bash_fixture" add -A
+run_capture python3 "$repo_root/scripts/validate-tool-floors.py" --root "$bash_fixture"
+assert_failure
+assert_contains "$TEST_OUTPUT" \
+  "$unregistered.sh:2 compares BASH_VERSINFO but is not a consumer of the bash row"
+git -C "$bash_fixture" rm -q -f "$unregistered.sh"
+printf 'PASS: an unregistered BASH_VERSINFO floor is refused\n'
+
+# The runner's own Bash is probed against the row like any other floor.
+run_capture "$BASH" -c 'source "$1"; tool_version bash' _ "$repo_root/common/lib/tool-floors.sh"
+assert_success
+assert_eq "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}.${BASH_VERSINFO[2]}" "$TEST_OUTPUT" \
+  'tool_version bash reports the interpreter it is asked about'
 
 printf 'Tool version-floor registry, reader and enforcement tests passed.\n'
