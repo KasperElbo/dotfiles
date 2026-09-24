@@ -33,17 +33,22 @@ Options:
   -h, --help         Show this help
 
 The rule is that every change is a small, named, dotfiles-owned drop-in
-file (sysctl.d, sudoers.d, sshd_config.d, faillock.conf.d, audit/rules.d),
-so deleting a drop-in rolls that single change back. Three changes are not
-drop-in files:
+file (sysctl.d, sudoers.d, sshd_config.d, audit/rules.d), so deleting a
+drop-in rolls that single change back. Four changes are not drop-in files:
 
   - the SELINUX= line of /etc/selinux/config, edited in place only when
     SELinux is permissive, because SELinux has no drop-in mechanism. The
     previous file is kept beside it as
     /etc/selinux/config.dotfiles-<epoch>.bak; roll back with
     'sudo setenforce 0' and copy that backup over /etc/selinux/config.
+  - the lockout policy, a block marked '# BEGIN dotfiles' ... '# END
+    dotfiles' at the end of /etc/security/faillock.conf, because
+    pam_faillock reads that one file and no drop-in directory. The rest of
+    the file is kept, and so is the previous file, as
+    /etc/security/faillock.conf.dotfiles-<epoch>.bak; roll back by deleting
+    the block.
   - the authselect 'with-faillock' feature, which regenerates /etc/pam.d;
-    deleting the faillock drop-in does not undo it. Roll back with
+    deleting the faillock block does not undo it. Roll back with
     'sudo authselect disable-feature with-faillock'.
   - dnf5-automatic.timer, enabled after installing dnf5-plugin-automatic
     when it is missing. Roll back with
@@ -128,7 +133,9 @@ per-change rollback table in docs/profiles/hardening.md):
   2. pam_faillock: lock an account after 5 failed attempts for 15 minutes
      authselect enable-feature with-faillock (regenerates /etc/pam.d,
      not a drop-in; undone with 'authselect disable-feature with-faillock')
-     /etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+     /etc/security/faillock.conf (a marked block at the end, edited in
+     place, no drop-in; the previous file is kept as
+     /etc/security/faillock.conf.dotfiles-<epoch>.bak)
 
   3. sudo audit logfile
      /etc/sudoers.d/90-dotfiles-hardening

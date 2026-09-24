@@ -158,6 +158,68 @@ check_owned_root_file() {
   pass "$label is present, mode $expected_mode, and unmodified: $path"
 }
 
+# check_faillock_policy
+#
+# pam_faillock reads one file, /etc/security/faillock.conf, and then its own
+# module arguments, which win over the file (pam_faillock.c applies argv after
+# read_config_file). So the file is the policy, and reading it the way
+# pam_faillock does says what is in effect: the dotfiles block has to be there
+# as written and each of its keys has to resolve to the block's value, and no
+# pam_faillock line in the PAM stack authselect writes may pass the same key
+# as an argument. Until #535 this profile wrote a faillock.conf.d drop-in
+# nothing read, and this check compared that file with itself.
+check_faillock_policy() {
+  local path status content problem pam_file overrides in_effect key value
+
+  path="$(hardening_dropin_path faillock)"
+  managed_root_file_exists "$path"
+  status=$?
+  case "$status" in
+  0) ;;
+  1)
+    fail "$path is missing, so pam_faillock runs on its built-in defaults" \
+      "(deny = 3, unlock_time = 600) -- re-run ./scripts/install-hardening.sh"
+    return 1
+    ;;
+  *)
+    unreadable_without_password "faillock policy" "$path"
+    return 0
+    ;;
+  esac
+
+  status=0
+  content="$(managed_root_file_read "$path")" || status=$?
+  if ((status == 2)); then
+    unreadable_without_password "faillock policy" "$path"
+    return 0
+  fi
+
+  problem="$(faillock_config_problem <<<"$content")"
+  if [[ -n "$problem" ]]; then
+    fail "the faillock policy in $path is not in effect: $problem -- re-run" \
+      "./scripts/install-hardening.sh"
+    return 1
+  fi
+
+  in_effect=""
+  while read -r key _ value; do
+    [[ -n "$key" && "$key" != \#* ]] || continue
+    in_effect+="${in_effect:+, }$key = $value"
+    for pam_file in system-auth password-auth; do
+      overrides="$(awk -v key="$key" '
+        /^[[:space:]]*#/ || !/pam_faillock\.so/ { next }
+        { for (i = 1; i <= NF; i++) if (index($i, key "=") == 1 || index($i, "conf=") == 1) print $i }
+      ' "${HARDENING_ROOT:-}/etc/pam.d/$pam_file" 2>/dev/null | head -n1)"
+      [[ -z "$overrides" ]] && continue
+      fail "/etc/pam.d/$pam_file passes $overrides to pam_faillock, which" \
+        "overrides $path -- remove it, or re-select the authselect profile"
+      return 1
+    done
+  done < <(hardening_dropin_content faillock)
+
+  pass "pam_faillock reads $in_effect from $path"
+}
+
 # check_sshd_effective_policy
 #
 # A byte-identical drop-in proves what the file says, not what sshd does.
@@ -449,7 +511,7 @@ else
         "not in effect -- run: sudo authselect enable-feature with-faillock"
     fi
 
-    check_owned_root_file "faillock policy drop-in" faillock
+    check_faillock_policy
   else
     warning "the installer could not enable pam_faillock on this machine" \
       "(recorded faillock=${state_faillock:-unknown}); account lockout is" \

@@ -369,6 +369,121 @@ EOF
   printf 'PASS: the SELinux config edit is backed up, idempotent, and read back\n'
 }
 
+# run_faillock_config_contract: the lockout policy goes into the one file
+# pam_faillock reads, /etc/security/faillock.conf, without costing an
+# administrator a line of it, converges on reruns, and is refused rather than
+# rewritten when the file is not in a shape it can safely edit. Until #535 it
+# went to a faillock.conf.d drop-in, which pam_faillock does not read at all.
+run_faillock_config_contract() {
+  test_new_root
+  local test_root="$TEST_ROOT"
+  local fake_root="$test_root/fake-root"
+  local config="$fake_root/etc/security/faillock.conf"
+  local legacy="$fake_root/etc/security/faillock.conf.d/90-dotfiles-hardening.conf"
+  local block=$'# BEGIN dotfiles Fedora hardening profile. Delete through END to undo.\ndeny = 5\nunlock_time = 900\n# END dotfiles Fedora hardening profile'
+  local before
+
+  mkdir -p "${legacy%/*}"
+  printf '# deny = 3\ndir = /var/lib/faillock\n' >"$config"
+  chmod 0644 "$config"
+  printf 'deny = 5\n' >"$legacy"
+
+  install_mktemp_mock "$test_root/bin"
+  install_date_and_restorecon_mocks "$test_root/bin"
+  # Every privileged call is carried out as asked, on the fixture's paths:
+  # this contract is about what the file ends up holding, which the exact-argv
+  # lists of the SELinux and scenario contracts do not show.
+  cat >"$test_root/bin/sudo" <<'SUDO_EOF'
+#!/usr/bin/env bash
+case "$1" in
+restorecon) exit 0 ;;
+cmp) [[ -f "$3" && -f "$4" && "$(cat -- "$3")" == "$(cat -- "$4")" ]] ;;
+install) install -m "$3" "$8" "$9" ;;
+mv)
+  "$@" || exit
+  [[ "${SABOTAGE_FAILLOCK_WRITE:-false}" != true ]] || printf 'deny = 50\n' >>"$5"
+  ;;
+test | cat | cp | stat | rm) "$@" ;;
+*)
+  printf 'faillock contract sudo rejected: %s\n' "$*" >&2
+  exit 96
+  ;;
+esac
+SUDO_EOF
+  chmod +x "$test_root/bin/sudo"
+
+  run_apply() {
+    run_capture env PATH="$test_root/bin:$PATH" HARDENING_ROOT="$fake_root" \
+      MOCK_EPOCH="$1" SABOTAGE_FAILLOCK_WRITE="${2:-false}" \
+      DOTFILES_ROOT_DIR="$repo_root" \
+      bash -c '
+        set -euo pipefail
+        source "$DOTFILES_ROOT_DIR/common/lib/common.sh"
+        source "$DOTFILES_ROOT_DIR/platforms/fedora/lib/hardening.sh"
+        apply_faillock_policy
+      '
+  }
+
+  # 1. First run: the administrator's lines kept, the block last, a backup of
+  #    what was there, and the drop-in pam_faillock never read removed.
+  run_apply 1700000000
+  assert_success
+  assert_eq $'# deny = 3\ndir = /var/lib/faillock\n'"$block" "$(cat "$config")" \
+    '[faillock config] first write'
+  assert_eq $'# deny = 3\ndir = /var/lib/faillock' \
+    "$(cat "$config.dotfiles-1700000000.bak")" '[faillock config] backup'
+  assert_eq 644 "$(stat -c '%a' "$config")" '[faillock config] preserved mode'
+  assert_path_missing "$legacy"
+
+  # 2. An unchanged rerun changes nothing and makes no second backup.
+  run_apply 1700000100
+  assert_success
+  assert_contains "$TEST_OUTPUT" 'pam_faillock lockout policy already applied'
+  assert_path_missing "$config.dotfiles-1700000100.bak"
+
+  # 3. A line added after the block wins over it in pam_faillock. A rerun
+  #    keeps that line and moves the block back below it, where it wins.
+  printf 'deny = 50\n' >>"$config"
+  run_apply 1700000200
+  assert_success
+  assert_eq $'# deny = 3\ndir = /var/lib/faillock\ndeny = 50\n'"$block" \
+    "$(cat "$config")" '[faillock config] block moved last'
+
+  # 4. No file at all, so pam_faillock would run on its defaults: it is
+  #    created with the table's mode, and there is nothing to back up.
+  rm -f -- "$config" "$config".dotfiles-*.bak
+  run_apply 1700000300
+  assert_success
+  assert_eq "$block" "$(cat "$config")" '[faillock config] created'
+  assert_eq 644 "$(stat -c '%a' "$config")" '[faillock config] created mode'
+  assert_path_missing "$config.dotfiles-1700000300.bak"
+
+  # 5. A write that did not produce the staged content is caught by the
+  #    read-back, which names the backup to restore.
+  printf 'dir = /var/lib/faillock\n' >"$config"
+  run_apply 1700000400 true
+  assert_failure
+  assert_contains "$TEST_OUTPUT" \
+    "$config does not carry the lockout policy after the rewrite"
+  assert_contains "$TEST_OUTPUT" \
+    "sudo cp -a $config.dotfiles-1700000400.bak $config"
+
+  # 6. A block with no END line is refused before any backup or write:
+  #    taking it out would take every line after it too.
+  printf '%s\ndeny = 5\ndir = /var/lib/faillock\n' \
+    '# BEGIN dotfiles Fedora hardening profile. Delete through END to undo.' \
+    >"$config"
+  before="$(cat "$config")"
+  run_apply 1700000500
+  assert_failure
+  assert_contains "$TEST_OUTPUT" "Refusing to rewrite $config"
+  assert_eq "$before" "$(cat "$config")" \
+    '[faillock config] refused file is unchanged'
+  assert_path_missing "$config.dotfiles-1700000500.bak"
+
+  printf 'PASS: the faillock policy is written into faillock.conf, keeping its other lines\n'
+}
+
 run_scenario() {
   local scenario_name="$1"
   local seed_sshd="$2"
@@ -395,6 +510,34 @@ run_scenario() {
   printf 'Permissive\n' >"$selinux_state"
   printf 'SELINUX=permissive\nSELINUXTYPE=targeted\n' >"$fake_root/etc/selinux/config"
   chmod 0644 "$fake_root/etc/selinux/config"
+  # Fedora's /etc/security/faillock.conf is every option commented out; this
+  # one also carries a line an administrator added, which has to survive, and
+  # the drop-in an earlier install of this profile wrote where pam_faillock
+  # never looked, which has to go.
+  mkdir -p "$fake_root/etc/security/faillock.conf.d" "$fake_root/etc/pam.d"
+  printf '%s\n' \
+    '# Configuration for locking the user after multiple failed' \
+    '# authentication attempts.' \
+    '#' \
+    '# The default is 3.' \
+    '# deny = 3' \
+    '#' \
+    '# The default is 600 (10 minutes).' \
+    '# unlock_time = 600' \
+    'audit' \
+    >"$fake_root/etc/security/faillock.conf"
+  chmod 0644 "$fake_root/etc/security/faillock.conf"
+  printf '%s\n' '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+    'deny = 5' 'unlock_time = 900' \
+    >"$fake_root/etc/security/faillock.conf.d/90-dotfiles-hardening.conf"
+  # The pam_faillock lines authselect's with-faillock feature writes: no
+  # argument that would override the file.
+  printf '%s\n' \
+    'auth        required      pam_faillock.so preauth silent' \
+    'auth        required      pam_faillock.so authfail' \
+    'account     required      pam_faillock.so' \
+    | tee "$fake_root/etc/pam.d/system-auth" \
+    >"$fake_root/etc/pam.d/password-auth"
   printf 'firewalld.service\n' >>"$active_units"
   printf 'firewalld.service\n' >>"$enabled_units"
   # Fedora's own /etc/sudoers, cut down to what sudo -l has to report: a
@@ -462,7 +605,20 @@ run_scenario() {
   test_stub_allow "$test_root" sudo restorecon "$selinux_config"
   test_stub_allow "$test_root" sudo authselect enable-feature with-faillock
   test_stub_allow "$test_root" sudo dnf install -y dnf5-plugin-automatic
+  local faillock_conf="$fake_root/etc/security/faillock.conf"
+  test_stub_allow "$test_root" sudo test -f "$faillock_conf"
+  test_stub_allow "$test_root" sudo cat -- "$faillock_conf"
+  test_stub_allow "$test_root" sudo cp -a -- "$faillock_conf" \
+    "$faillock_conf.dotfiles-1700000000.bak"
+  test_stub_allow "$test_root" sudo stat -c '%a' "$faillock_conf"
+  test_stub_allow "$test_root" sudo install -m 644 -o root -g root \
+    "$test_root/state/tmp-2" "$faillock_conf.dotfiles-new"
+  test_stub_allow "$test_root" sudo mv -f -- "$faillock_conf.dotfiles-new" \
+    "$faillock_conf"
+  test_stub_allow "$test_root" sudo restorecon "$faillock_conf"
   test_stub_allow "$test_root" sudo test -f \
+    "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+  test_stub_allow "$test_root" sudo rm -f -- \
     "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
   test_stub_allow "$test_root" sudo test -f \
     "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
@@ -481,7 +637,7 @@ run_scenario() {
   test_stub_allow "$test_root" sudo -n true
   test_stub_allow "$test_root" sudo -n -l
   for owned_path in \
-    /etc/security/faillock.conf.d/90-dotfiles-hardening.conf \
+    /etc/security/faillock.conf \
     /etc/sudoers.d/90-dotfiles-hardening \
     /etc/audit/rules.d/90-dotfiles-hardening.rules \
     /etc/sysctl.d/90-dotfiles-hardening.conf \
@@ -494,9 +650,6 @@ run_scenario() {
   test_stub_allow "$test_root" sudo systemctl enable --now auditd.service
   test_stub_allow "$test_root" sudo systemctl enable --now dnf5-automatic.timer
 
-  test_stub_allow "$test_root" sudo install -D -m 0644 -o root -g root \
-    "$test_root/state/tmp-2" \
-    "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
   test_stub_allow "$test_root" sudo install -D -m 0440 -o root -g root \
     "$test_root/state/tmp-4" "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
   test_stub_allow "$test_root" sudo install -D -m 0640 -o root -g root \
@@ -511,7 +664,7 @@ run_scenario() {
       "$test_root/state/tmp-7" \
       "$fake_root"/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-10" \
-      "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+      "$faillock_conf"
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-12" \
       "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-13" \
@@ -533,7 +686,7 @@ run_scenario() {
       "$fake_root"/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf
   else
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-9" \
-      "$fake_root"/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+      "$faillock_conf"
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-11" \
       "$fake_root"/etc/sudoers.d/90-dotfiles-hardening
     test_stub_allow "$test_root" sudo cmp -s "$test_root/state/tmp-12" \
@@ -1049,8 +1202,26 @@ SUDO_EOF
     'kernel.kptr_restrict = 2'
   assert_file_line "$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf" \
     'kernel.dmesg_restrict = 1'
-  assert_file_line "$fake_root/etc/security/faillock.conf.d/90-dotfiles-hardening.conf" \
-    'deny = 5'
+  # The policy is in the one file pam_faillock reads, after every line that
+  # was already there, and the drop-in it never read is gone.
+  assert_eq "$(printf '%s\n' \
+    '# Configuration for locking the user after multiple failed' \
+    '# authentication attempts.' \
+    '#' \
+    '# The default is 3.' \
+    '# deny = 3' \
+    '#' \
+    '# The default is 600 (10 minutes).' \
+    '# unlock_time = 600' \
+    'audit' \
+    '# BEGIN dotfiles Fedora hardening profile. Delete through END to undo.' \
+    'deny = 5' \
+    'unlock_time = 900' \
+    '# END dotfiles Fedora hardening profile')" "$(cat "$faillock_conf")" \
+    "[$scenario_name] faillock.conf after install"
+  assert_path_exists "$faillock_conf.dotfiles-1700000000.bak"
+  assert_path_missing \
+    "$fake_root/etc/security/faillock.conf.d/90-dotfiles-hardening.conf"
   assert_file_contains "$fake_root/etc/sudoers.d/90-dotfiles-hardening" \
     'Defaults logfile="/var/log/sudo.log"'
   assert_file_contains "$fake_root/etc/audit/rules.d/90-dotfiles-hardening.rules" \
@@ -1111,7 +1282,7 @@ SUDO_EOF
   # Every repository-owned control is actually inspected on the happy path,
   # not skipped: mode and content are asserted, not just existence.
   assert_contains "$verify_output" \
-    'faillock policy drop-in is present, mode 644, and unmodified'
+    'pam_faillock reads deny = 5, unlock_time = 900 from /etc/security/faillock.conf'
   assert_contains "$verify_output" \
     'sudo logfile drop-in is present, mode 440, and unmodified'
   assert_contains "$verify_output" \
@@ -1160,7 +1331,6 @@ SUDO_EOF
   # -------------------------------------------------------------------------
 
   if [[ "$seed_sshd" == "true" ]]; then
-    local faillock_dropin="$fake_root/etc/security/faillock.conf.d/90-dotfiles-hardening.conf"
     local sudoers_dropin="$fake_root/etc/sudoers.d/90-dotfiles-hardening"
     local sysctl_dropin="$fake_root/etc/sysctl.d/90-dotfiles-hardening.conf"
     local ssh_dropin="$fake_root/etc/ssh/sshd_config.d/00-dotfiles-hardening.conf"
@@ -1184,15 +1354,15 @@ SUDO_EOF
     cp -p "$backup" "$sysctl_dropin"
 
     # 2. Altered content: the file is still there, the policy is not.
-    cp -p "$faillock_dropin" "$backup"
-    sed -i 's/^unlock_time = 900$/unlock_time = 5/' "$faillock_dropin"
+    cp -p "$faillock_conf" "$backup"
+    sed -i 's/^unlock_time = 900$/unlock_time = 5/' "$faillock_conf"
     run_verify
     assert_failure
     assert_contains "$TEST_OUTPUT" \
-      'faillock policy drop-in no longer matches the policy'
+      'the faillock policy in /etc/security/faillock.conf is not in effect: its dotfiles block changed'
     assert_contains "$TEST_OUTPUT" \
       "line 3 is 'unlock_time = 5', expected 'unlock_time = 900'"
-    cp -p "$backup" "$faillock_dropin"
+    cp -p "$backup" "$faillock_conf"
 
     # 3. Wrong file mode: a group/other-readable sudoers drop-in.
     local original_mode
@@ -1411,28 +1581,74 @@ SUDO_EOF
 
     # 6c. Every directive commented out. The file still contains the text of
     #     each policy line, and enforces none of them.
-    cp -p "$faillock_dropin" "$backup"
-    sed -i 's/^\([^#]\)/# \1/' "$faillock_dropin"
+    cp -p "$faillock_conf" "$backup"
+    sed -i 's/^\([^#]\)/# \1/' "$faillock_conf"
     run_verify
     assert_failure
-    assert_contains "$TEST_OUTPUT" \
-      'faillock policy drop-in no longer matches the policy'
+    assert_contains "$TEST_OUTPUT" 'its dotfiles block changed'
     assert_contains "$TEST_OUTPUT" "line 2 is '# deny = 5'"
-    cp -p "$backup" "$faillock_dropin"
+    cp -p "$backup" "$faillock_conf"
 
     # 6d. Values loosened by extending them rather than shortening them:
     #     deny = 50 locks out after fifty attempts, unlock_time = 9000 is two
     #     and a half hours. Both expected lines are still substrings of the
     #     file, which is the shape mutation 2 above does not cover.
-    cp -p "$faillock_dropin" "$backup"
+    cp -p "$faillock_conf" "$backup"
     sed -i 's/^deny = 5$/deny = 50/;s/^unlock_time = 900$/unlock_time = 9000/' \
-      "$faillock_dropin"
+      "$faillock_conf"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'its dotfiles block changed'
+    assert_contains "$TEST_OUTPUT" "line 2 is 'deny = 50', expected 'deny = 5'"
+    cp -p "$backup" "$faillock_conf"
+
+    # 6d2-6d6. The block intact in every case below, so only reading the file
+    #     the way pam_faillock does can tell them apart: read_config_file lets
+    #     a later line for a key replace an earlier one, and pam_faillock
+    #     applies its module arguments after the file.
+    cp -p "$faillock_conf" "$backup"
+
+    # 6d2. The obvious one: a line after the block.
+    printf 'deny = 50\n' >>"$faillock_conf"
     run_verify
     assert_failure
     assert_contains "$TEST_OUTPUT" \
-      'faillock policy drop-in no longer matches the policy'
-    assert_contains "$TEST_OUTPUT" "line 2 is 'deny = 50', expected 'deny = 5'"
-    cp -p "$backup" "$faillock_dropin"
+      'pam_faillock reads deny = 50 from it, but the dotfiles block sets deny = 5'
+    cp -p "$backup" "$faillock_conf"
+
+    # 6d3. The same override in the spelling a line-for-line match does not
+    #     read: no spaces, and a trailing comment.
+    printf 'unlock_time=1 # testing\n' >>"$faillock_conf"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'pam_faillock reads unlock_time = 1 from it'
+    cp -p "$backup" "$faillock_conf"
+
+    # 6d4. Control: the same line above the block is replaced by it, so the
+    #     policy is in effect and nothing fails.
+    sed -i '1i deny = 50' "$faillock_conf"
+    run_verify
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'pam_faillock reads deny = 5, unlock_time = 900'
+    cp -p "$backup" "$faillock_conf"
+
+    # 6d5. The block gone, as on a machine installed while the policy went to
+    #     a faillock.conf.d drop-in pam_faillock never read.
+    sed '/^# BEGIN dotfiles/,/^# END dotfiles/d' "$backup" >"$faillock_conf"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" 'it has no dotfiles block'
+    cp -p "$backup" "$faillock_conf"
+
+    # 6d6. The file untouched, and the PAM stack passing the key instead.
+    local system_auth="$fake_root/etc/pam.d/system-auth"
+    cp -p "$system_auth" "$test_root/state/system-auth-backup"
+    sed -i 's/pam_faillock.so preauth silent/& deny=50/' "$system_auth"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      '/etc/pam.d/system-auth passes deny=50 to pam_faillock, which overrides /etc/security/faillock.conf'
+    cp -p "$test_root/state/system-auth-backup" "$system_auth"
 
     # 6e. The two audit watches no expected-line list ever named: the
     #     installer writes five rules, and /etc/group and /etc/sudoers.d/ were
@@ -1464,7 +1680,7 @@ SUDO_EOF
       "'-w /etc/shadow -p wa -k dotfiles-identity' is not loaded"
 
     # 6k. pam_faillock switched off after installation: authselect no longer
-    #     lists the feature, while the faillock drop-in is untouched.
+    #     lists the feature, while the faillock policy is untouched.
     local authselect_features="$test_root/state/authselect-features"
     cp -p "$authselect_features" "$backup"
     : >"$authselect_features"
@@ -1472,8 +1688,7 @@ SUDO_EOF
     assert_failure
     assert_contains "$TEST_OUTPUT" \
       'authselect no longer reports with-faillock enabled'
-    assert_contains "$TEST_OUTPUT" \
-      'faillock policy drop-in is present, mode 644, and unmodified'
+    assert_contains "$TEST_OUTPUT" 'pam_faillock reads deny = 5, unlock_time = 900'
 
     # 6l. Defensive, not an output seen in the wild: a feature whose name
     #     only contains with-faillock. authselect lists enabled features one
@@ -1510,7 +1725,7 @@ SUDO_EOF
     run_verify HARDENING_ROOT="$unreadable_root" MOCK_SUDO_UNAUTHORIZED=true
     assert_success
     assert_contains "$TEST_OUTPUT" \
-      'faillock policy drop-in could not be read without a sudo password'
+      'faillock policy could not be read without a sudo password'
     assert_contains "$TEST_OUTPUT" \
       'sudo logfile drop-in could not be read without a sudo password'
     assert_contains "$TEST_OUTPUT" \
@@ -1533,7 +1748,8 @@ SUDO_EOF
     #     well on a verifier that had stopped checking these files at all.
     run_verify HARDENING_ROOT="$unreadable_root"
     assert_failure
-    assert_contains "$TEST_OUTPUT" 'faillock policy drop-in is missing'
+    assert_contains "$TEST_OUTPUT" \
+      '/etc/security/faillock.conf is missing, so pam_faillock runs on its built-in defaults'
     assert_contains "$TEST_OUTPUT" 'install-hardening.sh'
     assert_not_contains "$TEST_OUTPUT" 'could not be read without a sudo password'
 
@@ -1614,7 +1830,7 @@ SUDO_EOF
 
     # 10. An unselected profile must not fail merely because the optional
     #     artifacts it never installed are absent.
-    rm -f -- "$state_file" "$faillock_dropin" "$sudoers_dropin" \
+    rm -f -- "$state_file" "$faillock_conf" "$sudoers_dropin" \
       "$sysctl_dropin" "$ssh_dropin" \
       "$fake_root/etc/audit/rules.d/90-dotfiles-hardening.rules"
     run_verify
@@ -1824,6 +2040,7 @@ run_root_prefix_contract unset
 run_root_prefix_contract empty
 run_root_prefix_contract prefix
 run_selinux_config_contract
+run_faillock_config_contract
 run_scenario "hardening install/verify with sshd absent (default Fedora Workstation)" false
 run_scenario "hardening install/verify with sshd active" true
 

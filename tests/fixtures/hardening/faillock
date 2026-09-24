@@ -1,3 +1,4 @@
-# Managed by dotfiles Fedora hardening profile. Safe to delete.
+# BEGIN dotfiles Fedora hardening profile. Delete through END to undo.
 deny = 5
 unlock_time = 900
+# END dotfiles Fedora hardening profile
