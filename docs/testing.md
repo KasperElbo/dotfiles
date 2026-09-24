@@ -951,7 +951,9 @@ Two things keep that true (#499):
   once a day. It walks `main`'s first-parent history back to the commit that
   introduced the check and reports every commit without a green run of its own,
   plus merge rules on `main` that do not require the Validate jobs or an
-  up-to-date branch. A finding fails the job and opens one tracking issue,
+  up-to-date branch, or that require a check no job in the tip's
+  `validate.yml` provides, which is what a renamed or deleted job leaves
+  behind. A finding fails the job and opens one tracking issue,
   which is commented on only when the findings change and closed by the first
   run that finds nothing. A cancelled or failed run can be re-run from its
   Actions page, which validates the same commit again; a commit GitHub never
@@ -962,6 +964,14 @@ The daily run matters because the other trigger cannot see the one gap it
 exists for: `workflow_run` fires when a run finishes, and a push GitHub never
 started a run for never finishes one.
 
+**A green `main-evidence` run means the jobs the workflow currently defines
+and the checks the branch rules name are the same set, with an up-to-date
+branch required. It does not mean the merge rules are correct.** The rules are a repository setting,
+editable in a web form with no commit, diff or review, and the check reads
+them through an API whose handling here is only ever proved against fixtures
+this repository wrote. It can show the text of `validate.yml` and the rules
+GitHub returned agree; it cannot show GitHub enforced them on any merge.
+
 **Merging should require the four Validate jobs on an up-to-date branch.**
 That is a repository setting, not a file: a `required_status_checks` rule in
 the ruleset on `main` naming `Repository validation`, `Printable cheat sheets`,
@@ -971,6 +981,14 @@ request can merge only after its run passed against the `main` it will land on,
 so the pull-request run and the push run validate the same tree. The main
 evidence check reports the setting as a finding for as long as it is absent,
 reading it from GitHub's public rules endpoint for the branch.
+
+`REQUIRED_JOBS` in `scripts/validate-repository-hygiene.py` is the one list of
+those four jobs and their names. `validate.yml` has to define exactly them,
+none carrying an `if:` or `continue-on-error` or waiting on a job with an
+`if:`, because GitHub counts a skipped job as a passing required check. The job
+table under [Fast PR validation](#fast-pr-validation) and the paragraph above
+have to name the same jobs, so renaming one fails lint until the list, this
+page and the ruleset change together.
 
 ## Secret scanning
 
@@ -1085,6 +1103,10 @@ bootstrap, login-shell, package-provider, lifecycle, Neovim bootstrap, VM
 boundary or platform installer code are reviewed against the latest real-install
 run before a release rather than against their own checks.
 
+That bound is watched, not assumed: the
+[real-install evidence check](#self-hosted-runner-contracts) reports any job
+whose newest success is older than its allowed age, the hosted four included.
+
 Revisit this only if a real-install run actually catches something the mocked
 tier missed, or if the gap between a merge and its evidence starts costing more
 than the runner time would. Until then, the weekly cadence is the decision, and
@@ -1140,17 +1162,27 @@ installation are present, because evidence gathered on top of them is a rerun,
 not a first install. After the idempotent rerun the verifier runs again, as it
 does in the WSL job.
 
-Neither job runs on the weekly schedule, so each Monday
-`.github/workflows/self-hosted-evidence.yml` runs
-`scripts/check-self-hosted-evidence.py`, which finds each self-hosted job's
-newest successful dispatched run on a commit main contains. When one is more
-than 30 days old, or there is none, it opens the issue "Self-hosted real-install
-jobs have not succeeded this month", and the first run that finds both current
-closes it. Its report, in the run's summary, gives each job's last success date,
-commit and how far behind main that commit is. Clearing it means dispatching
-real-install.yml on main with `run_self_hosted_wsl` and
-`run_self_hosted_parrot` set, with the WSL runner up and the Parrot guest
-reverted to its clean snapshot.
+Neither job runs on the weekly schedule, and the hosted four are only as
+current as the schedule that runs them, so each Monday
+`.github/workflows/real-install-evidence.yml` runs
+`scripts/check-real-install-evidence.py`. It finds, for every job in
+`real-install.yml`, the newest scheduled or dispatched run in which that job
+succeeded on a commit main contains, and holds it to the job's age in the
+script's `MAX_AGE_DAYS` table: ten days for the four hosted jobs, which allows
+one missed Sunday and reports the second, and 30 days for the two self-hosted
+ones. The table has to name exactly the workflow's jobs, so which jobs are
+watched never depends on a runner label, and adding, renaming or deleting a job
+without changing the table fails `tests/test-real-install-evidence.sh`. When a
+job is older than its age, or has no success at all, the check opens the issue
+"Real-install jobs have not succeeded recently", and the first run that finds
+every job current closes it. Its report, in the run's summary, gives each job's
+last success date, commit and how far behind main that commit is. Clearing a
+hosted job means finding out why its schedule stopped going green; clearing a
+self-hosted one means dispatching real-install.yml on main with
+`run_self_hosted_wsl` and `run_self_hosted_parrot` set, with the WSL runner up
+and the Parrot guest reverted to its clean snapshot. The two label lists above
+are pinned, exactly, by `tests/test-self-hosted-jobs.sh`, which reads both
+jobs' `runs-on` from the workflow and this page's label blocks.
 
 ## Manual acceptance records
 

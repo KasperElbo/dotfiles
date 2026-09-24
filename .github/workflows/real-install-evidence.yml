@@ -1,11 +1,13 @@
-name: Self-hosted evidence
+name: Real-install evidence
 
-# The Fedora WSL and Parrot VM jobs in real-install.yml run on Kasper's own
-# machines and only when dispatched, so the weekly schedule never runs them
-# (#501). This notices when their newest success is more than a month old and
-# says so in one tracking issue, so they cannot go dormant unnoticed. It does
-# not dispatch them: the runners are not always on, and a run on them needs the
-# machines prepared (docs/testing.md, "Self-hosted runner contracts").
+# Nothing in real-install.yml gates a merge. Its four hosted jobs run on the
+# Sunday schedule, and the Fedora WSL and Parrot VM jobs run on Kasper's own
+# machines only when dispatched (#501). This notices when a hosted job's newest
+# success is more than ten days old, or a self-hosted one's more than a month,
+# and says so in one tracking issue, so none of them can go dormant unnoticed
+# (#538). It does not dispatch anything: the self-hosted runners are not always
+# on, and a run on them needs the machines prepared (docs/testing.md,
+# "Self-hosted runner contracts").
 
 on:
   schedule:
@@ -18,12 +20,12 @@ permissions:
   issues: write
 
 concurrency:
-  group: self-hosted-evidence
+  group: real-install-evidence
   cancel-in-progress: false
 
 jobs:
   evidence:
-    name: Self-hosted real-install jobs succeeded this month
+    name: Every real-install job succeeded recently
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -36,16 +38,16 @@ jobs:
           # how far behind main it is.
           fetch-depth: 0
 
-      - name: Find each self-hosted job's newest success
+      - name: Find each real-install job's newest success
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           status=0
-          python3 ./scripts/check-self-hosted-evidence.py --repository "$GITHUB_REPOSITORY" \
-            --ref origin/main --report "$RUNNER_TEMP/self-hosted.md" \
+          python3 ./scripts/check-real-install-evidence.py --repository "$GITHUB_REPOSITORY" \
+            --ref origin/main --report "$RUNNER_TEMP/real-install.md" \
             --findings "$RUNNER_TEMP/findings.md" || status=$?
-          if [[ -f "$RUNNER_TEMP/self-hosted.md" ]]; then
-            cat "$RUNNER_TEMP/self-hosted.md" >>"$GITHUB_STEP_SUMMARY"
+          if [[ -f "$RUNNER_TEMP/real-install.md" ]]; then
+            cat "$RUNNER_TEMP/real-install.md" >>"$GITHUB_STEP_SUMMARY"
           fi
           exit "$status"
 
@@ -57,7 +59,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          title='Self-hosted real-install jobs have not succeeded this month'
+          title='Real-install jobs have not succeeded recently'
           number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
@@ -65,7 +67,7 @@ jobs:
           if [[ ! -s "$findings" ]]; then
             if [[ -f "$findings" && -n "$number" ]]; then
               gh issue close "$number" --repo "$GITHUB_REPOSITORY" \
-                --comment "Every self-hosted real-install job has succeeded on main within the last month, as of $RUN_URL."
+                --comment "Every real-install job has succeeded on main within its allowed age, as of $RUN_URL."
             elif [[ ! -f "$findings" ]]; then
               printf 'The check produced no findings file, so it did not finish.\n' >&2
               exit 1

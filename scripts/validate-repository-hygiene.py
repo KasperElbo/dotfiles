@@ -36,7 +36,9 @@ diff and expensive to notice later:
    relies on: the secret scanner behind README.md's no-secret claim, lint,
    the suite, and PowerShell's static analysis. A step that is present but
    carries `if:`, `continue-on-error` or an argument like `--help` is no step,
-   so the workflow is read as YAML rather than searched for the command.
+   so the workflow is read as YAML rather than searched for the command. The
+   jobs themselves are pinned too, by key and by the name main's branch rules
+   require, and docs/testing.md has to name the same ones.
 10. A second secret-scanner allowlist. `.gitleaks.toml` is the only place an
    exception may live, each one an anchored literal with a reason; a
    `.gitleaksignore`, a disabled rule, or a pattern that matches more than one
@@ -696,6 +698,27 @@ REQUIRED_STEPS = (
     ),
 )
 
+# The jobs validate.yml defines, by key, and the name each reports its status
+# under, which is the context main's branch rules require. REQUIRED_STEPS pins
+# commands, and `cheatsheets` and `macos` carry none the other two jobs do not
+# already run, so either could be switched off or renamed with every check
+# green; GitHub counts a skipped job as a passing required check, and a renamed
+# one leaves the rule waiting on a context nothing reports (#538). This is the
+# one place the names live: docs/testing.md is held to them below, and a rename
+# has to change this, the page and the branch rules together.
+REQUIRED_JOBS = {
+    "repository": "Repository validation",
+    "cheatsheets": "Printable cheat sheets",
+    "windows": "Windows PowerShell validation",
+    "macos": "macOS 26 arm64 validation",
+}
+TESTING_DOC = pathlib.Path("docs/testing.md")
+# Where docs/testing.md names them: a row of the job table, `key` (Name), and
+# the paragraph on merge rules, which names each required context in backticks.
+JOB_TABLE_ROW = re.compile(r"^\| `(?P<key>[A-Za-z0-9_-]+)` \((?P<name>[^)]*)\) \|", re.MULTILINE)
+MERGE_RULES_PARAGRAPH = "**Merging should require the four Validate jobs"
+BACKTICKED = re.compile(r"`([^`]+)`")
+
 # The shells a `run:` step can name that still run the command it is given.
 # A custom template (`shell: true {0}`) runs something else with the step's
 # script as an argument, which is a step that is present and does nothing.
@@ -787,15 +810,9 @@ def run_shell(*scopes: Node | None) -> Node | None:
     return None
 
 
-def step_problems(required: RequiredStep, workflow: Node, jobs: Node, job_name: str,
-                  job: Node, step: Node) -> list[tuple[int, str]]:
-    problems = []
-    run = step.get("run")
-    shape = runs_as_given(required, run.value if isinstance(run.value, str) else "")
-    if shape:
-        problems.append((run.line, f"the step {shape}"))
-    problems.extend(gate_reasons(step, "the step"))
-    problems.extend(gate_reasons(job, f"its job `{job_name}`"))
+def needs_reasons(jobs: Node, job_name: str, job: Node, what: str) -> list[tuple[int, str]]:
+    """Every job JOB waits on, however indirectly, that carries an `if:`."""
+    reasons = []
     seen = {job_name}
     pending = [job]
     while pending:
@@ -807,7 +824,7 @@ def step_problems(required: RequiredStep, workflow: Node, jobs: Node, job_name: 
         elif isinstance(needs.value, list):
             names = [str(item.value) for item in needs.value]
         else:
-            problems.append((needs.line, "its job's `needs:` is not a job name or a list of them"))
+            reasons.append((needs.line, f"{what}'s `needs:` is not a job name or a list of them"))
             continue
         for name in names:
             if name in seen:
@@ -815,15 +832,28 @@ def step_problems(required: RequiredStep, workflow: Node, jobs: Node, job_name: 
             seen.add(name)
             needed = jobs.get(name)
             if needed is None:
-                problems.append((needs.line, f"its job needs `{name}`, which does not exist"))
+                reasons.append((needs.line, f"{what} needs `{name}`, which does not exist"))
                 continue
             condition = needed.get("if")
             if condition is not None:
-                problems.append((
+                reasons.append((
                     condition.line,
-                    f"its job waits on `{name}`, which carries `if: {condition.value}`",
+                    f"{what} waits on `{name}`, which carries `if: {condition.value}`",
                 ))
             pending.append(needed)
+    return reasons
+
+
+def step_problems(required: RequiredStep, workflow: Node, jobs: Node, job_name: str,
+                  job: Node, step: Node) -> list[tuple[int, str]]:
+    problems = []
+    run = step.get("run")
+    shape = runs_as_given(required, run.value if isinstance(run.value, str) else "")
+    if shape:
+        problems.append((run.line, f"the step {shape}"))
+    problems.extend(gate_reasons(step, "the step"))
+    problems.extend(gate_reasons(job, f"its job `{job_name}`"))
+    problems.extend(needs_reasons(jobs, job_name, job, "its job"))
     shell = run_shell(step, job, workflow)
     if shell is not None and str(shell.value).strip() not in RUNNING_SHELLS:
         problems.append((shell.line, f"the step runs under `shell: {shell.value}`, which is not a shell that runs it"))
@@ -898,6 +928,92 @@ def check_required_steps(root: pathlib.Path, problems: list[str]) -> None:
             problems.append(
                 f"{name}:{line}: {reason}. {required.command} has to run on "
                 f"every pull request, or {required.loses}."
+            )
+
+
+def check_required_jobs(root: pathlib.Path, problems: list[str]) -> None:
+    """validate.yml defines exactly REQUIRED_JOBS, each one a check that can fail.
+
+    Each job has its key and its name, carries no `if:` or `continue-on-error`,
+    and waits on no job with an `if:`; no other job is defined, since merging
+    would not wait for it. docs/testing.md names the same jobs in its table and
+    the same contexts in its paragraph on merge rules.
+    """
+    name = (WORKFLOWS / VALIDATION_WORKFLOW).as_posix()
+    path = root / WORKFLOWS / VALIDATION_WORKFLOW
+    if not path.is_file():
+        return  # check_required_steps reports the missing workflow.
+    try:
+        workflow = read_workflow(path, name)
+    except UnreadableWorkflow:
+        return  # check_required_steps reports the unreadable workflow.
+    why = (
+        "is a required check on main, and GitHub counts a skipped job as a "
+        "passing one"
+    )
+    jobs = workflow.get("jobs")
+    defined = dict(jobs.items()) if jobs is not None else {}
+    for key, display in REQUIRED_JOBS.items():
+        job = defined.get(key)
+        if job is None:
+            problems.append(
+                f"{name} has no job `{key}` (`{display}`), which merging into main "
+                "requires. Restore it, or change REQUIRED_JOBS in this validator, "
+                f"{TESTING_DOC.as_posix()} and main's branch rules together."
+            )
+            continue
+        shown = job.get("name")
+        if shown is None or shown.value != display:
+            found = "nothing" if shown is None else f"`{shown.value}`"
+            problems.append(
+                f"{name}:{(shown or job).line}: job `{key}` is named {found}, not "
+                f"`{display}`, the context main's branch rules require, so the rule "
+                "would wait on a check nothing reports. Rename it back, or change "
+                f"REQUIRED_JOBS, {TESTING_DOC.as_posix()} and the branch rules together."
+            )
+        reasons = gate_reasons(job, f"job `{key}`") + needs_reasons(jobs, key, job, f"job `{key}`")
+        for line, reason in reasons:
+            problems.append(f"{name}:{line}: {reason}. `{display}` {why}.")
+    for key, job in defined.items():
+        if key not in REQUIRED_JOBS:
+            problems.append(
+                f"{name}:{job.line}: job `{key}` is not one of REQUIRED_JOBS, so "
+                "merging into main does not wait for it. Add it there, to "
+                f"{TESTING_DOC.as_posix()} and to main's branch rules, or move its "
+                "steps into a required job."
+            )
+
+    doc = TESTING_DOC.as_posix()
+    try:
+        text = (root / TESTING_DOC).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        problems.append(f"{doc} cannot be read, and it names the jobs merging into main requires.")
+        return
+    table = {match["key"]: match["name"] for match in JOB_TABLE_ROW.finditer(text)}
+    for key, display in REQUIRED_JOBS.items():
+        if key not in table:
+            problems.append(f"{doc}: the job table has no row for `{key}` ({display}).")
+        elif table[key] != display:
+            problems.append(
+                f"{doc}: the job table names `{key}` as `{table[key]}`, not `{display}`."
+            )
+    for key in table.keys() - REQUIRED_JOBS.keys():
+        problems.append(f"{doc}: the job table names `{key}`, which is not one of REQUIRED_JOBS.")
+    start = text.find(MERGE_RULES_PARAGRAPH)
+    if start < 0:
+        problems.append(
+            f"{doc} has no paragraph starting {MERGE_RULES_PARAGRAPH!r}, which names "
+            "the checks merging into main requires."
+        )
+        return
+    end = text.find("\n\n", start)
+    paragraph = text[start:end if end >= 0 else len(text)]
+    named = set(BACKTICKED.findall(paragraph))
+    for display in REQUIRED_JOBS.values():
+        if display not in named:
+            problems.append(
+                f"{doc}: the paragraph on merge rules does not name `{display}`, "
+                "a check merging into main requires."
             )
 
 
@@ -1079,6 +1195,7 @@ def main() -> int:
     check_workflow_action_pins(root, problems)
     check_workflow_whitespace_range(root, problems)
     check_required_steps(root, problems)
+    check_required_jobs(root, problems)
     check_push_runs_kept(root, problems)
     check_gitleaks_ignore(root, problems)
     check_gitleaks_config(root, problems)
