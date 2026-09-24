@@ -372,6 +372,16 @@ text:
   entries and `~/.local/bin` still in front, on its own and layered under the
   Parrot and macOS platform PATH files;
 - macOS keeps Homebrew coreutils `gnubin` as the last entry;
+- a real `zsh -l -c` login that is not interactive, in a sandboxed home that
+  carries `.zshenv` and `.zprofile` the way Stow links them, resolves `python`
+  and `node` to mise's shims rather than to a system copy on the `PATH` it
+  inherited: the shims sit behind `~/.local/bin` and ahead of that system
+  directory, follow `MISE_DATA_DIR`, and are left out (silently) when the
+  directory does not exist, while a plain `zsh -c` is unaffected. Under the
+  simulated macOS `path_helper` they still lead the system directories, and
+  an interactive login still resolves through `mise activate` first. Only the
+  entries the fixture controls are compared, never a whole login `PATH`,
+  since the host's own `/etc/zprofile` takes part;
 - a shell with none of zoxide/fzf/mise/Starship on `PATH` still starts, stays
   silent, and reports the degradation only when `shell-integrations` is run;
 - `compinit` is called exactly once, still against the cached compdump, and no

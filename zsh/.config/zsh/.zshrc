@@ -14,8 +14,10 @@ typeset -gU path PATH
 # the two files, and on macOS that runs path_helper, which rebuilds PATH with
 # the system directories in front and everything else after them. ~/.local/bin
 # then sits eighth on a normal Mac, and a terminal window is a login shell, so
-# that is the ordinary shape rather than an edge case. Re-assert it here, after
-# every system file has had its say. The tied array is unique, so this is a
+# that is the ordinary shape rather than an edge case. .zprofile re-asserts it
+# for every login, and it is re-asserted here too, after every system file has
+# had its say, for an interactive shell that is not a login (or a harness that
+# sources this file alone). The tied array is unique, so this is a
 # no-op in the shells where ~/.local/bin is already first: Zsh keeps the
 # leftmost occurrence and drops the later duplicate, moving nothing else.
 #
