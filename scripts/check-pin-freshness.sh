@@ -41,6 +41,15 @@ cd "$repo_root"
 # scripts/validate-pin-freshness.py holds that manifest to the registry: a new
 # manual-bump source cannot be added without saying how its staleness is
 # noticed, which is the hole this whole mechanism exists to close.
+#
+# --coherence asks a different question of the same rows: does the digest this
+# repository pins belong to the thing it pins? A bump edits a version or a
+# commit and its SHA-256 together, and nothing offline can tell a digest copied
+# from the wrong release -- or a valid-looking 64-hex value from nowhere --
+# from the right one; every installer that checks it would just refuse the
+# download on a real machine, weeks later (#539, V5-27). So that mode fetches
+# each pinned artifact from its pinned address into a private directory,
+# compares its SHA-256 with the pin, and deletes it. It still changes nothing.
 
 # shellcheck source=../common/lib/common.sh
 source "$repo_root/common/lib/common.sh"
@@ -50,10 +59,13 @@ source "$repo_root/common/lib/manifest.sh"
 PIN_FRESHNESS_MANIFEST="${PIN_FRESHNESS_MANIFEST:-$DOTFILES_ROOT/config/pin-freshness.tsv}"
 
 fail_on_stale=false
+coherence=false
+list_only=false
 
 usage() {
   cat <<'EOF_USAGE'
 Usage: ./scripts/check-pin-freshness.sh [--fail-on-stale]
+       ./scripts/check-pin-freshness.sh --coherence [--list]
 
 Print, for every manual-bump source in config/network-sources.tsv, the version
 this repository pins and the newest one its upstream now offers.
@@ -63,6 +75,12 @@ Read-only: it downloads no artifact, writes no file and changes no pin.
 Options:
   --fail-on-stale  Exit non-zero when a pin is behind its upstream. Without it,
                    a stale pin is reported and the run still succeeds.
+  --coherence      Instead, download every artifact a row pins a SHA-256 for,
+                   from its pinned address, and check that the digest belongs
+                   to it. Each download goes to a private directory that is
+                   removed afterwards; nothing else is written.
+  --list           With --coherence, print each pinned address and digest
+                   without downloading anything.
   -h, --help       Show this help.
 
 Exit status:
@@ -82,6 +100,14 @@ while (($#)); do
   case "$1" in
   --fail-on-stale)
     fail_on_stale=true
+    shift
+    ;;
+  --coherence)
+    coherence=true
+    shift
+    ;;
+  --list)
+    list_only=true
     shift
     ;;
   -h | --help)
@@ -198,6 +224,190 @@ head_commit() {
   }
   printf '%s\n' "$commit"
 }
+
+# coherence_pairs <source> <pin_file> <pin_key>: one `url<TAB>digest` line for
+# each artifact the row pins a SHA-256 for, or a single `-<TAB>reason` line when
+# the row pins none. A source this has no answer for is an error, so a row added
+# to config/pin-freshness.tsv is not silently left out of the check.
+#
+# Where the installer builds the address in a library, the library is sourced
+# and asked, so this cannot drift from what a machine downloads. Where the
+# address is written inline in a script, it is restated here from the pinned
+# values; a restatement that drifted names an address the upstream does not
+# serve, which fails the run rather than passing it. Each source is read in its
+# own subshell: the libraries define functions of the same names, and their
+# test seams are unset so only the pinned address can answer.
+coherence_pairs() {
+  local source="$1" pin_file="$2" pin_key="$3"
+  local version digest key commit flavour
+
+  case "$source" in
+  homebrew-installer)
+    (
+      # shellcheck source=../platforms/macos/lib/homebrew-installer.sh
+      source "$pin_file" || exit 1
+      printf '%s\t%s\n' "$(homebrew_installer_url)" "$DOTFILES_HOMEBREW_INSTALLER_SHA256"
+    )
+    ;;
+  mise-release | starship-release)
+    (
+      unset DOTFILES_TEST_BOOTSTRAP_ARCHIVES
+      # shellcheck source=../common/lib/bootstrap-tools.sh
+      source "$pin_file" || exit 1
+      # Every architecture it pins, not only this runner's: the digest for the
+      # other one is the easiest to get wrong and the last to be exercised.
+      for coherence_machine in x86_64 aarch64; do
+        # shellcheck disable=SC2329 # Called by bootstrap_tool_artifact.
+        uname() { printf '%s\n' "$coherence_machine"; }
+        IFS=$'\t' read -r artifact digest _ < <(bootstrap_tool_artifact "${source%-release}") ||
+          exit 1
+        printf '%s\t%s\n' "$(bootstrap_tool_url "${source%-release}" "$artifact")" "$digest"
+      done
+    )
+    ;;
+  ghost-pepper-release | handy-release)
+    (
+      unset DOTFILES_TEST_HANDY_RPM
+      # shellcheck source=/dev/null # Either platform's dictation library.
+      source "$pin_file" || exit 1
+      if [[ "$source" == handy-release ]]; then
+        digest="$(dictation_pinned_sha256)" || exit 1
+      else
+        digest="$DICTATION_GHOST_PEPPER_SHA256"
+      fi
+      printf '%s\t%s\n' "$(dictation_release_url)" "$digest"
+    )
+    ;;
+  gitleaks-release)
+    version="$(pin_value "$pin_file" "$pin_key")" || return 1
+    for key in linux_x64 linux_arm64 darwin_x64 darwin_arm64; do
+      digest="$(pin_value "$pin_file" "sha256_$key")" || return 1
+      # Restated from scripts/scan-secrets.sh.
+      printf 'https://github.com/gitleaks/gitleaks/releases/download/v%s/gitleaks_%s_%s.tar.gz\t%s\n' \
+        "$version" "$version" "$key" "$digest"
+    done
+    ;;
+  hack-nerd-font)
+    version="$(pin_value "$pin_file" "$pin_key")" || return 1
+    digest="$(pin_value "$pin_file" font_sha256)" || return 1
+    # Restated from platforms/parrot-ctf/scripts/install-terminal.sh.
+    printf 'https://github.com/ryanoasis/nerd-fonts/releases/download/v%s/Hack.tar.xz\t%s\n' \
+      "$version" "$digest"
+    ;;
+  catppuccin-bat-themes)
+    commit="$(pin_value "$pin_file" "$pin_key")" || return 1
+    for flavour in Latte Frappe Macchiato Mocha; do
+      digest="$(sed -n "s/^[[:space:]]*\\[${flavour}\\]=\"\\([0-9a-f]*\\)\"\$/\\1/p" "$pin_file")"
+      [[ -n "$digest" ]] || {
+        printf 'no pinned digest for the %s bat theme in %s\n' "$flavour" "$pin_file" >&2
+        return 1
+      }
+      # Restated from platforms/parrot-ctf/scripts/install-terminal.sh.
+      printf 'https://raw.githubusercontent.com/catppuccin/bat/%s/themes/Catppuccin%%20%s.tmTheme\t%s\n' \
+        "$commit" "$flavour" "$digest"
+    done
+    ;;
+  scoop-installer)
+    commit="$(pin_value "$pin_file" "$pin_key")" || return 1
+    digest="$(pin_value "$pin_file" InstallerSha256)" || return 1
+    # Restated from platforms/windows/install.ps1.
+    printf 'https://raw.githubusercontent.com/ScoopInstaller/Install/%s/install.ps1\t%s\n' \
+      "$commit" "$digest"
+    ;;
+  catppuccin-tmux | catppuccin-kde)
+    printf -- '-\tcloned by git at the pinned tag; neither a commit nor a digest is pinned beside it\n'
+    ;;
+  netcoredbg-legacy-release)
+    printf -- '-\tthe macOS debugger integration fixture takes the release archive as served\n'
+    ;;
+  *)
+    printf 'no coherence rule for %s; say in scripts/check-pin-freshness.sh what it pins a digest for\n' \
+      "$source" >&2
+    return 1
+    ;;
+  esac
+}
+
+# coherence_report: the --coherence run, over the same manifest rows.
+coherence_report() {
+  local rows source probe pin_file pin_key pairs url digest actual work_dir
+  local checked=0 failed=0 undigested=0
+  local -a report=()
+
+  rows="$(manifest_values "$PIN_FRESHNESS_MANIFEST" source,probe,pin_file,pin_key)" ||
+    die "Could not read the pin freshness manifest: $PIN_FRESHNESS_MANIFEST"
+  [[ -n "$rows" ]] || die "The pin freshness manifest has no rows: $PIN_FRESHNESS_MANIFEST"
+
+  work_dir="$(mktemp -d)" || die "Could not create a private download directory"
+  chmod 700 -- "$work_dir"
+  # shellcheck disable=SC2064 # The directory is fixed now, and removed on exit.
+  trap "rm -rf -- '$work_dir'" EXIT
+
+  while IFS=$'\t' read -r source probe pin_file pin_key; do
+    [[ -n "$source" && "$probe" != none ]] || continue
+    if ! pairs="$(coherence_pairs "$source" "$pin_file" "$pin_key")" || [[ -z "$pairs" ]]; then
+      report+=("$source"$'\t'"-"$'\t'"pin unreadable")
+      failed=$((failed + 1))
+      continue
+    fi
+    while IFS=$'\t' read -r url digest; do
+      if [[ "$url" == - ]]; then
+        report+=("$source"$'\t'"-"$'\t'"no digest pinned: $digest")
+        undigested=$((undigested + 1))
+        continue
+      fi
+      if [[ ! "$digest" =~ ^[0-9a-f]{64}$ || "$url" != https://* ]]; then
+        report+=("$source"$'\t'"${url:-?}"$'\t'"not a pinned address and SHA-256")
+        failed=$((failed + 1))
+        continue
+      fi
+      if [[ "$list_only" == true ]]; then
+        report+=("$source"$'\t'"$url"$'\t'"$digest")
+        checked=$((checked + 1))
+        continue
+      fi
+      rm -f -- "$work_dir/artifact"
+      # The address is the row's pinned one; its source is the row itself.
+      # network-source: caller-provided
+      if ! (fetch_to_file "$url" "$work_dir/artifact" "$source") 2>>"$work_dir/errors"; then
+        report+=("$source"$'\t'"$url"$'\t'"download failed")
+        failed=$((failed + 1))
+        continue
+      fi
+      actual="$(fetch_sha256 "$work_dir/artifact")" || actual=""
+      if [[ "$actual" == "$digest" ]]; then
+        report+=("$source"$'\t'"$url"$'\t'"coherent")
+        checked=$((checked + 1))
+      else
+        report+=("$source"$'\t'"$url"$'\t'"MISMATCH: pinned $digest, served ${actual:-nothing}")
+        failed=$((failed + 1))
+      fi
+    done <<<"$pairs"
+  done <<<"$rows"
+
+  printf 'Pinned digests, against what their pinned addresses serve\n\n'
+  printf '%s\n' "${report[@]}" | awk -F'\t' '{ printf "  %s  %s\n    %s\n", $1, $2, $3 }'
+  printf '\n%d %s, %d without a pinned digest, %d could not be confirmed.\n' \
+    "$checked" "$([[ "$list_only" == true ]] && printf listed || printf coherent)" \
+    "$undigested" "$failed"
+  if [[ -s "$work_dir/errors" ]]; then
+    printf '\nDownload errors:\n'
+    sed 's/^/  /' "$work_dir/errors"
+  fi
+  ((failed == 0))
+}
+
+if [[ "$list_only" == true && "$coherence" != true ]]; then
+  printf -- '--list is only meaningful with --coherence.\n' >&2
+  usage >&2
+  exit 2
+fi
+if [[ "$coherence" == true ]]; then
+  # shellcheck source=../common/lib/fetch.sh
+  source "$repo_root/common/lib/fetch.sh"
+  coherence_report
+  exit
+fi
 
 command_exists git || die "git is required to read upstream refs, and was not found on PATH"
 
