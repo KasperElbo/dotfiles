@@ -1520,14 +1520,15 @@ printf '#!/usr/bin/env bash\ncheck_real\n' >"$helper_tree/common/verify-fixture.
 # test, or only passed as an argument by a tests/ helper, the shape that kept
 # check_user_service_enabled_and_active looking called.
 mkdir -p "$helper_tree/tests/lib"
-for suite_use in 'tests/test-fixture.sh:check_nothing' \
-  'tests/lib/probe.sh:run_capture probe_counts check_nothing'; do
+# Paths are relative to the fixture's tests/ directory.
+for suite_use in 'test-fixture.sh:check_nothing' \
+  'lib/probe.sh:run_capture probe_counts check_nothing'; do
   rm -f "$helper_tree/tests/test-fixture.sh" "$helper_tree/tests/lib/probe.sh"
   printf '#!/usr/bin/env bash\n%s\n' "${suite_use#*:}" \
-    >"$helper_tree/${suite_use%%:*}"
+    >"$helper_tree/tests/${suite_use%%:*}"
   git -C "$helper_tree" add -A
   assert_eq 'check_nothing' "$(uncalled_verify_helpers "$helper_tree")" \
-    "check_nothing reached only from ${suite_use%%:*} (${suite_use#*:})"
+    "check_nothing reached only from the suite file ${suite_use%%:*} (${suite_use#*:})"
 done
 
 printf 'PASS: all shared check_* helpers are called by shell code, not only named\n'
