@@ -233,7 +233,7 @@ case "$*" in
   [[ "${MOCK_LOGIN_PATH_SILENT:-false}" != true ]] || exit 0
   printf '\n__DOTFILES_VERIFY_PATH__%s\n' "${MOCK_LOGIN_PATH:-}"
   ;;
-'-lic exit 0') ;;
+'+m -lic exit 0') ;;
 --version) printf 'zsh 5.9 (x86_64-debian-linux-gnu)\n' ;;
 *)
   printf 'strict zsh fixture rejected unsupported argv:' >&2

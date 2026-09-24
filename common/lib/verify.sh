@@ -998,11 +998,26 @@ check_catppuccin_tmux() {
 # working directory, so a probe started inside a project reported that
 # project's mise.toml as the login's own configuration. `builtin cd`, because a
 # verifier that has activated mise has a `cd` function that runs mise's hook.
+#
+# An interactive probe runs without job control (+m). With it, an interactive
+# Zsh makes its own process group the terminal's foreground group, and when
+# the -c string ends in an external command Zsh execs that command in place,
+# so nothing is left to hand the terminal back. The verifier, and the
+# installer above it, carried on as a background job, and the next program to
+# change terminal settings stopped all of them: "zsh: suspended (tty output)"
+# at `ng test` in --dev-workflows, and a CoreCompile that never finished,
+# after `zsh -lic 'claude --version'` (24 September 2026). Without job control
+# the probe never takes the terminal; it still reads .zshrc, since it is still
+# interactive.
 verify_login_zsh() {
   (
     unset ZDOTDIR
     builtin cd -- "$HOME" || exit
-    zsh "$@"
+    if [[ "${1:-}" == -[!-]* && "${1:-}" == *i* ]]; then
+      zsh +m "$@"
+    else
+      zsh "$@"
+    fi
   )
 }
 
