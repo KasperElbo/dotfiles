@@ -1421,25 +1421,103 @@ printf 'PASS: a failing sub-verifier over leftover state is a failure too\n'
 # assertion (issue #396, VL-02). Deleting it is only durable if a replacement
 # cannot grow back unnoticed, so the library's helpers are held to having a
 # caller outside their own definition.
+#
+# A caller is the name in shell code: a word match over every tracked file let
+# one comment line naming the helper stand in for a call (issue #537, V5-17).
+# So only shell files are read, through the shared reader, with comments,
+# quoted text and heredoc bodies blanked out -- prose may name a helper, and a
+# definition of the same name (a test's stub) is not a call to it either.
 printf 'Shared verifier helper reachability\n'
 
-mapfile -t verify_helpers < <(
-  grep -oE '^check_[a-z0-9_]+\(\)' "$repo_root/common/lib/verify.sh" | sed 's/()$//'
-)
-((${#verify_helpers[@]} > 0)) ||
-  _test_die 'no check_* helper was found in common/lib/verify.sh, so this audit proves nothing'
+# uncalled_verify_helpers <tree>: the check_* helpers <tree>'s
+# common/lib/verify.sh defines that no other tracked shell file in <tree>
+# calls, one per line. Fails if the library defines none.
+uncalled_verify_helpers() {
+  PYTHONPATH="$repo_root/scripts/lib" python3 - "$1" <<'PYTHON'
+import pathlib
+import re
+import subprocess
+import sys
 
-for helper in "${verify_helpers[@]}"; do
-  helper_callers="$(
-    git -C "$repo_root" grep -l -w -e "$helper" -- ':!common/lib/verify.sh' || true
-  )"
-  [[ -n "$helper_callers" ]] ||
-    _test_die "$helper is defined in common/lib/verify.sh and called nowhere;" \
-      "delete it rather than leaving a check that no verifier runs"
+from shell import blank_text, shell_functions
+
+tree = pathlib.Path(sys.argv[1])
+library = "common/lib/verify.sh"
+helpers = sorted(
+    name for name in shell_functions((tree / library).read_text())
+    if name.startswith("check_")
+)
+if not helpers:
+    sys.exit(f"no check_* helper is defined in {library}, so this audit proves nothing")
+
+tracked = subprocess.run(
+    ["git", "-C", str(tree), "ls-files", "-z"],
+    check=True, capture_output=True, text=True,
+).stdout.split("\0")
+
+
+def is_shell(path: pathlib.Path) -> bool:
+    if path.suffix in (".sh", ".bash", ".zsh"):
+        return True
+    if path.suffix or not path.is_file():
+        return False
+    with path.open("rb") as handle:
+        first = handle.readline()
+    return first.startswith(b"#!") and re.search(rb"\b(ba|z)?sh\b", first) is not None
+
+
+code = []
+for name in tracked:
+    if not name or name == library:
+        continue
+    path = tree / name
+    if is_shell(path):
+        code.append(blank_text(path.read_text()))
+
+for helper in helpers:
+    call = re.compile(rf"(?<![\w-]){re.escape(helper)}(?![\w-])(?!\s*\(\))")
+    if not any(call.search(text) for text in code):
+        print(helper)
+PYTHON
+}
+
+uncalled="$(uncalled_verify_helpers "$repo_root")" ||
+  _test_die 'the verifier helper reachability audit could not read the tree'
+[[ -z "$uncalled" ]] ||
+  _test_die "$(tr '\n' ' ' <<<"$uncalled")is defined in common/lib/verify.sh and called nowhere;" \
+    "delete it rather than leaving a check that no verifier runs"
+
+# The audit has to see through every way a name can appear without being
+# called. A fixture tree holds a helper nothing runs, named by a verifier in
+# each of those ways in turn, and each must still leave it uncalled.
+helper_tree="$root/helper-reachability"
+mkdir -p "$helper_tree/common/lib" "$helper_tree/docs"
+printf 'check_real() { :; }\ncheck_nothing() { return 0; }\n' \
+  >"$helper_tree/common/lib/verify.sh"
+git -C "$helper_tree" init -q
+for mention in \
+  '# TODO: check_nothing is reserved for the sudoers drop-in assertion (#396).' \
+  'printf "check_nothing is not needed here\n"' \
+  $'cat <<EOF\ncheck_nothing\nEOF' \
+  'check_nothing() { return 0; }'; do
+  printf '#!/usr/bin/env bash\ncheck_real\n%s\n' "$mention" \
+    >"$helper_tree/common/verify-fixture.sh"
+  printf 'check_nothing is a verifier helper.\n' >"$helper_tree/docs/verify.md"
+  git -C "$helper_tree" add -A
+  assert_eq 'check_nothing' "$(uncalled_verify_helpers "$helper_tree")" \
+    "a verifier that only mentions check_nothing ($mention)"
+done
+# And a real call, in any of the shapes a verifier uses, counts.
+for call in 'check_nothing' 'if check_nothing; then :; fi' \
+  'result="$(check_nothing)"' 'run_capture probe_counts check_nothing'; do
+  printf '#!/usr/bin/env bash\ncheck_real\n%s\n' "$call" \
+    >"$helper_tree/common/verify-fixture.sh"
+  git -C "$helper_tree" add -A
+  assert_eq '' "$(uncalled_verify_helpers "$helper_tree")" \
+    "a verifier that calls check_nothing ($call)"
 done
 
-printf 'PASS: all %d shared check_* helpers are called by something\n' \
-  "${#verify_helpers[@]}"
+printf 'PASS: all shared check_* helpers are called by shell code, not only named\n'
 # --- A settings file proves the setting, not its ghost ----------------------
 #
 # check_file_contains reports that a theme override "matches". It used to
