@@ -8,8 +8,8 @@ GitHub, for each commit on main's first-parent line, whether that run exists
 and whether every job the commit's own `validate.yml` defines succeeded in it.
 
 It also reads the rules GitHub applies to main and reports when merging does
-not require those jobs, or does not require the branch to be up to date with
-main first -- the setting that makes a pull request's run validate the tree
+not require those jobs, requires a check none of them provides, or does not
+require the branch to be up to date with main first -- the setting that makes a pull request's run validate the tree
 that will land, rather than a tree main has since moved past.
 
 A commit is:
@@ -187,7 +187,7 @@ def assess(api: Api, repository: str, sha: str, landed: datetime.datetime,
                        "its tree is proven only by a later commit's run")
 
 
-def rule_problems(api: Api, repository: str, jobs: list[str]) -> list[str]:
+def rule_problems(api: Api, repository: str, jobs: set[str]) -> list[str]:
     rules = api.get(f"/repos/{repository}/rules/branches/{BRANCH}")
     checks = [rule for rule in rules if rule.get("type") == "required_status_checks"]
     if not checks:
@@ -199,10 +199,19 @@ def rule_problems(api: Api, repository: str, jobs: list[str]) -> list[str]:
         for check in rule.get("parameters", {}).get("required_status_checks", [])
     }
     problems = []
-    absent = [name for name in jobs if name not in required]
+    absent = sorted(jobs - required)
     if absent:
         problems.append(f"merging into {BRANCH} does not require "
                         + ", ".join(f"`{name}`" for name in absent))
+    # The other direction (#538). A rule naming a context no job reports is
+    # what a deleted or renamed job leaves behind: GitHub waits on it forever
+    # or, once someone drops it to unblock a merge, the job is gone unnoticed.
+    for context in sorted(required - jobs):
+        problems.append(
+            f"merging into {BRANCH} requires `{context}`, which no job in "
+            f"{WORKFLOW_FILE} provides; it was renamed or deleted, and the rule "
+            "now proves nothing"
+        )
     if not any(rule.get("parameters", {}).get("strict_required_status_checks_policy")
                for rule in checks):
         problems.append(
@@ -237,7 +246,8 @@ def main() -> int:
             state, detail = assess(api, arguments.repository, sha, landed, now,
                                    required_jobs(hygiene, sha))
             rows.append((sha, state, detail))
-        rules = rule_problems(api, arguments.repository, required_jobs(hygiene, commits[0][0]))
+        rules = rule_problems(api, arguments.repository,
+                              set(required_jobs(hygiene, commits[0][0])))
     except (ApiError, hygiene.UnreadableWorkflow) as error:
         print(f"check-main-evidence: {error}", file=sys.stderr)
         return 2

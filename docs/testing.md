@@ -937,7 +937,9 @@ Two things keep that true (#499):
   once a day. It walks `main`'s first-parent history back to the commit that
   introduced the check and reports every commit without a green run of its own,
   plus merge rules on `main` that do not require the Validate jobs or an
-  up-to-date branch. A finding fails the job and opens one tracking issue,
+  up-to-date branch, or that require a check no job in the tip's
+  `validate.yml` provides, which is what a renamed or deleted job leaves
+  behind. A finding fails the job and opens one tracking issue,
   which is commented on only when the findings change and closed by the first
   run that finds nothing. A cancelled or failed run can be re-run from its
   Actions page, which validates the same commit again; a commit GitHub never
@@ -947,6 +949,14 @@ Two things keep that true (#499):
 The daily run matters because the other trigger cannot see the one gap it
 exists for: `workflow_run` fires when a run finishes, and a push GitHub never
 started a run for never finishes one.
+
+**A green `main-evidence` run means the jobs the workflow currently defines
+and the checks the branch rules name are the same set, with an up-to-date
+branch required. It does not mean the merge rules are correct.** The rules are a repository setting,
+editable in a web form with no commit, diff or review, and the check reads
+them through an API whose handling here is only ever proved against fixtures
+this repository wrote. It can show the text of `validate.yml` and the rules
+GitHub returned agree; it cannot show GitHub enforced them on any merge.
 
 **Merging should require the four Validate jobs on an up-to-date branch.**
 That is a repository setting, not a file: a `required_status_checks` rule in
