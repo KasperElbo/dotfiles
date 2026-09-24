@@ -1416,7 +1416,7 @@ printf 'PASS: a required job whose failure is tolerated is refused, naming the l
 # Tolerated only where it matters: on pull requests, the runs merging waits for.
 new_real_workflow_tree
 edit_workflow '    name: Printable cheat sheets' \
-  $'    name: Printable cheat sheets\n    continue-on-error: ${{ github.event_name == \'pull_request\' }}'
+  $'    name: Printable cheat sheets\n'"    continue-on-error: \${{ github.event_name == 'pull_request' }}"
 run_capture python3 "$validator" --root "$tree"
 assert_failure
 assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line 'continue-on-error: ${{'): job \`cheatsheets\` carries \`continue-on-error: \${{ github.event_name == 'pull_request' }}\`"
@@ -1424,7 +1424,7 @@ printf 'PASS: a required job tolerated only on pull requests is refused\n'
 
 new_real_workflow_tree
 edit_workflow '    name: Printable cheat sheets' \
-  $'    name: Printable cheat sheets\n    if: github.event_name != \'pull_request\''
+  $'    name: Printable cheat sheets\n'"    if: github.event_name != 'pull_request'"
 run_capture python3 "$validator" --root "$tree"
 assert_failure
 assert_contains "$TEST_OUTPUT" ".github/workflows/validate.yml:$(workflow_line "if: github.event_name != 'pull_request'"): job \`cheatsheets\` carries \`if: github.event_name != 'pull_request'\`, so it can be skipped"
@@ -1434,7 +1434,7 @@ printf 'PASS: a required job that skips pull requests is refused, naming the lin
 new_real_workflow_tree
 edit_workflow '    name: Printable cheat sheets' $'    name: Printable cheat sheets\n    needs: macos'
 edit_workflow '    name: macOS 26 arm64 validation' \
-  $'    name: macOS 26 arm64 validation\n    if: github.event_name == \'push\''
+  $'    name: macOS 26 arm64 validation\n'"    if: github.event_name == 'push'"
 run_capture python3 "$validator" --root "$tree"
 assert_failure
 assert_contains "$TEST_OUTPUT" "job \`cheatsheets\` waits on \`macos\`, which carries \`if: github.event_name == 'push'\`"
