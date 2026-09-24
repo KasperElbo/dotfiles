@@ -1517,6 +1517,12 @@ printf 'PASS: npm that could not run at all is still unobserved\n'
 # calling terminal's environment as if a login had set it; a verifier run from
 # a terminal opened before platform-env.zsh changed then failed a login that
 # was correct. Comments are dropped before looking, so prose may name it.
+#
+# Zsh takes its options from every leading word, so a login is found in any of
+# them: this looked for `zsh -l` alone and passed `zsh -i -l -c`,
+# `zsh --login -ic` and `zsh -o login -c` (issue #536). The spellings are
+# checked first, so a reader that stops seeing one fails here rather than
+# reporting a clean tree.
 bare_login_probes="$(
   PYTHONPATH="$repo_root/scripts/lib" python3 - "$repo_root" <<'PYTHON'
 import pathlib
@@ -1528,10 +1534,50 @@ from shell import code_text
 root = pathlib.Path(sys.argv[1])
 files = [root / "common/lib/verify.sh", *sorted(root.glob("common/verify-*.sh")),
          *sorted(root.glob("platforms/*/scripts/verify*.sh"))]
-probe = re.compile(r"(^|[\s;&|(!`])zsh\s+-l")
+command = re.compile(r"(?:^|[\s;&|(!`])zsh(?=\s|$)")
+
+
+def option_name(word):
+    # Zsh ignores case and underscores in option names.
+    return word.lower().replace("_", "")
+
+
+def starts_login(line):
+    for match in command.finditer(line):
+        words = line[match.end():].split()
+        index = 0
+        while index < len(words) and words[index][:1] in {"-", "+"}:
+            word = words[index]
+            index += 1
+            if word in {"-o", "+o"} and index < len(words):
+                name = option_name(words[index])
+                index += 1
+                on = word == "-o"
+                if name.startswith("no"):
+                    name, on = name[2:], not on
+                if name == "login" and on:
+                    return True
+            elif word.startswith("--"):
+                if option_name(word[2:]) == "login":
+                    return True
+            elif re.fullmatch(r"-[^-o]*l\S*", word):
+                return True
+    return False
+
+
+for spelling in ["zsh -l", "zsh -lic 'x'", "x=$(zsh -ilc 'x')", "zsh -i -l -c 'x'",
+                 "zsh +m -l -c 'x'", "zsh --login -ic 'x'", "zsh --LOG_IN -c 'x'",
+                 "zsh -o login -c 'x'", "zsh -i -o LOGIN -c 'x'", "zsh +o nologin -c 'x'"]:
+    if not starts_login(spelling):
+        print(f"self-check: a login spelled {spelling!r} was not recognised")
+for spelling in ["verify_login_zsh -l -i -c 'x'", "zsh +m \"$@\"", "zsh -ic 'x'",
+                 "zsh -o interactive -c 'x'", "zsh +o interactive -c 'x'",
+                 "zsh -o nologin -c 'x'", "zsh -c 'zsh_l'", "zsh --version"]:
+    if starts_login(spelling):
+        print(f"self-check: {spelling!r} was reported as a login")
 for path in files:
     for number, line in enumerate(code_text(path.read_text()).splitlines(), 1):
-        if probe.search(line):
+        if starts_login(line):
             print(f"{path.relative_to(root)}:{number}: {line.strip()}")
 PYTHON
 )"
