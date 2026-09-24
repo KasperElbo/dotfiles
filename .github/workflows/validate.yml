@@ -9,9 +9,17 @@ on:
 permissions:
   contents: read
 
+# A pull request's run is superseded by its next push, so it is cancelled. A
+# push to main is never superseded: each main commit is a tree nobody else
+# validates, and its run is the only evidence that tree passed (#499). Keyed on
+# the ref, a merge landing while the previous one's run was going cancelled
+# that run, and 10 of the 40 main pushes up to 23 September 2026 kept only a
+# cancelled run. A pending run in a shared group is replaced even without
+# cancel-in-progress, so the group has to be the commit, not just the flag.
+# scripts/validate-repository-hygiene.py holds this block to exactly this.
 concurrency:
-  group: validate-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: validate-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   repository:
