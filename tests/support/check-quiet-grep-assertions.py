@@ -43,6 +43,9 @@ OPERATOR_CHARS = set("|&;()<>\n")
 OPERATORS = (";;&", "<<<", "<<-", ";;", ";&", "&&", "||", "|&", "<<", ">>",
              "<&", ">&", "<>", ">|")
 
+# The escapes $'...' decodes that can change how its text reads as shell.
+ANSI_C_ESCAPES = {"n": "\n", "t": "\t", "\\": "\\", "'": "'", '"': '"'}
+
 class ParseError(Exception):
     pass
 
@@ -188,6 +191,10 @@ class Lexer:
                 quoted = True
                 self.pos += 2
                 continue
+            if c == "$" and src.startswith("$'", self.pos):
+                out.append(self.read_ansi_c_quoted())
+                quoted = True
+                continue
             if c == "'":
                 end = src.find("'", self.pos + 1)
                 if end < 0:
@@ -222,6 +229,35 @@ class Lexer:
             out.append(c)
             self.pos += 1
         return "".join(out), quoted
+
+    def read_ansi_c_quoted(self):
+        """Read $'...', where a backslash escapes the next character.
+
+        Unlike a plain single quote, \\' does not end the string and \\\\ is
+        one backslash, so the quote after it does. The common escapes are
+        decoded, since the text can be an inline `bash -c` payload; any other
+        escape is kept as written, which is enough to find a pipeline in it.
+        """
+        src, n = self.src, len(self.src)
+        out = []
+        self.pos += 2
+        while self.pos < n and src[self.pos] != "'":
+            c = src[self.pos]
+            if c == "\\" and self.pos + 1 < n:
+                escaped = src[self.pos + 1]
+                out.append(ANSI_C_ESCAPES.get(escaped, "\\" + escaped))
+                if escaped == "\n":
+                    self.line += 1
+                self.pos += 2
+                continue
+            if c == "\n":
+                self.line += 1
+            out.append(c)
+            self.pos += 1
+        if self.pos >= n:
+            self.fail("unterminated single quote")
+        self.pos += 1
+        return "".join(out)
 
     def read_double_quoted(self):
         src, n = self.src, len(self.src)

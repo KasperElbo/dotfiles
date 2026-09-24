@@ -277,6 +277,26 @@ assert_status 2
 assert_contains "$TEST_OUTPUT" 'cannot read as shell'
 assert_contains "$TEST_OUTPUT" 'unterminated single quote'
 
+# ANSI-C quoting is its own form: inside $'...' a backslash escapes the next
+# character, so \' does not end the string, and \\ is one backslash, so the
+# quote after it does. Read as a plain single quote, $'it\'s' ended early and
+# the file was refused as unreadable; a reader that honours \' but not \\ runs
+# $'a\\' on into the next line and reports its pipe on the wrong one.
+quiet_grep_ansi_c="$root/quiet-grep-ansi-c.sh"
+cat >"$quiet_grep_ansi_c" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' $'it\'s' | grep -q it
+printf '%s\n' $'a\\' | grep -q a
+tools="$(list_installed_tools)"
+grep -Fq $'rip\'grep\\' <<<"$tools"
+EOF
+run_capture python3 "$quiet_grep_check" "$quiet_grep_ansi_c"
+assert_status 1
+assert_contains "$TEST_OUTPUT" "$quiet_grep_ansi_c:2: pipes a producer into a quiet grep"
+assert_contains "$TEST_OUTPUT" "$quiet_grep_ansi_c:3: pipes a producer into a quiet grep"
+assert_not_contains "$TEST_OUTPUT" "$quiet_grep_ansi_c:5"
+printf 'ANSI-C quoted strings are read with their backslash escapes\n'
+
 # --- A verifier's failures are a named set, not a count ---------------------
 
 # verifier_fixture <path> [message ...]: a file holding what a verifier writes
