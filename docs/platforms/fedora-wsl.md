@@ -294,6 +294,16 @@ where `/etc/wsl.conf` was written but `wsl --shutdown` never ran shows a
 perfectly clean login `PATH` while every non-interactive context inherits the
 Windows one.
 
+A first install is that machine by construction: `configure-interop.sh` writes
+the policy and the installer verifies straight after, in the same WSL instance,
+which read `/etc/wsl.conf` before the policy was there. So when the policy is
+set but the file changed after this instance started (field 22 of
+`/proc/1/stat` against `/proc/stat`'s `btime`), the Windows entries are
+reported once as **not observed**, asking for `wsl --shutdown` and another
+`verify.sh`, instead of failing once per entry, and the `.exe` lookups wait for
+the restart too. After a restart, or when `/proc` cannot say when the instance
+started, any Windows entry fails as above.
+
 "explicit Windows executables still run" is proved behaviorally: a dedicated
 check actually runs `/mnt/c/Windows/System32/cmd.exe /c echo interop-ok`
 and confirms it prints
