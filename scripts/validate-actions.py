@@ -2,7 +2,13 @@
 """Validate the canonical registry of repository-defined user actions.
 
 `config/actions.tsv` is the one authoritative inventory of what this
-repository binds, aliases or installs as a user-invocable action. Prose
+repository binds, aliases or installs as a user-invocable action on the four
+Bash platforms -- fedora, fedora-wsl, macos and parrot-ctf, the set
+`supported_platforms()` resolves to. The Windows host is outside it: its one
+user-facing command, `platforms/windows/set-noctty-theme.ps1`, is held by
+`config/option-consumers.tsv` (its flavour set), `config/shell-file-roles.tsv`
+(its existence and mode) and the hygiene gate's path references instead, and
+docs/testing.md's Windows coverage table says so (#539, V5-02). Prose
 documentation and the printable cheat sheets are derived from it or checked
 against it; neither is a second source of truth.
 
