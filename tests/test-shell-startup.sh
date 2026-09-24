@@ -328,6 +328,24 @@ resolved="$(run_login -lc 'command -v python' "MISE_DATA_DIR=$relocated")"
 assert_eq "$relocated/shims/python" "$resolved" 'MISE_DATA_DIR must decide where the shims are'
 printf 'PASS: the shims directory follows MISE_DATA_DIR\n'
 
+# MISE_SHIMS_DIR names the shims directory outright, and wins over
+# MISE_DATA_DIR, which is the precedence check_mise_owned in
+# common/lib/verify.sh applies. Dropping it from .zprofile passed every suite
+# while a machine that sets it had the shell and the verifier looking in two
+# places, and the verifier telling the user to restow a .zprofile that was
+# linked and working (#539, V5-12).
+explicit_shims="$root/explicit-shims"
+mkdir -p "$explicit_shims"
+printf '#!/bin/sh\nprintf "explicit python\\n"\n' >"$explicit_shims/python"
+chmod +x "$explicit_shims/python"
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+resolved="$(run_login -lc 'command -v python' "MISE_SHIMS_DIR=$explicit_shims")"
+assert_eq "$explicit_shims/python" "$resolved" 'MISE_SHIMS_DIR must decide where the shims are'
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+resolved="$(run_login -lc 'command -v python' "MISE_SHIMS_DIR=$explicit_shims" "MISE_DATA_DIR=$relocated")"
+assert_eq "$explicit_shims/python" "$resolved" 'MISE_SHIMS_DIR must win over MISE_DATA_DIR'
+printf 'PASS: MISE_SHIMS_DIR names the shims directory, ahead of MISE_DATA_DIR\n'
+
 # A machine without mise's shims directory is left alone: nothing is added,
 # the system copy is what runs, and startup stays silent and clean.
 mv "$login_shims" "$root/withheld-login-shims"
