@@ -276,6 +276,7 @@ chmod +x "$mock_bin/git"
 parrot_stow_links="\
 .zshenv zsh/.zshenv
 .config/zsh/.zshrc zsh/.config/zsh/.zshrc
+.config/zsh/.zprofile zsh/.config/zsh/.zprofile
 .config/zsh/platform-env.zsh platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform-env.zsh
 .config/zsh/platform.zsh platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh
 .config/git/config git/.config/git/config

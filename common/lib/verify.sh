@@ -1256,7 +1256,7 @@ verify_path_without_mise() {
 check_mise_owned() {
   local name="$1"
   local resolved mise_resolved mise_shim configured_path configured_resolved mise_command
-  local mise_data_dir mise_shims_dir login_resolved
+  local mise_data_dir mise_shims_dir login_resolved login_remedy
 
   resolved="$(command -v "$name" 2>/dev/null || true)"
   if [[ -z "$resolved" ]]; then
@@ -1319,11 +1319,13 @@ check_mise_owned() {
 
   # The configured login PATH above is captured from an INTERACTIVE login,
   # which is the one shell where mise activation necessarily wins: the tracked
-  # Zsh package activates mise in .zshrc, while .zshenv -- read by every
-  # top-level Zsh, interactive or not -- puts $HOME/.local/bin first and adds
-  # no mise paths. So that probe says nothing about the login where
-  # ~/.local/bin wins and there are no shims at all, and a non-mise copy of a
-  # tool there was reported as mise-owned (issue #396, GAP-33).
+  # Zsh package activates mise in .zshrc, which a login that is not interactive
+  # never reads. That login gets mise only through the shims directory the
+  # package's ~/.config/zsh/.zprofile puts behind ~/.local/bin and ahead of the
+  # system directories. So the interactive probe says nothing about it, and a
+  # non-mise copy of a tool there -- in ~/.local/bin, or in /usr/bin on a
+  # machine whose zsh package predates .zprofile -- was reported as mise-owned
+  # (issue #396, GAP-33).
   #
   # A name that does not resolve at all in that login is the ordinary
   # shim-only case, not a defect: nothing is said about it.
@@ -1355,10 +1357,29 @@ check_mise_owned() {
     if [[ -n "$login_resolved" ]] &&
       ! shell_paths_match "$login_resolved" "$mise_resolved" &&
       ! shell_paths_match "$login_resolved" "$mise_shim"; then
+      # What to do about it depends on what that login was missing: a shim to
+      # run, the shims directory on its PATH (the zsh package's .zprofile is
+      # what adds it), or neither, in which case this copy is ahead of them.
+      if [[ ! -x "$mise_shim" ]]; then
+        login_remedy="mise has no shim for $name in $mise_shims_dir for that"
+        login_remedy="$login_remedy login to run; run mise reshim"
+      else
+        case ":$VERIFY_NONINTERACTIVE_LOGIN_PATH:" in
+        *":${mise_shims_dir%/}:"* | *":${mise_shims_dir%/}/:"*)
+          login_remedy="it sits ahead of mise's shims directory"
+          login_remedy="$login_remedy ($mise_shims_dir) on that login's PATH;"
+          login_remedy="$login_remedy remove or rename it"
+          ;;
+        *)
+          login_remedy="that login's PATH has no mise shims directory"
+          login_remedy="$login_remedy ($mise_shims_dir), which"
+          login_remedy="$login_remedy ${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.zprofile"
+          login_remedy="$login_remedy adds; restow the zsh package so that file is linked"
+          ;;
+        esac
+      fi
       fail "$name resolves outside mise in a login that is not interactive:" \
-        "$login_resolved (mise manages $mise_resolved). Such a login reads" \
-        ".zshenv but not .zshrc, so mise is never activated there and this" \
-        "copy is what runs"
+        "$login_resolved (mise manages $mise_resolved); $login_remedy"
       return 1
     fi
   fi

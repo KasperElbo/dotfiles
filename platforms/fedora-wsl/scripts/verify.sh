@@ -530,6 +530,8 @@ check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh/" \
   "$DOTFILES_ROOT/zsh/.zshenv"
 check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh/" \
   "$DOTFILES_ROOT/zsh/.config/zsh/.zshrc"
+check_symlink "$XDG_CONFIG_HOME/zsh/.zprofile" "$DOTFILES_ROOT/zsh/" \
+  "$DOTFILES_ROOT/zsh/.config/zsh/.zprofile"
 check_symlink "$XDG_CONFIG_HOME/zsh/platform-env.zsh" \
   "$DOTFILES_ROOT/platforms/fedora-wsl/stow/zsh-platform/" \
   "$DOTFILES_ROOT/platforms/fedora-wsl/stow/zsh-platform/.config/zsh/platform-env.zsh"
