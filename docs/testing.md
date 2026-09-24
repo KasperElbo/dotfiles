@@ -17,6 +17,7 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 | --- | --- | --- |
 | ShellCheck | any version supporting `-S warning` (`./scripts/lint.sh` pins the severity threshold so info-level notes never fail CI on version drift) | `./scripts/lint.sh` |
 | Neovim (`nvim`) | >= 0.12 | `./scripts/test.sh` preflight and the Neovim/editor suites |
+| Bash (`bash`) | >= 4.4 | every entry point and suite; `./scripts/test.sh` preflight, and the macOS bootstrap re-executes under one |
 | zsh | any recent release | shell-startup and profile suites |
 | GNU Stow (`stow`) | any recent release | install/stow suites |
 | OpenSSH client tools (`ssh`, `scp`, `sftp`) | any recent release | SFTP/remote-access suites |
@@ -25,7 +26,7 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 | ripgrep (`rg`) | any recent release | `./scripts/test.sh` preflight and search-based checks |
 | lazy.nvim | the revision [`nvim-lazyvim/.config/nvim/lazy-lock.json`](../nvim-lazyvim/.config/nvim/lazy-lock.json) pins | `./scripts/test.sh` preflight and the Neovim spec-resolution suite. A checkout, not a command — see below |
 
-`./scripts/test.sh` also preflights `awk`, `bash`, `curl`, `find`, `getent`,
+`./scripts/test.sh` also preflights `awk`, `curl`, `find`, `getent`,
 `git`, `grep`, `mktemp`, `sed`, `sha256sum`, `timeout` and `unlink`, which are
 assumed already present on any supported development machine. The list is the
 whole set the default suites reach for, not the memorable part of it: a command
@@ -55,14 +56,20 @@ backend-qualified, and the version is a prefix rather than an exact number, so
 a pin of `3` provisions the newest 3.x and satisfies the floor above. A pin the
 check cannot interpret fails the build rather than being skipped.
 
-Two minimums this repository enforces are deliberately stated where they are
-enforced instead, because neither is a tool the toolchain provisions or
-preflights. The Bash minimum in
-[`scripts/bootstrap-macos.sh`](../scripts/bootstrap-macos.sh) and
-[`common/lib/modern-bash.sh`](../common/lib/modern-bash.sh) is the interpreter
-every other check runs under, decided before a shared library can be sourced
-and while the shell is still Apple's 3.2, so it cannot read a registry whose
-reader it would have to start first. The kernel minimum in
+The Bash floor is in the registry, but four of its consumers cannot read it:
+[`scripts/bootstrap-macos.sh`](../scripts/bootstrap-macos.sh),
+[`common/lib/modern-bash.sh`](../common/lib/modern-bash.sh),
+`scripts/install-main.sh` and `platforms/macos/install.sh` decide it while the
+shell may still be Apple's 3.2, before the reader library -- which needs the
+Bash in question -- can be sourced. So each compares `BASH_VERSINFO` itself,
+and the validator evaluates every such comparison for the version it actually
+admits and holds that, and every message or constant restating the number, to
+the row. A comparison outside the tests in a file the row does not name is
+refused, so a fifth copy cannot drift unseen.
+
+One minimum this repository enforces is deliberately stated where it is
+enforced instead, because it is not a tool the toolchain provisions or
+preflights. The kernel minimum in
 [`platforms/fedora/scripts/install-asus-hardware.sh`](../platforms/fedora/scripts/install-asus-hardware.sh)
 belongs to the distribution rather than to this repository, which can refuse to
 enable the hardware but cannot raise it.
