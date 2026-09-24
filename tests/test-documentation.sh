@@ -741,12 +741,15 @@ assert_success
 coverage_scratch="$TEST_ROOT/windows-coverage"
 mkdir -p "$coverage_scratch/scripts"
 cp "$repo_root"/scripts/validate-*.py "$repo_root"/scripts/render-*.py "$coverage_scratch/scripts/"
-# The obvious drift: a new gate with no row.
-: >"$coverage_scratch/scripts/validate-new-gate.py"
+# The obvious drift: a new gate with no row. Its name is composed, because the
+# hygiene gate refuses a tracked file naming a repository path that does not
+# exist.
+new_gate="validate-new-gate"
+: >"$coverage_scratch/scripts/$new_gate.py"
 run_capture windows_coverage "$repo_root/docs/testing.md" "$coverage_scratch/scripts"
 assert_failure
-assert_contains "$TEST_OUTPUT" 'scripts/validate-new-gate.py has no row in the Windows coverage table'
-rm -f -- "$coverage_scratch/scripts/validate-new-gate.py"
+assert_contains "$TEST_OUTPUT" "scripts/$new_gate.py has no row in the Windows coverage table"
+rm -f -- "$coverage_scratch/scripts/$new_gate.py"
 # The subtle one: the row is there, and answers nothing.
 sed 's/^| `scripts\/validate-actions.py` | No |/| `scripts\/validate-actions.py` | Unclear |/' \
   "$repo_root/docs/testing.md" >"$coverage_scratch/testing.md"
