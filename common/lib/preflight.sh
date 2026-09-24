@@ -131,6 +131,8 @@ preflight_network() {
   local url="$1"
   local label="${2:-$url}"
 
+  # The URL is the caller's; the call site names the registered source.
+  # network-source: caller-provided
   fetch_host_reachable "$url" || {
     printf 'Cannot reach %s, which this installation downloads from: %s\n' \
       "$label" "$url" >&2
@@ -164,6 +166,8 @@ preflight_plan_network() {
   while IFS=$'\t' read -r host components; do
     [[ -n "$host" ]] || continue
     probed=$((probed + 1))
+    # Every host is a registered row's own; its source is the row itself.
+    # network-source: caller-provided
     fetch_host_reachable "https://$host" || {
       printf 'Cannot reach %s, which this installation downloads from: %s\n' \
         "$host" "$components" >&2

@@ -231,6 +231,10 @@ check_faillock_policy() {
 # configuration sshd resolved, so every directive the drop-in declares is
 # looked up there, the way auditd is checked against the loaded ruleset and
 # sysctl against live values.
+#
+# It is asked under the same timeout as sudo -l, for the same reason:
+# verification has to finish, and say what it could not see, on a machine
+# where the privileged probe never answers.
 check_sshd_effective_policy() {
   local effective status=0 keyword value actual in_effect="" failed=0
 
@@ -242,8 +246,13 @@ check_sshd_effective_policy() {
     return 0
   fi
 
-  effective="$(sudo -n sshd -T 2>&1)" || status=$?
-  if ((status != 0)); then
+  effective="$(timeout --kill-after=5s "$HARDENING_PROBE_TIMEOUT" \
+    sudo -n sshd -T 2>&1)" || status=$?
+  if ((status == 124 || status == 137)); then
+    not_observed "sshd -T did not answer within $HARDENING_PROBE_TIMEOUT," \
+      "so whether the SSH policy is in effect was not checked"
+    return 0
+  elif ((status != 0)); then
     not_observed "sshd -T could not report the configuration sshd would run" \
       "with (exit $status: $(head -n1 <<<"$effective")), so whether the SSH" \
       "policy is in effect was not checked"

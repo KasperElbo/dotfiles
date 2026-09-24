@@ -1869,7 +1869,10 @@ for annotated in common/install-ai.sh:treehouse-installer:install_staged_script 
   platforms/macos/scripts/install-system.sh:homebrew-installer:fetch_to_file \
   common/lib/bootstrap-tools.sh:mise-release,starship-release:fetch_to_file \
   platforms/fedora/lib/fedora.sh:terra-signing-key,terra-repo:url-assignment \
-  common/install-tmux-theme.sh:catppuccin-tmux:url-assignment; do
+  common/install-tmux-theme.sh:catppuccin-tmux:url-assignment \
+  platforms/windows/install.ps1:wsl-distribution-catalog:powershell-url-assignment \
+  platforms/windows/install.ps1:scoop-installer:powershell-url-assignment \
+  common/lib/preflight.sh:caller-provided:fetch_host_reachable; do
   IFS=: read -r annotated_file annotated_id annotated_label <<<"$annotated"
   sed -i "/network-source: $annotated_id\$/d" "$fixture_repo/$annotated_file"
   if lint_output="$(lint_fixture)"; then
@@ -1882,6 +1885,83 @@ for annotated in common/install-ai.sh:treehouse-installer:install_staged_script 
 done
 lint_fixture >/dev/null
 printf 'PASS: the real transfer-primitive calls and URL assignments need their annotations\n'
+
+# --- A PowerShell URL assignment is a construct too --------------------------
+#
+# The shell rule needs `name=` with no spaces and the manifest rule a bare
+# identifier, so `$Var = 'https://...'` matched neither. The Windows installer
+# names the WSL catalog and builds the Scoop installer URL that way, then
+# fetches `-Uri $installerUrl`, which names no host.
+windows_installer=platforms/windows/install.ps1
+
+# The obvious one: a new URL nothing registers.
+printf '%s\n' "\$WidgetInstallerUrl = 'https://unregistered.example.invalid/install.ps1'" \
+  >>"$fixture_repo/$windows_installer"
+appended_line="$(wc -l <"$fixture_repo/$windows_installer")"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered PowerShell URL assignment.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$windows_installer:$appended_line: unregistered powershell-url-assignment network source"
+git -C "$fixture_repo" checkout -q -- "$windows_installer"
+lint_fixture >/dev/null
+printf 'PASS: an unregistered PowerShell URL assignment fails the linter, naming its line\n'
+
+# The shape that got through: the pinned Scoop installer repointed under its
+# own annotations. The download line fetches `$installerUrl` and names no host,
+# so only the assignment can tell the new host from the registered one.
+sed -i 's|https://raw.githubusercontent.com/ScoopInstaller/Install/{0}/install.ps1|https://attacker.example.invalid/{0}/install.ps1|' \
+  "$fixture_repo/$windows_installer"
+! git -C "$fixture_repo" diff --quiet -- "$windows_installer" ||
+  _test_die "the Scoop installer URL this case repoints is gone from $windows_installer"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted a repointed Scoop installer URL.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$windows_installer:$(grep -n '^ *\$installerUrl = ' "$fixture_repo/$windows_installer" | cut -d: -f1): this powershell-url-assignment downloads from attacker.example.invalid"
+git -C "$fixture_repo" checkout -q -- "$windows_installer"
+lint_fixture >/dev/null
+printf 'PASS: a repointed PowerShell URL is not covered by its old annotation\n'
+
+# --- The preflight probe is a construct too ----------------------------------
+#
+# fetch_host_reachable asks only for headers, but it opens a TLS session to
+# whatever it is handed before the run changes anything, and no pattern
+# matched it.
+preflight_lib=common/lib/preflight.sh
+
+# The obvious one: a probe of a host nothing registers.
+printf '%s\n' 'fetch_host_reachable "https://unregistered.example.invalid/"' \
+  >>"$fixture_repo/$preflight_lib"
+appended_line="$(wc -l <"$fixture_repo/$preflight_lib")"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted an unregistered fetch_host_reachable probe.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$preflight_lib:$appended_line: unregistered fetch_host_reachable network source"
+git -C "$fixture_repo" checkout -q -- "$preflight_lib"
+lint_fixture >/dev/null
+printf 'PASS: an unregistered fetch_host_reachable probe fails the linter, naming its line\n'
+
+# A probe under an annotation borrowed from a real source: the host it names
+# is not one that source is served from.
+cat >>"$fixture_repo/$preflight_lib" <<'EOF'
+# network-source: mise-release
+fetch_host_reachable "https://attacker.example.invalid/"
+EOF
+appended_line="$(wc -l <"$fixture_repo/$preflight_lib")"
+if lint_output="$(lint_fixture)"; then
+  printf 'The linter accepted a fetch_host_reachable probe under a borrowed annotation.\n' >&2
+  exit 1
+fi
+assert_contains "$lint_output" \
+  "$preflight_lib:$appended_line: this fetch_host_reachable downloads from attacker.example.invalid"
+git -C "$fixture_repo" checkout -q -- "$preflight_lib"
+lint_fixture >/dev/null
+printf 'PASS: a fetch_host_reachable probe is not covered by an unrelated annotation\n'
 
 # --- Liveness is derived, not declared (#534 V5-22) -------------------------
 #

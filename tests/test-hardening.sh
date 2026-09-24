@@ -830,13 +830,26 @@ EOF
   # and global settings stop at the first Match -- then prints it as sshd -T
   # does: one lower-case `keyword value` per line, defaults included. With no
   # /etc/ssh/sshd_config it fails as sshd does. Any other argv is refused, so
-  # a new sshd call has to be modelled before it can pass.
+  # a new sshd call has to be modelled before it can pass. MOCK_SSHD_T
+  # replaces -T's answer with one of the ways it can fail to arrive: hang (no
+  # answer at all) or stall (the whole answer printed, and then no exit).
   cat >"$mock_bin/sshd" <<'EOF'
 #!/usr/bin/env bash
 printf 'sshd %s\n' "$*" >>"$COMMAND_LOG"
 case "$*" in
 -t) exit 0 ;;
--T) ;;
+-T)
+  case "${MOCK_SSHD_T:-model}" in
+  model | stall) ;;
+  hang)
+    # Detached from the output, so a probe that is killed on time is not
+    # then held open by a sleeping child.
+    sleep 10 </dev/null >/dev/null 2>&1
+    exit 0
+    ;;
+  *) exit 96 ;;
+  esac
+  ;;
 *)
   printf 'strict sshd fixture rejected unsupported argv: %s\n' "$*" >&2
   exit 96
@@ -888,6 +901,9 @@ read_config "$FAKE_ROOT/etc/ssh/sshd_config"
 for keyword in "${!effective[@]}"; do
   printf '%s %s\n' "$keyword" "${effective[$keyword]}"
 done | sort
+if [[ "${MOCK_SSHD_T:-model}" == stall ]]; then
+  sleep 10 </dev/null >/dev/null 2>&1
+fi
 EOF
 
   cat >"$mock_bin/auditctl" <<'EOF'
@@ -1499,6 +1515,23 @@ SUDO_EOF
     assert_contains "$TEST_OUTPUT" 'No such file or directory'
     assert_not_contains "$TEST_OUTPUT" "sshd's effective configuration has"
     cp -p "$backup" "$sshd_config"
+
+    # 6t. sshd -T does not answer at all. The probe is bounded the way sudo -l
+    #     is, so the run finishes and says what it could not see instead of
+    #     waiting on it.
+    run_verify MOCK_SSHD_T=hang HARDENING_PROBE_TIMEOUT=1s
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'sshd -T did not answer within 1s'
+    assert_not_contains "$TEST_OUTPUT" "sshd's effective configuration has"
+
+    # 6u. sshd -T prints the whole compliant configuration and then never
+    #     exits. What it printed is not an answer it stood behind, so it is
+    #     not a pass: an unbounded probe waits it out and then reports the
+    #     policy in effect, which is exactly the verdict nobody observed.
+    run_verify MOCK_SSHD_T=stall HARDENING_PROBE_TIMEOUT=1s
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'sshd -T did not answer within 1s'
+    assert_not_contains "$TEST_OUTPUT" "sshd's effective configuration has"
 
     # 6m-6s. The sudoers drop-in is byte-identical and mode 440 in every case
     #     below, so each one passes check_owned_root_file; only the policy
