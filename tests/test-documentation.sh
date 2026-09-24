@@ -698,6 +698,62 @@ assert_file_contains "$repo_root/docs/README.md" "reference/capability-matrix.md
 assert_file_contains "$repo_root/docs/README.md" "cheatsheets/"
 printf 'PASS: the documentation index states the document roles\n'
 
+# --- The Windows coverage table names every gate (#539, V5-02) --------------
+#
+# Most gates cover the four Bash platforms and not the Windows host, on
+# purpose. docs/testing.md states that per gate; a gate added without a row
+# would put the decision back into one file nobody reads for it.
+windows_coverage() {
+  python3 - "$1" "$2" <<'PY_COVERAGE'
+import pathlib
+import re
+import sys
+
+page, scripts = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+lines = page.read_text(encoding="utf-8").splitlines()
+try:
+    start = lines.index("### What the gates cover on Windows")
+except ValueError:
+    raise SystemExit(f"{page}: no 'What the gates cover on Windows' section")
+rows = {}
+for line in lines[start + 1:]:
+    if line.startswith("#"):
+        break
+    match = re.match(r"^\| `scripts/([a-z-]+\.py)` \| ([^|]+?) \|", line)
+    if match:
+        rows[match.group(1)] = match.group(2)
+problems = []
+gates = sorted(path.name for pattern in ("validate-*.py", "render-*.py") for path in scripts.glob(pattern))
+for gate in gates:
+    if gate not in rows:
+        problems.append(f"scripts/{gate} has no row in the Windows coverage table")
+for gate, answer in rows.items():
+    if gate not in gates:
+        problems.append(f"the Windows coverage table lists scripts/{gate}, which is not a gate")
+    if answer not in {"Yes", "No", "Partly", "Not applicable"}:
+        problems.append(f"scripts/{gate}: {answer!r} is not Yes, No, Partly or Not applicable")
+print("\n".join(problems))
+raise SystemExit(1 if problems else 0)
+PY_COVERAGE
+}
+run_capture windows_coverage "$repo_root/docs/testing.md" "$repo_root/scripts"
+assert_success
+coverage_scratch="$TEST_ROOT/windows-coverage"
+mkdir -p "$coverage_scratch/scripts"
+cp "$repo_root"/scripts/validate-*.py "$repo_root"/scripts/render-*.py "$coverage_scratch/scripts/"
+# The obvious drift: a new gate with no row.
+: >"$coverage_scratch/scripts/validate-new-gate.py"
+run_capture windows_coverage "$repo_root/docs/testing.md" "$coverage_scratch/scripts"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'scripts/validate-new-gate.py has no row in the Windows coverage table'
+rm -f -- "$coverage_scratch/scripts/validate-new-gate.py"
+# The subtle one: the row is there, and answers nothing.
+sed 's/^| `scripts\/validate-actions.py` | No |/| `scripts\/validate-actions.py` | Unclear |/' \
+  "$repo_root/docs/testing.md" >"$coverage_scratch/testing.md"
+run_capture windows_coverage "$coverage_scratch/testing.md" "$coverage_scratch/scripts"
+assert_failure
+assert_contains "$TEST_OUTPUT" "scripts/validate-actions.py: 'Unclear' is not Yes, No, Partly or Not applicable"
+printf 'PASS: every gate states whether the Windows host is inside it\n'
 
 # --- The README is an entry point, not the manual --------------------------
 

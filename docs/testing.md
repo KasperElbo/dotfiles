@@ -662,7 +662,44 @@ that removing the session command's row from `config/shell-file-roles.tsv`
 fails validation: `governed()` claims any `platforms/*/assets/*` file carrying
 a shell shebang, so that program's mode is somebody's responsibility too.
 
-### Every verify check is proven able to fail
+### What the gates cover on Windows
+
+Four platforms run the Bash installer; the fifth, the Windows host, is
+installed and verified by PowerShell. Most mechanical gates read Bash and so
+cover the four, which is deliberate rather than an oversight, and this table is
+where that decision is written down instead of being a property of each file
+(#539). `tests/test-documentation.sh` requires a row here for every
+`scripts/validate-*.py` and `scripts/render-*.py`.
+
+| Gate | Windows inside it | What covers Windows instead, or why nothing needs to |
+| --- | --- | --- |
+| `scripts/validate-acceptance-records.py` | Yes | `windows-host.md` is a checklist like the others |
+| `scripts/validate-actions.py` | No | The action registry is the Bash platforms'. The one Windows command, `set-noctty-theme.ps1`, has its flavours held by `config/option-consumers.tsv` and its existence and mode by `config/shell-file-roles.tsv` |
+| `scripts/validate-capabilities.py` | Yes | Windows capability rows, `verify.ps1` and the PowerShell suites |
+| `scripts/validate-check-outcomes.py` | No | `verify.ps1` writes no trace; `tests/test-windows-verifier.ps1` asserts its failure paths directly |
+| `scripts/validate-command-provider-closure.py` | No | The pre-mutation command closure is a Bash installer's; `install.ps1` runs on a stock Windows |
+| `scripts/validate-docs.py` | Yes | Every page, the Windows ones included |
+| `scripts/validate-install-options.py` | Partly | The Bash installers' parsers; `install.ps1`'s switches are its own `param` block, exercised by `tests/test-windows-bootstrap.ps1`, and the theme script's `ValidateSet` is a registered option consumer |
+| `scripts/validate-library-guards.py` | Not applicable | `common/lib` is Bash; the PowerShell libraries are dot-sourced by path |
+| `scripts/validate-neovim-plugin-specs.py` | Not applicable | Neovim runs inside the WSL distribution, which is the Fedora WSL platform |
+| `scripts/validate-network-sources.py` | Yes | PowerShell downloads carry the same annotations |
+| `scripts/validate-pin-freshness.py` | Yes | The Scoop installer pin in `manifest.psd1` |
+| `scripts/validate-plan-network.py` | No | Execution plans are the Bash installers'; `install.ps1` has none |
+| `scripts/validate-repository-hygiene.py` | Yes | PowerShell path references and the static-analysis step |
+| `scripts/validate-shell-file-roles.py` | Yes | Every `.ps1` has a role and mode |
+| `scripts/validate-symlink-checks.py` | No | Windows configuration is copied, not stowed, so there is no symlink to check |
+| `scripts/validate-tool-floors.py` | No | The floors are the Bash toolchain's; the Windows host uses what Windows ships |
+| `scripts/render-action-reference.py` | No | Rendered from the action registry above |
+| `scripts/render-capability-matrix.py` | Yes | Windows has its own column |
+| `scripts/render-file-ownership.py` | No | Stow packages and Bash machine-local state |
+| `scripts/render-install-flows.py` | No | Rendered from the Bash installers |
+| `scripts/render-installer-options.py` | No | Rendered from `config/install-options.tsv`, which holds no Windows rows |
+| `scripts/render-installer-usage.py` | No | The same manifest |
+| `scripts/render-package-ownership.py` | No | Package managers of the Bash platforms; Scoop's one package is in `manifest.psd1` |
+| `scripts/render-supply-chain.py` | Yes | Rendered from the network-source registry, Windows sources included |
+| `scripts/render-verifier-reference.py` | Yes | Windows has its own section |
+
+### Every Bash verify check is proven able to fail
 
 Every other gate here reads files. This one cannot, and that is the whole
 point: whether a `check_*` call site is able to fail is a statement about what
