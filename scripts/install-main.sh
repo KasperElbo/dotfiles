@@ -11,7 +11,10 @@ fi
 
 set -euo pipefail
 
-repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# Found without dirname, for the reason given at the base bootstrap below.
+script_dir="${BASH_SOURCE[0]%/*}"
+[[ "$script_dir" != "${BASH_SOURCE[0]}" ]] || script_dir=.
+repo_root="$(cd -- "$script_dir/.." && pwd)"
 
 # The root command grammar, the same one the compatibility entry point states
 # and for the same reason (#373):
@@ -183,6 +186,19 @@ if [[ "$rerun" == true && "$help_requested" != true ]]; then
 
   forwarded_args=("${remembered_args[@]}" "${transient_args[@]}")
 fi
+
+# The base bootstrap comes before the first manifest read, because that read is
+# awk and a fresh Fedora WSL distro has none: it installs, with dnf, whatever
+# the installer runs before its own package step and this machine lacks, and
+# prints nothing on a machine that has it all. It is registry-driven, so a
+# platform without bootstrap-package rows in config/command-providers.tsv
+# passes straight through; the Fedora installers call it again for their direct
+# entry points, where it finds nothing left to do. Everything above this line
+# is Bash alone -- the --rerun branch aside, which reads the record of an
+# install that already established these packages.
+# shellcheck source=../common/lib/base-bootstrap.sh
+source "$repo_root/common/lib/base-bootstrap.sh"
+base_bootstrap "$platform" "${forwarded_args[@]}"
 
 # The supported names are config/capabilities.tsv's implemented base rows that
 # this entry point can actually run, read by column name (see

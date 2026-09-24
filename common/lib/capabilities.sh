@@ -108,7 +108,9 @@ capability_stow_specs() {
 # config/command-providers.tsv is the one home for the commands every bash
 # platform's installer checks before it mutates the host; the Fedora rows also
 # close the wider Fedora bootstrap boundary. Package ownership remains in the
-# capability manifest rather than being duplicated here.
+# capability manifest rather than being duplicated here. A bootstrap-package
+# command is checked here too: common/lib/base-bootstrap.sh installs it before
+# the installer starts, so by preflight it is there, and this says so if not.
 capability_preflight_command_specs() {
   local wanted_platform="$1" rows command provider classification
 
@@ -122,7 +124,7 @@ capability_preflight_command_specs() {
 
   while IFS=$'\t' read -r command provider classification; do
     case "$classification" in
-    bootstrap-prerequisite | supported-base)
+    bootstrap-prerequisite | bootstrap-package | supported-base)
       printf '%s\t%s\t%s\n' "$command" "$provider" "$classification"
       ;;
     esac

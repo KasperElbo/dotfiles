@@ -415,6 +415,10 @@ maps a command to one owning capability and provider, and classifies its
 availability as:
 
 - `bootstrap-prerequisite`: required before the installer can mutate the host;
+- `bootstrap-package`: run by the installer itself before its base package
+  step. A normal Fedora image has it; when a minimal one lacks the provider --
+  the official Fedora WSL image has no `gawk` -- the Fedora base bootstrap
+  installs it with DNF before anything else runs;
 - `supported-base`: guaranteed by the documented supported base system but
   still checked before mutation;
 - `baseline-package`: installed by exactly one capability package owner before
@@ -425,6 +429,26 @@ The Fedora workstation and official Fedora WSL rows close the wider bootstrap
 boundary: every native command used by bootstrap, installation, or base/Sway
 verification. The Apple Silicon macOS and Parrot CTF rows cover exactly their
 pre-mutation checks; the commands their verifiers use are not yet closed here.
+
+The Fedora base bootstrap, `common/lib/base-bootstrap.sh`, is the only reader
+of `bootstrap-package` rows. `./install.sh`, via `scripts/install-main.sh`,
+runs it before its first manifest read, and both Fedora platform installers run
+it before they source anything, so every entry point reaches its package step
+with nothing but the bootstrap prerequisites. It is written in Bash alone, reads
+this table by column name without awk, and installs a provider none of whose
+bootstrap-package commands can be found: `sudo dnf install -y gawk` on a fresh
+Fedora WSL distro, and nothing on a machine that has them all, where it prints
+nothing. Like the macOS Homebrew bootstrap it sits outside the installation
+lifecycle, because the lifecycle is written with the commands it provides.
+`--dry-run` prints what it would install and stops without changing anything,
+an interactive run asks first, `--non-interactive` requires cached sudo, and
+`--help` never installs. `scripts/validate-command-provider-closure.py` allows
+the class only on a platform whose base provider is DNF.
+`tests/test-base-bootstrap.sh` drives the real entry points on a machine with
+the bootstrap prerequisites and nothing else, where every other command the
+table lists is a tripwire until the bootstrap installs it, so a command the
+installer starts running before its package step fails there until it is
+classified here.
 
 The table does not duplicate language-runtime or repository-script ownership.
 Those remain with mise, Mason, Stow, and the capability manifest. Run

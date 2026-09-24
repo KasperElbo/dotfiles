@@ -34,7 +34,12 @@ the repository.
 `./install.sh` is a thin front door: it chooses a Bash to run under — on macOS
 that means `scripts/bootstrap-macos.sh` first, because the system ships Bash
 3.2 — and then execs `scripts/install-main.sh`, which parses the shared options
-and hands off to `platforms/<platform>/install.sh`. That platform installer is
+and hands off to `platforms/<platform>/install.sh`. On Fedora,
+`scripts/install-main.sh` and the platform installer first run the base
+bootstrap, `common/lib/base-bootstrap.sh`, which installs with DNF whatever the
+installer runs before its package step and a minimal image lacks, such as Gawk
+on a fresh Fedora WSL distro; see
+[the command-provider closure](../capabilities.md#command-provider-closure). That platform installer is
 what builds the
 execution plan below; it is also a supported entry point on its own, for
 installing exactly one platform.

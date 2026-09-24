@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# First, before this file sources anything: every line below needs commands a
+# minimal Fedora image may not have -- dirname among them -- so the base
+# bootstrap installs them before they are used (common/lib/base-bootstrap.sh).
+# Through ./install.sh it has already run and finds nothing to do.
+install_dir="${BASH_SOURCE[0]%/*}"
+[[ "$install_dir" != "${BASH_SOURCE[0]}" ]] || install_dir=.
+# shellcheck source=../../common/lib/base-bootstrap.sh
+source "$install_dir/../../common/lib/base-bootstrap.sh"
+base_bootstrap fedora-wsl "$@"
+
 # shellcheck source=../../common/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../common/lib/common.sh"
 # shellcheck source=../../common/lib/execution-plan.sh
