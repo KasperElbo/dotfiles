@@ -351,3 +351,69 @@ assert_contains "$TEST_OUTPUT" 'No pinned gitleaks build for'
 [[ ! -s "$root/curl.log" ]] ||
   _test_die "an unsupported platform still reached the network: $(cat "$root/curl.log")"
 printf 'PASS: an unsupported platform is refused before any download\n'
+
+# --- The cache is trusted on the pin, not on a version string (#534) -------
+#
+# A cache hit used to be an executable that answered `version` with the pinned
+# version, and the pinned digest took part only on the download path. A
+# five-line stub answering 8.30.1 in place of the cached binary turned a
+# planted credential into "No credentials found", exit 0. It needs write
+# access to the cache, which is what this gate has to survive, and CI
+# restores caches.
+planted="$root/planted"
+mkdir -p "$planted"
+printf '%s\n' '#!/bin/sh' \
+  'if [ "$1" = version ]; then' \
+  "  printf '%s\\n' '$pinned_version'" \
+  '  exit 0' \
+  'fi' \
+  'printf '"'"'planted %s\n'"'"' "$*" >>"$SCAN_LOG"' >"$planted/gitleaks"
+chmod +x "$planted/gitleaks"
+"$real_tar" -czf "$release/planted.tar.gz" -C "$planted" gitleaks
+
+# assert_planted_never_ran: the stub was never asked to scan anything.
+assert_planted_never_ran() {
+  assert_file_not_contains "$root/scan.log" 'planted'
+}
+
+# The acceptance case: a populated cache, its binary replaced by the stub.
+clear_cache
+pin_archive "$release/good.tar.gz"
+scan
+assert_success
+cp -- "$planted/gitleaks" "$binary"
+scan CURL_OFFLINE=1
+assert_failure
+assert_not_contains "$TEST_OUTPUT" 'No credentials found'
+assert_contains "$TEST_OUTPUT" 'is not the gitleaks in the pinned archive'
+[[ ! -s "$root/scan.log" ]] ||
+  _test_die "a cached scanner that differs from the pinned archive was asked to scan: $(cat "$root/scan.log")"
+printf 'PASS: a version-reporting stub in place of the cached scanner stops the scan\n'
+
+# The subtle one: a cache that agrees with itself. The archive beside the
+# binary is the stub's own, so comparing the two proves nothing; only the
+# pinned digest can tell it from the release.
+cached_archive="$(find "$cache" -maxdepth 1 -name 'gitleaks_*.tar.gz' -print)"
+[[ -n "$cached_archive" ]] || _test_die "the cache holds no release archive: $(ls -la "$cache")"
+cp -- "$release/planted.tar.gz" "$cached_archive"
+scan CURL_OFFLINE=1
+assert_failure
+assert_not_contains "$TEST_OUTPUT" 'No credentials found'
+assert_contains "$TEST_OUTPUT" 'SHA-256 mismatch'
+[[ ! -s "$root/scan.log" ]] ||
+  _test_die "a cache whose archive is not the pinned one was used to scan: $(cat "$root/scan.log")"
+printf 'PASS: a cached archive and binary that match each other but not the pin stop the scan\n'
+
+# A cache written before the archive was kept -- the binary alone, which is
+# the shape the audit replaced -- is a miss: the pinned release is fetched
+# again and the stub is never run.
+clear_cache
+mkdir -p "$cache"
+cp -- "$planted/gitleaks" "$binary"
+scan
+assert_success
+[[ -s "$root/curl.log" ]] || _test_die "a cache holding only a binary was trusted without a download"
+assert_planted_never_ran
+assert_file_line "$root/scan.log" \
+  "dir . --config $checkout/.gitleaks.toml --ignore-gitleaks-allow --no-banner --redact --exit-code 1"
+printf 'PASS: a cached binary with no pinned archive beside it is replaced, never run\n'
