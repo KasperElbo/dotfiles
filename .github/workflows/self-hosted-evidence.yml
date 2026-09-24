@@ -1,0 +1,86 @@
+name: Self-hosted evidence
+
+# The Fedora WSL and Parrot VM jobs in real-install.yml run on Kasper's own
+# machines and only when dispatched, so the weekly schedule never runs them
+# (#501). This notices when their newest success is more than a month old and
+# says so in one tracking issue, so they cannot go dormant unnoticed. It does
+# not dispatch them: the runners are not always on, and a run on them needs the
+# machines prepared (docs/testing.md, "Self-hosted runner contracts").
+
+on:
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: self-hosted-evidence
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Self-hosted real-install jobs succeeded this month
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          # A run counts only on a commit main contains, and the report says
+          # how far behind main it is.
+          fetch-depth: 0
+
+      - name: Find each self-hosted job's newest success
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          status=0
+          python3 ./scripts/check-self-hosted-evidence.py --repository "$GITHUB_REPOSITORY" \
+            --ref origin/main --report "$RUNNER_TEMP/self-hosted.md" \
+            --findings "$RUNNER_TEMP/findings.md" || status=$?
+          if [[ -f "$RUNNER_TEMP/self-hosted.md" ]]; then
+            cat "$RUNNER_TEMP/self-hosted.md" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
+      # As in main-evidence.yml: one issue while a job is stale, a comment only
+      # when the findings change, closed by the first run that finds none.
+      - name: Open or update the tracking issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title='Self-hosted real-install jobs have not succeeded this month'
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
+          findings="$RUNNER_TEMP/findings.md"
+          if [[ ! -s "$findings" ]]; then
+            if [[ -f "$findings" && -n "$number" ]]; then
+              gh issue close "$number" --repo "$GITHUB_REPOSITORY" \
+                --comment "Every self-hosted real-install job has succeeded on main within the last month, as of $RUN_URL."
+            elif [[ ! -f "$findings" ]]; then
+              printf 'The check produced no findings file, so it did not finish.\n' >&2
+              exit 1
+            fi
+            exit 0
+          fi
+          body="$RUNNER_TEMP/issue.md"
+          { cat "$findings"; printf '\nFound by %s.\n' "$RUN_URL"; } >"$body"
+          if [[ -z "$number" ]]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body"
+            exit 0
+          fi
+          last="$(gh issue view "$number" --repo "$GITHUB_REPOSITORY" --json body,comments \
+            --jq '(.comments | last | .body) // .body')"
+          last="${last%%$'\n'Found by *}"
+          if [[ "${last%$'\n'}" != "$(cat "$findings")" ]]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$body"
+          fi
