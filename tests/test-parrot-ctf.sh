@@ -196,6 +196,41 @@ fi
 assert_file_contains "$test_root/tampered.log" 'SHA-256 mismatch for the pinned mise release'
 assert_path_missing "$tampered_home/.local/bin/mise"
 printf 'PASS: Parrot installs mise from the pinned archive and refuses one that differs\n'
+
+# A failed extraction stops the run (#539, V5-20). The steps of
+# install_bootstrap_tool run in the condition of an `if !`, where errexit is
+# suppressed and a `set -e` issued inside does not bring it back, so each
+# fallible step has to fail on its own. These drive the real installer, which
+# calls the real function under its own `set -euo pipefail`, with a tar that
+# fails; the pinned archive is served, so only tar's status can stop it.
+real_tar="$(type -P tar)"
+failing_tar_run() {
+  local name="$1" extract="$2"
+  local run_home="$test_root/$name-home" run_bin="$test_root/$name-bin"
+  mkdir -p "$run_home" "$run_bin"
+  # Only an extraction is expected; anything else is refused, not waved on.
+  cat >"$run_bin/tar" <<EOF
+#!/usr/bin/env bash
+[[ "\${1:-}" == -xzf ]] || { printf 'tar stub: unexpected call: %s\n' "\$*" >&2; exit 97; }
+if [[ "$extract" == true ]]; then
+  "$real_tar" "\$@" || exit 98
+fi
+exit 2
+EOF
+  chmod +x "$run_bin/tar"
+  if "${test_environment[@]}" HOME="$run_home" PATH="$run_bin:$mock_bin:$PATH" \
+    "$repo_root/platforms/parrot-ctf/scripts/install-system.sh" \
+    >"$test_root/$name.log" 2>&1; then
+    _test_die "Parrot carried on past a tar that exited 2 ($name); log follows:
+$(cat "$test_root/$name.log")"
+  fi
+  assert_file_contains "$test_root/$name.log" \
+    'The pinned mise release was not installed; nothing from it was executed.'
+  assert_path_missing "$run_home/.local/bin/mise"
+}
+# The obvious failure: tar exits 2 and leaves nothing behind.
+failing_tar_run tar-extracts-nothing false
+printf 'PASS: Parrot stops when tar fails and extracts nothing\n'
 grep -Fq 'sudo apt-get update' "$command_log"
 grep -Fq 'apt-get install -y --no-install-recommends bat build-essential' "$command_log"
 grep -Fq 'starship' "$command_log"
