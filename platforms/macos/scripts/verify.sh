@@ -368,6 +368,8 @@ check_symlink "$HOME/.zshenv" "$DOTFILES_ROOT/zsh" \
   "$DOTFILES_ROOT/zsh/.zshenv"
 check_symlink "$XDG_CONFIG_HOME/zsh/.zshrc" "$DOTFILES_ROOT/zsh" \
   "$DOTFILES_ROOT/zsh/.config/zsh/.zshrc"
+check_symlink "$XDG_CONFIG_HOME/zsh/.zprofile" "$DOTFILES_ROOT/zsh" \
+  "$DOTFILES_ROOT/zsh/.config/zsh/.zprofile"
 check_symlink "$XDG_CONFIG_HOME/zsh/platform-env.zsh" "$macos_stow/zsh-platform" \
   "$macos_stow/zsh-platform/.config/zsh/platform-env.zsh"
 check_symlink "$XDG_CONFIG_HOME/zsh/platform.zsh" "$macos_stow/zsh-platform" \

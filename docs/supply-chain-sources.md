@@ -71,6 +71,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 
 | Source | Component | Owner | Kind | Privilege | Requested | Resolved | Integrity | Cadence |
 |---|---|---|---|---|---|---|---|---|
+| `github-actions-api` | Workflow runs and branch rules read by the main evidence check | GitHub | `json-api` | `user` | `the runs, jobs and branch rules of this repository` | API response | `https-tls` | rolling |
 | `homebrew-installer` | Homebrew installer script | Homebrew | `remote-script` | `root` | `HEAD` | brew --version | `https-tls` | rolling |
 | `mise-installer` | mise standalone installer script | jdx | `remote-script` | `user` | `latest` | mise --version | `https-tls` | rolling |
 | `no-mistakes-installer` | No Mistakes push gate installer | kunchenguid | `remote-script` | `user` | `main` | no_mistakes_digest in ai state | `https-tls` | rolling |
@@ -92,6 +93,7 @@ reproducibility, are described in [supply-chain.md](supply-chain.md).
 | `fedora-os-repos` | `https://mirrors.fedoraproject.org` | sudo dnf history undo | `platforms/fedora/scripts/install-system.sh` `platforms/fedora-wsl/scripts/install-system.sh` |
 | `firstmate-repo` | `https://github.com/kunchenguid/firstmate.git` | git -C ~/.local/share/firstmate checkout <commit> | `common/install-ai.sh` |
 | `ghost-pepper-release` | `https://github.com/matthartman/ghost-pepper/releases/download/v${ghost_pepper_version}/GhostPepper.dmg` | pin the previous release tag and sha256 in platforms/macos/lib/dictation.sh, then rerun with --dictation | `platforms/macos/scripts/install-dictation.sh` `platforms/macos/lib/dictation.sh` |
+| `github-actions-api` | `https://api.github.com` | not-applicable | `scripts/check-main-evidence.py` `.github/workflows/main-evidence.yml` `scripts/check-self-hosted-evidence.py` `.github/workflows/self-hosted-evidence.yml` |
 | `gitleaks-release` | `https://github.com/gitleaks/gitleaks/releases/download/v${version}/${artifact}` | pin the previous release tag and per-platform digests in scripts/scan-secrets.sh | `scripts/scan-secrets.sh` |
 | `hack-nerd-font` | `https://github.com/ryanoasis/nerd-fonts/releases/download/v${font_version}/Hack.tar.xz` | reinstall the previous version directory | `platforms/parrot-ctf/scripts/install-terminal.sh` |
 | `handy-release` | `https://github.com/cjpais/Handy/releases/download/v${handy_version}/${handy_rpm}` | pin the previous release tag and sha256 in platforms/fedora/lib/dictation.sh, then rerun with --dictation | `platforms/fedora/scripts/install-dictation.sh` `platforms/fedora/lib/dictation.sh` |

@@ -14,6 +14,41 @@ path=("$HOME/.local/bin" $path)
 export PATH
 ```
 
+## `~/.config/zsh/.zprofile`
+
+Read by every Zsh **login**, interactive or not, and by nothing else. It puts
+mise's shims directory on `PATH`, behind `~/.local/bin` and ahead of the
+system directories:
+
+```zsh
+path=("$HOME/.local/bin" "$mise_shims" $path)
+```
+
+`$mise_shims` is resolved the way mise resolves it (`$MISE_DATA_DIR/shims`,
+else `${XDG_DATA_HOME:-~/.local/share}/mise/shims`), and nothing is added
+when that directory does not exist.
+
+mise itself is activated in `.zshrc`, which only an interactive shell reads.
+Without this file a login that is not interactive — `zsh -lc …`, and anything
+started through one — ran whatever the system had under a mise-owned name:
+dnf's `python`, `node` and `tree-sitter` on Fedora, Homebrew's on macOS. The
+shims are mise's documented answer for exactly that shell.
+
+It is `.zprofile` rather than `.zshenv` because a login reads the system's
+`/etc/zprofile` in between, and on macOS that runs `path_helper`, which moves
+the system directories in front of everything `.zshenv` added. `.zprofile` is
+read after it, so what it puts in front stays there. Being login-only also
+leaves a plain `zsh -c` script with the `PATH` it was given.
+
+An interactive login goes on to read `.zshrc`, and `mise activate` there puts
+the install directories of the active versions ahead of both `~/.local/bin`
+and the shims, so an interactive shell resolves exactly what it did before.
+
+A machine stowed before this file existed does not have it: restow the `zsh`
+package (rerun the installer). The platform verifiers check the link, and
+their mise ownership check reports a runtime that such a login would run from
+outside mise, naming that repair.
+
 ## PATH policy
 
 Zsh ties the `path` array to `PATH`, and `typeset -gU` marks that pair unique.
@@ -25,7 +60,9 @@ Zsh keeps the **first** occurrence of a duplicated entry, so this deduplicates
 without reordering. Nothing sorts `PATH`, and deliberate precedence survives:
 
 - `~/.local/bin` stays in front of the inherited environment;
-- mise-managed tools keep the precedence mise's own activation gives them;
+- mise-managed tools keep the precedence mise's own activation gives them in
+  an interactive shell, and in a login that is not interactive mise's shims
+  directory follows `~/.local/bin`, ahead of the system directories;
 - on macOS, Homebrew's coreutils `gnubin` stays **last**, so it supplies the
   GNU tools macOS does not ship (`timeout`, used by the shared Neovim
   bootstrap) without shadowing Apple's `ls`, `date` or `cp` — the trade-off
@@ -37,7 +74,9 @@ without reordering. Nothing sorts `PATH`, and deliberate precedence survives:
 
 `tests/test-shell-startup.sh` proves this by sourcing the tracked startup
 files three times in a row — bare, and under the Parrot and macOS platform
-files — and requiring a byte-identical, duplicate-free `PATH` each time.
+files — and requiring a byte-identical, duplicate-free `PATH` each time. It
+also starts real `zsh -l` logins in a sandboxed home to prove the shims
+precedence above.
 
 ## `~/.config/zsh/.zshrc`
 

@@ -49,6 +49,7 @@ public-entrypoint	755	scripts/render-installer-usage.py	Regenerates each generat
 public-entrypoint	755	scripts/render-package-ownership.py	Regenerates the package, mise and Mason inventories
 public-entrypoint	755	scripts/render-verifier-reference.py	Regenerates the per-platform verifier reference from config/capabilities.tsv
 public-entrypoint	755	scripts/render-supply-chain.py	Regenerates the supply-chain source documentation
+public-entrypoint	755	scripts/validate-acceptance-records.py	Validates manual acceptance records and their checklists
 public-entrypoint	755	scripts/validate-actions.py	Validates config/actions.tsv against its consumers
 public-entrypoint	755	scripts/validate-check-outcomes.py	Validates that each verifier check call site was driven to both a pass and a fail
 public-entrypoint	755	scripts/validate-capabilities.py	Validates network-source provenance against config/capabilities.tsv
@@ -64,8 +65,11 @@ public-entrypoint	755	scripts/validate-plan-network.py	Validates each execution-
 public-entrypoint	755	scripts/validate-shell-file-roles.py	Validates shell/PowerShell/Python file roles and modes
 public-entrypoint	755	scripts/validate-symlink-checks.py	Validates that every check_symlink call site names the Stow source it expects
 public-entrypoint	755	scripts/validate-tool-floors.py	Validates the dependency version-floor registry and its enforcement
+public-entrypoint	755	scripts/check-main-evidence.py	Reports main commits without their own green Validate run, for .github/workflows/main-evidence.yml
+public-entrypoint	755	scripts/check-self-hosted-evidence.py	Reports self-hosted real-install jobs with no success this month, for .github/workflows/self-hosted-evidence.yml
 platform-entrypoint	644	platforms/windows/install.ps1	Platform installer, the Windows host pieces for Fedora WSL
 internal-executable	644	platforms/windows/verify.ps1	Verifier implementation behind ./verify.ps1
 platform-command	644	platforms/windows/set-noctty-theme.ps1	Windows Noctty theme command; safe to run directly
 sourced-library	644	platforms/windows/lib/*.ps1	Dot-sourced by the Windows installer and verifier
 test-entrypoint	644	tests/test-windows-*.ps1	Test suite, run by the windows validation workflow job
+stowed-config	644	zsh/.config/zsh/.zprofile	Sourced by every Zsh login, interactive or not
