@@ -210,12 +210,15 @@ cat >"$mock_bin/zsh" <<'EOF'
 # shims behind ~/.local/bin only from the package's .zprofile, when this home
 # has that file. A fixture that answered both the same way would model away
 # the defect the second probe exists to catch.
+# An interactive login arrives without job control, as verify_login_zsh starts
+# one, so "+m -lic" is the interactive spelling and a bare -lic is not.
+if [[ $# -eq 3 && "$1" == +m && "$2" == -lic &&
+  "$3" == 'printf "login-path:%s\n" "$PATH"' ]]; then
+  printf 'login-path:%s\n' "$MISE_SHIMS_DIR:$HOME/.local/bin:$PATH"
+  exit 0
+fi
 if [[ $# -eq 2 && "$2" == 'printf "login-path:%s\n" "$PATH"' ]]; then
   case "$1" in
-  -lic)
-    printf 'login-path:%s\n' "$MISE_SHIMS_DIR:$HOME/.local/bin:$PATH"
-    exit 0
-    ;;
   -lc)
     login_shims=""
     [[ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.zprofile" ]] ||
