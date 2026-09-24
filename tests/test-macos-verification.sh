@@ -440,7 +440,7 @@ for entry in "${inherited[@]}"; do
 done
 case "$*" in
 *login-path:*)
-  if [[ "${1:-}" == -lc ]]; then
+  if [[ "${1:-}" == +m && "${2:-}" == -lc ]]; then
     printf 'login-path:%s\n' "$noninteractive_path"
   else
     printf 'login-path:%s\n' "$login_path"

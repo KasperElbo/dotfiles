@@ -42,6 +42,18 @@ answer="$(probe "verify_login_zsh -lic 'sh -c :'")"
   _test_die "verify_login_zsh -lic left the terminal with the probe ($answer)"
 printf 'PASS: an interactive login probe ending in a command leaves the terminal with the verifier\n'
 
+# Zsh takes its options from every leading word, not from the first one, so
+# the guard must not depend on how a caller spells them. The helper once
+# tested "$1" alone for a single-dash bundle holding an i: `-l -i -c` and
+# `--login -i -c` are the same interactive login and took the terminal (issue
+# #536, V5-07). `-o interactive` is the spelling no letter scan would see.
+for spelling in '-l -i -c' '--login -i -c' '-l -o interactive -c'; do
+  answer="$(probe "verify_login_zsh $spelling 'sh -c :'")"
+  [[ "$answer" == "foreground kept" ]] ||
+    _test_die "verify_login_zsh $spelling left the terminal with the probe ($answer)"
+  printf 'PASS: an interactive login spelled %s leaves the terminal with the verifier\n' "$spelling"
+done
+
 # Still interactive, so the probe still reads .zshrc, which is what -i is for.
 answer="$(probe "[[ \"\$(verify_login_zsh -lic 'print -r -- \$probe_rc_read')\" == yes ]]")"
 [[ "$answer" == "foreground kept" ]] ||

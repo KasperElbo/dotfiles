@@ -640,7 +640,7 @@ if [[ "$*" == *'login-path:'* ]]; then
   # rather than one it has already put the shims into (issue #507, V4-11), and
   # the shims behind ~/.local/bin only when the zsh package's .zprofile, which
   # adds them, is in this home.
-  if [[ "${1:-}" == -lc ]]; then
+  if [[ "${1:-}" == +m && "${2:-}" == -lc ]]; then
     login_shims=""
     if [[ -e "$XDG_CONFIG_HOME/zsh/.zprofile" && -d "$XDG_DATA_HOME/mise/shims" ]]; then
       login_shims="$XDG_DATA_HOME/mise/shims:"

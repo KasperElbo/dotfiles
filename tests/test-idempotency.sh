@@ -447,7 +447,7 @@ cat >"$mock_bin/zsh" <<'EOF'
 # shims at all, and that is what lets a dnf copy of a mise-owned runtime hide
 # from the interactive probe (issue #507, V4-11).
 mise_shims="$XDG_DATA_HOME/mise/shims"
-if [[ "${1:-}" == -lc ]]; then
+if [[ "${1:-}" == +m && "${2:-}" == -lc ]]; then
   if [[ -e "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.zprofile" && -d "$mise_shims" ]]; then
     login_path="$HOME/.local/bin:$mise_shims:$PATH"
   else

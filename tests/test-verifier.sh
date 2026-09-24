@@ -1151,13 +1151,13 @@ mkdir -p "$update_root/bin"
 cat >"$update_root/bin/zsh" <<'EOF_LOGIN_ZSH'
 #!/usr/bin/env bash
 set -u
-if [[ $# -eq 2 && "$1" == -lc ]]; then
+if [[ $# -eq 3 && "$1" == +m && "$2" == -lc ]]; then
   if [[ -n "${TEST_LOGIN_DISABLE_UPDATES+x}" ]]; then
     export DISABLE_UPDATES="$TEST_LOGIN_DISABLE_UPDATES"
   else
     unset DISABLE_UPDATES
   fi
-  exec bash -c "$2"
+  exec bash -c "$3"
 fi
 printf 'strict login-shell fixture rejected unsupported argv: %s\n' "$*" >&2
 exit 96
