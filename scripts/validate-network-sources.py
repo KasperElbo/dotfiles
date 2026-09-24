@@ -16,7 +16,7 @@ Two independent jobs:
    ``fetch``, a remote release RPM, ``--repofrompath``, a DNF
    ``config-manager addrepo``, an ``rpm --import`` of a signing key, a
    container image, a call to the ``fetch_to_file``/``install_staged_script``
-   transfer primitives, or a shell or
+   transfer primitives or the ``fetch_host_reachable`` probe, or a shell or
    PowerShell variable assigned a URL -- must carry a ``# network-source: <id>`` annotation naming
    a registered source. CI fails when a new one appears unregistered.
 
@@ -231,6 +231,11 @@ NETWORK_PATTERNS = [
     # `name() {`, is not a call.
     (re.compile(r"(?<![\w./-])install_staged_script(?![\w-])(?!\s*\(\))"), "install_staged_script"),
     (re.compile(r"(?<![\w./-])fetch_to_file(?![\w-])(?!\s*\(\))"), "fetch_to_file"),
+    # The preflight probe asks only for headers, but it still opens a TLS
+    # session to whatever host it is handed before anything else runs, so a
+    # new call from an unregistered host is as much a new network source as
+    # a download from it would be.
+    (re.compile(r"(?<![\w./-])fetch_host_reachable(?![\w-])(?!\s*\(\))"), "fetch_host_reachable"),
     (re.compile(r"--repofrompath"), "repofrompath"),
     (re.compile(r"https://\S*\.rpm"), "remote-rpm"),
     # The two constructs that give a machine a new package trust root: a DNF

@@ -446,8 +446,9 @@ present, naming the `--no-<component>` flag that would remove it.
 an unregistered `curl`, `wget`, PowerShell download, remote `git clone`/`fetch`,
 `--repofrompath`, remote release RPM, container image, call to one of this
 repository's transfer primitives (`fetch_to_file`, and `install_staged_script`,
-which runs what it fetches), or shell or PowerShell variable assigned a URL, and
-on the three constructs that give the machine a new package trust root: a DNF repository
+which runs what it fetches) or to the `fetch_host_reachable` preflight probe,
+or shell or PowerShell variable assigned a URL, and on the three constructs
+that give the machine a new package trust root: a DNF repository
 added with `dnf config-manager addrepo`, a signing key imported with
 `rpm --import`, however their argument is spelled, a Homebrew tap, a
 package-registry reference, and a PowerShell package verb (`Install-Module`
@@ -486,10 +487,12 @@ therefore all held to the same rule as an installer.
 repository-controlled download, so exempting it would exempt the one file a
 hardcoded URL would do the most damage in. Its primitives take the URL from
 their caller and say so with `# network-source: caller-provided`; the call site
-carries the annotation that names the real source. A call to `fetch_to_file`
-or `install_staged_script` is that call site, flagged exactly as a `curl` line
-is: `install_staged_script` once matched no pattern, so a new installer from an
-unregistered host, and a bogus id above a real one, both passed (#534).
+carries the annotation that names the real source. A call to `fetch_to_file`,
+`install_staged_script` or `fetch_host_reachable` is that call site, flagged
+exactly as a `curl` line is: `install_staged_script` once matched no pattern, so
+a new installer from an unregistered host, and a bogus id above a real one, both
+passed (#534). The preflight probe only asks for headers, but it opens a TLS
+session to the host it is handed all the same.
 
 A Homebrew tap is one of those trust roots. `tap "owner/name"` clones
 `https://github.com/owner/homebrew-name`, and every formula in that clone is
