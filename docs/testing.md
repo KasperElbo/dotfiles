@@ -906,6 +906,58 @@ installer that runs but produces the wrong target.
   another checkout, no `aerospace` on PATH, a Neovim whose configuration does
   not load -- and names every failure it expects rather than counting them.
 
+## Which run is evidence for which commit
+
+`validate.yml` runs on three kinds of event, and each proves a different tree.
+Only the last is release-quality evidence.
+
+| Evidence | What GitHub validated | What it does not prove |
+| --- | --- | --- |
+| Pull-request run | The pull request merged into `main` as `main` stood when the run started (`refs/pull/N/merge`). | The tree that lands, once `main` has moved: two pull requests each green against the old `main` can break it together. |
+| Merge-group run | Nothing: this repository has no merge queue. GitHub offers merge queues only to repositories owned by an organisation, and this one belongs to a personal account. | — |
+| Push run on `main` | The merge commit itself, which is exactly the tree on `main`. | Anything about a later commit. |
+
+**A `main` commit is validated when its own push run concluded `success` with
+every job its `validate.yml` defines succeeding in it.** A run on the branch it
+came from, a run on an earlier or later `main` commit, or a cancelled run is not
+evidence for that commit. Quote that run's URL when claiming a commit passed.
+
+Two things keep that true (#499):
+
+- **A push to `main` is never cancelled.** The workflow's concurrency group is
+  the commit for a push and the branch for a pull request, and only pull-request
+  runs cancel their predecessor. Before this, the group was the branch for both:
+  a merge that landed while the previous merge's run was going cancelled it, and
+  10 of the 40 `main` pushes up to 23 September 2026 kept only a cancelled run.
+  `scripts/validate-repository-hygiene.py` holds the block to that exact shape,
+  because turning `cancel-in-progress` off alone still leaves one pending slot
+  per group, and GitHub cancels the pending run a newer one replaces.
+- **A gap is reported, not waited for.** `.github/workflows/main-evidence.yml`
+  runs `scripts/check-main-evidence.py` after every Validate run on `main` and
+  once a day. It walks `main`'s first-parent history back to the commit that
+  introduced the check and reports every commit without a green run of its own,
+  plus merge rules on `main` that do not require the Validate jobs or an
+  up-to-date branch. A finding fails the job and opens one tracking issue,
+  which is commented on only when the findings change and closed by the first
+  run that finds nothing. A cancelled or failed run can be re-run from its
+  Actions page, which validates the same commit again; a commit GitHub never
+  started a run for cannot, and is covered only by the next commit's run.
+  `tests/test-main-evidence.sh` drives it against a fixture API.
+
+The daily run matters because the other trigger cannot see the one gap it
+exists for: `workflow_run` fires when a run finishes, and a push GitHub never
+started a run for never finishes one.
+
+**Merging should require the four Validate jobs on an up-to-date branch.**
+That is a repository setting, not a file: a `required_status_checks` rule in
+the ruleset on `main` naming `Repository validation`, `Printable cheat sheets`,
+`Windows PowerShell validation` and `macOS 26 arm64 validation`, with
+**Require branches to be up to date before merging** on. With it, a pull
+request can merge only after its run passed against the `main` it will land on,
+so the pull-request run and the push run validate the same tree. The main
+evidence check reports the setting as a finding for as long as it is absent,
+reading it from GitHub's public rules endpoint for the branch.
+
 ## Secret scanning
 
 `./scripts/scan-secrets.sh` is the gate behind the README's claim that nothing
