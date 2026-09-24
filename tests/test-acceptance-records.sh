@@ -371,6 +371,47 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "row has 4 cells, expected 3"
 printf 'PASS: a results row that does not parse fails rather than being skipped\n'
 
+# The verdict agrees with the record's own selection (#539, V5-18). DEM-02
+# applies when `--demo` is selected, and the fixture's command selects only
+# --sway. The obvious contradiction: DEM-02 passed anyway.
+new_tree
+replace_in "$record" '| DEM-02 | not applicable | `--demo` was not selected |' '| DEM-02 | pass | |'
+validate
+assert_failure
+assert_contains "$TEST_OUTPUT" "DEM-02 applies when '\`--demo\` is selected.', which this record's installer command and selected options do not meet"
+printf 'PASS: a pass for an item the record'"'"'s own selection excludes fails\n'
+
+# The subtle one: the command names an option that merely starts with the
+# item's, and the selection turns the item's own option off by name.
+new_tree
+replace_in "$record" '| DEM-02 | not applicable | `--demo` was not selected |' '| DEM-02 | pass | |'
+replace_in "$record" '| Installer command | `./install.sh --platform fedora --sway` |' \
+  '| Installer command | `./install.sh --platform fedora --sway --demo-extras` |'
+replace_in "$record" '| Selected options | theme:macchiato,sway:true |' \
+  '| Selected options | theme:macchiato,sway:true,demo:false |'
+validate
+assert_failure
+assert_contains "$TEST_OUTPUT" 'DEM-02 applies when'
+printf 'PASS: an option that only shares a prefix, or is recorded false, does not select the item\n'
+
+# And the other direction: the option was selected, so "not applicable" is a
+# verdict of convenience. PowerShell spells a switch in any case.
+new_tree
+replace_in "$acceptance/demo.md" '`--demo` is selected' '`-Demo` is selected'
+git -C "$tree" commit --quiet -am "Spell the option the PowerShell way"
+sha="$(git -C "$tree" rev-parse HEAD)"
+rm -- "$record"
+write_record 2026-02-01 "$sha" demo
+replace_in "$record" '| Installer command | `./install.sh --platform fedora --sway` |' \
+  '| Installer command | `.\install.ps1 -demo` |'
+validate
+assert_failure
+assert_contains "$TEST_OUTPUT" "which this record's installer command and selected options meet, so it cannot be 'not applicable'"
+replace_in "$record" '| DEM-02 | not applicable | `--demo` was not selected |' '| DEM-02 | pass | |'
+validate
+assert_success
+printf 'PASS: an item the selection makes applicable cannot be marked not applicable\n'
+
 # --- Nothing personal ------------------------------------------------------
 
 # privacy_case KIND TEXT: TEXT in the notes of an otherwise valid record must
