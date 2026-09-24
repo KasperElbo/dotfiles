@@ -394,4 +394,68 @@ assert_eq '[printf "%s\n" "count: #1"  ]' "$TEST_OUTPUT" \
 
 printf 'PASS: code_line strips the comment and leaves everything else\n'
 
+# --- A `set -e` where Bash ignores it (#539, V5-20) -------------------------
+
+# scripts/validate-errexit-conditions.py reads through this reader, so it is
+# held here: the tree passes, the shape that let a failed tar through to a
+# successful install is refused both as it was and spelled another way, and a
+# heredoc or comment showing the shape is not code.
+errexit_validator="$repo_root/scripts/validate-errexit-conditions.py"
+run_capture python3 "$errexit_validator"
+assert_success
+printf 'PASS: no tracked shell file issues set -e where it is inert\n'
+
+errexit_tree="$TEST_ROOT/errexit"
+mkdir -p "$errexit_tree"
+
+# The obvious mutation: the inert line put back into the real installer body.
+python3 - "$repo_root/common/lib/bootstrap-tools.sh" \
+  "$errexit_tree/bootstrap-tools.sh" <<'PYTHON'
+import pathlib
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+opening = "  if ! (\n    fetch_to_file"
+if opening not in text:
+    raise SystemExit("bootstrap-tools.sh no longer opens the block this mutates")
+text = text.replace(opening, "  if ! (\n    set -euo pipefail\n    fetch_to_file", 1)
+pathlib.Path(sys.argv[2]).write_text(text, encoding="utf-8")
+PYTHON
+run_capture python3 "$errexit_validator" "$errexit_tree/bootstrap-tools.sh"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'bootstrap-tools.sh:'
+assert_contains "$TEST_OUTPUT" 'runs as a condition (`! (`)'
+printf 'PASS: set -euo pipefail back inside the if ! ( block is refused\n'
+
+# The subtle mutation: the same suppression without an `if` in sight. The left
+# side of `||` is a condition too, and `-o errexit` is the same option.
+cat >"$errexit_tree/list.sh" <<'EOF_LIST'
+(
+  set -o errexit
+  tar -xzf "$archive"
+  install -m 0755 -- "$member" "$destination"
+) || die "not installed"
+EOF_LIST
+run_capture python3 "$errexit_validator" "$errexit_tree/list.sh"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'the left side of an `||` list'
+printf 'PASS: set -o errexit in the left side of an || list is refused\n'
+
+# Where errexit does hold, and where the shape is only text, nothing is refused:
+# the last command of a list, a command substitution, a heredoc and a comment.
+cat >"$errexit_tree/accepted.sh" <<'EOF_ACCEPTED'
+ready && (
+  set -e
+  step
+)
+value="$(set -e; step)"
+cat <<'EOF_TEXT'
+if ! ( set -euo pipefail; step ); then
+EOF_TEXT
+# if ! ( set -e; step ); then
+EOF_ACCEPTED
+run_capture python3 "$errexit_validator" "$errexit_tree/accepted.sh"
+assert_success
+printf 'PASS: errexit that holds, and the shape written as text, are accepted\n'
+
 printf 'Shared shell reader tests passed.\n'
