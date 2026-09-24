@@ -6,7 +6,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo_root/tests/lib/test.sh"
 
 test_install_cleanup_trap
-test_isolate_path sha256sum
+test_isolate_path sha256sum timeout
 
 # install_mktemp_mock <bin>: numbered, predictable temp files under the stub
 # root, so exact sudo argv contracts can name them.
@@ -397,6 +397,20 @@ run_scenario() {
   chmod 0644 "$fake_root/etc/selinux/config"
   printf 'firewalld.service\n' >>"$active_units"
   printf 'firewalld.service\n' >>"$enabled_units"
+  # Fedora's own /etc/sudoers, cut down to what sudo -l has to report: a
+  # quoted value with spaces, a value sudo prints with its colons escaped, and
+  # the includedir line last, so the drop-ins' Defaults are read after these
+  # and anything added below that line is read after the drop-ins.
+  printf '%s\n' \
+    'Defaults   !visiblepw' \
+    'Defaults    always_set_home' \
+    'Defaults    env_reset' \
+    'Defaults    env_keep =  "COLORS DISPLAY HOSTNAME HISTSIZE KDEDIR LS_COLORS"' \
+    'Defaults    secure_path = /sbin:/bin:/usr/sbin:/usr/bin' \
+    'root	ALL=(ALL) 	ALL' \
+    '%wheel	ALL=(ALL)	ALL' \
+    '#includedir /etc/sudoers.d' \
+    >"$fake_root/etc/sudoers"
 
   if [[ "$seed_sshd" == "true" ]]; then
     printf 'sshd.service\n' >>"$active_units"
@@ -465,6 +479,7 @@ run_scenario() {
   # reads and stats only; no write form of sudo is ever allowed here, and each
   # one is -n, because verification must never stop on a password prompt.
   test_stub_allow "$test_root" sudo -n true
+  test_stub_allow "$test_root" sudo -n -l
   for owned_path in \
     /etc/security/faillock.conf.d/90-dotfiles-hardening.conf \
     /etc/sudoers.d/90-dotfiles-hardening \
@@ -792,6 +807,114 @@ if [[ "${1:-}" == -n ]]; then
   [[ "${1:-}" != true ]] || exit 0
 fi
 
+# A model of `sudo -l`, not a stub that agrees with everything. It reads the
+# fixture's /etc/sudoers the way sudoers(5) describes it -- #includedir and
+# @includedir expand in place, in lexical order, skipping names that contain a
+# dot or end in ~ -- keeps every Defaults entry that applies to the invoking
+# user (global ones and Defaults:<user>), and prints them in the order read,
+# as sudo does, under its "Matching Defaults entries" header: value quoted
+# only when it holds whitespace, otherwise with sudo's special characters
+# backslash-escaped, the list wrapped with an indent. It never resolves the
+# list itself, so whatever reads it has to apply "the last one wins".
+# MOCK_SUDO_LIST replaces the answer with one of the ways sudo can fail to
+# give it: refused (a non-zero exit), unrecognized (no Defaults section), or
+# hang (no answer at all).
+list_sudo_policy() {
+  local user entries=() line entry out="" width=4
+
+  case "${MOCK_SUDO_LIST:-model}" in
+  model) ;;
+  refused)
+    printf 'Sorry, user %s may not run sudo on fixture.\n' "$(id -un)" >&2
+    exit 1
+    ;;
+  unrecognized)
+    printf 'User %s may run the following commands on fixture:\n' "$(id -un)"
+    printf '    (ALL) ALL\n'
+    exit 0
+    ;;
+  hang)
+    # Detached from the output, so a probe that is killed on time is not
+    # then held open by a sleeping child.
+    sleep 10 </dev/null >/dev/null 2>&1
+    exit 0
+    ;;
+  *) exit 96 ;;
+  esac
+
+  export LC_ALL=C
+  shopt -s nullglob
+  user="$(id -un)"
+
+  split_entries() {
+    local text="$1" char quoted=false current="" i
+    for ((i = 0; i < ${#text}; i++)); do
+      char="${text:i:1}"
+      if [[ "$char" == '"' ]]; then
+        quoted=$([[ "$quoted" == true ]] && echo false || echo true)
+      elif [[ "$char" == , && "$quoted" == false ]]; then
+        entries+=("$current")
+        current=""
+        continue
+      fi
+      current+="$char"
+    done
+    entries+=("$current")
+  }
+
+  read_sudoers() {
+    local file="$1" line scope included name
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" =~ ^[#@]includedir[[:space:]]+([^[:space:]]+) ]]; then
+        for included in "$FAKE_ROOT${BASH_REMATCH[1]}"/*; do
+          name="${included##*/}"
+          [[ "$name" != *~ && "$name" != *.* ]] || continue
+          read_sudoers "$included"
+        done
+        continue
+      fi
+      [[ "$line" =~ ^Defaults(:([^[:space:]]+))?[[:space:]]+(.*)$ ]] || continue
+      scope="${BASH_REMATCH[2]}"
+      [[ -z "$scope" || "$scope" == "$user" ]] || continue
+      split_entries "${BASH_REMATCH[3]}"
+    done <"$file"
+  }
+
+  [[ -f "$FAKE_ROOT/etc/sudoers" ]] || {
+    printf 'sudo: unable to open /etc/sudoers: No such file or directory\n' >&2
+    exit 1
+  }
+  read_sudoers "$FAKE_ROOT/etc/sudoers"
+
+  printf 'Matching Defaults entries for %s on fixture:\n' "$user"
+  for entry in "${entries[@]}"; do
+    entry="$(sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//' <<<"$entry")"
+    if [[ "$entry" =~ ^([A-Za-z_]+)[[:space:]]*([+-]?=)[[:space:]]*(.*)$ ]]; then
+      local setting="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+      local value="${BASH_REMATCH[3]}"
+      value="${value#\"}"
+      value="${value%\"}"
+      if [[ "$value" =~ [[:space:]] ]]; then
+        entry="$setting\"$value\""
+      else
+        entry="$setting$(sed 's/[\\,:=#"]/\\&/g' <<<"$value")"
+      fi
+    fi
+    if ((width + ${#entry} + 2 > 80)); then
+      out+=$',\n    '
+      width=4
+    elif [[ -n "$out" ]]; then
+      out+=', '
+    fi
+    [[ -n "$out" ]] || out='    '
+    out+="$entry"
+    width=$((width + ${#entry} + 2))
+  done
+  printf '%s\n\n' "$out"
+  printf 'User %s may run the following commands on fixture:\n' "$user"
+  printf '    (ALL) ALL\n'
+}
+
 rewrite() {
   case "$1" in
   /etc/* | /var/*) printf '%s' "$FAKE_ROOT$1" ;;
@@ -803,6 +926,10 @@ cmd="$1"
 shift || true
 
 case "$cmd" in
+-l)
+  [[ $# -eq 0 ]] || exit 96
+  list_sudo_policy
+  ;;
 cmp)
   [[ "${1:-}" == -s && $# -eq 3 ]] || exit 96
   left="$(rewrite "$2")"
@@ -987,6 +1114,8 @@ SUDO_EOF
     'faillock policy drop-in is present, mode 644, and unmodified'
   assert_contains "$verify_output" \
     'sudo logfile drop-in is present, mode 440, and unmodified'
+  assert_contains "$verify_output" \
+    "sudo's effective policy has logfile=/var/log/sudo.log"
   assert_contains "$verify_output" \
     'auditd watch rules is present, mode 640, and unmodified'
   assert_contains "$verify_output" \
@@ -1201,6 +1330,85 @@ SUDO_EOF
     assert_not_contains "$TEST_OUTPUT" "sshd's effective configuration has"
     cp -p "$backup" "$sshd_config"
 
+    # 6m-6s. The sudoers drop-in is byte-identical and mode 440 in every case
+    #     below, so each one passes check_owned_root_file; only the policy
+    #     sudo itself reports can tell them apart. sudoers(5) runs the other
+    #     way from sshd: the last Defaults entry read for a setting wins, and
+    #     #includedir reads the directory in lexical order, so anything read
+    #     after 90-dotfiles-hardening overrides it.
+    local sudoers="$fake_root/etc/sudoers"
+    local sudoers_dir="$fake_root/etc/sudoers.d"
+    local sudo_user
+    sudo_user="$(id -un)"
+    cp -p "$sudoers" "$backup"
+
+    # 6m. The obvious one: a later drop-in switches command logging off.
+    install -m 0440 /dev/stdin "$sudoers_dir/99-local" <<<'Defaults !logfile'
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      'sudo logfile drop-in is present, mode 440, and unmodified'
+    assert_contains "$TEST_OUTPUT" \
+      "sudo's effective policy has !logfile, but the hardening drop-in declares logfile=/var/log/sudo.log"
+
+    # 6n. Control: the same file sorting before this profile's drop-in is
+    #     overruled by it, so logging is on and nothing fails. A check that
+    #     looked for `!logfile` anywhere in the listing would fail here.
+    mv -- "$sudoers_dir/99-local" "$sudoers_dir/10-local"
+    run_verify
+    assert_success
+    assert_contains "$TEST_OUTPUT" \
+      "sudo's effective policy has logfile=/var/log/sudo.log"
+    rm -f -- "$sudoers_dir/10-local"
+
+    # 6o. The negation scoped to this user and buried after another entry on
+    #     the line: not a line of its own, not global, and still the last word
+    #     for every command this user runs through sudo.
+    install -m 0440 /dev/stdin "$sudoers_dir/99-local" \
+      <<<"Defaults:$sudo_user env_reset, !logfile"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" "sudo's effective policy has !logfile, but"
+    rm -f -- "$sudoers_dir/99-local"
+
+    # 6p. Logging left on but moved: the expected path is a prefix of the new
+    #     one, so a substring match on the listing takes it for the policy.
+    install -m 0440 /dev/stdin "$sudoers_dir/99-local" \
+      <<<'Defaults logfile="/var/log/sudo.log.off"'
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" \
+      "sudo's effective policy has logfile=/var/log/sudo.log.off, but"
+    rm -f -- "$sudoers_dir/99-local"
+
+    # 6q. The override from /etc/sudoers itself, below its includedir line,
+    #     which is read after every drop-in.
+    printf 'Defaults !logfile\n' >>"$sudoers"
+    run_verify
+    assert_failure
+    assert_contains "$TEST_OUTPUT" "sudo's effective policy has !logfile, but"
+    cp -p "$backup" "$sudoers"
+
+    # 6r. sudo answers but not with a policy: refused outright, or a listing
+    #     with no Defaults section. Neither is a pass, and neither is drift.
+    run_verify MOCK_SUDO_LIST=refused
+    assert_success
+    assert_contains "$TEST_OUTPUT" \
+      'sudo -l could not report the policy sudo applies (exit 1: Sorry, user'
+    assert_not_contains "$TEST_OUTPUT" "sudo's effective policy has"
+    run_verify MOCK_SUDO_LIST=unrecognized
+    assert_success
+    assert_contains "$TEST_OUTPUT" \
+      "sudo -l answered without a 'Matching Defaults entries' section"
+    assert_not_contains "$TEST_OUTPUT" "sudo's effective policy has"
+
+    # 6s. sudo does not answer at all. The probe is bounded, so the run
+    #     finishes and says what it could not see instead of waiting on it.
+    run_verify MOCK_SUDO_LIST=hang HARDENING_PROBE_TIMEOUT=1s
+    assert_success
+    assert_contains "$TEST_OUTPUT" 'sudo -l did not answer within 1s'
+    assert_not_contains "$TEST_OUTPUT" "sudo's effective policy has"
+
     # 6c. Every directive commented out. The file still contains the text of
     #     each policy line, and enforces none of them.
     cp -p "$faillock_dropin" "$backup"
@@ -1314,6 +1522,8 @@ SUDO_EOF
     assert_contains "$TEST_OUTPUT" 'reading the loaded audit rules needs sudo'
     assert_contains "$TEST_OUTPUT" \
       "reading sshd's effective configuration needs sudo"
+    assert_contains "$TEST_OUTPUT" \
+      "reading sudo's effective policy needs sudo"
     assert_contains "$TEST_OUTPUT" "run 'sudo -v' first"
     assert_not_contains "$TEST_OUTPUT" 'is missing:'
     assert_not_contains "$TEST_OUTPUT" 'no longer matches the policy'
