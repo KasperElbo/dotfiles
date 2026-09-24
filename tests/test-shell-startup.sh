@@ -609,17 +609,17 @@ printf 'PASS: startup finishes with a clean exit status\n'
 
 # --- Completion (#157/#168) -------------------------------------------------
 
-compinit_calls="$(grep -c '^[[:space:]]*compinit' "$zshrc" || true)"
+# Read as code, not text: a comment naming a call is not the call (#537).
+compinit_calls="$(code_grep -c '^[[:space:]]*compinit' "$zshrc" || true)"
 assert_eq 1 "$compinit_calls" 'the shared profile must call compinit exactly once'
 # shellcheck disable=SC2016 # Matching the literal text in .zshrc.
-grep -Fq 'compinit -d "$ZSH_COMPDUMP"' "$zshrc" ||
-  _test_die 'compinit must keep using the cached compdump'
+assert_code_contains "$zshrc" 'compinit -d "$ZSH_COMPDUMP"'
 
 for platform_file in \
   "$repo_root"/platforms/*/stow/zsh-platform/.config/zsh/platform.zsh \
   "$repo_root"/platforms/*/stow/zsh-platform/.config/zsh/platform-env.zsh; do
   [[ -f "$platform_file" ]] || continue
-  assert_file_not_contains "$platform_file" 'compinit'
+  assert_code_not_contains "$platform_file" 'compinit'
 done
 printf 'PASS: exactly one cached compinit across shared and platform config\n'
 
@@ -694,7 +694,7 @@ assert_binding xterm-256color "\$'\\eOC'" forward-char 'Right (application)'
 printf 'PASS: plain Left/Right are not captured by the word-motion bindings\n'
 
 # Ctrl-R stays fzf's. The shared config must not bind it at all.
-assert_file_not_contains "$zshrc" "bindkey '^R'"
+assert_code_not_contains "$zshrc" "bindkey '^R'"
 ctrl_r_bare="$(run_zsh bare xterm-256color "bindkey -- '^R'")"
 assert_contains "$ctrl_r_bare" 'history-incremental-search-backward'
 ctrl_r_full="$(run_zsh full xterm-256color "bindkey -- '^R'")"
@@ -811,8 +811,7 @@ run_capture run_zsh bare xterm-256color "untar \"\$DOTFILES_TEST_WORK/missing.ta
 assert_failure
 
 # untar must call the real tar, not re-enter the helper.
-grep -Fq "command tar -xf" "$zshrc" ||
-  _test_die 'untar must invoke command tar'
+assert_code_contains "$zshrc" 'command tar -xf'
 printf 'PASS: the native tar CLI is preserved in full\n'
 
 # --- Initialization order ---------------------------------------------------
@@ -1001,8 +1000,8 @@ printf 'PASS: the theme wrapper refreshes on a partial apply but not on a failur
 # the tool. #168 must not redefine that policy, and its helpers must keep
 # working underneath it.
 parrot_zsh="$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh"
-assert_file_not_contains "$zshrc" 'NOMATCH'
-assert_file_not_contains "$zshrc" 'noglob'
+assert_code_not_contains "$zshrc" 'NOMATCH'
+assert_code_not_contains "$zshrc" 'noglob'
 
 parrot_state="$(
   env -i HOME="$root/home" XDG_CONFIG_HOME="$root/config" \
