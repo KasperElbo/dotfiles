@@ -42,13 +42,18 @@ client. Parrot is a CTF/lab guest, not a general-purpose workstation target.
 The supported Linux bootstraps are Fedora 44 Workstation-class installed
 systems (Fedora Workstation or Fedora KDE Plasma Desktop) and the official
 Fedora distribution running under WSL 2. Minimal, CoreOS, cloud, and container
-images are not workstation bootstrap targets. A supported Fedora workstation
-must provide the normal installed-system foundation: Bash, DNF/RPM, sudo,
-systemd, GNU core utilities, Gawk, findutils, grep, sed, and Git. The installer
-checks that foundation before its first mutation, then explicitly installs
-every remaining baseline provider, including firewalld and GnuPG. The official
-Fedora WSL image additionally owns `wslpath`; Windows owns the explicitly
-invoked `.exe` interop endpoints. The WSL variant is a Linux development
+images are not workstation bootstrap targets. What the installer needs from the
+image is the set of bootstrap prerequisites: Bash, curl, DNF/RPM, sudo and Git,
+with a regular user allowed to use sudo. Before it reads anything else, the
+Fedora base bootstrap installs with DNF whichever of Gawk, GNU core utilities,
+findutils, grep and sed the image lacks -- the official Fedora WSL image ships
+without Gawk -- because the installer runs them before its own package step
+(see [the command-provider closure](../capabilities.md#command-provider-closure)).
+The rest of the foundation it expects the system to have: systemd on a Fedora
+workstation, and `wslpath` from the official Fedora WSL image. The installer
+checks all of it before its first mutation, then explicitly installs every
+remaining baseline provider, including firewalld and GnuPG. Windows owns the
+explicitly invoked `.exe` interop endpoints. The WSL variant is a Linux development
 runtime: it deliberately does not reproduce the Fedora desktop, laptop, GPU or
 virtualization-host setup inside WSL.
 

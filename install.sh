@@ -5,7 +5,14 @@
 # established the repository's supported Bash.
 set -e
 
-repo_root="$(cd "$(dirname "$0")" && pwd)"
+# Found without dirname: on a minimal Fedora image coreutils may be one of the
+# packages the base bootstrap (common/lib/base-bootstrap.sh) has yet to install,
+# so nothing on the way to it may need more than Bash and its prerequisites.
+case "$0" in
+  */*) repo_root="${0%/*}" ;;
+  *) repo_root="." ;;
+esac
+repo_root="$(cd "$repo_root" && pwd)"
 platform="fedora"
 platform_explicit="false"
 rerun="false"
@@ -136,7 +143,7 @@ fi
 # which would otherwise fall back to fedora itself. An explicit --platform
 # always wins and takes the ordinary dispatch below.
 if [ "$help_requested" = "true" ] && [ "$platform_explicit" = "false" ] &&
-  [ "$(uname -s)" = "Darwin" ]; then
+  [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
   exec /bin/bash "$repo_root/scripts/bootstrap-macos.sh" --platform macos "$@"
 fi
 
