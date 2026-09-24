@@ -168,11 +168,15 @@ chmod +x "$user_bin/mise"
 
 cat >"$mock_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
-# The verifier asks both logins for their PATH through a marker. Only the
-# interactive login carries mise's shims, because mise is activated in .zshrc
-# while .zshenv is read by both.
+# The verifier asks both logins for their PATH through a marker. .zshenv is
+# read by both; the zsh package's .zprofile puts mise's shims behind
+# ~/.local/bin in every login, so a login that is not interactive carries them
+# only when this home has that file.
+login_shims=""
+[[ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.zprofile" ]] ||
+  login_shims="$MISE_SHIMS_DIR:"
 case "${1:-}" in
--lc) printf 'login-path:%s\n' "$HOME/.local/bin:/usr/bin:/bin" ;;
+-lc) printf 'login-path:%s\n' "$HOME/.local/bin:$login_shims/usr/bin:/bin" ;;
 *) printf 'login-path:%s\n' "$HOME/.local/bin:$MISE_SHIMS_DIR:$PATH" ;;
 esac
 EOF

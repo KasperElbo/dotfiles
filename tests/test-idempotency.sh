@@ -438,15 +438,23 @@ ln -sf terra-gpg "$mock_bin/gpg"
 rm -- "$mock_bin/zsh"
 cat >"$mock_bin/zsh" <<'EOF'
 #!/usr/bin/env bash
-# A login inherits PATH, and .zshenv puts ~/.local/bin in front of it. Only an
-# interactive login reads .zshrc, which activates mise and so puts the shims
-# ahead of both; a login that is not interactive has no shims at all. That
-# difference is what lets a dnf copy of a mise-owned runtime hide from the
-# interactive probe, so this fixture has to keep it (issue #507, V4-11).
+# A login inherits PATH, and .zshenv puts ~/.local/bin in front of it. Every
+# login then reads the zsh package's .zprofile, which puts mise's shims behind
+# ~/.local/bin when the directory exists; only an interactive login goes on to
+# read .zshrc, which activates mise and so puts it ahead of both. Modelled from
+# the files this home actually has: a home with no .zprofile -- a zsh package
+# stowed before the file existed -- gives a login that is not interactive no
+# shims at all, and that is what lets a dnf copy of a mise-owned runtime hide
+# from the interactive probe (issue #507, V4-11).
+mise_shims="$XDG_DATA_HOME/mise/shims"
 if [[ "${1:-}" == -lc ]]; then
-  login_path="$HOME/.local/bin:$PATH"
+  if [[ -e "${XDG_CONFIG_HOME:-$HOME/.config}/zsh/.zprofile" && -d "$mise_shims" ]]; then
+    login_path="$HOME/.local/bin:$mise_shims:$PATH"
+  else
+    login_path="$HOME/.local/bin:$PATH"
+  fi
 else
-  login_path="$XDG_DATA_HOME/mise/shims:$HOME/.local/bin:$PATH"
+  login_path="$mise_shims:$HOME/.local/bin:$PATH"
 fi
 if [[ "$*" == *'login-path:'* ]]; then
   # The shared verifier library asks for a login PATH through this marker:
@@ -710,11 +718,12 @@ printf 'PASS: Fedora verification reports a Markdown preview with no server\n'
 
 # The mise section asks a login that is not interactive as well, not only the
 # AI verifier: a dnf package of a mise-owned runtime sits in /usr/bin, which
-# every login inherits, and only the interactive one puts mise's shims ahead of
-# it. Before #507 (V4-11) this verifier never asked that login, so the copy
-# every script, cron job and `ssh host node` would run was reported as
-# mise-managed via shim. The shim is what makes the interactive probe pass;
-# the directory stands in for /usr/bin, ahead of the fixture's own commands.
+# every login inherits. Before #507 (V4-11) this verifier never asked that
+# login; once it did, every real Fedora machine failed it, because python,
+# node and tree-sitter are all in /usr/bin there and nothing put mise's shims
+# on that login's PATH (real-install run 35924092083). The zsh package's
+# .zprofile does now. The shim is what makes the interactive probe pass; the
+# directory stands in for /usr/bin, ahead of the fixture's own commands.
 if grep -Fq 'runs a copy of' "$test_root/tmux-drift-verification.log"; then
   printf 'Fedora verification could not ask a non-interactive login on a healthy machine:\n' >&2
   grep -F 'runs a copy of' "$test_root/tmux-drift-verification.log" >&2
@@ -726,13 +735,39 @@ mkdir -p "$dnf_shadow" "$(dirname "$node_shim")"
 cp "$mock_bin/mock-command" "$dnf_shadow/node"
 printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$mock_bin/node" >"$node_shim"
 chmod +x "$node_shim"
+# The machine as the bootstrap stowed it: .zprofile is linked, so the login
+# runs the shim ahead of the dnf copy, and the machine verifies.
+if ! "${bootstrap_environment[@]}" "PATH=$dnf_shadow:$mock_bin:$PATH" \
+  "$repo_root/platforms/fedora/scripts/verify.sh" \
+  >"$test_root/dnf-behind-shims-verification.log" 2>&1; then
+  cat "$test_root/dnf-behind-shims-verification.log" >&2
+  printf 'Fedora verification failed a dnf node that the login shims shadow\n' >&2
+  exit 1
+fi
+if grep -Fq 'resolves outside mise' "$test_root/dnf-behind-shims-verification.log"; then
+  printf 'Fedora verification reported a dnf node that .zprofile puts behind the shims\n' >&2
+  exit 1
+fi
+grep -Fq "$bootstrap_config/zsh/.zprofile -> $(realpath "$repo_root/zsh/.config/zsh/.zprofile")" \
+  "$test_root/dnf-behind-shims-verification.log"
+printf 'PASS: Fedora verification accepts a dnf runtime that the login shims put mise ahead of\n'
+
+# The same machine with .zprofile not linked, which is every machine stowed
+# before the file existed: that login really does run the dnf copy, and both
+# the missing link and the copy are reported, the second naming the repair.
+mv "$bootstrap_config/zsh/.zprofile" "$test_root/withheld-zprofile"
 if "${bootstrap_environment[@]}" "PATH=$dnf_shadow:$mock_bin:$PATH" \
   "$repo_root/platforms/fedora/scripts/verify.sh" \
   >"$test_root/dnf-shadow-verification.log" 2>&1; then
   printf 'Fedora verification accepted a dnf node that a non-interactive login runs\n' >&2
   exit 1
 fi
+mv "$test_root/withheld-zprofile" "$bootstrap_config/zsh/.zprofile"
+grep -Fq "$bootstrap_config/zsh/.zprofile is missing" \
+  "$test_root/dnf-shadow-verification.log"
 grep -Fq "node resolves outside mise in a login that is not interactive: $dnf_shadow/node" \
+  "$test_root/dnf-shadow-verification.log"
+grep -Fq 'restow the zsh package so that file is linked' \
   "$test_root/dnf-shadow-verification.log"
 # The interactive probe must not be what caught it: the shim wins there.
 if grep -Fq 'node resolves outside mise in the configured login PATH' \
