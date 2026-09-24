@@ -32,7 +32,7 @@ sourced-library	644	tests/lib/*.sh	Sourced by the test suites
 stowed-command	755	bin/.local/bin/*	Stowed onto PATH
 stowed-command	755	platforms/*/stow/*/.local/bin/*	Stowed onto PATH by a platform package
 stowed-config	644	zsh/.zshenv	Sourced by every Zsh
-stowed-config	644	zsh/.config/zsh/*	Sourced by every interactive Zsh
+stowed-config	644	zsh/.config/zsh/*	Another file in the Zsh configuration directory, run only by what sources it; a Zsh startup file here needs an exact row
 stowed-config	644	platforms/*/stow/zsh-platform/.config/zsh/*.zsh	Sourced by one platform's Zsh
 stowed-config	644	platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.sh	Sourced by the theme command; docs/workflows/theming.md states the hook contract
 stowed-data	644	fzf/.config/fzf/themes/*.sh	Sourced fzf colour snippet
@@ -74,3 +74,4 @@ platform-command	644	platforms/windows/set-noctty-theme.ps1	Windows Noctty theme
 sourced-library	644	platforms/windows/lib/*.ps1	Dot-sourced by the Windows installer and verifier
 test-entrypoint	644	tests/test-windows-*.ps1	Test suite, run by the windows validation workflow job
 stowed-config	644	zsh/.config/zsh/.zprofile	Sourced by every Zsh login, interactive or not
+stowed-config	644	zsh/.config/zsh/.zshrc	Sourced by every interactive Zsh, after .zprofile when it is also a login shell

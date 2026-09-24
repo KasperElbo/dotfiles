@@ -328,6 +328,45 @@ resolved="$(run_login -lc 'command -v python' "MISE_DATA_DIR=$relocated")"
 assert_eq "$relocated/shims/python" "$resolved" 'MISE_DATA_DIR must decide where the shims are'
 printf 'PASS: the shims directory follows MISE_DATA_DIR\n'
 
+# MISE_SHIMS_DIR names the shims directory outright, and wins over
+# MISE_DATA_DIR, which is the precedence check_mise_owned in
+# common/lib/verify.sh applies. Dropping it from .zprofile passed every suite
+# while a machine that sets it had the shell and the verifier looking in two
+# places, and the verifier telling the user to restow a .zprofile that was
+# linked and working (#539, V5-12).
+explicit_shims="$root/explicit-shims"
+mkdir -p "$explicit_shims"
+printf '#!/bin/sh\nprintf "explicit python\\n"\n' >"$explicit_shims/python"
+chmod +x "$explicit_shims/python"
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+resolved="$(run_login -lc 'command -v python' "MISE_SHIMS_DIR=$explicit_shims")"
+assert_eq "$explicit_shims/python" "$resolved" 'MISE_SHIMS_DIR must decide where the shims are'
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+resolved="$(run_login -lc 'command -v python' "MISE_SHIMS_DIR=$explicit_shims" "MISE_DATA_DIR=$relocated")"
+assert_eq "$explicit_shims/python" "$resolved" 'MISE_SHIMS_DIR must win over MISE_DATA_DIR'
+printf 'PASS: MISE_SHIMS_DIR names the shims directory, ahead of MISE_DATA_DIR\n'
+
+# The startup benchmark measures what a terminal pays, which is a login shell:
+# .zprofile included. It measured `zsh -i` alone and called that the terminal's
+# cost, so anything added to .zprofile was invisible to it (#539, V5-13). Each
+# startup file here records that it ran; one run per shape must read .zprofile
+# exactly once, from the interactive login, and .zshrc twice.
+bench_home="$root/bench-home"
+bench_log="$root/bench.log"
+mkdir -p "$bench_home"
+: >"$bench_log"
+printf 'print -r -- zshenv >>"$BENCH_LOG"\n' >"$bench_home/.zshenv"
+printf 'print -r -- zprofile >>"$BENCH_LOG"\n' >"$bench_home/.zprofile"
+printf 'print -r -- zshrc >>"$BENCH_LOG"\n' >"$bench_home/.zshrc"
+run_capture env -i HOME="$bench_home" BENCH_LOG="$bench_log" TERM=dumb \
+  PATH="$(dirname "$zsh_path"):$sandbox_bin" \
+  "$repo_root/scripts/benchmark-shell-startup.sh" --runs 1
+assert_success
+assert_contains "$TEST_OUTPUT" 'interactive-login  runs=1'
+assert_eq '3 1 2' "$(grep -cx zshenv "$bench_log") $(grep -cx zprofile "$bench_log") $(grep -cx zshrc "$bench_log")" \
+  'one run of each shape reads .zshenv three times, .zprofile once and .zshrc twice'
+printf 'PASS: the startup benchmark measures the login shell a terminal starts\n'
+
 # A machine without mise's shims directory is left alone: nothing is added,
 # the system copy is what runs, and startup stays silent and clean.
 mv "$login_shims" "$root/withheld-login-shims"

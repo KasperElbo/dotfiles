@@ -120,7 +120,7 @@ documentation both read:
 | `config/command-providers.tsv` | The pre-mutation command closure of every bash platform: which capability owns each native command |
 | `config/actions.tsv` | Every repository-defined user action: binding, platform, source, how it is discoverable, and whether a printable sheet carries it |
 | `config/shell-file-roles.tsv` | Every tracked shell file's role and required file mode |
-| `config/tool-floors.tsv` | The minimum version of every tool the repository requires, and what enforces each floor |
+| `config/tool-floors.tsv` | The minimum version of each tool whose floor the repository enforces, and what enforces it; a prerequisite with no row is only checked for presence |
 | `config/terra-keys.tsv` | The reviewed Terra signing-key fingerprint pinned for each Fedora release |
 
 Documentation that states a supported capability, an option, a default or a

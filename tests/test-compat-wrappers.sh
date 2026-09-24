@@ -193,6 +193,53 @@ printf 'PASS: a real wrapper still passes under the same catch-all\n'
 rm -f "$helper"
 "${fixture_git[@]}" git -C "$tree" rm --cached --quiet "scripts/$helper_name"
 
+# A role is a claim the validator checks, not a label it trusts (#539, V5-10).
+roles_fixture="$tree/config/shell-file-roles.tsv"
+cp "$roles_fixture" "$TEST_ROOT/roles.tsv"
+run_roles() {
+  run_capture "${fixture_git[@]}" python3 "$repo_root/scripts/validate-shell-file-roles.py" --root "$tree"
+  cp "$TEST_ROOT/roles.tsv" "$roles_fixture"
+}
+
+# The obvious case: a tracked .zlogin, which the zsh/.config/zsh/* glob used to
+# absorb along with a description ("every interactive Zsh") false for it.
+printf 'echo logged in\n' >"$tree/zsh/.config/zsh/.zlogin"
+"${fixture_git[@]}" git -C "$tree" add zsh/.config/zsh/.zlogin
+run_roles
+assert_failure
+assert_contains "$TEST_OUTPUT" 'zsh/.config/zsh/.zlogin: Zsh reads .zlogin at its own point in startup'
+rm -f "$tree/zsh/.config/zsh/.zlogin"
+"${fixture_git[@]}" git -C "$tree" rm --cached --quiet zsh/.config/zsh/.zlogin
+printf 'PASS: a Zsh startup file a glob would classify needs its own row\n'
+
+# The subtle case: the .zprofile row rewritten as a sourced library with the
+# mode left at 644, so the mode check that caught the 755 spelling has nothing
+# to say. The role implies a lib directory, and .zprofile is not in one.
+sed -i 's|^stowed-config\t644\tzsh/.config/zsh/.zprofile\t|sourced-library\t644\tzsh/.config/zsh/.zprofile\t|' \
+  "$roles_fixture"
+cmp -s "$roles_fixture" "$TEST_ROOT/roles.tsv" && _test_die 'the .zprofile row was not rewritten'
+run_roles
+assert_failure
+assert_contains "$TEST_OUTPUT" "zsh/.config/zsh/.zprofile: classified 'sourced-library'"
+assert_contains "$TEST_OUTPUT" 'is not in a lib directory'
+printf 'PASS: a role that cannot describe where the file lives is refused\n'
+
+# A role outside the closed set, and a role given the other role's mode.
+sed -i 's|^stowed-config\t644\tzsh/.config/zsh/.zprofile\t|startup-file\t644\tzsh/.config/zsh/.zprofile\t|' \
+  "$roles_fixture"
+run_roles
+assert_failure
+assert_contains "$TEST_OUTPUT" "role 'startup-file' is not one of"
+sed -i 's|^stowed-config\t644\tzsh/.zshenv\t|stowed-config\t755\tzsh/.zshenv\t|' "$roles_fixture"
+chmod 755 "$tree/zsh/.zshenv"
+run_roles
+chmod 644 "$tree/zsh/.zshenv"
+assert_failure
+assert_contains "$TEST_OUTPUT" "rule 'zsh/.zshenv': the stowed-config role requires mode 644, not 755"
+run_roles
+assert_success
+printf 'PASS: roles are a closed set, and each fixes its mode\n'
+
 # --- Responsibility-revealing names, with no stale references ---------------
 
 # Only the two paths that no longer exist are searched for. The surviving

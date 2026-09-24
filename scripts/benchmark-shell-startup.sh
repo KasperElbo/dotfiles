@@ -8,12 +8,21 @@ set -euo pipefail
 # timing is machine- and load-dependent, and a timing assertion in the fast
 # mocked suite would be a flaky gate rather than evidence.
 #
-# It measures two shapes that behave very differently:
+# It measures three shapes that behave very differently:
 #
-#   interactive      zsh -i -c exit   .zshenv + .zshrc, the cost a new
-#                                     terminal tab actually pays
-#   non-interactive  zsh -c exit      .zshenv only, the cost every script
-#                                     and every tool subshell pays
+#   interactive-login  zsh -l -i -c exit  .zshenv + .zprofile + .zshrc, the
+#                                         cost a new terminal window or tab
+#                                         actually pays: a terminal starts a
+#                                         login shell (see .zshrc)
+#   interactive        zsh -i -c exit     .zshenv + .zshrc, a shell started
+#                                         inside one, which skips .zprofile
+#   non-interactive    zsh -c exit        .zshenv only, the cost every script
+#                                         and every tool subshell pays
+#
+# This used to call the second shape the terminal's cost. The two differ only
+# by .zprofile, about 0.1 ms today, but that is exactly where the next login
+# PATH change goes, and measuring the non-login shape alone would never have
+# seen it (#539).
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
@@ -22,6 +31,7 @@ repo_root="$(cd -- "$script_dir/.." && pwd)"
 source "$repo_root/common/lib/common.sh"
 
 runs=20
+interactive_login_threshold_ms=0
 interactive_threshold_ms=0
 non_interactive_threshold_ms=0
 
@@ -31,6 +41,7 @@ Usage: ./scripts/benchmark-shell-startup.sh [options]
 
 Options:
   --runs N                  Measurements per shape (default: 20)
+  --interactive-login-ms N  Fail if the interactive login median exceeds N ms
   --interactive-ms N        Fail if the interactive median exceeds N ms
   --non-interactive-ms N    Fail if the non-interactive median exceeds N ms
   -h, --help                Show this help
@@ -45,6 +56,11 @@ while (($#)); do
   --runs)
     [[ $# -ge 2 ]] || die '--runs requires a value'
     runs="$2"
+    shift 2
+    ;;
+  --interactive-login-ms)
+    [[ $# -ge 2 ]] || die '--interactive-login-ms requires a value'
+    interactive_login_threshold_ms="$2"
     shift 2
     ;;
   --interactive-ms)
@@ -67,7 +83,8 @@ while (($#)); do
   esac
 done
 
-for value in "$runs" "$interactive_threshold_ms" "$non_interactive_threshold_ms"; do
+for value in "$runs" "$interactive_login_threshold_ms" "$interactive_threshold_ms" \
+  "$non_interactive_threshold_ms"; do
   [[ "$value" =~ ^[0-9]+$ ]] || die "Expected a non-negative integer, got: $value"
 done
 ((runs > 0)) || die '--runs must be at least 1'
@@ -112,7 +129,7 @@ summarize() {
   for sample in "${sorted[@]}"; do total=$((total + sample)); done
   median="${sorted[$((${#sorted[@]} / 2))]}"
 
-  printf '%-16s runs=%-4s min=%-6s median=%-6s max=%-6s mean=%s\n' \
+  printf '%-18s runs=%-4s min=%-6s median=%-6s max=%-6s mean=%s\n' \
     "$label" "$runs" "${sorted[0]}" "$median" "${sorted[-1]}" \
     "$((total / ${#sorted[@]}))"
 
@@ -125,6 +142,7 @@ summarize() {
 info "Benchmarking Zsh startup ($runs runs per shape, milliseconds)"
 
 status=0
+summarize interactive-login "$interactive_login_threshold_ms" zsh -l -i -c exit || status=1
 summarize interactive "$interactive_threshold_ms" zsh -i -c exit || status=1
 summarize non-interactive "$non_interactive_threshold_ms" zsh -c exit || status=1
 
