@@ -60,7 +60,9 @@ third="$(commit_at '2026-09-24T11:50:00+00:00' 'lands ten minutes ago')"
 # fixture <rules> <sha>=<state>...: the API as this suite needs it.
 #   state: green | cancelled | running | none | nobeta (a green run missing
 #          the `beta` job)
-#   rules: strict | loose | none | partial
+#   rules: strict | loose | none | partial | orphan (also requires `gamma job`,
+#          which no job provides) | keyed (also requires `beta`, the job's key
+#          rather than the name its status is reported under)
 fixture() {
   python3 - "$fixture" "$@" <<'PYTHON'
 import json
@@ -70,7 +72,11 @@ import urllib.parse
 path, rules, *commits = sys.argv[1:]
 repository = "KasperElbo/dotfiles"
 responses = {}
-contexts = ["alpha job", "beta job"] if rules != "partial" else ["alpha job"]
+contexts = {
+    "partial": ["alpha job"],
+    "orphan": ["alpha job", "beta job", "gamma job"],
+    "keyed": ["alpha job", "beta job", "beta"],
+}.get(rules, ["alpha job", "beta job"])
 if rules == "none":
     responses[f"/repos/{repository}/rules/branches/main"] = [{"type": "deletion"}]
 else:
@@ -187,6 +193,25 @@ check
 assert_failure
 assert_contains "$TEST_OUTPUT" 'does not require the branch to be up to date first'
 printf 'PASS: rules that do not require an up-to-date branch are reported\n'
+
+# The other direction (#538): a context the rules require that no job in the
+# tip's validate.yml provides. It is what a deleted or renamed job leaves
+# behind, and it made "every job is required" read the same as "one required
+# check proves nothing".
+fixture orphan "$third=green" "$second=green" "$first=green"
+check
+assert_failure
+assert_contains "$TEST_OUTPUT" 'merging into main requires `gamma job`, which no job in validate.yml provides; it was renamed or deleted, and the rule now proves nothing'
+assert_not_contains "$TEST_OUTPUT" '`alpha job`, which'
+printf 'PASS: a required context no job provides is named\n'
+
+# GitHub reports a job under its name, so a rule naming the job's key waits on
+# a context that never arrives, though the key is right there in the workflow.
+fixture keyed "$third=green" "$second=green" "$first=green"
+check
+assert_failure
+assert_contains "$TEST_OUTPUT" 'merging into main requires `beta`, which no job in validate.yml provides'
+printf "PASS: a rule naming a job's key rather than its name is reported\n"
 
 # --- Refusals ---------------------------------------------------------------
 

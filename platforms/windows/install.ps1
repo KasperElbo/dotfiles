@@ -54,6 +54,7 @@ $NocttyBucketUrl = $WindowsManifest.Scoop.NocttyBucket.Url
 $ExtrasBucketUrl = $WindowsManifest.Scoop.ExtrasBucket.Url
 $ScoopInstallerCommit = $WindowsManifest.Scoop.InstallerCommit
 $ScoopInstallerSha256 = $WindowsManifest.Scoop.InstallerSha256
+# network-source: wsl-distribution-catalog
 $WslDistributionCatalogUrl = 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json'
 $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $GhosttyConfig = Join-Path $RepositoryRoot 'ghostty\.config\ghostty\shared.conf'

@@ -194,6 +194,56 @@ assert_failure
 assert_contains "$TEST_OUTPUT" "\`--smoke-test\` is not an option of --platform macos"
 printf 'PASS: a transient control the platform rejects fails\n'
 
+# An installer command line that names no platform used to be read by nothing,
+# so a renamed flag in `./install.sh --flag` rotted silently (#539, V5-04).
+# add_doc_line <text>: append one line to the fixture page and stage it.
+add_doc_line() {
+  printf '\n%s\n' "$1" >>"$tree/docs/platforms/fedora.md"
+  git -C "$tree" add -A
+}
+
+# The obvious drift: a flag no platform declares, on the root installer.
+new_tree
+add_doc_line 'Run `./install.sh --nonexistent-flag` to enable widgets.'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '`--nonexistent-flag` is not an option of ./install.sh on any platform'
+printf 'PASS: an undeclared flag on an installer line without --platform fails\n'
+
+# The subtle one: a real flag, on the installer of a platform that does not
+# declare it, and the root installer's --rerun passed to a platform directly.
+new_tree
+add_doc_line 'Or run `platforms/macos/install.sh --kde` directly.'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '`--kde` is not an option of platforms/macos/install.sh'
+new_tree
+add_doc_line 'Or run `./platforms/fedora/install.sh --rerun` directly.'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '`--rerun` is not an option of platforms/fedora/install.sh'
+printf 'PASS: a flag on a platform installer that platform does not declare fails\n'
+
+# What those entry points really accept passes, and a comment is not a flag.
+new_tree
+add_doc_line '`./install.sh --rerun --dry-run   # --anything in a comment is prose`'
+add_doc_line '`./install.sh --kde --non-interactive` or `platforms/fedora/install.sh --no-kde --dry-run`'
+run_capture python3 "$validator" --root "$tree"
+assert_success
+printf 'PASS: declared and transient flags on either entry point are accepted\n'
+
+# A backticked word written as a capability must be one.
+new_tree
+printf 'capability\tplatform\nkde\tfedora\n' >"$tree/config/capabilities.tsv"
+add_doc_line 'The `kde` capability is installed by default on Fedora.'
+run_capture python3 "$validator" --root "$tree"
+assert_success
+add_doc_line 'The `widgets` capability is installed by default on Fedora.'
+run_capture python3 "$validator" --root "$tree"
+assert_failure
+assert_contains "$TEST_OUTPUT" '`widgets` is written as a capability, but config/capabilities.tsv has no such capability'
+printf 'PASS: a capability name the registry does not hold fails\n'
+
 # --- Generated documentation must be current -------------------------------
 
 matrix="$repo_root/docs/reference/capability-matrix.md"
@@ -614,7 +664,7 @@ conventions="$repo_root/docs/architecture/repository-conventions.md"
 assert_file_contains "$conventions" "## Generated artifacts"
 while read -r renderer; do
   assert_file_contains "$conventions" "scripts/$renderer"
-done < <(grep -o 'scripts/render-[a-z-]*\.py' "$repo_root/scripts/lint.sh" |
+done < <(code_grep -o 'scripts/render-[a-z-]*\.py' "$repo_root/scripts/lint.sh" |
   sed 's|scripts/||' | sort -u)
 assert_file_contains "$conventions" "scripts/update-starship-themes.sh"
 printf 'PASS: every generator lint runs is in the generated-artifact list\n'
@@ -647,6 +697,66 @@ assert_file_contains "$repo_root/docs/README.md" "## Document roles"
 assert_file_contains "$repo_root/docs/README.md" "reference/capability-matrix.md"
 assert_file_contains "$repo_root/docs/README.md" "cheatsheets/"
 printf 'PASS: the documentation index states the document roles\n'
+
+# --- The Windows coverage table names every gate (#539, V5-02) --------------
+#
+# Most gates cover the four Bash platforms and not the Windows host, on
+# purpose. docs/testing.md states that per gate; a gate added without a row
+# would put the decision back into one file nobody reads for it.
+windows_coverage() {
+  python3 - "$1" "$2" <<'PY_COVERAGE'
+import pathlib
+import re
+import sys
+
+page, scripts = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+lines = page.read_text(encoding="utf-8").splitlines()
+try:
+    start = lines.index("### What the gates cover on Windows")
+except ValueError:
+    raise SystemExit(f"{page}: no 'What the gates cover on Windows' section")
+rows = {}
+for line in lines[start + 1:]:
+    if line.startswith("#"):
+        break
+    match = re.match(r"^\| `scripts/([a-z-]+\.py)` \| ([^|]+?) \|", line)
+    if match:
+        rows[match.group(1)] = match.group(2)
+problems = []
+gates = sorted(path.name for pattern in ("validate-*.py", "render-*.py") for path in scripts.glob(pattern))
+for gate in gates:
+    if gate not in rows:
+        problems.append(f"scripts/{gate} has no row in the Windows coverage table")
+for gate, answer in rows.items():
+    if gate not in gates:
+        problems.append(f"the Windows coverage table lists scripts/{gate}, which is not a gate")
+    if answer not in {"Yes", "No", "Partly", "Not applicable"}:
+        problems.append(f"scripts/{gate}: {answer!r} is not Yes, No, Partly or Not applicable")
+print("\n".join(problems))
+raise SystemExit(1 if problems else 0)
+PY_COVERAGE
+}
+run_capture windows_coverage "$repo_root/docs/testing.md" "$repo_root/scripts"
+assert_success
+coverage_scratch="$TEST_ROOT/windows-coverage"
+mkdir -p "$coverage_scratch/scripts"
+cp "$repo_root"/scripts/validate-*.py "$repo_root"/scripts/render-*.py "$coverage_scratch/scripts/"
+# The obvious drift: a new gate with no row. Its name is composed, because the
+# hygiene gate refuses a tracked file naming a repository path that does not
+# exist.
+new_gate="validate-new-gate"
+: >"$coverage_scratch/scripts/$new_gate.py"
+run_capture windows_coverage "$repo_root/docs/testing.md" "$coverage_scratch/scripts"
+assert_failure
+assert_contains "$TEST_OUTPUT" "scripts/$new_gate.py has no row in the Windows coverage table"
+rm -f -- "$coverage_scratch/scripts/$new_gate.py"
+# The subtle one: the row is there, and answers nothing.
+sed 's/^| `scripts\/validate-actions.py` | No |/| `scripts\/validate-actions.py` | Unclear |/' \
+  "$repo_root/docs/testing.md" >"$coverage_scratch/testing.md"
+run_capture windows_coverage "$coverage_scratch/testing.md" "$coverage_scratch/scripts"
+assert_failure
+assert_contains "$TEST_OUTPUT" "scripts/validate-actions.py: 'Unclear' is not Yes, No, Partly or Not applicable"
+printf 'PASS: every gate states whether the Windows host is inside it\n'
 
 # --- The README is an entry point, not the manual --------------------------
 

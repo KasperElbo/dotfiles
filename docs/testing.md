@@ -17,6 +17,7 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 | --- | --- | --- |
 | ShellCheck | any version supporting `-S warning` (`./scripts/lint.sh` pins the severity threshold so info-level notes never fail CI on version drift) | `./scripts/lint.sh` |
 | Neovim (`nvim`) | >= 0.12 | `./scripts/test.sh` preflight and the Neovim/editor suites |
+| Bash (`bash`) | >= 4.4 | every entry point and suite; `./scripts/test.sh` preflight, and the macOS bootstrap re-executes under one |
 | zsh | any recent release | shell-startup and profile suites |
 | GNU Stow (`stow`) | any recent release | install/stow suites |
 | OpenSSH client tools (`ssh`, `scp`, `sftp`) | any recent release | SFTP/remote-access suites |
@@ -25,7 +26,7 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 | ripgrep (`rg`) | any recent release | `./scripts/test.sh` preflight and search-based checks |
 | lazy.nvim | the revision [`nvim-lazyvim/.config/nvim/lazy-lock.json`](../nvim-lazyvim/.config/nvim/lazy-lock.json) pins | `./scripts/test.sh` preflight and the Neovim spec-resolution suite. A checkout, not a command — see below |
 
-`./scripts/test.sh` also preflights `awk`, `bash`, `curl`, `find`, `getent`,
+`./scripts/test.sh` also preflights `awk`, `curl`, `find`, `getent`,
 `git`, `grep`, `mktemp`, `sed`, `sha256sum`, `timeout` and `unlink`, which are
 assumed already present on any supported development machine. The list is the
 whole set the default suites reach for, not the memorable part of it: a command
@@ -55,14 +56,20 @@ backend-qualified, and the version is a prefix rather than an exact number, so
 a pin of `3` provisions the newest 3.x and satisfies the floor above. A pin the
 check cannot interpret fails the build rather than being skipped.
 
-Two minimums this repository enforces are deliberately stated where they are
-enforced instead, because neither is a tool the toolchain provisions or
-preflights. The Bash minimum in
-[`scripts/bootstrap-macos.sh`](../scripts/bootstrap-macos.sh) and
-[`common/lib/modern-bash.sh`](../common/lib/modern-bash.sh) is the interpreter
-every other check runs under, decided before a shared library can be sourced
-and while the shell is still Apple's 3.2, so it cannot read a registry whose
-reader it would have to start first. The kernel minimum in
+The Bash floor is in the registry, but four of its consumers cannot read it:
+[`scripts/bootstrap-macos.sh`](../scripts/bootstrap-macos.sh),
+[`common/lib/modern-bash.sh`](../common/lib/modern-bash.sh),
+`scripts/install-main.sh` and `platforms/macos/install.sh` decide it while the
+shell may still be Apple's 3.2, before the reader library -- which needs the
+Bash in question -- can be sourced. So each compares `BASH_VERSINFO` itself,
+and the validator evaluates every such comparison for the version it actually
+admits and holds that, and every message or constant restating the number, to
+the row. A comparison outside the tests in a file the row does not name is
+refused, so a fifth copy cannot drift unseen.
+
+One minimum this repository enforces is deliberately stated where it is
+enforced instead, because it is not a tool the toolchain provisions or
+preflights. The kernel minimum in
 [`platforms/fedora/scripts/install-asus-hardware.sh`](../platforms/fedora/scripts/install-asus-hardware.sh)
 belongs to the distribution rather than to this repository, which can refuse to
 enable the hardware but cannot raise it.
@@ -402,9 +409,9 @@ the terminal actually emits one of the bound sequences — press `Home`, `End`,
 `Delete`, `Ctrl+Left`, `Ctrl+Right` and prefix-filtered `Up`/`Down` once in
 that terminal.
 
-`./scripts/benchmark-shell-startup.sh` measures interactive and
-non-interactive startup and can enforce a budget with `--interactive-ms` /
-`--non-interactive-ms`. It is deliberately **not** in `./scripts/test.sh`:
+`./scripts/benchmark-shell-startup.sh` measures interactive login,
+interactive and non-interactive startup and can enforce a budget with
+`--interactive-login-ms`, `--interactive-ms` / `--non-interactive-ms`. It is deliberately **not** in `./scripts/test.sh`:
 wall-clock timing is machine- and load-dependent, so a timing assertion in the
 fast suite would be a flaky gate rather than evidence.
 
@@ -653,6 +660,16 @@ The reader enforces its own floor: every file the old `*.sh` glob matched must
 still be in the set it returns, or it fails rather than printing a shorter
 list, so a regression in the reader cannot quietly narrow coverage back.
 
+The files Zsh reads are a set of their own, `list-shell-files.py --zsh`: every
+tracked `.zsh` file, every file named as a Zsh startup file (`.zshenv`,
+`.zprofile`, `.zshrc`, `.zlogin`, `.zlogout`) and every file with a `zsh`
+shebang. Neither `bash -n` nor ShellCheck can parse Zsh, and for as long as
+that was the reason to leave them out nothing parsed them at all: an
+unterminated `[[` at the top of the Fedora WSL `platform-env.zsh`, which strips
+Windows' `/mnt/<drive>` entries from `PATH` in every shell, passed lint and
+every suite (issue #536, V5-08). The gate runs `zsh -f -n` on each, and prints
+`SKIP` rather than passing when `zsh` is not installed.
+
 `tests/test-lint-file-selection.sh` proves the effect rather than the wiring.
 It breaks each extensionless program in a scratch copy of the tree and runs the
 real entry point against it, and it records the argv ShellCheck is actually
@@ -661,8 +678,50 @@ set that looks right in one place and is narrower in another. It also asserts
 that removing the session command's row from `config/shell-file-roles.tsv`
 fails validation: `governed()` claims any `platforms/*/assets/*` file carrying
 a shell shebang, so that program's mode is somebody's responsibility too.
+It breaks three Zsh files the same way -- as the first line of the file no
+suite sources, as the last line of one that a suite does source, and in
+`.zprofile`, which has no extension -- and checks that lint names each one, and
+that a machine without Zsh reports the check as skipped.
 
-### Every verify check is proven able to fail
+### What the gates cover on Windows
+
+Four platforms run the Bash installer; the fifth, the Windows host, is
+installed and verified by PowerShell. Most mechanical gates read Bash and so
+cover the four, which is deliberate rather than an oversight, and this table is
+where that decision is written down instead of being a property of each file
+(#539). `tests/test-documentation.sh` requires a row here for every
+`scripts/validate-*.py` and `scripts/render-*.py`.
+
+| Gate | Windows inside it | What covers Windows instead, or why nothing needs to |
+| --- | --- | --- |
+| `scripts/validate-acceptance-records.py` | Yes | `windows-host.md` is a checklist like the others |
+| `scripts/validate-actions.py` | No | The action registry is the Bash platforms'. The one Windows command, `set-noctty-theme.ps1`, has its flavours held by `config/option-consumers.tsv` and its existence and mode by `config/shell-file-roles.tsv` |
+| `scripts/validate-capabilities.py` | Yes | Windows capability rows, `verify.ps1` and the PowerShell suites |
+| `scripts/validate-check-outcomes.py` | No | `verify.ps1` writes no trace; `tests/test-windows-verifier.ps1` asserts its failure paths directly |
+| `scripts/validate-command-provider-closure.py` | No | The pre-mutation command closure is a Bash installer's; `install.ps1` runs on a stock Windows |
+| `scripts/validate-docs.py` | Yes | Every page, the Windows ones included |
+| `scripts/validate-errexit-conditions.py` | Not applicable | It reads Bash for a `set -e` Bash ignores; PowerShell has no errexit to suppress |
+| `scripts/validate-install-options.py` | Partly | The Bash installers' parsers; `install.ps1`'s switches are its own `param` block, exercised by `tests/test-windows-bootstrap.ps1`, and the theme script's `ValidateSet` is a registered option consumer |
+| `scripts/validate-library-guards.py` | Not applicable | `common/lib` is Bash; the PowerShell libraries are dot-sourced by path |
+| `scripts/validate-neovim-plugin-specs.py` | Not applicable | Neovim runs inside the WSL distribution, which is the Fedora WSL platform |
+| `scripts/validate-network-sources.py` | Yes | PowerShell downloads carry the same annotations |
+| `scripts/validate-pin-freshness.py` | Yes | The Scoop installer pin in `manifest.psd1` |
+| `scripts/validate-plan-network.py` | No | Execution plans are the Bash installers'; `install.ps1` has none |
+| `scripts/validate-repository-hygiene.py` | Yes | PowerShell path references and the static-analysis step |
+| `scripts/validate-shell-file-roles.py` | Yes | Every `.ps1` has a role and mode |
+| `scripts/validate-symlink-checks.py` | No | Windows configuration is copied, not stowed, so there is no symlink to check |
+| `scripts/validate-tool-floors.py` | No | The floors are the Bash toolchain's; the Windows host uses what Windows ships |
+| `scripts/render-action-reference.py` | No | Rendered from the action registry above |
+| `scripts/render-capability-matrix.py` | Yes | Windows has its own column |
+| `scripts/render-file-ownership.py` | No | Stow packages and Bash machine-local state |
+| `scripts/render-install-flows.py` | No | Rendered from the Bash installers |
+| `scripts/render-installer-options.py` | No | Rendered from `config/install-options.tsv`, which holds no Windows rows |
+| `scripts/render-installer-usage.py` | No | The same manifest |
+| `scripts/render-package-ownership.py` | No | Package managers of the Bash platforms; Scoop's one package is in `manifest.psd1` |
+| `scripts/render-supply-chain.py` | Yes | Rendered from the network-source registry, Windows sources included |
+| `scripts/render-verifier-reference.py` | Yes | Windows has its own section |
+
+### Every Bash verify check is proven able to fail
 
 Every other gate here reads files. This one cannot, and that is the whole
 point: whether a `check_*` call site is able to fail is a statement about what
@@ -937,7 +996,9 @@ Two things keep that true (#499):
   once a day. It walks `main`'s first-parent history back to the commit that
   introduced the check and reports every commit without a green run of its own,
   plus merge rules on `main` that do not require the Validate jobs or an
-  up-to-date branch. A finding fails the job and opens one tracking issue,
+  up-to-date branch, or that require a check no job in the tip's
+  `validate.yml` provides, which is what a renamed or deleted job leaves
+  behind. A finding fails the job and opens one tracking issue,
   which is commented on only when the findings change and closed by the first
   run that finds nothing. A cancelled or failed run can be re-run from its
   Actions page, which validates the same commit again; a commit GitHub never
@@ -948,6 +1009,14 @@ The daily run matters because the other trigger cannot see the one gap it
 exists for: `workflow_run` fires when a run finishes, and a push GitHub never
 started a run for never finishes one.
 
+**A green `main-evidence` run means the jobs the workflow currently defines
+and the checks the branch rules name are the same set, with an up-to-date
+branch required. It does not mean the merge rules are correct.** The rules are a repository setting,
+editable in a web form with no commit, diff or review, and the check reads
+them through an API whose handling here is only ever proved against fixtures
+this repository wrote. It can show the text of `validate.yml` and the rules
+GitHub returned agree; it cannot show GitHub enforced them on any merge.
+
 **Merging should require the four Validate jobs on an up-to-date branch.**
 That is a repository setting, not a file: a `required_status_checks` rule in
 the ruleset on `main` naming `Repository validation`, `Printable cheat sheets`,
@@ -957,6 +1026,14 @@ request can merge only after its run passed against the `main` it will land on,
 so the pull-request run and the push run validate the same tree. The main
 evidence check reports the setting as a finding for as long as it is absent,
 reading it from GitHub's public rules endpoint for the branch.
+
+`REQUIRED_JOBS` in `scripts/validate-repository-hygiene.py` is the one list of
+those four jobs and their names. `validate.yml` has to define exactly them,
+none carrying an `if:` or `continue-on-error` or waiting on a job with an
+`if:`, because GitHub counts a skipped job as a passing required check. The job
+table under [Fast PR validation](#fast-pr-validation) and the paragraph above
+have to name the same jobs, so renaming one fails lint until the list, this
+page and the ruleset change together.
 
 ## Secret scanning
 
@@ -1071,6 +1148,10 @@ bootstrap, login-shell, package-provider, lifecycle, Neovim bootstrap, VM
 boundary or platform installer code are reviewed against the latest real-install
 run before a release rather than against their own checks.
 
+That bound is watched, not assumed: the
+[real-install evidence check](#self-hosted-runner-contracts) reports any job
+whose newest success is older than its allowed age, the hosted four included.
+
 Revisit this only if a real-install run actually catches something the mocked
 tier missed, or if the gap between a merge and its evidence starts costing more
 than the runner time would. Until then, the weekly cadence is the decision, and
@@ -1126,17 +1207,27 @@ installation are present, because evidence gathered on top of them is a rerun,
 not a first install. After the idempotent rerun the verifier runs again, as it
 does in the WSL job.
 
-Neither job runs on the weekly schedule, so each Monday
-`.github/workflows/self-hosted-evidence.yml` runs
-`scripts/check-self-hosted-evidence.py`, which finds each self-hosted job's
-newest successful dispatched run on a commit main contains. When one is more
-than 30 days old, or there is none, it opens the issue "Self-hosted real-install
-jobs have not succeeded this month", and the first run that finds both current
-closes it. Its report, in the run's summary, gives each job's last success date,
-commit and how far behind main that commit is. Clearing it means dispatching
-real-install.yml on main with `run_self_hosted_wsl` and
-`run_self_hosted_parrot` set, with the WSL runner up and the Parrot guest
-reverted to its clean snapshot.
+Neither job runs on the weekly schedule, and the hosted four are only as
+current as the schedule that runs them, so each Monday
+`.github/workflows/real-install-evidence.yml` runs
+`scripts/check-real-install-evidence.py`. It finds, for every job in
+`real-install.yml`, the newest scheduled or dispatched run in which that job
+succeeded on a commit main contains, and holds it to the job's age in the
+script's `MAX_AGE_DAYS` table: ten days for the four hosted jobs, which allows
+one missed Sunday and reports the second, and 30 days for the two self-hosted
+ones. The table has to name exactly the workflow's jobs, so which jobs are
+watched never depends on a runner label, and adding, renaming or deleting a job
+without changing the table fails `tests/test-real-install-evidence.sh`. When a
+job is older than its age, or has no success at all, the check opens the issue
+"Real-install jobs have not succeeded recently", and the first run that finds
+every job current closes it. Its report, in the run's summary, gives each job's
+last success date, commit and how far behind main that commit is. Clearing a
+hosted job means finding out why its schedule stopped going green; clearing a
+self-hosted one means dispatching real-install.yml on main with
+`run_self_hosted_wsl` and `run_self_hosted_parrot` set, with the WSL runner up
+and the Parrot guest reverted to its clean snapshot. The two label lists above
+are pinned, exactly, by `tests/test-self-hosted-jobs.sh`, which reads both
+jobs' `runs-on` from the workflow and this page's label blocks.
 
 ## Manual acceptance records
 

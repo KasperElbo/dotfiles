@@ -20,7 +20,7 @@ roles="$repo_root/config/shell-file-roles.tsv"
 deprecated_wrappers() {
   local wrapper target
   for wrapper in "$repo_root"/scripts/*.sh; do
-    grep -Fq 'deprecated_wrapper "' "$wrapper" || continue
+    code_grep -Fq 'deprecated_wrapper "' "$wrapper" || continue
     # shellcheck disable=SC2016 # The sed script matches literal shell text.
     target="$(sed -n 's|^exec "\$repo_root/\(.*\)" "\$@"$|\1|p' "$wrapper")"
     printf '%s\t%s\n' "${wrapper##*/}" "$target"
@@ -86,7 +86,7 @@ printf 'PASS: every wrapper announces its own path\n'
 
 # --- The window is one decision, in one place -------------------------------
 
-assert_file_contains "$repo_root/common/lib/deprecation.sh" 'DOTFILES_DEPRECATION_REMOVAL_DATE='
+assert_code_contains "$repo_root/common/lib/deprecation.sh" 'DOTFILES_DEPRECATION_REMOVAL_DATE='
 removal_date="$(
   sed -n 's/^DOTFILES_DEPRECATION_REMOVAL_DATE="\(.*\)"$/\1/p' \
     "$repo_root/common/lib/deprecation.sh"
@@ -97,8 +97,8 @@ if [[ "$removal_date" < "$(date -u +%F)" ]]; then
   _test_die "the deprecation window has expired ($removal_date); removal is now a separate change"
 fi
 for wrapper in "$repo_root"/scripts/*.sh; do
-  grep -Fq 'deprecated_wrapper "' "$wrapper" || continue
-  grep -Fq "$removal_date" "$wrapper" &&
+  code_grep -Fq 'deprecated_wrapper "' "$wrapper" || continue
+  code_grep -Fq "$removal_date" "$wrapper" &&
     _test_die "${wrapper##*/} hard-codes the removal date instead of sharing one constant"
 done
 printf 'PASS: the removal milestone (%s) lives in exactly one place\n' "$removal_date"
@@ -108,10 +108,10 @@ printf 'PASS: the removal milestone (%s) lives in exactly one place\n' "$removal
 for portable in install-ai install-mise install-neovim-tools install-tmux-theme verify-ai; do
   wrapper="$repo_root/scripts/$portable.sh"
   [[ -f "$wrapper" ]] || _test_die "scripts/$portable.sh is missing"
-  if grep -Fq 'deprecated_wrapper' "$wrapper"; then
+  if code_grep -Fq 'deprecated_wrapper' "$wrapper"; then
     _test_die "scripts/$portable.sh forwards to a portable common/ script and must not be deprecated"
   fi
-  grep -Fq 'common/' "$wrapper" ||
+  code_grep -Fq 'common/' "$wrapper" ||
     _test_die "scripts/$portable.sh must forward to its common/ implementation"
 done
 printf 'PASS: portable aliases for common/ scripts are not marked deprecated\n'
@@ -192,6 +192,53 @@ assert_success
 printf 'PASS: a real wrapper still passes under the same catch-all\n'
 rm -f "$helper"
 "${fixture_git[@]}" git -C "$tree" rm --cached --quiet "scripts/$helper_name"
+
+# A role is a claim the validator checks, not a label it trusts (#539, V5-10).
+roles_fixture="$tree/config/shell-file-roles.tsv"
+cp "$roles_fixture" "$TEST_ROOT/roles.tsv"
+run_roles() {
+  run_capture "${fixture_git[@]}" python3 "$repo_root/scripts/validate-shell-file-roles.py" --root "$tree"
+  cp "$TEST_ROOT/roles.tsv" "$roles_fixture"
+}
+
+# The obvious case: a tracked .zlogin, which the zsh/.config/zsh/* glob used to
+# absorb along with a description ("every interactive Zsh") false for it.
+printf 'echo logged in\n' >"$tree/zsh/.config/zsh/.zlogin"
+"${fixture_git[@]}" git -C "$tree" add zsh/.config/zsh/.zlogin
+run_roles
+assert_failure
+assert_contains "$TEST_OUTPUT" 'zsh/.config/zsh/.zlogin: Zsh reads .zlogin at its own point in startup'
+rm -f "$tree/zsh/.config/zsh/.zlogin"
+"${fixture_git[@]}" git -C "$tree" rm --cached --quiet zsh/.config/zsh/.zlogin
+printf 'PASS: a Zsh startup file a glob would classify needs its own row\n'
+
+# The subtle case: the .zprofile row rewritten as a sourced library with the
+# mode left at 644, so the mode check that caught the 755 spelling has nothing
+# to say. The role implies a lib directory, and .zprofile is not in one.
+sed -i 's|^stowed-config\t644\tzsh/.config/zsh/.zprofile\t|sourced-library\t644\tzsh/.config/zsh/.zprofile\t|' \
+  "$roles_fixture"
+cmp -s "$roles_fixture" "$TEST_ROOT/roles.tsv" && _test_die 'the .zprofile row was not rewritten'
+run_roles
+assert_failure
+assert_contains "$TEST_OUTPUT" "zsh/.config/zsh/.zprofile: classified 'sourced-library'"
+assert_contains "$TEST_OUTPUT" 'is not in a lib directory'
+printf 'PASS: a role that cannot describe where the file lives is refused\n'
+
+# A role outside the closed set, and a role given the other role's mode.
+sed -i 's|^stowed-config\t644\tzsh/.config/zsh/.zprofile\t|startup-file\t644\tzsh/.config/zsh/.zprofile\t|' \
+  "$roles_fixture"
+run_roles
+assert_failure
+assert_contains "$TEST_OUTPUT" "role 'startup-file' is not one of"
+sed -i 's|^stowed-config\t644\tzsh/.zshenv\t|stowed-config\t755\tzsh/.zshenv\t|' "$roles_fixture"
+chmod 755 "$tree/zsh/.zshenv"
+run_roles
+chmod 644 "$tree/zsh/.zshenv"
+assert_failure
+assert_contains "$TEST_OUTPUT" "rule 'zsh/.zshenv': the stowed-config role requires mode 644, not 755"
+run_roles
+assert_success
+printf 'PASS: roles are a closed set, and each fixes its mode\n'
 
 # --- Responsibility-revealing names, with no stale references ---------------
 

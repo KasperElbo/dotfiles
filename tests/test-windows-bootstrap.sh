@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 installer="$repo_root/platforms/windows/install.ps1"
 wsl_version_helper="$repo_root/platforms/windows/lib/wsl-version.ps1"
 theme_helper="$repo_root/platforms/windows/set-noctty-theme.ps1"
@@ -17,25 +19,25 @@ dictation_doc="$repo_root/docs/profiles/dictation.md"
 [[ -f "$windows_verifier" ]]
 [[ -f "$dictation_doc" ]]
 
-grep -Fq -- "wsl.exe @arguments" "$installer"
-grep -Fq -- "& \$FilePath @Arguments | Out-Host" "$installer"
-grep -Fq -- "\$exitCode = \$LASTEXITCODE" "$installer"
-grep -Fq -- "--list', '--online', '--quiet" "$installer"
-grep -Fq -- "'^FedoraLinux(?:-\d+)?$'" "$installer"
-grep -Fq -- 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json' \
+code_grep -Fq -- "wsl.exe @arguments" "$installer"
+code_grep -Fq -- "& \$FilePath @Arguments | Out-Host" "$installer"
+code_grep -Fq -- "\$exitCode = \$LASTEXITCODE" "$installer"
+code_grep -Fq -- "--list', '--online', '--quiet" "$installer"
+code_grep -Fq -- "'^FedoraLinux(?:-\d+)?$'" "$installer"
+code_grep -Fq -- 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json' \
   "$installer"
-grep -Fq -- 'function Get-WebFedoraDistributions' "$installer"
-grep -Fq -- "--set-default-version', '2'" "$installer"
-grep -Fq -- "--install', '--distribution', \$Distribution, '--no-launch'" "$installer"
-grep -Fq -- "\$arguments += '--web-download'" "$installer"
-grep -Fq -- "--set-version', \$Distribution, '2'" "$installer"
-grep -Fq -- "[switch]\$ElevatedWslUpdateOnly" "$installer"
-grep -Fq -- 'function Invoke-ElevatedWslUpdate' "$installer"
-grep -Fq -- "Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update', '--web-download')" \
+code_grep -Fq -- 'function Get-WebFedoraDistributions' "$installer"
+code_grep -Fq -- "--set-default-version', '2'" "$installer"
+code_grep -Fq -- "--install', '--distribution', \$Distribution, '--no-launch'" "$installer"
+code_grep -Fq -- "\$arguments += '--web-download'" "$installer"
+code_grep -Fq -- "--set-version', \$Distribution, '2'" "$installer"
+code_grep -Fq -- "[switch]\$ElevatedWslUpdateOnly" "$installer"
+code_grep -Fq -- 'function Invoke-ElevatedWslUpdate' "$installer"
+code_grep -Fq -- "Invoke-NativeCommand -FilePath 'wsl.exe' -Arguments @('--update', '--web-download')" \
   "$installer"
-grep -Fq -- '& wsl.exe --version' "$installer"
-grep -Fq -- 'Older versions may work but are unvalidated.' "$installer"
-grep -Fq -- 'Unable to determine the installed WSL version.' "$installer"
+code_grep -Fq -- '& wsl.exe --version' "$installer"
+code_grep -Fq -- 'Older versions may work but are unvalidated.' "$installer"
+code_grep -Fq -- 'Unable to determine the installed WSL version.' "$installer"
 
 # `wsl --update` always checks api.github.com/repos/Microsoft/WSL/releases
 # before doing anything else, and no flag (--web-download included, verified
@@ -50,23 +52,23 @@ grep -Fq 'Update-Wsl' <<<"$install_wsl_distribution_body"
 grep -Fq 'catch {' <<<"$install_wsl_distribution_body"
 grep -Fq 'Could not update WSL; continuing with the currently installed WSL platform' \
   <<<"$install_wsl_distribution_body"
-grep -Fq -- '-AllowUnavailable' "$installer"
-grep -Fq -- 'Would rediscover the newest official FedoraLinux distribution after the WSL update' \
+code_grep -Fq -- '-AllowUnavailable' "$installer"
+code_grep -Fq -- 'Would rediscover the newest official FedoraLinux distribution after the WSL update' \
   "$installer"
-grep -Fq -- 'Dry run stopped at this prerequisite' "$installer"
+code_grep -Fq -- 'Dry run stopped at this prerequisite' "$installer"
 
 # Start-Process -Verb RunAs opens the elevated phase in its own window whose
 # output this process never sees; the elevated phase must transcript its
 # output to a log file the parent reads back and shows, so a real failure
 # inside the elevated phase is never reported as only an opaque exit code.
-grep -Fq -- "[string]\$ElevatedLogPath" "$installer"
-grep -Fq -- 'function Invoke-ElevatedPhase' "$installer"
-grep -Fq -- 'function Invoke-ElevatedEntryPoint' "$installer"
+code_grep -Fq -- "[string]\$ElevatedLogPath" "$installer"
+code_grep -Fq -- 'function Invoke-ElevatedPhase' "$installer"
+code_grep -Fq -- 'function Invoke-ElevatedEntryPoint' "$installer"
 # $ElevatedLogPath belongs to PowerShell, not Bash.
 # shellcheck disable=SC2016
-grep -Fq -- 'Start-Transcript -Path $ElevatedLogPath -Append' "$installer"
-grep -Fq -- 'Elevated console output' "$installer"
-grep -Fq -- 'See the elevated console output above for the actual error' \
+code_grep -Fq -- 'Start-Transcript -Path $ElevatedLogPath -Append' "$installer"
+code_grep -Fq -- 'Elevated console output' "$installer"
+code_grep -Fq -- 'See the elevated console output above for the actual error' \
   "$installer"
 
 # Start-Process -Verb RunAs is known to intermittently fail to launch or
@@ -93,23 +95,23 @@ fi
 # for a null path. One helper now answers for both scripts.
 scoop_helper="$repo_root/platforms/windows/lib/scoop.ps1"
 [[ -f "$scoop_helper" ]]
-grep -Fq 'function Get-ScoopRoot' "$scoop_helper"
-grep -Fq 'function Resolve-ScoopShimCommand' "$scoop_helper"
-grep -Fq 'function Resolve-ScoopCommand' "$scoop_helper"
-grep -Fq "Join-Path \$Root 'shims'" "$scoop_helper"
+code_grep -Fq 'function Get-ScoopRoot' "$scoop_helper"
+code_grep -Fq 'function Resolve-ScoopShimCommand' "$scoop_helper"
+code_grep -Fq 'function Resolve-ScoopCommand' "$scoop_helper"
+code_grep -Fq "Join-Path \$Root 'shims'" "$scoop_helper"
 
 # Bucket and package identity live here too, so install.ps1 and verify.ps1
 # cannot answer "is the declared thing on this machine" differently. A name
 # is not that answer: a bucket is whatever repository was cloned into it, and
 # a resolvable command is whatever program got there first.
-grep -Fq 'function Get-ScoopBucketOwnership' "$scoop_helper"
-grep -Fq 'function Get-ScoopPackageOwnership' "$scoop_helper"
-grep -Fq 'function Get-ScoopBucketOrigin' "$scoop_helper"
-grep -Fq 'function ConvertTo-CanonicalScoopBucketUrl' "$scoop_helper"
-grep -Fq 'function ConvertFrom-ScoopBucketList' "$scoop_helper"
+code_grep -Fq 'function Get-ScoopBucketOwnership' "$scoop_helper"
+code_grep -Fq 'function Get-ScoopPackageOwnership' "$scoop_helper"
+code_grep -Fq 'function Get-ScoopBucketOrigin' "$scoop_helper"
+code_grep -Fq 'function ConvertTo-CanonicalScoopBucketUrl' "$scoop_helper"
+code_grep -Fq 'function ConvertFrom-ScoopBucketList' "$scoop_helper"
 
 for windows_script in "$installer" "$windows_verifier"; do
-  grep -Fq 'Get-ScoopPackageOwnership' "$windows_script" || {
+  code_grep -Fq 'Get-ScoopPackageOwnership' "$windows_script" || {
     printf 'Scoop package identity must come from the shared helper: %s\n' \
       "$windows_script" >&2
     exit 1
@@ -118,7 +120,7 @@ done
 
 # install.json is Scoop's own record of a finished install and of which bucket
 # supplied it. Nothing else establishes either.
-grep -Fq "Join-Path \$current 'install.json'" "$scoop_helper"
+code_grep -Fq "Join-Path \$current 'install.json'" "$scoop_helper"
 
 # The selection state decides what verification demands, so what counts as a
 # readable state is declared once and the verifier uses that declaration. A
@@ -127,25 +129,25 @@ grep -Fq "Join-Path \$current 'install.json'" "$scoop_helper"
 # selected and an empty array read as not selected.
 selection_state_helper="$repo_root/platforms/windows/lib/selection-state.ps1"
 [[ -f "$selection_state_helper" ]]
-grep -Fq 'function Read-WindowsSelectionState' "$selection_state_helper"
-grep -Fq 'WindowsSelectionFlags' "$selection_state_helper"
-grep -Fq -- '-isnot [bool]' "$selection_state_helper"
-grep -Fq "Join-Path \$PSScriptRoot 'lib\selection-state.ps1'" "$windows_verifier"
+code_grep -Fq 'function Read-WindowsSelectionState' "$selection_state_helper"
+code_grep -Fq 'WindowsSelectionFlags' "$selection_state_helper"
+code_grep -Fq -- '-isnot [bool]' "$selection_state_helper"
+code_grep -Fq "Join-Path \$PSScriptRoot 'lib\selection-state.ps1'" "$windows_verifier"
 
 # Selection flags are read through that declaration, never cast from whatever
 # the file happened to hold.
-if grep -Fq '[bool]$property.Value' "$windows_verifier"; then
+if code_grep -Fq '[bool]$property.Value' "$windows_verifier"; then
   printf 'Selection flags must be JSON booleans, not values cast to one.\n' >&2
   exit 1
 fi
 
 for windows_script in "$installer" "$windows_verifier"; do
-  grep -Fq "Join-Path \$PSScriptRoot 'lib\\scoop.ps1'" "$windows_script" || {
+  code_grep -Fq "Join-Path \$PSScriptRoot 'lib\\scoop.ps1'" "$windows_script" || {
     printf 'Scoop resolution must come from the shared helper: %s\n' \
       "$windows_script" >&2
     exit 1
   }
-  if grep -Fq 'function Resolve-ScoopCommand' "$windows_script"; then
+  if code_grep -Fq 'function Resolve-ScoopCommand' "$windows_script"; then
     printf 'Scoop resolution belongs in platforms/windows/lib/scoop.ps1, not: %s\n' \
       "$windows_script" >&2
     exit 1
@@ -159,8 +161,8 @@ done
 
 # Scoop's installer comes from one pinned commit, never the moving get.scoop.sh
 # (#504); the digest check and its failing case live in the PowerShell suite.
-grep -Fq 'https://raw.githubusercontent.com/ScoopInstaller/Install/{0}/install.ps1' "$installer"
-if grep -Fq 'get.scoop.sh' "$installer"; then
+code_grep -Fq 'https://raw.githubusercontent.com/ScoopInstaller/Install/{0}/install.ps1' "$installer"
+if code_grep -Fq 'get.scoop.sh' "$installer"; then
   printf 'The Windows bootstrap must not fetch the moving get.scoop.sh installer.\n' >&2
   exit 1
 fi
@@ -182,7 +184,7 @@ grep -Fq 'https://github.com/ScoopInstaller/Extras' "$network_sources"
 
 # The manifest is the single source of truth for bucket and package names.
 for hardcoded_scoop_name in 'https://github.com/ScoopInstaller/Extras' 'extras/handy'; do
-  if grep -Fq -- "$hardcoded_scoop_name" "$installer"; then
+  if code_grep -Fq -- "$hardcoded_scoop_name" "$installer"; then
     printf 'Scoop names belong in platforms/windows/manifest.psd1, not the installer: %s\n' \
       "$hardcoded_scoop_name" >&2
     exit 1
@@ -192,14 +194,14 @@ done
 # Dictation is opt-in desktop tooling: it must never become a prerequisite of
 # the WSL/terminal bootstrap, so the installer defines Install-Handy and calls
 # it from exactly one guarded call site.
-grep -Fq -- 'function Install-Handy' "$installer"
+code_grep -Fq -- 'function Install-Handy' "$installer"
 # These identifiers belong to PowerShell, not Bash.
 # shellcheck disable=SC2016
-grep -Fq -- '[switch]$Handy' "$installer"
+code_grep -Fq -- '[switch]$Handy' "$installer"
 # shellcheck disable=SC2016
-grep -Fq -- 'if ($Handy) {' "$installer"
+code_grep -Fq -- 'if ($Handy) {' "$installer"
 # shellcheck disable=SC2016
-grep -Fq -- 'HandySelected = $Handy.IsPresent' "$installer"
+code_grep -Fq -- 'HandySelected = $Handy.IsPresent' "$installer"
 if [[ "$(grep -Fc -- 'Install-Handy' "$installer")" -ne 2 ]]; then
   printf 'Install-Handy must be defined once and called from one guarded call site.\n' >&2
   exit 1
@@ -240,17 +242,17 @@ grep -Fq 'extras/handy' "$dictation_doc"
 # The decision record has to say why the issue's WinGet boundary change was
 # investigated and then not made.
 grep -Fqi 'winget' "$dictation_doc"
-grep -Fq "Import-PowerShellDataFile (Join-Path \$PSScriptRoot 'manifest.psd1')" "$installer"
-grep -Fq 'function Write-WindowsSelectionState' "$installer"
+code_grep -Fq "Import-PowerShellDataFile (Join-Path \$PSScriptRoot 'manifest.psd1')" "$installer"
+code_grep -Fq 'function Write-WindowsSelectionState' "$installer"
 # $selectedFedora belongs to PowerShell, not Bash.
 # shellcheck disable=SC2016
-grep -Fq 'Write-WindowsSelectionState -Distribution $selectedFedora' "$installer"
-grep -Fq "ghostty\.config\ghostty\shared.conf" "$installer"
-grep -Fq 'Sync-NocttyGhosttyConfig' "$installer"
-grep -Fq "Get-ChildItem -LiteralPath \$GhosttyThemes -Filter '*.conf'" "$installer"
-grep -Fq "Join-Path \$PSScriptRoot 'set-noctty-theme.ps1'" "$installer"
-grep -Fq "Where-Object { \$_ -match '^\s*theme\s*=' }" "$installer"
-grep -Fq 'leaving it in control' "$installer"
+code_grep -Fq 'Write-WindowsSelectionState -Distribution $selectedFedora' "$installer"
+code_grep -Fq "ghostty\.config\ghostty\shared.conf" "$installer"
+code_grep -Fq 'Sync-NocttyGhosttyConfig' "$installer"
+code_grep -Fq "Get-ChildItem -LiteralPath \$GhosttyThemes -Filter '*.conf'" "$installer"
+code_grep -Fq "Join-Path \$PSScriptRoot 'set-noctty-theme.ps1'" "$installer"
+code_grep -Fq "Where-Object { \$_ -match '^\s*theme\s*=' }" "$installer"
+code_grep -Fq 'leaving it in control' "$installer"
 
 # The repository-managed block in Noctty's config.ghostty is a structure, and
 # both scripts read it through one parser. How many blocks the file holds, where
@@ -260,17 +262,17 @@ grep -Fq 'leaving it in control' "$installer"
 # somewhere" while giving Ghostty conflicting settings.
 noctty_config_helper="$repo_root/platforms/windows/lib/noctty-config.ps1"
 [[ -f "$noctty_config_helper" ]]
-grep -Fq 'function Get-NocttyManagedBlocks' "$noctty_config_helper"
-grep -Fq 'function Remove-NocttyManagedBlocks' "$noctty_config_helper"
-grep -Fq 'function Test-NocttyUserCommand' "$noctty_config_helper"
-grep -Fq 'function New-NocttyManagedBlock' "$noctty_config_helper"
-grep -Fq '# BEGIN dotfiles Fedora WSL' "$noctty_config_helper"
-grep -Fq 'config-file = "dotfiles/ghostty.conf"' "$noctty_config_helper"
-grep -Fq 'config-file = "dotfiles/theme.conf"' "$noctty_config_helper"
-grep -Fq "command = direct:wsl.exe --distribution \$Distribution" "$noctty_config_helper"
+code_grep -Fq 'function Get-NocttyManagedBlocks' "$noctty_config_helper"
+code_grep -Fq 'function Remove-NocttyManagedBlocks' "$noctty_config_helper"
+code_grep -Fq 'function Test-NocttyUserCommand' "$noctty_config_helper"
+code_grep -Fq 'function New-NocttyManagedBlock' "$noctty_config_helper"
+code_grep -Fq '# BEGIN dotfiles Fedora WSL' "$noctty_config_helper"
+code_grep -Fq 'config-file = "dotfiles/ghostty.conf"' "$noctty_config_helper"
+code_grep -Fq 'config-file = "dotfiles/theme.conf"' "$noctty_config_helper"
+code_grep -Fq "command = direct:wsl.exe --distribution \$Distribution" "$noctty_config_helper"
 
 for windows_script in "$installer" "$windows_verifier"; do
-  grep -Fq "Join-Path \$PSScriptRoot 'lib\noctty-config.ps1'" "$windows_script" || {
+  code_grep -Fq "Join-Path \$PSScriptRoot 'lib\noctty-config.ps1'" "$windows_script" || {
     printf 'The Noctty managed block must be read through the shared parser: %s\n' \
       "$windows_script" >&2
     exit 1
@@ -278,28 +280,28 @@ for windows_script in "$installer" "$windows_verifier"; do
 done
 
 # The installer removes every complete block, never just the first one.
-if grep -Fq "Replace(\$content, '', 1)" "$installer"; then
+if code_grep -Fq "Replace(\$content, '', 1)" "$installer"; then
   printf 'The installer must converge every managed block, not only the first.\n' >&2
   exit 1
 fi
 
-grep -Fq "[ValidateSet('latte', 'frappe', 'macchiato', 'mocha')]" "$theme_helper"
-grep -Fq "theme = catppuccin-\$Flavor.conf" "$theme_helper"
-grep -Fq 'press Ctrl+Shift+, to reload, or restart Noctty' "$theme_helper"
+code_grep -Fq "[ValidateSet('latte', 'frappe', 'macchiato', 'mocha')]" "$theme_helper"
+code_grep -Fq "theme = catppuccin-\$Flavor.conf" "$theme_helper"
+code_grep -Fq 'press Ctrl+Shift+, to reload, or restart Noctty' "$theme_helper"
 
-if grep -Fq '+perform-action' "$theme_helper"; then
+if code_grep -Fq '+perform-action' "$theme_helper"; then
   printf 'Noctty theme helper must not trigger interactive CLI error dialogs.\n' >&2
   exit 1
 fi
 
 # Deliberately a global prohibition, not a Noctty-only one: every Windows
 # application this repository installs is Scoop-owned, Handy included.
-if grep -Fqi 'winget install' "$installer"; then
+if code_grep -Fqi 'winget install' "$installer"; then
   printf 'Windows bootstrap must use the currently supported Noctty Scoop bucket.\n' >&2
   exit 1
 fi
 
-if grep -Fq 'FedoraLinux-44' "$installer"; then
+if code_grep -Fq 'FedoraLinux-44' "$installer"; then
   printf 'Windows bootstrap must discover the current Fedora WSL name dynamically.\n' >&2
   exit 1
 fi

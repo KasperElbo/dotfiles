@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 lazyvim_config="$repo_root/nvim-lazyvim/.config/nvim"
 # shellcheck source=lib/lazy-nvim.sh
 source "$repo_root/tests/lib/lazy-nvim.sh"
@@ -212,19 +214,19 @@ grep -Fq 'init' <<<"$validator_output" ||
 # written out in the Fedora verifier, and now neovim_verify_floor_assertion in
 # the shared library builds it for all four platforms.
 verify_library="$repo_root/common/lib/verify.sh"
-assert_contains "$verify_library" 'cquit 1'
-assert_contains "$verify_library" 'neovim_verify_floor_assertion'
+assert_code_contains "$verify_library" 'cquit 1'
+assert_code_contains "$verify_library" 'neovim_verify_floor_assertion'
 # And the platforms ask for it through that helper rather than rolling their
 # own, which is what keeps the rule in one place.
 for platform_verifier in "$repo_root"/platforms/*/scripts/verify.sh; do
-  grep -Fq 'nvim --headless' "$platform_verifier" || continue
-  grep -Fq 'cquit' "$platform_verifier" &&
+  code_grep -Fq 'nvim --headless' "$platform_verifier" || continue
+  code_grep -Fq 'cquit' "$platform_verifier" &&
     fail "platform verifier writes its own floor assertion: ${platform_verifier#"$repo_root/"}"
 done
 # Wherever the Lua is written, it must not lean on assert: an uncaught Lua
 # error raised from an Ex command never reaches the exit status.
 for lua_host in "$verify_library" "$repo_root"/platforms/*/scripts/verify.sh; do
-  if grep -Fq '+lua assert(' "$lua_host"; then
+  if code_grep -Fq '+lua assert(' "$lua_host"; then
     fail "asserts in an Ex command, where a Lua failure cannot fail the run: ${lua_host#"$repo_root/"}"
   fi
 done

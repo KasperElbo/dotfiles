@@ -11,6 +11,8 @@ set -euo pipefail
 #   ./scripts/test-dev-workflows.sh --json
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 lazyvim_config="$repo_root/nvim-lazyvim/.config/nvim"
 lua_output="$(mktemp)"
 scratch="$(mktemp -d)"
@@ -45,7 +47,7 @@ for verifier in \
   grep -Fq 'nvim-lazyvim/.config/nvim/mason-packages.txt' "$verifier" ||
     fail "verifier does not check the tracked Mason inventory: $verifier"
 done
-grep -Fq 'nvim-lazyvim/.config/nvim/mason-packages.txt' \
+code_grep -Fq 'nvim-lazyvim/.config/nvim/mason-packages.txt' \
   "$repo_root/common/install-neovim-tools.sh" ||
   fail "bootstrap does not install the tracked Mason inventory"
 printf 'PASS: bootstrap and verifiers own the same JSON formatter and server\n'

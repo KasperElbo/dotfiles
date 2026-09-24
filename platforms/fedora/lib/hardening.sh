@@ -3,12 +3,13 @@
 # Fedora security-hardening helpers. Source common/lib/common.sh before this
 # file. Every writer here is idempotent (safe to rerun) and only ever touches
 # a single dotfiles-owned drop-in file per subsystem, so unrelated user
-# configuration is never overwritten. The one exception is the SELINUX= line
-# of the vendor file /etc/selinux/config, because SELinux has no drop-in
-# mechanism; persist_selinux_enforcing edits it with a backup.
+# configuration is never overwritten. The two exceptions are vendor files
+# whose program reads no drop-in directory, each edited with a backup through
+# replace_vendor_file: the SELINUX= line of /etc/selinux/config, and a marked
+# block of /etc/security/faillock.conf, which pam_faillock reads alone.
 #
 # HARDENING_ROOT is prefixed to every path of those owned drop-ins and to
-# /etc/selinux/config, for the writes, reads, stats, removals, and reloads
+# both vendor files, for the writes, reads, stats, removals, and reloads
 # below alike, so they can never target different roots. Empty (the default)
 # means the real root and leaves every command unchanged. Tests point it at a
 # fake root so a machine with the profile installed cannot answer checks that
@@ -35,10 +36,22 @@
 # The others keep 90-: sysctl.d and the rest take the last value, and a
 # deliberate local 99- override winning there is the documented intent.
 #
+# faillock is the one record that is not a file of its own. pam_faillock
+# reads exactly one file, /etc/security/faillock.conf (faillock_config.c:
+# FAILLOCK_DEFAULT_CONF, with a vendor-directory copy only as a fallback when
+# that file is absent), and no faillock.conf.d; this profile once wrote its
+# policy into that directory, where nothing read it
+# (HARDENING_FAILLOCK_LEGACY_DROPIN).
+# So its content is a marked block, kept last in that file because a later
+# line for a key replaces an earlier one; its mode is the one the file is
+# created with when it does not exist. Only apply_faillock_policy and
+# faillock_config_problem may handle it: the whole-file helpers below would
+# overwrite, or reject, every line an administrator keeps there.
+#
 # hardening_dropin_path <name>
 hardening_dropin_path() {
   case "$1" in
-  faillock) printf '/etc/security/faillock.conf.d/90-dotfiles-hardening.conf\n' ;;
+  faillock) printf '/etc/security/faillock.conf\n' ;;
   sudo-logfile) printf '/etc/sudoers.d/90-dotfiles-hardening\n' ;;
   auditd-rules) printf '/etc/audit/rules.d/90-dotfiles-hardening.rules\n' ;;
   sysctl) printf '/etc/sysctl.d/90-dotfiles-hardening.conf\n' ;;
@@ -81,9 +94,10 @@ hardening_dropin_content() {
   case "$1" in
   faillock)
     printf '%s\n' \
-      '# Managed by dotfiles Fedora hardening profile. Safe to delete.' \
+      '# BEGIN dotfiles Fedora hardening profile. Delete through END to undo.' \
       'deny = 5' \
-      'unlock_time = 900'
+      'unlock_time = 900' \
+      '# END dotfiles Fedora hardening profile'
     ;;
   sudo-logfile)
     printf 'Defaults logfile="/var/log/sudo.log"\n'
@@ -289,16 +303,54 @@ selinux_config_single_enforcing() {
   '
 }
 
-# persist_selinux_enforcing: makes SELINUX=enforcing survive a reboot. This is
-# the one vendor file the profile edits in place, and it is boot-relevant, so
-# it is not edited with sed -i. The new content is staged and validated first;
-# the current file is kept as a timestamped backup beside it (reusing an
-# identical backup, so reruns do not accumulate copies); the staged file is
-# installed next to the original with its mode and renamed over it in one
-# step, relabelled, and read back while the backup is still adjacent.
+# replace_vendor_file <config> <staged> [<mode>]: puts <staged> in place of
+# the vendor file <config>, for the files this profile has to edit in place
+# because their program reads no drop-in directory. The current file is kept
+# as a timestamped backup beside it (reusing an identical backup, so reruns do
+# not accumulate copies); the staged file is installed next to it with its
+# mode and renamed over it in one step, then relabelled. A <mode> says the
+# file does not exist yet: it is created with that mode, and there is nothing
+# to back up. The backup's path, or nothing, is left in
+# HARDENING_VENDOR_BACKUP for the caller's read-back to name; a global rather
+# than output, so a die here stops the installer instead of a subshell.
+HARDENING_VENDOR_BACKUP=""
+replace_vendor_file() {
+  local config="$1" staged="$2" mode="${3:-}" backup="" candidate
+
+  if [[ -z "$mode" ]]; then
+    for candidate in "$config".dotfiles-*.bak; do
+      [[ -f "$candidate" ]] || continue
+      if sudo cmp -s "$candidate" "$config"; then
+        backup="$candidate"
+        break
+      fi
+    done
+    if [[ -n "$backup" ]]; then
+      info "Reusing the identical backup of $config: $backup"
+    else
+      backup="$config.dotfiles-$(date +%s).bak"
+      [[ ! -e "$backup" ]] || die "Refusing to overwrite an existing backup: $backup"
+      info "Backing up $config to $backup"
+      sudo cp -a -- "$config" "$backup"
+    fi
+    mode="$(sudo stat -c '%a' "$config")"
+  fi
+
+  sudo install -m "$mode" -o root -g root "$staged" "$config.dotfiles-new"
+  sudo mv -f -- "$config.dotfiles-new" "$config"
+  if command_exists restorecon; then
+    sudo restorecon "$config"
+  fi
+  HARDENING_VENDOR_BACKUP="$backup"
+}
+
+# persist_selinux_enforcing: makes SELINUX=enforcing survive a reboot. SELinux
+# has no drop-in mechanism and this file is boot-relevant, so it is not edited
+# with sed -i: the new content is staged and validated first, put in place by
+# replace_vendor_file, and read back while the backup is still adjacent.
 persist_selinux_enforcing() {
   local config="${HARDENING_ROOT:-}/etc/selinux/config"
-  local staged backup="" candidate mode
+  local staged backup
 
   if ! sudo test -f "$config" || ! sudo grep -q '^SELINUX=' "$config"; then
     warn "$config has no SELINUX= line; persisted only for this boot"
@@ -320,29 +372,9 @@ persist_selinux_enforcing() {
       "Leave exactly one, then rerun the hardening profile."
   fi
 
-  for candidate in "$config".dotfiles-*.bak; do
-    [[ -f "$candidate" ]] || continue
-    if sudo cmp -s "$candidate" "$config"; then
-      backup="$candidate"
-      break
-    fi
-  done
-  if [[ -n "$backup" ]]; then
-    info "Reusing the identical backup of $config: $backup"
-  else
-    backup="$config.dotfiles-$(date +%s).bak"
-    [[ ! -e "$backup" ]] || die "Refusing to overwrite an existing backup: $backup"
-    info "Backing up $config to $backup"
-    sudo cp -a -- "$config" "$backup"
-  fi
-
-  mode="$(sudo stat -c '%a' "$config")"
-  sudo install -m "$mode" -o root -g root "$staged" "$config.dotfiles-new"
+  replace_vendor_file "$config" "$staged"
   rm -f -- "$staged"
-  sudo mv -f -- "$config.dotfiles-new" "$config"
-  if command_exists restorecon; then
-    sudo restorecon "$config"
-  fi
+  backup="$HARDENING_VENDOR_BACKUP"
 
   sudo cat -- "$config" | selinux_config_single_enforcing ||
     die "$config does not contain exactly one SELINUX=enforcing line after" \
@@ -413,7 +445,152 @@ apply_pam_faillock() {
     return 1
   fi
 
-  write_managed_dropin faillock
+  apply_faillock_policy
+}
+
+# HARDENING_FAILLOCK_LEGACY_DROPIN is where this profile wrote the lockout
+# policy before it was found that pam_faillock never reads it. It is removed
+# so a machine does not carry a file that looks like a policy and is none.
+HARDENING_FAILLOCK_LEGACY_DROPIN=/etc/security/faillock.conf.d/90-dotfiles-hardening.conf
+
+# faillock_config_value <key>: reads a faillock.conf on stdin and prints the
+# value pam_faillock ends up with for <key>, or nothing when no line sets it.
+# This is read_config_file's grammar: a # starts a comment anywhere on a
+# line, the key runs to the first whitespace or =, the value follows after
+# whitespace and at most one =, and a later line for a key replaces an
+# earlier one.
+faillock_config_value() {
+  awk -v key="$1" '
+    {
+      sub(/#.*/, "")
+      sub(/^[[:space:]]+/, "")
+      sub(/[[:space:]]+$/, "")
+      if ($0 == "") next
+      match($0, /^[^[:space:]=]+/)
+      name = substr($0, 1, RLENGTH)
+      rest = substr($0, RLENGTH + 1)
+      sub(/^[[:space:]]*=?[[:space:]]*/, "", rest)
+      if (name == key) { value = rest; seen = 1 }
+    }
+    END { if (seen) print value }
+  '
+}
+
+# faillock_config_problem: reads a faillock.conf on stdin and prints what
+# keeps it from carrying this profile's policy, or nothing when it does. The
+# marked block has to be there once and exactly as written, and every key it
+# sets has to resolve to its value in the whole file: a line added below the
+# block for the same key wins over it with the block intact.
+faillock_config_problem() {
+  local config block expected begin end begins ends key value actual
+
+  config="$(cat)"
+  expected="$(hardening_dropin_content faillock)"
+  begin="$(head -n1 <<<"$expected")"
+  end="$(tail -n1 <<<"$expected")"
+
+  begins="$(grep -cFx -- "$begin" <<<"$config" || true)"
+  ends="$(grep -cFx -- "$end" <<<"$config" || true)"
+  if ((begins == 0)); then
+    printf 'it has no dotfiles block'
+    return 0
+  elif ((begins != 1 || ends != 1)); then
+    printf 'its dotfiles block is duplicated or has no END line'
+    return 0
+  fi
+  block="$(awk -v begin="$begin" -v end="$end" '
+    $0 == begin { inside = 1 }
+    inside { print }
+    inside && $0 == end { exit }
+  ' <<<"$config")"
+  if [[ "$block" != "$expected" ]]; then
+    printf 'its dotfiles block changed: %s' \
+      "$(hardening_dropin_difference "$expected" "$block")"
+    return 0
+  fi
+
+  while read -r key _ value; do
+    [[ -n "$key" && "$key" != \#* ]] || continue
+    actual="$(faillock_config_value "$key" <<<"$config")"
+    if [[ "$actual" != "$value" ]]; then
+      printf 'pam_faillock reads %s = %s from it, but the dotfiles block' \
+        "$key" "$actual"
+      printf ' sets %s = %s; a later line for %s overrides the block' \
+        "$key" "$value" "$key"
+      return 0
+    fi
+  done <<<"$expected"
+}
+
+# faillock_config_without_block: reads a faillock.conf on stdin and prints it
+# without this profile's block, so the block can be written again at the end.
+faillock_config_without_block() {
+  local expected
+  expected="$(hardening_dropin_content faillock)"
+  awk -v begin="$(head -n1 <<<"$expected")" -v end="$(tail -n1 <<<"$expected")" '
+    $0 == begin { inside = 1 }
+    !inside { print }
+    inside && $0 == end { inside = 0 }
+  '
+}
+
+# apply_faillock_policy: writes the lockout policy into the one file
+# pam_faillock reads. Every line an administrator keeps there stays; this
+# profile's block is taken out wherever it is and written again last, so a
+# rerun converges on one copy, placed where it wins. The file is replaced
+# through replace_vendor_file (backup, staged install, rename) and read back.
+apply_faillock_policy() {
+  local config legacy="${HARDENING_ROOT:-}$HARDENING_FAILLOCK_LEGACY_DROPIN"
+  local staged exists=false current="" problem expected begin
+
+  config="${HARDENING_ROOT:-}$(hardening_dropin_path faillock)"
+
+  expected="$(hardening_dropin_content faillock)"
+  begin="$(head -n1 <<<"$expected")"
+  if sudo test -f "$config"; then
+    exists=true
+    current="$(sudo cat -- "$config")"
+  fi
+
+  # A block with no end, or more than one, is not something to rewrite
+  # around: taking it out would take the administrator's lines after it too.
+  if [[ "$(grep -cFx -- "$begin" <<<"$current" || true)" -gt 1 ]] ||
+    { grep -qFx -- "$begin" <<<"$current" &&
+      ! grep -qFx -- "$(tail -n1 <<<"$expected")" <<<"$current"; }; then
+    die "Refusing to rewrite $config: its dotfiles block is duplicated or" \
+      "has no END line. Remove the block by hand, then rerun the hardening" \
+      "profile."
+  fi
+
+  staged="$(mktemp)"
+  {
+    [[ "$exists" != true ]] || faillock_config_without_block <<<"$current"
+    printf '%s\n' "$expected"
+  } >"$staged"
+
+  if [[ "$exists" == true ]] && sudo cmp -s "$staged" "$config"; then
+    info "$(hardening_dropin_description faillock) already applied: $config"
+    rm -f -- "$staged"
+  else
+    if [[ "$exists" == true ]]; then
+      replace_vendor_file "$config" "$staged"
+    else
+      replace_vendor_file "$config" "$staged" \
+        "$(hardening_dropin_mode faillock)"
+    fi
+    rm -f -- "$staged"
+    problem="$(sudo cat -- "$config" | faillock_config_problem)"
+    [[ -z "$problem" ]] ||
+      die "$config does not carry the lockout policy after the rewrite:" \
+        "$problem.${HARDENING_VENDOR_BACKUP:+ Restore it with: sudo cp -a $HARDENING_VENDOR_BACKUP $config}"
+    info "Wrote $(hardening_dropin_description faillock) into $config" \
+      "${HARDENING_VENDOR_BACKUP:+(backup: $HARDENING_VENDOR_BACKUP)}"
+  fi
+
+  if sudo test -f "$legacy"; then
+    info "Removing the earlier faillock drop-in, which pam_faillock never read: $legacy"
+    sudo rm -f -- "$legacy"
+  fi
 }
 
 apply_sudo_audit_log() {

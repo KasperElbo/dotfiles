@@ -552,40 +552,7 @@ check_system_service_active() {
   fi
 }
 
-# verify_unit_state <system|user> <is-enabled|is-active> <unit>
-verify_unit_state() {
-  if [[ "$1" == user ]]; then
-    systemctl --user "$2" --quiet "$3" 2>/dev/null
-  else
-    systemctl "$2" --quiet "$3" 2>/dev/null
-  fi
-}
-
-verify_service_enabled_and_active() {
-  local scope="$1" unit="$2" owner="" enabled="false" active="false"
-
-  [[ "$scope" != user ]] || owner=" for the user"
-  verify_unit_state "$scope" is-enabled "$unit" && enabled="true"
-  verify_unit_state "$scope" is-active "$unit" && active="true"
-
-  case "$enabled:$active" in
-  true:true)
-    pass "$unit is enabled and active$owner"
-    ;;
-  true:false)
-    fail "$unit is enabled$owner but not active; it is not running now"
-    ;;
-  false:true)
-    fail "$unit is active$owner but not enabled; it will not start after a reboot"
-    ;;
-  *)
-    fail "$unit is neither enabled nor active$owner"
-    ;;
-  esac
-}
-
 # check_system_service_enabled_and_active <unit>
-# check_user_service_enabled_and_active <unit>
 #
 # A service that is running but not enabled passes an is-active check today
 # and is gone after the next reboot, so a service this repository relies on to
@@ -594,12 +561,32 @@ verify_service_enabled_and_active() {
 # differently. is-active alone remains the right check for a unit that is
 # activated by a device or started on demand, whose enablement is not what
 # brings it up.
+#
+# There is no user-scope counterpart. One existed and no verifier ever called
+# it: the one user unit an installer enables, podman.socket, is checked by
+# verify-containers.sh against the recorded api_socket intent, which this
+# cannot express. Its only caller was its own test, which the reachability
+# audit counted as a caller.
 check_system_service_enabled_and_active() {
-  verify_service_enabled_and_active system "$1"
-}
+  local unit="$1" enabled="false" active="false"
 
-check_user_service_enabled_and_active() {
-  verify_service_enabled_and_active user "$1"
+  systemctl is-enabled --quiet "$unit" 2>/dev/null && enabled="true"
+  systemctl is-active --quiet "$unit" 2>/dev/null && active="true"
+
+  case "$enabled:$active" in
+  true:true)
+    pass "$unit is enabled and active"
+    ;;
+  true:false)
+    fail "$unit is enabled but not active; it is not running now"
+    ;;
+  false:true)
+    fail "$unit is active but not enabled; it will not start after a reboot"
+    ;;
+  *)
+    fail "$unit is neither enabled nor active"
+    ;;
+  esac
 }
 
 # verify_mason_ready [version_pin_file]
@@ -1009,15 +996,19 @@ check_catppuccin_tmux() {
 # after `zsh -lic 'claude --version'` (24 September 2026). Without job control
 # the probe never takes the terminal; it still reads .zshrc, since it is still
 # interactive.
+#
+# +m goes on every probe rather than on the ones that look interactive. The
+# helper once tested "$1" for a single-dash bundle holding an i, and `-l -i -c`
+# or `--login -i -c` -- the same interactive login -- took the terminal
+# (issue #536). Zsh reads -o NAME, +o NAME, case- and underscore-blind long
+# names and a later +i as well, so no scan of the spelling is as sure as not
+# scanning. A login that is not interactive starts with job control off
+# anyway, so +m changes nothing there.
 verify_login_zsh() {
   (
     unset ZDOTDIR
     builtin cd -- "$HOME" || exit
-    if [[ "${1:-}" == -[!-]* && "${1:-}" == *i* ]]; then
-      zsh +m "$@"
-    else
-      zsh "$@"
-    fi
+    zsh +m "$@"
   )
 }
 

@@ -415,10 +415,10 @@ import pathlib
 import sys
 
 text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-opening = "  if ! (\n    fetch_to_file"
+opening = "  if ! (\n"
 if opening not in text:
     raise SystemExit("bootstrap-tools.sh no longer opens the block this mutates")
-text = text.replace(opening, "  if ! (\n    set -euo pipefail\n    fetch_to_file", 1)
+text = text.replace(opening, "  if ! (\n    set -euo pipefail\n", 1)
 pathlib.Path(sys.argv[2]).write_text(text, encoding="utf-8")
 PYTHON
 run_capture python3 "$errexit_validator" "$errexit_tree/bootstrap-tools.sh"

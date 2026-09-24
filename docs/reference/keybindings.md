@@ -159,8 +159,9 @@ machine missing one gets that feature disabled and nothing else: the shell
 still starts, and startup stays silent. Run `shell-integrations` to see what is
 missing and what it costs.
 
-`./scripts/benchmark-shell-startup.sh` measures interactive (`.zshenv` +
-`.zshrc`) and non-interactive (`.zshenv` only) startup. It is a manual tool,
+`./scripts/benchmark-shell-startup.sh` measures interactive login
+(`.zshenv` + `.zprofile` + `.zshrc`), interactive (`.zshenv` + `.zshrc`) and
+non-interactive (`.zshenv` only) startup. It is a manual tool,
 not part of `./scripts/test.sh`, because wall-clock timing is machine- and
 load-dependent.
 

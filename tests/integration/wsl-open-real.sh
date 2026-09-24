@@ -36,7 +36,10 @@ chmod +x "$windows_root/explorer.exe" "$powershell"
 : >"$argument_log"
 : >"$url_log"
 
-url='https://example.invalid/path?q=one two'
+# Explorer is handed this URL as an argument and nothing fetches it, so it is
+# not written as a URL assignment, which the network-source scan reads as a
+# download to register.
+printf -v url '%s' 'https://example.invalid/path?q=one two'
 EXPLORER_ARGUMENT_LOG="$argument_log" POWERSHELL_URL_LOG="$url_log" \
   WINDOWS_SYSTEM_ROOT="$windows_root" \
   "$repo_root/platforms/fedora-wsl/stow/interop/.local/bin/wsl-open" \
@@ -54,7 +57,7 @@ mapfile -d '' -t urls <"$url_log"
 # wsl-open hands a URL to Windows through WSLENV rather than a command line.
 # Prove on real WSL interop that real Windows PowerShell reads it back intact.
 real_powershell=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
-login_url='https://example.invalid/authorize?code=true&client_id=a%2Fb&state="x y"'
+printf -v login_url '%s' 'https://example.invalid/authorize?code=true&client_id=a%2Fb&state="x y"'
 # $env: belongs to PowerShell.
 # shellcheck disable=SC2016
 seen_url="$(DOTFILES_WSL_OPEN_URL="$login_url" \

@@ -3,6 +3,7 @@
 # Fedora Tailscale helpers shared by the profile's installer and verifier.
 # Source common/lib/common.sh before this file.
 
+# network-source: tailscale-repo
 # shellcheck disable=SC2034 # consumed by install-tailscale.sh/verify-tailscale.sh
 TAILSCALE_REPO_URL="${TAILSCALE_REPO_URL:-https://pkgs.tailscale.com/stable/fedora/tailscale.repo}"
 # shellcheck disable=SC2034 # consumed by install-tailscale.sh/verify-tailscale.sh

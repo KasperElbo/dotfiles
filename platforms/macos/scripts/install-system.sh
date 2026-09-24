@@ -37,6 +37,7 @@ if [[ ! -x "$brew_bin" ]]; then
   trap 'rm -f -- "$installer"' EXIT
   # The installer at one reviewed commit, refused unless its SHA-256 is the
   # pinned one; see platforms/macos/lib/homebrew-installer.sh.
+  # network-source: homebrew-installer
   fetch_to_file "$(homebrew_installer_url)" "$installer" 'the pinned Homebrew installer'
   fetch_verify_sha256 "$installer" "$DOTFILES_HOMEBREW_INSTALLER_SHA256" \
     'the pinned Homebrew installer'

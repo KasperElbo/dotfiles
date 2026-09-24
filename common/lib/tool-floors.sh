@@ -68,6 +68,17 @@ tool_version() {
       sed -n 's/^NVIM v\([0-9][0-9.]*\).*/\1/p' |
       sed -n 1p
     ;;
+  bash)
+    # Asked of the interpreter itself, not read from this shell's BASH_VERSINFO,
+    # so a probe names the Bash it is about.
+    reported="$(
+      "${probe[@]}" -c 'printf "%s.%s.%s\n" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" "${BASH_VERSINFO[2]}"' \
+        2>/dev/null || true
+    )"
+    printf '%s\n' "$reported" |
+      sed -n 's/^\([0-9][0-9.]*\)$/\1/p' |
+      sed -n 1p
+    ;;
   python3)
     reported="$(
       "${probe[@]}" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' \

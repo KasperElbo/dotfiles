@@ -130,8 +130,10 @@ Measure startup with:
 ./scripts/benchmark-shell-startup.sh --runs 25
 ```
 
-It reports interactive (`.zshenv` + `.zshrc`) and non-interactive (`.zshenv`
-only) medians, and can enforce a budget with `--interactive-ms` /
+It reports interactive login (`.zshenv` + `.zprofile` + `.zshrc`, what a new
+terminal window pays, since a terminal starts a login shell), interactive
+(`.zshenv` + `.zshrc`) and non-interactive (`.zshenv` only) medians, and can
+enforce a budget with `--interactive-login-ms`, `--interactive-ms` /
 `--non-interactive-ms`. It is a manual tool rather than part of
 `./scripts/test.sh`, because wall-clock timing is machine- and load-dependent.
 The interactive ergonomics cost about 1–2 ms of interactive startup on

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/source-code.sh
+source "$repo_root/tests/lib/source-code.sh"
 fedora_stow="$repo_root/platforms/fedora/stow"
 config="$fedora_stow/sway/.config/sway/config"
 waybar="$fedora_stow/waybar/.config/waybar/config.jsonc"
@@ -337,10 +339,10 @@ done
 # tests/test-lint-file-selection.sh proves a syntax error in each of them fails
 # that gate.
 
-grep -Fq 'session_script=/usr/libexec/sway-systemd/session.sh' "$session_start"
-grep -Fq 'systemctl --user is-active --quiet graphical-session.target' "$session_start"
-grep -Fq 'systemctl --user restart xdg-desktop-portal.service' "$session_start"
-grep -Fq 'dex-autostart --autostart --environment sway' "$session_start"
+code_grep -Fq 'session_script=/usr/libexec/sway-systemd/session.sh' "$session_start"
+code_grep -Fq 'systemctl --user is-active --quiet graphical-session.target' "$session_start"
+code_grep -Fq 'systemctl --user restart xdg-desktop-portal.service' "$session_start"
+code_grep -Fq 'dex-autostart --autostart --environment sway' "$session_start"
 grep -Fqx 'default=gtk' "$portal_config"
 grep -Fqx 'org.freedesktop.impl.portal.Screenshot=wlr' "$portal_config"
 grep -Fqx 'org.freedesktop.impl.portal.ScreenCast=wlr' "$portal_config"
@@ -353,7 +355,7 @@ if ((target_line >= portal_line || portal_line >= autostart_line)); then
   exit 1
 fi
 
-grep -Fq 'sway_args+=(--unsupported-gpu)' \
+code_grep -Fq 'sway_args+=(--unsupported-gpu)' \
   "$repo_root/platforms/fedora/assets/dotfiles-sway"
 grep -Fqx 'Exec=/usr/local/bin/dotfiles-sway' \
   "$repo_root/platforms/fedora/assets/dotfiles-sway.desktop"

@@ -32,7 +32,7 @@ sourced-library	644	tests/lib/*.sh	Sourced by the test suites
 stowed-command	755	bin/.local/bin/*	Stowed onto PATH
 stowed-command	755	platforms/*/stow/*/.local/bin/*	Stowed onto PATH by a platform package
 stowed-config	644	zsh/.zshenv	Sourced by every Zsh
-stowed-config	644	zsh/.config/zsh/*	Sourced by every interactive Zsh
+stowed-config	644	zsh/.config/zsh/*	Another file in the Zsh configuration directory, run only by what sources it; a Zsh startup file here needs an exact row
 stowed-config	644	platforms/*/stow/zsh-platform/.config/zsh/*.zsh	Sourced by one platform's Zsh
 stowed-config	644	platforms/*/stow/theme-hooks/.config/dotfiles/theme-hooks.d/*.sh	Sourced by the theme command; docs/workflows/theming.md states the hook contract
 stowed-data	644	fzf/.config/fzf/themes/*.sh	Sourced fzf colour snippet
@@ -66,7 +66,7 @@ public-entrypoint	755	scripts/validate-shell-file-roles.py	Validates shell/Power
 public-entrypoint	755	scripts/validate-symlink-checks.py	Validates that every check_symlink call site names the Stow source it expects
 public-entrypoint	755	scripts/validate-tool-floors.py	Validates the dependency version-floor registry and its enforcement
 public-entrypoint	755	scripts/check-main-evidence.py	Reports main commits without their own green Validate run, for .github/workflows/main-evidence.yml
-public-entrypoint	755	scripts/check-self-hosted-evidence.py	Reports self-hosted real-install jobs with no success this month, for .github/workflows/self-hosted-evidence.yml
+public-entrypoint	755	scripts/check-real-install-evidence.py	Reports real-install jobs with no recent success, for .github/workflows/real-install-evidence.yml
 public-entrypoint	755	scripts/validate-errexit-conditions.py	Validates that no shell file turns errexit on inside a condition, where Bash ignores it
 platform-entrypoint	644	platforms/windows/install.ps1	Platform installer, the Windows host pieces for Fedora WSL
 internal-executable	644	platforms/windows/verify.ps1	Verifier implementation behind ./verify.ps1
@@ -74,3 +74,4 @@ platform-command	644	platforms/windows/set-noctty-theme.ps1	Windows Noctty theme
 sourced-library	644	platforms/windows/lib/*.ps1	Dot-sourced by the Windows installer and verifier
 test-entrypoint	644	tests/test-windows-*.ps1	Test suite, run by the windows validation workflow job
 stowed-config	644	zsh/.config/zsh/.zprofile	Sourced by every Zsh login, interactive or not
+stowed-config	644	zsh/.config/zsh/.zshrc	Sourced by every interactive Zsh, after .zprofile when it is also a login shell

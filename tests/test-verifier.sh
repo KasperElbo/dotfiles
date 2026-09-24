@@ -629,17 +629,12 @@ service_bin="$root/service-bin"
 mkdir -p "$service_bin"
 cat >"$service_bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
-scope=system
-if [[ "${1:-}" == --user ]]; then
-  scope=user
-  shift
-fi
 case "${1:-} ${2:-}" in
 "is-enabled --quiet") units="$MOCK_ENABLED" ;;
 "is-active --quiet") units="$MOCK_ACTIVE" ;;
 *) exit 96 ;;
 esac
-[[ " $units " == *" $scope:$3 "* ]]
+[[ " $units " == *" $3 "* ]]
 EOF
 chmod +x "$service_bin/systemctl"
 
@@ -651,20 +646,20 @@ check_service() {
 }
 
 verify_reset
-check_service system:firewalld.service system:firewalld.service \
+check_service firewalld.service firewalld.service \
   check_system_service_enabled_and_active firewalld.service
 assert_verifier_counts 1 0 0
 assert_file_contains "$root/service.out" 'firewalld.service is enabled and active'
 
 verify_reset
-check_service "" system:firewalld.service \
+check_service "" firewalld.service \
   check_system_service_enabled_and_active firewalld.service
 assert_verifier_counts 0 1 0
 assert_file_contains "$root/service.out" \
   'firewalld.service is active but not enabled; it will not start after a reboot'
 
 verify_reset
-check_service system:auditd.service "" \
+check_service auditd.service "" \
   check_system_service_enabled_and_active auditd.service
 assert_verifier_counts 0 1 0
 assert_file_contains "$root/service.out" 'auditd.service is enabled but not active'
@@ -674,14 +669,13 @@ check_service "" "" check_system_service_enabled_and_active auditd.service
 assert_verifier_counts 0 1 0
 assert_file_contains "$root/service.out" 'auditd.service is neither enabled nor active'
 
-# The user scope is its own unit namespace: a system unit of the same name
-# must not satisfy it.
-verify_reset
-check_service "system:podman.socket user:podman.socket" system:podman.socket \
-  check_user_service_enabled_and_active podman.socket
-assert_verifier_counts 0 1 0
-assert_file_contains "$root/service.out" \
-  'podman.socket is enabled for the user but not active'
+# The user-scope counterpart was retired uncalled: no verifier ran it, and
+# only the case that used to stand here named it, which the reachability audit
+# below took for a caller. podman.socket, the one user unit an installer
+# enables, is checked by verify-containers.sh against its recorded intent.
+if declare -F check_user_service_enabled_and_active >/dev/null; then
+  _test_die "check_user_service_enabled_and_active must stay retired; no verifier calls it"
+fi
 
 printf 'Mason inventory\n'
 mason_mock_install="$repo_root/tests/support/mason-mock-install.sh"
@@ -1151,13 +1145,13 @@ mkdir -p "$update_root/bin"
 cat >"$update_root/bin/zsh" <<'EOF_LOGIN_ZSH'
 #!/usr/bin/env bash
 set -u
-if [[ $# -eq 2 && "$1" == -lc ]]; then
+if [[ $# -eq 3 && "$1" == +m && "$2" == -lc ]]; then
   if [[ -n "${TEST_LOGIN_DISABLE_UPDATES+x}" ]]; then
     export DISABLE_UPDATES="$TEST_LOGIN_DISABLE_UPDATES"
   else
     unset DISABLE_UPDATES
   fi
-  exec bash -c "$2"
+  exec bash -c "$3"
 fi
 printf 'strict login-shell fixture rejected unsupported argv: %s\n' "$*" >&2
 exit 96
@@ -1421,25 +1415,123 @@ printf 'PASS: a failing sub-verifier over leftover state is a failure too\n'
 # assertion (issue #396, VL-02). Deleting it is only durable if a replacement
 # cannot grow back unnoticed, so the library's helpers are held to having a
 # caller outside their own definition.
+#
+# A caller is the name in shell code: a word match over every tracked file let
+# one comment line naming the helper stand in for a call (issue #537, V5-17).
+# So only shell files are read, through the shared reader, with comments,
+# quoted text and heredoc bodies blanked out -- prose may name a helper, and a
+# definition of the same name (a test's stub) is not a call to it either.
+#
+# And a caller is a verifier or a library, not a suite. A suite that drives a
+# helper directly proves the helper works, not that any verifier runs it:
+# check_user_service_enabled_and_active was reached only by tests/ passing it
+# to a probe as an argument, and the gate counted that as a caller (#537).
 printf 'Shared verifier helper reachability\n'
 
-mapfile -t verify_helpers < <(
-  grep -oE '^check_[a-z0-9_]+\(\)' "$repo_root/common/lib/verify.sh" | sed 's/()$//'
-)
-((${#verify_helpers[@]} > 0)) ||
-  _test_die 'no check_* helper was found in common/lib/verify.sh, so this audit proves nothing'
+# uncalled_verify_helpers <tree>: the check_* helpers <tree>'s
+# common/lib/verify.sh defines that no other tracked shell file in <tree>
+# outside tests/ calls, one per line. Fails if the library defines none.
+uncalled_verify_helpers() {
+  PYTHONPATH="$repo_root/scripts/lib" python3 - "$1" <<'PYTHON'
+import pathlib
+import re
+import subprocess
+import sys
 
-for helper in "${verify_helpers[@]}"; do
-  helper_callers="$(
-    git -C "$repo_root" grep -l -w -e "$helper" -- ':!common/lib/verify.sh' || true
-  )"
-  [[ -n "$helper_callers" ]] ||
-    _test_die "$helper is defined in common/lib/verify.sh and called nowhere;" \
-      "delete it rather than leaving a check that no verifier runs"
+from shell import blank_text, shell_functions
+
+tree = pathlib.Path(sys.argv[1])
+library = "common/lib/verify.sh"
+helpers = sorted(
+    name for name in shell_functions((tree / library).read_text())
+    if name.startswith("check_")
+)
+if not helpers:
+    sys.exit(f"no check_* helper is defined in {library}, so this audit proves nothing")
+
+tracked = subprocess.run(
+    ["git", "-C", str(tree), "ls-files", "-z"],
+    check=True, capture_output=True, text=True,
+).stdout.split("\0")
+
+
+def is_shell(path: pathlib.Path) -> bool:
+    if path.suffix in (".sh", ".bash", ".zsh"):
+        return True
+    if path.suffix or not path.is_file():
+        return False
+    with path.open("rb") as handle:
+        first = handle.readline()
+    return first.startswith(b"#!") and re.search(rb"\b(ba|z)?sh\b", first) is not None
+
+
+code = []
+for name in tracked:
+    if not name or name == library or name.startswith("tests/"):
+        continue
+    path = tree / name
+    if is_shell(path):
+        code.append(blank_text(path.read_text()))
+
+for helper in helpers:
+    call = re.compile(rf"(?<![\w-]){re.escape(helper)}(?![\w-])(?!\s*\(\))")
+    if not any(call.search(text) for text in code):
+        print(helper)
+PYTHON
+}
+
+uncalled="$(uncalled_verify_helpers "$repo_root")" ||
+  _test_die 'the verifier helper reachability audit could not read the tree'
+[[ -z "$uncalled" ]] ||
+  _test_die "$(tr '\n' ' ' <<<"$uncalled")is defined in common/lib/verify.sh and called nowhere;" \
+    "delete it rather than leaving a check that no verifier runs"
+
+# The audit has to see through every way a name can appear without being
+# called. A fixture tree holds a helper nothing runs, named by a verifier in
+# each of those ways in turn, and each must still leave it uncalled.
+helper_tree="$root/helper-reachability"
+mkdir -p "$helper_tree/common/lib" "$helper_tree/docs"
+printf 'check_real() { :; }\ncheck_nothing() { return 0; }\n' \
+  >"$helper_tree/common/lib/verify.sh"
+git -C "$helper_tree" init -q
+for mention in \
+  '# TODO: check_nothing is reserved for the sudoers drop-in assertion (#396).' \
+  'printf "check_nothing is not needed here\n"' \
+  $'cat <<EOF\ncheck_nothing\nEOF' \
+  'check_nothing() { return 0; }'; do
+  printf '#!/usr/bin/env bash\ncheck_real\n%s\n' "$mention" \
+    >"$helper_tree/common/verify-fixture.sh"
+  printf 'check_nothing is a verifier helper.\n' >"$helper_tree/docs/verify.md"
+  git -C "$helper_tree" add -A
+  assert_eq 'check_nothing' "$(uncalled_verify_helpers "$helper_tree")" \
+    "a verifier that only mentions check_nothing ($mention)"
+done
+# And a real call, in any of the shapes a verifier uses, counts.
+for call in 'check_nothing' 'if check_nothing; then :; fi' \
+  'result="$(check_nothing)"' 'run_capture probe_counts check_nothing'; do
+  printf '#!/usr/bin/env bash\ncheck_real\n%s\n' "$call" \
+    >"$helper_tree/common/verify-fixture.sh"
+  git -C "$helper_tree" add -A
+  assert_eq '' "$(uncalled_verify_helpers "$helper_tree")" \
+    "a verifier that calls check_nothing ($call)"
+done
+printf '#!/usr/bin/env bash\ncheck_real\n' >"$helper_tree/common/verify-fixture.sh"
+# A suite is not a caller, however it reaches the helper: named outright in a
+# test, or only passed as an argument by a tests/ helper, the shape that kept
+# check_user_service_enabled_and_active looking called.
+mkdir -p "$helper_tree/tests/lib"
+# Paths are relative to the fixture's tests/ directory.
+for suite_use in 'test-fixture.sh:check_nothing' \
+  'lib/probe.sh:run_capture probe_counts check_nothing'; do
+  rm -f "$helper_tree/tests/test-fixture.sh" "$helper_tree/tests/lib/probe.sh"
+  printf '#!/usr/bin/env bash\n%s\n' "${suite_use#*:}" \
+    >"$helper_tree/tests/${suite_use%%:*}"
+  git -C "$helper_tree" add -A
+  assert_eq 'check_nothing' "$(uncalled_verify_helpers "$helper_tree")" \
+    "check_nothing reached only from the suite file ${suite_use%%:*} (${suite_use#*:})"
 done
 
-printf 'PASS: all %d shared check_* helpers are called by something\n' \
-  "${#verify_helpers[@]}"
+printf 'PASS: all shared check_* helpers are called by shell code, not only named\n'
 # --- A settings file proves the setting, not its ghost ----------------------
 #
 # check_file_contains reports that a theme override "matches". It used to
@@ -1517,6 +1609,12 @@ printf 'PASS: npm that could not run at all is still unobserved\n'
 # calling terminal's environment as if a login had set it; a verifier run from
 # a terminal opened before platform-env.zsh changed then failed a login that
 # was correct. Comments are dropped before looking, so prose may name it.
+#
+# Zsh takes its options from every leading word, so a login is found in any of
+# them: this looked for `zsh -l` alone and passed `zsh -i -l -c`,
+# `zsh --login -ic` and `zsh -o login -c` (issue #536). The spellings are
+# checked first, so a reader that stops seeing one fails here rather than
+# reporting a clean tree.
 bare_login_probes="$(
   PYTHONPATH="$repo_root/scripts/lib" python3 - "$repo_root" <<'PYTHON'
 import pathlib
@@ -1528,10 +1626,50 @@ from shell import code_text
 root = pathlib.Path(sys.argv[1])
 files = [root / "common/lib/verify.sh", *sorted(root.glob("common/verify-*.sh")),
          *sorted(root.glob("platforms/*/scripts/verify*.sh"))]
-probe = re.compile(r"(^|[\s;&|(!`])zsh\s+-l")
+command = re.compile(r"(?:^|[\s;&|(!`])zsh(?=\s|$)")
+
+
+def option_name(word):
+    # Zsh ignores case and underscores in option names.
+    return word.lower().replace("_", "")
+
+
+def starts_login(line):
+    for match in command.finditer(line):
+        words = line[match.end():].split()
+        index = 0
+        while index < len(words) and words[index][:1] in {"-", "+"}:
+            word = words[index]
+            index += 1
+            if word in {"-o", "+o"} and index < len(words):
+                name = option_name(words[index])
+                index += 1
+                on = word == "-o"
+                if name.startswith("no"):
+                    name, on = name[2:], not on
+                if name == "login" and on:
+                    return True
+            elif word.startswith("--"):
+                if option_name(word[2:]) == "login":
+                    return True
+            elif re.fullmatch(r"-[^-o]*l\S*", word):
+                return True
+    return False
+
+
+for spelling in ["zsh -l", "zsh -lic 'x'", "x=$(zsh -ilc 'x')", "zsh -i -l -c 'x'",
+                 "zsh +m -l -c 'x'", "zsh --login -ic 'x'", "zsh --LOG_IN -c 'x'",
+                 "zsh -o login -c 'x'", "zsh -i -o LOGIN -c 'x'", "zsh +o nologin -c 'x'"]:
+    if not starts_login(spelling):
+        print(f"self-check: a login spelled {spelling!r} was not recognised")
+for spelling in ["verify_login_zsh -l -i -c 'x'", "zsh +m \"$@\"", "zsh -ic 'x'",
+                 "zsh -o interactive -c 'x'", "zsh +o interactive -c 'x'",
+                 "zsh -o nologin -c 'x'", "zsh -c 'zsh_l'", "zsh --version"]:
+    if starts_login(spelling):
+        print(f"self-check: {spelling!r} was reported as a login")
 for path in files:
     for number, line in enumerate(code_text(path.read_text()).splitlines(), 1):
-        if probe.search(line):
+        if starts_login(line):
             print(f"{path.relative_to(root)}:{number}: {line.strip()}")
 PYTHON
 )"
