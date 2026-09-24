@@ -510,8 +510,6 @@ run_scenario() {
   printf 'Permissive\n' >"$selinux_state"
   printf 'SELINUX=permissive\nSELINUXTYPE=targeted\n' >"$fake_root/etc/selinux/config"
   chmod 0644 "$fake_root/etc/selinux/config"
-  printf 'firewalld.service\n' >>"$active_units"
-  printf 'firewalld.service\n' >>"$enabled_units"
   # Fedora's /etc/security/faillock.conf is every option commented out; this
   # one also carries a line an administrator added, which has to survive, and
   # the drop-in an earlier install of this profile wrote where pam_faillock
@@ -540,6 +538,8 @@ run_scenario() {
     'account     required      pam_faillock.so' \
     | tee "$fake_root/etc/pam.d/system-auth" \
     >"$fake_root/etc/pam.d/password-auth"
+  printf 'firewalld.service\n' >>"$active_units"
+  printf 'firewalld.service\n' >>"$enabled_units"
 
   if [[ "$seed_sshd" == "true" ]]; then
     printf 'sshd.service\n' >>"$active_units"
