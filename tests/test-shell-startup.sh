@@ -22,6 +22,7 @@ root="$TEST_ROOT"
 
 zshenv="$repo_root/zsh/.zshenv"
 zshrc="$repo_root/zsh/.config/zsh/.zshrc"
+zprofile="$repo_root/zsh/.config/zsh/.zprofile"
 
 sandbox_bin="$root/sandbox-bin"
 tool_bin="$root/tool-bin"
@@ -257,6 +258,207 @@ login_duplicates="$(printf '%s\n' "$macos_login_path" | sort | uniq -d)"
   exit 1
 }
 printf 'PASS: a macOS login shell keeps ~/.local/bin first after path_helper\n'
+
+# --- A login that is not interactive gets mise's shims -----------------------
+#
+# mise is activated in .zshrc, which only an interactive shell reads, so a
+# login that is not interactive -- `zsh -lc`, and everything started through
+# one -- used to run whatever the system had under a mise-owned name. On a real
+# Fedora machine python, node and tree-sitter are all in /usr/bin, so the
+# verifier's non-interactive login probe failed every one of them (real-install
+# run 35924092083). The zsh package's .zprofile puts mise's shims directory on
+# PATH for every login, behind ~/.local/bin and ahead of the system.
+#
+# These run a real `zsh -l`: a home carrying the package's two top-level files
+# the way Stow links them, and nothing else of ours. The host's own
+# /etc/zshenv and /etc/zprofile take part, as they do on a machine, so only the
+# entries this fixture controls are compared -- never the whole PATH, which
+# macOS's path_helper reorders.
+login_home="$root/login-home"
+login_data="$root/login-data"
+login_system="$root/login-system-bin"
+login_shims="$login_data/mise/shims"
+mkdir -p "$login_home/.config/zsh" "$login_home/.local/bin" "$login_system" "$login_shims"
+ln -s "$zshenv" "$login_home/.zshenv"
+ln -s "$zprofile" "$login_home/.config/zsh/.zprofile"
+# The system's copy and mise's shim of the same two runtimes. Each only says
+# which one it is, so a resolution that picked the other cannot pass.
+for runtime in python node; do
+  printf '#!/bin/sh\nprintf "system %s\\n"\n' "$runtime" >"$login_system/$runtime"
+  printf '#!/bin/sh\nprintf "mise %s\\n"\n' "$runtime" >"$login_shims/$runtime"
+done
+chmod +x "$login_system"/* "$login_shims"/*
+
+# run_login <zsh flags> <script> [VAR=value...]: a fresh Zsh started the way a
+# login is, from nothing but this fixture's environment. The system directory
+# is part of the PATH it inherits, which is where a login finds /usr/bin.
+run_login() {
+  local flags="$1" script="$2"
+  shift 2
+  env -i HOME="$login_home" XDG_DATA_HOME="$login_data" \
+    XDG_STATE_HOME="$root/state" XDG_CACHE_HOME="$root/cache" \
+    TERM=xterm-256color PATH="$login_system:$sandbox_bin" "$@" \
+    "$zsh_path" "$flags" "$script"
+}
+
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+resolved="$(run_login -lc 'command -v python; command -v node; python; node')"
+assert_eq "$login_shims/python
+$login_shims/node
+mise python
+mise node" "$resolved" 'a login that is not interactive must run mise'"'"'s shims, not the system copies'
+printf 'PASS: a login that is not interactive resolves python and node to the mise shims\n'
+
+# Behind ~/.local/bin, ahead of the system directory it inherited.
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+login_order="$(run_login -lc 'print -l -- $path' |
+  grep -Fx -e "$login_home/.local/bin" -e "$login_shims" -e "$login_system" |
+  paste -sd: -)"
+assert_eq "$login_home/.local/bin:$login_shims:$login_system" "$login_order" \
+  'login PATH order of ~/.local/bin, the mise shims and the system directory'
+printf 'PASS: the shims sit behind ~/.local/bin and ahead of the system directories\n'
+
+# mise's data directory is resolved the way mise resolves it: MISE_DATA_DIR
+# first, then XDG_DATA_HOME.
+relocated="$root/relocated-mise"
+mkdir -p "$relocated/shims"
+cp "$login_shims/python" "$relocated/shims/python"
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+resolved="$(run_login -lc 'command -v python' "MISE_DATA_DIR=$relocated")"
+assert_eq "$relocated/shims/python" "$resolved" 'MISE_DATA_DIR must decide where the shims are'
+printf 'PASS: the shims directory follows MISE_DATA_DIR\n'
+
+# A machine without mise's shims directory is left alone: nothing is added,
+# the system copy is what runs, and startup stays silent and clean.
+mv "$login_shims" "$root/withheld-login-shims"
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+run_capture run_login -lc 'command -v python; print -l -- $path'
+assert_success
+assert_eq "$login_system/python" "$(printf '%s\n' "$TEST_OUTPUT" | head -n1)" \
+  'with no shims directory the login must fall through to the system copy'
+assert_not_contains "$TEST_OUTPUT" "$login_shims"
+assert_not_contains "$TEST_OUTPUT" 'no such file'
+mv "$root/withheld-login-shims" "$login_shims"
+printf 'PASS: a login on a machine with no mise shims directory adds nothing and stays quiet\n'
+
+# .zprofile is read by login shells only. A plain `zsh -c` script keeps the
+# PATH it was given, exactly as before.
+# shellcheck disable=SC2016 # Expanded by the child Zsh.
+resolved="$(run_login -c 'command -v python')"
+assert_eq "$login_system/python" "$resolved" 'a Zsh that is not a login must not read .zprofile'
+printf 'PASS: a Zsh that is not a login is unaffected\n'
+
+# The macOS order. A login reads .zshenv, then /etc/zprofile, whose
+# path_helper rebuilds PATH with the /etc/paths and /etc/paths.d directories in
+# front of everything .zshenv set -- Homebrew's /opt/homebrew/bin included --
+# and only then $ZDOTDIR/.zprofile. After .zprofile a login that is not
+# interactive reads only /etc/zlogin and $ZDOTDIR/.zlogin; macOS ships no
+# /etc/zlogin and this repository tracks no .zlogin, so what .zprofile puts in
+# front is what that login runs.
+#
+# The macOS real-install job showed what sits in front there: node and npm
+# from /opt/homebrew/bin, dotnet from /usr/local/bin, and python from a
+# /Library/Frameworks/Python.framework directory the runner image registers
+# with path_helper, ahead of the rest. path_helper is simulated as the macOS
+# login case above simulates it, with a directory it puts first carrying its
+# own copy of every one of those runtimes, and a /usr/local/bin stand-in
+# behind it. Without .zprofile that first directory wins; with it, the shims do.
+macos_first="$root/macos-paths-d-bin"
+macos_usr_local="$root/macos-usr-local-bin"
+macos_shims="$root/data/mise/shims"
+mkdir -p "$macos_first" "$macos_usr_local" "$macos_shims"
+for runtime in python node npm dotnet; do
+  for directory in "$macos_first" "$macos_usr_local" "$macos_shims"; do
+    printf '#!/bin/sh\nexit 0\n' >"$directory/$runtime"
+    chmod +x "$directory/$runtime"
+  done
+done
+
+# macos_login <with-zprofile|without-zprofile>: the non-interactive login's
+# resolution of each runtime, then its PATH.
+macos_login() {
+  env -i HOME="$root/home" XDG_CONFIG_HOME="$root/config" \
+    XDG_DATA_HOME="$root/data" XDG_STATE_HOME="$root/state" \
+    XDG_CACHE_HOME="$root/cache" TERM=xterm-256color PATH="$sandbox_bin" \
+    DOTFILES_TEST_ZSHENV="$zshenv" DOTFILES_TEST_ZPROFILE="$zprofile" \
+    DOTFILES_TEST_PLATFORM_ENV="$macos_env" \
+    DOTFILES_TEST_PATHS_FIRST="$macos_first" \
+    DOTFILES_TEST_USR_LOCAL="$macos_usr_local" \
+    DOTFILES_TEST_MODE="$1" \
+    "$zsh_path" -f -c '
+      source "$DOTFILES_TEST_ZSHENV"
+      source "$DOTFILES_TEST_PLATFORM_ENV"
+      # /etc/zprofile: the path_helper directories first, then every entry that
+      # was already on PATH, in order.
+      path=("$DOTFILES_TEST_PATHS_FIRST" "$DOTFILES_TEST_USR_LOCAL" /usr/bin /bin /usr/sbin /sbin $path)
+      export PATH
+      [[ "$DOTFILES_TEST_MODE" != with-zprofile ]] || source "$DOTFILES_TEST_ZPROFILE"
+      for runtime in python node npm dotnet; do
+        print -r -- "$runtime=${commands[$runtime]}"
+      done
+      print -l -- $path
+    '
+}
+
+macos_before="$(macos_login without-zprofile)"
+for runtime in python node npm dotnet; do
+  assert_contains "$macos_before" "$runtime=$macos_first/$runtime"
+done
+printf 'PASS: without .zprofile, a macOS login that is not interactive runs what path_helper puts first\n'
+
+macos_after="$(macos_login with-zprofile)"
+for runtime in python node npm dotnet; do
+  assert_contains "$macos_after" "$runtime=$macos_shims/$runtime"
+done
+macos_after_path="$(printf '%s\n' "$macos_after" | grep -v '=')"
+assert_eq "$root/home/.local/bin
+$macos_shims
+$macos_first
+$macos_usr_local" "$(printf '%s\n' "$macos_after_path" | head -n4)" \
+  'a macOS login that is not interactive must keep ~/.local/bin and the shims ahead of path_helper'"'"'s directories'
+assert_eq '/opt/homebrew/opt/coreutils/libexec/gnubin' \
+  "$(printf '%s\n' "$macos_after_path" | tail -n1)" \
+  'macOS gnubin must stay last in a login that is not interactive'
+macos_duplicates="$(printf '%s\n' "$macos_after_path" | sort | uniq -d)"
+[[ -z "$macos_duplicates" ]] ||
+  _test_die "the macOS login duplicated PATH entries: $macos_duplicates"
+rm -r -- "$macos_first" "$macos_usr_local"
+rm -f -- "$macos_shims"/*
+printf 'PASS: a macOS login that is not interactive runs the shims ahead of path_helper'"'"'s directories\n'
+
+# An interactive login reads .zprofile and then .zshrc, and mise activation in
+# .zshrc still decides what runs: the fake's activation directory (the stand-in
+# for mise's install directories) leads, ~/.local/bin follows, and the shims
+# only after it. Sourced three times, nothing is duplicated or moved.
+# shellcheck disable=SC2016 # $path belongs to the child Zsh process.
+interactive_login_path() {
+  env -i HOME="$root/home" XDG_CONFIG_HOME="$root/config" \
+    XDG_DATA_HOME="$root/data" XDG_STATE_HOME="$root/state" \
+    XDG_CACHE_HOME="$root/cache" TERM=xterm-256color \
+    PATH="$tool_bin:$sandbox_bin" \
+    DOTFILES_TEST_ZSHENV="$zshenv" DOTFILES_TEST_ZPROFILE="$zprofile" \
+    DOTFILES_TEST_ZSHRC="$zshrc" \
+    "$zsh_path" -f -c "
+      repeat $1; do
+        source \"\$DOTFILES_TEST_ZSHENV\"
+        source \"\$DOTFILES_TEST_ZPROFILE\"
+        source \"\$DOTFILES_TEST_ZSHRC\"
+      done
+      print -l -- \$path
+    "
+}
+interactive_once="$(interactive_login_path 1)"
+assert_eq "$interactive_once" "$(interactive_login_path 3)" \
+  'repeated login startup changed PATH'
+assert_eq "$mise_shims
+$root/home/.local/bin
+$root/data/mise/shims" "$(printf '%s\n' "$interactive_once" | head -n3)" \
+  'mise activation must still lead an interactive login, ahead of ~/.local/bin and the shims'
+interactive_duplicates="$(printf '%s\n' "$interactive_once" | sort | uniq -d)"
+[[ -z "$interactive_duplicates" ]] ||
+  _test_die "login startup duplicated PATH entries: $interactive_duplicates"
+rmdir "$root/data/mise/shims"
+printf 'PASS: an interactive login still resolves through mise activation first\n'
 
 # --- Missing optional integrations (#157) -----------------------------------
 

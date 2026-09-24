@@ -70,3 +70,4 @@ internal-executable	644	platforms/windows/verify.ps1	Verifier implementation beh
 platform-command	644	platforms/windows/set-noctty-theme.ps1	Windows Noctty theme command; safe to run directly
 sourced-library	644	platforms/windows/lib/*.ps1	Dot-sourced by the Windows installer and verifier
 test-entrypoint	644	tests/test-windows-*.ps1	Test suite, run by the windows validation workflow job
+stowed-config	644	zsh/.config/zsh/.zprofile	Sourced by every Zsh login, interactive or not
