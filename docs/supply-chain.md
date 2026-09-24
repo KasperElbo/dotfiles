@@ -446,8 +446,8 @@ present, naming the `--no-<component>` flag that would remove it.
 an unregistered `curl`, `wget`, PowerShell download, remote `git clone`/`fetch`,
 `--repofrompath`, remote release RPM, container image, call to one of this
 repository's transfer primitives (`fetch_to_file`, and `install_staged_script`,
-which runs what it fetches), or shell variable assigned a URL, and on the three
-constructs that give the machine a new package trust root: a DNF repository
+which runs what it fetches), or shell or PowerShell variable assigned a URL, and
+on the three constructs that give the machine a new package trust root: a DNF repository
 added with `dnf config-manager addrepo`, a signing key imported with
 `rpm --import`, however their argument is spelled, a Homebrew tap, a
 package-registry reference, and a PowerShell package verb (`Install-Module`

@@ -16,7 +16,8 @@ Two independent jobs:
    ``fetch``, a remote release RPM, ``--repofrompath``, a DNF
    ``config-manager addrepo``, an ``rpm --import`` of a signing key, a
    container image, a call to the ``fetch_to_file``/``install_staged_script``
-   transfer primitives, or a shell variable assigned a URL -- must carry a ``# network-source: <id>`` annotation naming
+   transfer primitives, or a shell or
+   PowerShell variable assigned a URL -- must carry a ``# network-source: <id>`` annotation naming
    a registered source. CI fails when a new one appears unregistered.
 
    A file is scanned by what it is, not only by its name: a scanned suffix, a
@@ -207,6 +208,20 @@ NETWORK_PATTERNS = [
             r"[A-Za-z_]\w*=\S*?https?://"
         ),
         "url-assignment",
+    ),
+    # The PowerShell spelling, which the two above both miss: the sigil keeps
+    # it from being a bare manifest identifier, and PowerShell allows the
+    # spaces a shell assignment cannot have. The Windows installer builds the
+    # Scoop installer URL and names the WSL catalog this way, then fetches
+    # `-Uri $installerUrl`, which names no host; a repointed URL and a new
+    # unannotated one both passed. An optional type constraint, a scope
+    # prefix and the braced ``${name}`` form are the same assignment.
+    (
+        re.compile(
+            r"^\s*(?:\[[\w.]+(?:\[\])?\]\s*)?"
+            r"\$(?:\{[^}]+\}|(?:[A-Za-z]+:)?[A-Za-z_]\w*)\s*=\s*\S*?https?://"
+        ),
+        "powershell-url-assignment",
     ),
     # The repository's own transfer primitives. Each takes its URL from the
     # caller, so the call is the construct that reaches the network, exactly
