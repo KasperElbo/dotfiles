@@ -49,6 +49,7 @@ public-entrypoint	755	scripts/render-installer-usage.py	Regenerates each generat
 public-entrypoint	755	scripts/render-package-ownership.py	Regenerates the package, mise and Mason inventories
 public-entrypoint	755	scripts/render-verifier-reference.py	Regenerates the per-platform verifier reference from config/capabilities.tsv
 public-entrypoint	755	scripts/render-supply-chain.py	Regenerates the supply-chain source documentation
+public-entrypoint	755	scripts/validate-acceptance-records.py	Validates manual acceptance records and their checklists
 public-entrypoint	755	scripts/validate-actions.py	Validates config/actions.tsv against its consumers
 public-entrypoint	755	scripts/validate-check-outcomes.py	Validates that each verifier check call site was driven to both a pass and a fail
 public-entrypoint	755	scripts/validate-capabilities.py	Validates network-source provenance against config/capabilities.tsv

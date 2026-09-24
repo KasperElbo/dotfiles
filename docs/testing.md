@@ -1136,6 +1136,31 @@ real-install.yml on main with `run_self_hosted_wsl` and
 `run_self_hosted_parrot` set, with the WSL runner up and the Parrot guest
 reverted to its clean snapshot.
 
+## Manual acceptance records
+
+Every tier above is automated, and none of it reaches a physical machine's
+firmware, a graphical login, suspend and resume, a second monitor, a privacy
+approval, an interactive sign-in or a microphone. Evidence from those
+boundaries is a different kind: a **manual acceptance record**, written by a
+person who worked through a checklist on real hardware, committed under
+`docs/testing/manual-acceptance/records/`, and naming the exact commit, date,
+machine and installer options it describes.
+
+The two kinds are never counted as each other. A green workflow run is not a
+record, and a record is not a workflow run: it is one observation, it goes
+stale, and it has its own rules for when it must be redone.
+[Manual acceptance records](testing/manual-acceptance/README.md) has the
+checklists, the template, the four outcomes (`pass`, `fail`, `not observed`,
+`not applicable`), what must stay out of a record, and those rerun rules.
+
+`scripts/validate-acceptance-records.py`, run by `./scripts/lint.sh`, holds
+each record to a full commit SHA that is in the history, a real date, one
+verdict per checklist item in that vocabulary, and none of the personal-data
+shapes a pattern can recognise; it holds each checklist to its own item shape.
+`tests/test-acceptance-records.sh` starts from a fixture record that passes and
+breaks it one rule at a time, including an unfilled copy of the real template
+and a shallow clone that cannot answer the ancestry question and must say so.
+
 ## Failure-propagation controls
 
 A package manager rejecting a nonsense package only proves package-manager
@@ -1157,7 +1182,11 @@ Before a release or after changing bootstrap, login-shell, package-provider,
 lifecycle, Neovim bootstrap, VM boundary, or platform-specific installer code,
 review the latest real-install run. Where a platform still has an explicit
 self-hosted/manual gap, run that platform's manual job or the equivalent clean
-machine procedure before treating the release as fully validated.
+machine procedure before treating the release as fully validated. For the
+hardware and interactive boundaries no job reaches, the release review also
+checks that every target in use has a current
+[manual acceptance record](testing/manual-acceptance/README.md#when-a-record-must-be-redone),
+and says which boundary has none when one does not.
 
 The capability manifest remains authoritative for what each platform supports;
 this document describes **test evidence**, not a second capability matrix.
