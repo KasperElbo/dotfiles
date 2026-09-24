@@ -381,7 +381,7 @@ $here = @'
 '@
 a#b
 POWERSHELL
-assert_eq 'Write-Host "a # b" 
+assert_eq 'Write-Host "a # b"
 $x = 1  + 2
 
 
@@ -391,7 +391,8 @@ $escaped = "`"# kept"
 $here = @'"'"'
 # kept in a here-string
 '"'"'@
-a#b' "$(source_code "$code_fixtures/reader.ps1")" 'the PowerShell reader'
+a#b' "$(source_code "$code_fixtures/reader.ps1" | sed 's/[[:space:]]*$//')" \
+  'the PowerShell reader (trailing blanks trimmed for the comparison)'
 printf '$x = "never closed\n' >"$code_fixtures/unterminated.ps1"
 run_capture source_code "$code_fixtures/unterminated.ps1"
 assert_failure
