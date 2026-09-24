@@ -301,10 +301,15 @@ fi
 [[ ! -r "$HOME/.opam/opam-init/init.zsh" ]] ||
   source "$HOME/.opam/opam-init/init.zsh" >/dev/null 2>/dev/null
 
-# `cld` starts Claude Code with permission prompts disabled. The flag is the
-# only way in: a `permissions.defaultMode` of `bypassPermissions` is ignored
-# when it comes from repo-level settings, and the mode cannot be raised once
-# the session is running.
+# `claude-unsafe` starts Claude Code with every permission prompt disabled:
+# the agent can then read and write anything this user can, run any command,
+# and use every credential the shell can reach, without asking. The name says
+# so on purpose (#503); docs/profiles/ai.md has the policy, and
+# scripts/validate-actions.py refuses a shorter name, a wrapper function, or a
+# registry row that does not pin this whole line. The flag is the only way in:
+# a `permissions.defaultMode` of `bypassPermissions` is ignored when it comes
+# from repo-level settings, and the mode cannot be raised once the session is
+# running.
 #
 # Gated on the `ai` capability rather than `_dotfiles_integration`: that
 # capability is opt-in and off by default, so an absent Claude Code is a
@@ -318,7 +323,7 @@ fi
 # answers "absent" on every machine that has it, and the alias is never
 # defined.
 if _dotfiles_capability ai && command -v claude >/dev/null 2>&1; then
-  alias cld='claude --dangerously-skip-permissions'
+  alias claude-unsafe='claude --dangerously-skip-permissions'
 fi
 
 # Startship Theming
