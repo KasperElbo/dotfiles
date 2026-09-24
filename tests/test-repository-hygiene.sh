@@ -1240,6 +1240,37 @@ assert_contains "$TEST_OUTPUT" "regexes entry '^ghp_[0-9a-zA-Z]{36}\$' matches m
 assert_contains "$TEST_OUTPUT" "paths entry '^tests/fixtures/' matches more than one literal"
 printf 'PASS: an anchored pattern class and a whole directory fail lint\n'
 
+# An escape is only a literal when what it escapes is punctuation. To Go's
+# regexp, which gitleaks runs, `\w`, `\d`, `\s` and `\pL` are classes, and the
+# shape check read every backslash pair as one escaped character: thirty-two
+# `\w` between the anchors passed it and silenced every 32-character secret, a
+# Mailgun key among them, in the tree and in history.
+gitleaks_config_case <<'EOF'
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Our own four-character service identifier, which grants nothing"
+regexes = ['''^\w\w\w\w$''']
+EOF
+assert_failure
+assert_contains "$TEST_OUTPUT" "regexes entry '^\\\\w\\\\w\\\\w\\\\w\$' matches more than one literal"
+printf 'PASS: an allowlist regex made of escaped classes fails lint\n'
+
+# The subtle one: a path that reads as one fixture file, its first escape a
+# real one, with a class hiding in the extension.
+gitleaks_config_case <<'EOF'
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "One fixture file, not a credential"
+paths = ['''^tests/fixtures/key\.t\Sxt$''']
+EOF
+assert_failure
+assert_contains "$TEST_OUTPUT" "paths entry '^tests/fixtures/key\\\\.t\\\\Sxt\$' matches more than one literal"
+printf 'PASS: one escaped class among literal escapes fails lint\n'
+
 gitleaks_config_case <<'EOF'
 [extend]
 useDefault = true
