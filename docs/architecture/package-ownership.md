@@ -319,7 +319,7 @@ the pin column names one.
 | `marksman` | — |
 | `prettier` | — |
 | `pyright` | — |
-| `roslyn` | `5.12.0-1.26462.1` |
+| `roslyn` | `5.12.0-1.26473.2` |
 | `ruff` | — |
 | `shfmt` | — |
 | `stylua` | — |
