@@ -27,7 +27,7 @@ new_test_root() {
   test_stub_allow "$test_root" dnf config-manager addrepo --overwrite \
     --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
   test_stub_allow "$test_root" dnf install -y tailscale
-  test_stub_allow "$test_root" dnf --dump-repo-config=tailscale
+  test_stub_allow "$test_root" dnf --dump-repo-config=tailscale-stable
   test_stub_allow "$test_root" sudo dnf install -y dnf5-plugins
   test_stub_allow "$test_root" sudo dnf config-manager addrepo --overwrite \
     --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
@@ -37,15 +37,19 @@ new_test_root() {
   test_stub_allow "$test_root" systemctl is-enabled --quiet tailscaled
   test_stub_allow "$test_root" systemctl is-active --quiet tailscaled
 
-  # The verifier asks DNF what it will enforce for the tailscale
-  # repository, so the fixture has to be a machine DNF knows it on.
-  # MOCK_TAILSCALE_GPGCHECK is what the fetched .repo file turned out to
-  # say: whatever that is becomes the machine's policy verbatim.
+  # The verifier asks DNF what it will enforce for the repository the
+  # installed file declares, so the fixture has to be a machine DNF knows it
+  # on, under the id Tailscale's real file uses: its section is
+  # [tailscale-stable], not the file name, and DNF knows nothing called
+  # 'tailscale'. MOCK_TAILSCALE_GPGCHECK is what the fetched .repo file
+  # turned out to say: whatever that is becomes the machine's policy verbatim.
   cat >"$test_root/handlers/dnf" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == --dump-repo-config=tailscale ]]; then
+if [[ "${1:-}" == --dump-repo-config=* ]]; then
+  repo_id="${1#--dump-repo-config=}"
   [[ -e "$TAILSCALE_REPO_FILE" ]] || exit 1
-  printf '======== "tailscale" repository configuration: ========\n'
+  grep -Fqx "[$repo_id]" "$TAILSCALE_REPO_FILE" || exit 1
+  printf '======== "%s" repository configuration: ========\n' "$repo_id"
   printf 'gpgcheck = %s\npkg_gpgcheck = %s\n' \
     "${MOCK_TAILSCALE_GPGCHECK:-1}" "${MOCK_TAILSCALE_GPGCHECK:-1}"
   exit 0
@@ -54,7 +58,11 @@ fi
 printf 'dnf %s\n' "$*" >>"$COMMAND_LOG"
 
 if [[ "${1:-}" == config-manager && "${2:-}" == addrepo ]]; then
-  : >"$TAILSCALE_REPO_FILE"
+  printf '%s\n' '[tailscale-stable]' 'name=Tailscale stable' \
+    'baseurl=https://pkgs.tailscale.com/stable/fedora/$basearch' \
+    'enabled=1' 'type=rpm' 'repo_gpgcheck=1' 'gpgcheck=1' \
+    'gpgkey=https://pkgs.tailscale.com/stable/fedora/repo.gpg' \
+    >"$TAILSCALE_REPO_FILE"
 fi
 exit 0
 EOF
@@ -347,7 +355,7 @@ verify_with_installed_repository() {
   printf 'tailscaled\n' >"$test_root/enabled-units"
   printf 'tailscaled\n' >"$test_root/active-units"
   mkdir -p "$test_root/etc/yum.repos.d"
-  printf '[tailscale]\nname=Tailscale stable\n' \
+  printf '[tailscale-stable]\nname=Tailscale stable\n' \
     >"$test_root/etc/yum.repos.d/tailscale.repo"
 
   run_capture env "${test_environment[@]}" MOCK_TAILSCALE_BACKEND_STATE=Running "$@" \
@@ -356,7 +364,7 @@ verify_with_installed_repository() {
 
 verify_with_installed_repository MOCK_TAILSCALE_GPGCHECK=1
 assert_success
-assert_contains "$TEST_OUTPUT" 'tailscale repository enforces package signatures'
+assert_contains "$TEST_OUTPUT" 'tailscale-stable repository enforces package signatures'
 rm -rf -- "$test_root"
 printf 'PASS: an installed repository with gpgcheck=1 verifies clean\n'
 

@@ -48,6 +48,26 @@ ensure_tailscale_repository() {
 # Silent when the repository is absent, because the profile is optional.
 # Source common/lib/verify.sh and platforms/fedora/lib/fedora.sh first.
 verify_tailscale_trust_root() {
+  local repo_id repo_ids
+
   tailscale_repo_installed || return 0
-  verify_repo_trust_root tailscale Tailscale
+  repo_ids="$(tailscale_repo_ids)"
+  if [[ -z "$repo_ids" ]]; then
+    fail "$TAILSCALE_REPO_FILE declares no repository, so which one DNF" \
+      "installs Tailscale from, and whether it checks signatures, is unknown"
+    return 0
+  fi
+  while IFS= read -r repo_id; do
+    verify_repo_trust_root "$repo_id" Tailscale
+  done <<<"$repo_ids"
+}
+
+# tailscale_repo_ids: every repository id the installed repo file declares,
+# one per line. The id is whatever section name Tailscale's fetched .repo
+# file uses ('tailscale-stable' for the stable channel), not the file's name,
+# so it is read from the file rather than assumed; asking DNF about an id the
+# file does not declare reads as a repository with no gpgcheck at all.
+tailscale_repo_ids() {
+  sed -nE 's/^[[:space:]]*\[([^]]+)\][[:space:]]*$/\1/p' \
+    "$TAILSCALE_REPO_FILE" 2>/dev/null
 }
