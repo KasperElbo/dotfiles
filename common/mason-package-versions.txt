@@ -19,4 +19,11 @@
 # 5.12.0-1.26463.1 (that release still carries only its source archives).
 # Pin a release whose six platform archives are all published so installs are
 # reproducible rather than dependent on the timing of an upstream nightly job.
-roslyn 5.12.0-1.26462.1
+#
+# Upstream also deletes releases: 5.12.0-1.26462.1, the first pin, was removed
+# along with its tag, so installs failed with the same wget exit code 8 on
+# 2026-09-25. When that happens, move the pin to a tag that `git ls-remote
+# --tags https://github.com/Crashdummyy/roslynLanguageServer` still lists and
+# whose six microsoft.codeanalysis.languageserver.<platform>.zip downloads all
+# answer 200, preferring the version the registry currently advertises.
+roslyn 5.12.0-1.26473.2
