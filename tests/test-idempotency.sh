@@ -171,6 +171,14 @@ ln -s "$repo_root/sway/.config/sway/config" "$retired_sway"
 ln -s "$repo_root/waybar/.config/waybar/style.css" "$retired_waybar"
 ln -s "$fedora_stow_dir/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
   "$retired_wallpaper"
+# The wallpapers' other two earlier homes: the top-level Sway package, and a
+# Fedora-only theme-assets package before it moved to the top of the checkout.
+retired_toplevel_wallpaper="$migration_home/.local/share/wallpapers/catppuccin-mocha.webp"
+retired_fedora_assets_wallpaper="$migration_home/.local/share/wallpapers/catppuccin-latte.webp"
+ln -s "$repo_root/sway/.local/share/wallpapers/catppuccin-mocha.webp" \
+  "$retired_toplevel_wallpaper"
+ln -s "$fedora_stow_dir/theme-assets/.local/share/wallpapers/catppuccin-latte.webp" \
+  "$retired_fedora_assets_wallpaper"
 
 if ! HOME="$migration_home" \
   XDG_CONFIG_HOME="$migration_home/.config" \
@@ -194,6 +202,10 @@ assert_relinked "$retired_sway" "$fedora_stow_dir/sway/.config/sway/config"
 assert_relinked "$retired_waybar" "$fedora_stow_dir/waybar/.config/waybar/style.css"
 assert_relinked "$retired_wallpaper" \
   "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-macchiato.webp"
+assert_relinked "$retired_toplevel_wallpaper" \
+  "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-mocha.webp"
+assert_relinked "$retired_fedora_assets_wallpaper" \
+  "$repo_root/theme-assets/.local/share/wallpapers/catppuccin-latte.webp"
 printf 'PASS: the Fedora preflight exempts the retired links its migration removes\n'
 
 tracked_config="$repo_root/ghostty/.config/ghostty/config"

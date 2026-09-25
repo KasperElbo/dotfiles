@@ -168,7 +168,7 @@ printf 'Complete non-mutating Stow preflight passed.\n'
 # call, which is the entry point most users actually run, and which was
 # previously free to lose its exemption argument with the suite still green.
 
-# retired_link_home <name>: a HOME carrying all three retired links.
+# retired_link_home <name>: a HOME carrying a link from every retired layout.
 # The second argument is the spelling of the checkout the earlier layout
 # linked through, defaulting to this one. A machine that reaches its checkout
 # by a symlink carries links spelled that way, which is what the symlinked
@@ -184,6 +184,10 @@ retired_link_home() {
     "$home/.config/waybar/style.css"
   ln -s "$stow_dir/sway/.local/share/wallpapers/catppuccin-macchiato.webp" \
     "$home/.local/share/wallpapers/catppuccin-macchiato.webp"
+  ln -s "$checkout/sway/.local/share/wallpapers/catppuccin-mocha.webp" \
+    "$home/.local/share/wallpapers/catppuccin-mocha.webp"
+  ln -s "$stow_dir/theme-assets/.local/share/wallpapers/catppuccin-latte.webp" \
+    "$home/.local/share/wallpapers/catppuccin-latte.webp"
   printf '%s\n' "$home"
 }
 
@@ -218,7 +222,7 @@ printf 'PASS: the Fedora installer preflight exempts the retired links\n'
 
 # The negative control is the point of the case, so it is asserted rather than
 # checked once by hand: against a copy of the checkout whose installer has lost
-# the exemption argument, the same HOME must be refused, naming all three links.
+# the exemption argument, the same HOME must be refused, naming every package.
 sabotaged_tree="$test_root/sabotaged-tree"
 mkdir -p "$sabotaged_tree"
 tar -C "$repo_root" --exclude=.git -cf - . | tar -C "$sabotaged_tree" -xf -
@@ -290,14 +294,14 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-resolved = '  retired_prefix="${canonical_root%/}/$retired_prefix"'
+resolved = '"${canonical_root%/}/$retired_prefix"'
 if resolved not in text:
     raise SystemExit(
         "fedora_retired_stow_links no longer builds its retired prefix from a "
         "resolved root; update this negative control with the line it uses"
     )
 path.write_text(
-    text.replace(resolved, '  retired_prefix="${DOTFILES_ROOT%/}/$retired_prefix"', 1),
+    text.replace(resolved, '"${DOTFILES_ROOT%/}/$retired_prefix"', 1),
     encoding="utf-8",
 )
 PYTHON
