@@ -1174,18 +1174,27 @@ assert_success
 assert_not_contains "$TEST_OUTPUT" 'tailscale repository'
 printf 'PASS: the Tailscale trust-root check is silent without the repository\n'
 
+# Tailscale's published file declares [tailscale-stable]; DNF knows no
+# repository called 'tailscale', which is the file's name and nothing more.
 reset_trust_state
-: >"$trust_state/tailscale.repo"
-declare_repo tailscale 1
+printf '[tailscale-stable]\nname=Tailscale stable\n' >"$trust_state/tailscale.repo"
+declare_repo tailscale-stable 1
 run_trust verify_tailscale_trust_root
 assert_success
-assert_contains "$TEST_OUTPUT" 'tailscale repository enforces package signatures'
+assert_contains "$TEST_OUTPUT" 'tailscale-stable repository enforces package signatures'
 assert_file_empty "$trust_log"
-printf 'PASS: an installed Tailscale repository is checked, read-only\n'
+printf 'PASS: an installed Tailscale repository is checked by its declared id, read-only\n'
 
 reset_trust_state
 : >"$trust_state/tailscale.repo"
-declare_repo tailscale 0
+run_trust verify_tailscale_trust_root
+assert_failure
+assert_contains "$TEST_OUTPUT" 'declares no repository'
+printf 'PASS: a Tailscale repo file declaring no repository fails the verifier\n'
+
+reset_trust_state
+printf '[tailscale-stable]\nname=Tailscale stable\n' >"$trust_state/tailscale.repo"
+declare_repo tailscale-stable 0
 run_trust verify_tailscale_trust_root
 assert_failure
 assert_contains "$TEST_OUTPUT" 'gpgcheck = 0'
@@ -1284,8 +1293,10 @@ printf 'PASS: a missing reviewed key refuses the bootstrap instead of falling ba
 # --- A repository cannot be added without a verifier ------------------------
 
 # The registry id and the id DNF knows the repository by are not the same
-# string, so the pairing is written out; adding a fourth rpm-repo row fails
-# here until both halves exist. fedora-os-repos is the one row with no entry:
+# string, so the pairing is written out, as the call that verifies it; adding a
+# fourth rpm-repo row fails here until both halves exist. Tailscale's id is the
+# section its fetched .repo file declares, so its verifier passes each one it
+# reads from the file rather than naming one. fedora-os-repos is the one row with no entry:
 # it is the distribution's own set, configured by the Fedora installation
 # rather than by anything in this repository.
 # platform_code_contains <needle>: some shell library under platforms/ has the
@@ -1298,20 +1309,24 @@ platform_code_contains() {
   done < <(grep -rlF --include='*.sh' -- "$1" "$repo_root/platforms" || true)
   return 1
 }
-verified_repo_pairs=(terra-repo:terra tailscale-repo:tailscale)
+# shellcheck disable=SC2016 # the Tailscale entry is matched as source text.
+verified_repo_pairs=(
+  'terra-repo:verify_repo_trust_root terra '
+  'tailscale-repo:verify_repo_trust_root "$repo_id" Tailscale'
+)
 unchecked_repos=''
 while IFS= read -r registry_id; do
   [[ -n "$registry_id" && "$registry_id" != fedora-os-repos ]] || continue
-  dnf_repo_id=''
+  verifier_call=''
   for pair in "${verified_repo_pairs[@]}"; do
     [[ "${pair%%:*}" == "$registry_id" ]] || continue
-    dnf_repo_id="${pair#*:}"
+    verifier_call="${pair#*:}"
   done
-  if [[ -z "$dnf_repo_id" ]]; then
+  if [[ -z "$verifier_call" ]]; then
     unchecked_repos+="${unchecked_repos:+, }$registry_id (no verifier)"
     continue
   fi
-  platform_code_contains "verify_repo_trust_root $dnf_repo_id " ||
+  platform_code_contains "$verifier_call" ||
     unchecked_repos+="${unchecked_repos:+, }$registry_id (never verified)"
 done < <(awk -F'\t' 'NR > 1 && $4 == "rpm-repo" { print $1 }' \
   "$repo_root/config/network-sources.tsv")
