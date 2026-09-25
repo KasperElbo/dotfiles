@@ -12,17 +12,21 @@ FEDORA_STOW_DIR="$DOTFILES_ROOT/platforms/fedora/stow"
 
 # fedora_retired_stow_links <package>: links in HOME an earlier layout of this
 # checkout left where <package> now links, one per line. Sway and Waybar were
-# top-level packages before they moved under platforms/fedora/stow, and the
-# wallpapers theme-assets owns used to belong to the Sway package. That
-# package has since moved the other way, to the top of the checkout, because
-# the images are shared rather than Fedora's; the retired links it replaces
-# are the same ones either way. This is the
-# one place they are named: the Stow script removes them before stowing the
-# package, and both its preflight and the installer's pass them as --replaces
-# exemptions, so neither refuses the machines the migration exists for.
+# top-level packages before they moved under platforms/fedora/stow. The
+# wallpapers theme-assets owns have lived in three earlier places: the
+# top-level Sway package, the Sway package under platforms/fedora/stow, and a
+# Fedora-only theme-assets package there, before the package moved to the top
+# of the checkout because the images are shared rather than Fedora's. A
+# machine last stowed from any of those carries links that now dangle, so
+# every one is retired. This is the one place they are named: the Stow script
+# removes them before stowing the package, and both its preflight and the
+# installer's pass them as --replaces exemptions, so neither refuses the
+# machines the migration exists for.
 fedora_retired_stow_links() {
   local package="$1"
   local retired_prefix
+  local -a retired_prefixes=()
+  local resolved_target
   local source_path
   local relative_path
   local target_path
@@ -31,9 +35,13 @@ fedora_retired_stow_links() {
   local package_dir
 
   case "$package" in
-  sway | waybar) retired_prefix="$package/" ;;
+  sway | waybar) retired_prefixes=("$package/") ;;
   theme-assets)
-    retired_prefix="${FEDORA_STOW_DIR#"$DOTFILES_ROOT"/}/sway/.local/share/wallpapers/"
+    retired_prefixes=(
+      "sway/.local/share/wallpapers/"
+      "${FEDORA_STOW_DIR#"$DOTFILES_ROOT"/}/sway/.local/share/wallpapers/"
+      "${FEDORA_STOW_DIR#"$DOTFILES_ROOT"/}/theme-assets/.local/share/wallpapers/"
+    )
     ;;
   *) return 0 ;;
   esac
@@ -49,7 +57,6 @@ fedora_retired_stow_links() {
   # resolved.
   canonical_root="$(resolve_existing_path "$DOTFILES_ROOT" 2>/dev/null ||
     printf '%s' "$DOTFILES_ROOT")"
-  retired_prefix="${canonical_root%/}/$retired_prefix"
   # Resolved, not assumed: theme-assets is shared and lives at the top of the
   # checkout, so the migration reads its files from there while still
   # comparing them against the Sway package that used to own them.
@@ -61,8 +68,13 @@ fedora_retired_stow_links() {
     target_path="$HOME/$relative_path"
 
     [[ -L "$target_path" ]] || continue
-    [[ "$(realpath -m "$target_path")" != "$retired_prefix"* ]] ||
-      printf '%s\n' "$target_path"
+    resolved_target="$(realpath -m "$target_path")"
+    for retired_prefix in "${retired_prefixes[@]}"; do
+      if [[ "$resolved_target" == "${canonical_root%/}/$retired_prefix"* ]]; then
+        printf '%s\n' "$target_path"
+        break
+      fi
+    done
   done < <(find "$package_dir" \( -type f -o -type l \) -print0)
 }
 
