@@ -316,6 +316,14 @@ sudo_defaults_entries() {
   sudo_defaults_flush
 }
 
+# audit_rule_loaded_spelling: rules on stdin, one per line, rewritten the way
+# `auditctl -l` lists them once loaded. A watch path loses any trailing slash,
+# because auditctl trims it before handing a directory watch to the kernel;
+# everything else is printed as written.
+audit_rule_loaded_spelling() {
+  sed -E 's#^(-w [^ ]*[^/ ])/+( |$)#\1\2#'
+}
+
 # check_sudo_effective_policy
 #
 # The same gap check_sshd_effective_policy closes, with the precedence running
@@ -566,13 +574,18 @@ else
         # merely something carrying one of its keys: a partial load leaves the
         # unloaded watches recording nothing, and a key is a substring anyone
         # can put in a rule of their own. auditctl prints a loaded watch back
-        # in the spelling the rules file uses, so the comparison is line for
-        # line against the same source the file was written from.
+        # in the spelling the rules file uses, with one exception: it drops a
+        # directory watch's trailing slash before the rule reaches the kernel,
+        # so '-w /etc/sudoers.d/' is listed as '-w /etc/sudoers.d'. Both sides
+        # are compared in that loaded spelling, line for line, against the
+        # same source the file was written from.
         loaded_rules="$(sudo -n auditctl -l 2>/dev/null || true)"
+        loaded_rules="$(audit_rule_loaded_spelling <<<"$loaded_rules")"
         missing_rule=""
         while IFS= read -r audit_rule; do
           [[ -n "$audit_rule" ]] || continue
-          grep -Fxq -- "$audit_rule" <<<"$loaded_rules" && continue
+          grep -Fxq -- "$(audit_rule_loaded_spelling <<<"$audit_rule")" \
+            <<<"$loaded_rules" && continue
           missing_rule="$audit_rule"
           break
         done < <(hardening_dropin_content auditd-rules)

@@ -919,7 +919,10 @@ if [[ "$1" == -l ]]; then
   elif [[ -n "${MOCK_AUDITCTL_RULES:-}" ]]; then
     printf '%s\n' "$MOCK_AUDITCTL_RULES"
   else
-    cat "$FAKE_ROOT/etc/audit/rules.d/90-dotfiles-hardening.rules" 2>/dev/null
+    # Real auditctl trims a directory watch's trailing slash before the rule
+    # reaches the kernel, so '-w /etc/sudoers.d/' is listed without it.
+    sed -E 's#^(-w [^ ]*[^/ ])/+( |$)#\1\2#' \
+      "$FAKE_ROOT/etc/audit/rules.d/90-dotfiles-hardening.rules" 2>/dev/null
   fi
 fi
 exit 0
