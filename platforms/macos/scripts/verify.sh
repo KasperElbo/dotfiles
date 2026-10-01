@@ -19,6 +19,7 @@ verify_defaults="false"
 verify_containers="false"
 verify_tailscale="false"
 verify_dictation="false"
+verify_aerospace="false"
 
 while (($#)); do
   case "$1" in
@@ -26,6 +27,7 @@ while (($#)); do
   --containers) verify_containers="true" ;;
   --tailscale) verify_tailscale="true" ;;
   --dictation) verify_dictation="true" ;;
+  --aerospace) verify_aerospace="true" ;;
   *) die "Unknown option: $1" ;;
   esac
   shift
@@ -187,12 +189,9 @@ if [[ -n "$mise_command" ]]; then
   eval "$("$mise_command" activate bash)"
 fi
 # Every command is run, not only found: a stale Homebrew link or a binary for
-# the wrong architecture still resolves on PATH. aerospace is checked for
-# resolution only, because its CLI talks to the running window manager, which
-# the AeroSpace checks below report on their own terms.
+# the wrong architecture still resolves on PATH.
 commands=(bat delta eza fd fzf gh git jq mise nvim rg scp sftp shellcheck sqlite3 ssh starship stow tmux zoxide zsh)
 for name in "${commands[@]}"; do check_command "$name" --probe; done
-check_command aerospace
 builtin cd -- "$commands_origin" || exit 1
 if [[ -n "$commands_ceiling_was_set" ]]; then
   export MISE_CEILING_PATHS="$commands_ceiling"
@@ -273,7 +272,6 @@ done
 # reports has nothing to do with the tree under test.
 applications_dir="$(macos_applications_dir)"
 check_arm64_file "Ghostty" "$applications_dir/Ghostty.app/Contents/MacOS/ghostty"
-check_arm64_file "AeroSpace" "$applications_dir/AeroSpace.app/Contents/MacOS/AeroSpace"
 check_easy_dotnet_debugger osx-arm64
 check_arm64_file "EasyDotnet bundled netcoredbg" "$EASY_DOTNET_DEBUGGER_PATH"
 
@@ -374,10 +372,6 @@ check_symlink "$XDG_CONFIG_HOME/zsh/platform-env.zsh" "$macos_stow/zsh-platform"
   "$macos_stow/zsh-platform/.config/zsh/platform-env.zsh"
 check_symlink "$XDG_CONFIG_HOME/zsh/platform.zsh" "$macos_stow/zsh-platform" \
   "$macos_stow/zsh-platform/.config/zsh/platform.zsh"
-check_symlink "$XDG_CONFIG_HOME/aerospace/aerospace.toml" "$macos_stow/aerospace" \
-  "$macos_stow/aerospace/.config/aerospace/aerospace.toml"
-check_symlink "$HOME/.local/bin/aerospace-workspace-grid" "$macos_stow/aerospace" \
-  "$macos_stow/aerospace/.local/bin/aerospace-workspace-grid"
 check_symlink "$XDG_CONFIG_HOME/git/config" "$DOTFILES_ROOT/git" \
   "$DOTFILES_ROOT/git/.config/git/config"
 check_symlink "$XDG_CONFIG_HOME/mise/config.toml" "$DOTFILES_ROOT/mise" \
@@ -406,23 +400,49 @@ if [[ -x "$ghostty_binary" ]]; then
 else
   fail "Ghostty application is missing"
 fi
-if [[ -d "$(macos_applications_dir)/AeroSpace.app" ]]; then pass "AeroSpace application is installed"; else fail "AeroSpace application is missing"; fi
 
-if aerospace list-workspaces --focused >/dev/null 2>&1; then
-  pass "AeroSpace is running and Accessibility control works"
-  if aerospace reload-config --dry-run --no-gui --warnings-as-errors >/dev/null; then
-    pass "AeroSpace configuration passes native validation without warnings"
+# ---------------------------------------------------------------------------
+# Optional AeroSpace window manager
+#
+# Selected by default, and gated the way Fedora gates Sway: the installation
+# record, the installer's own --aerospace (it runs this verifier before that
+# record is committed), or a tracked configuration link still on disk. The
+# last keeps a machine installed before AeroSpace became an option verified,
+# and checks a leftover the record no longer asks for rather than ignoring it.
+# ---------------------------------------------------------------------------
+
+aerospace_selection_status=0
+install_lifecycle_capability_selected aerospace || aerospace_selection_status=$?
+
+if [[ "$verify_aerospace" == true ]] || ((aerospace_selection_status == 0)) ||
+  [[ -e "$XDG_CONFIG_HOME/aerospace/aerospace.toml" || -L "$XDG_CONFIG_HOME/aerospace/aerospace.toml" ]]; then
+  section "AeroSpace window manager"
+  # Resolution only: the CLI talks to the running window manager, which the
+  # checks below report on their own terms.
+  check_command aerospace
+  check_arm64_file "AeroSpace" "$applications_dir/AeroSpace.app/Contents/MacOS/AeroSpace"
+  check_symlink "$XDG_CONFIG_HOME/aerospace/aerospace.toml" "$macos_stow/aerospace" \
+    "$macos_stow/aerospace/.config/aerospace/aerospace.toml"
+  check_symlink "$HOME/.local/bin/aerospace-workspace-grid" "$macos_stow/aerospace" \
+    "$macos_stow/aerospace/.local/bin/aerospace-workspace-grid"
+  if [[ -d "$(macos_applications_dir)/AeroSpace.app" ]]; then pass "AeroSpace application is installed"; else fail "AeroSpace application is missing"; fi
+
+  if aerospace list-workspaces --focused >/dev/null 2>&1; then
+    pass "AeroSpace is running and Accessibility control works"
+    if aerospace reload-config --dry-run --no-gui --warnings-as-errors >/dev/null; then
+      pass "AeroSpace configuration passes native validation without warnings"
+    else
+      fail "AeroSpace configuration failed native validation"
+    fi
+    loaded_config="$(aerospace config --config-path 2>/dev/null || true)"
+    if [[ "$loaded_config" == "$XDG_CONFIG_HOME/aerospace/aerospace.toml" ]]; then
+      pass "AeroSpace loaded the tracked XDG configuration"
+    else
+      fail "AeroSpace loaded unexpected config: ${loaded_config:-unknown}"
+    fi
   else
-    fail "AeroSpace configuration failed native validation"
+    warning "AeroSpace CLI cannot reach the window manager; open it and grant Accessibility access"
   fi
-  loaded_config="$(aerospace config --config-path 2>/dev/null || true)"
-  if [[ "$loaded_config" == "$XDG_CONFIG_HOME/aerospace/aerospace.toml" ]]; then
-    pass "AeroSpace loaded the tracked XDG configuration"
-  else
-    fail "AeroSpace loaded unexpected config: ${loaded_config:-unknown}"
-  fi
-else
-  warning "AeroSpace CLI cannot reach the window manager; open it and grant Accessibility access"
 fi
 
 # ---------------------------------------------------------------------------

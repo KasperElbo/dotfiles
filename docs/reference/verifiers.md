@@ -49,7 +49,7 @@ tells those apart and names who owns each deliberate absence.
 |---|---|---|
 | `common/verify-ai.sh` | `ai`, `backpass`, `codex`, `firstmate`, `gnhf` | `--ai`, `--backpass`, `--codex`, `--firstmate`, `--gnhf` |
 | `common/verify-ocaml.sh` | `ocaml` | `--ocaml` |
-| `platforms/macos/scripts/verify.sh` | `base`, `containers`, `dictation`, `dotnet-debug`, `tailscale`, `terminal` | `--containers`, `--dictation`, `--tailscale` |
+| `platforms/macos/scripts/verify.sh` | `aerospace`, `base`, `containers`, `dictation`, `dotnet-debug`, `tailscale`, `terminal` | `--aerospace`, `--containers`, `--dictation`, `--tailscale` |
 | `scripts/test-dev-workflows.sh` | `dev-workflows` | `--dev-workflows` |
 
 ## Parrot CTF

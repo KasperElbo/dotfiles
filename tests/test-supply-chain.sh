@@ -459,14 +459,15 @@ printf "PASS: a tap is covered only by the source that is that tap\n"
 
 # And the tap this repository does use fails without its own row, so the cases
 # above fail for the tap rather than for any `tap` line being rejected.
+# It lives in AeroSpace's own Brewfile, since that capability is optional.
 sed -i '/network-source: homebrew-tap-nikitabobko/d' \
-  "$fixture_repo/platforms/macos/Brewfile"
+  "$fixture_repo/platforms/macos/aerospace/Brewfile"
 if lint_output="$(lint_fixture)"; then
   printf 'The linter accepted the tap without its annotation.\n' >&2
   exit 1
 fi
 assert_contains "$lint_output" 'unregistered homebrew-tap network source'
-git -C "$fixture_repo" checkout -q -- platforms/macos/Brewfile
+git -C "$fixture_repo" checkout -q -- platforms/macos/aerospace/Brewfile
 lint_fixture >/dev/null
 printf 'PASS: the tap this repository does use is covered by its own row\n'
 

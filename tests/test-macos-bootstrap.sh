@@ -159,6 +159,7 @@ macos_run_system_installer true
 macos_run_system_installer false
 macos_run_verifier false false false false
 macos_run_verifier true true true true
+macos_run_verifier false false false false true
 # The optional-profile arguments are independent, and an omitted fourth one
 # still means "not selected" rather than an unbound variable.
 macos_run_verifier true false true
@@ -167,6 +168,7 @@ grep -Fxq 'system:1:--non-interactive' "$action_log"
 grep -Fxq 'verify:0' "$action_log"
 grep -Fxq 'verify:4:--defaults:--containers:--tailscale:--dictation' "$action_log"
 grep -Fxq 'verify:2:--defaults:--tailscale' "$action_log"
+grep -Fxq 'verify:1:--aerospace' "$action_log"
 
 # A plan action runs with errexit suppressed (common/lib/execution-plan.sh), and
 # this is the one action that runs a statement after its fallible command. A

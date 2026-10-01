@@ -14,13 +14,31 @@ preflight_xdg_layout || die "Refusing to stow; nothing in $HOME was changed."
 
 require_command stow
 
+install_aerospace="false"
+
+while (($#)); do
+  case "$1" in
+  --aerospace)
+    install_aerospace="true"
+    ;;
+  *)
+    die "Unknown option: $1"
+    ;;
+  esac
+  shift
+done
+
 # theme-assets is at the top of the checkout rather than under
 # platforms/macos/stow: the wallpapers are one set of images shared with
 # Fedora, not a second copy cropped for this platform. Each package's root is
 # therefore resolved rather than assumed, through the same helper the
 # installer's preflight uses, so the two cannot disagree about which copy a
 # machine gets.
-packages=(zsh-platform aerospace nvim-macos ghostty-macos theme-hooks theme-assets)
+packages=(zsh-platform nvim-macos ghostty-macos theme-hooks theme-assets)
+
+if [[ "$install_aerospace" == "true" ]]; then
+  packages+=(aerospace)
+fi
 
 # Checked before common/stow.sh links anything, which checks its own packages
 # the same way, so no conflict is found after part of HOME is already stowed.

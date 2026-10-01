@@ -74,6 +74,7 @@ Platform guide: [../platforms/macos.md](../platforms/macos.md)
 | `firstmate` | `--firstmate` | `--no-firstmate` | `inherit` | — | AI subcomponent: FirstMate toolchain | `firstmate` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `gnhf` | `--gnhf` | `--no-gnhf` | `inherit` | — | AI subcomponent: GNHF | `gnhf` | [docs/profiles/ai.md](../profiles/ai.md) |
 | `backpass` | `--backpass` | `--no-backpass` | `inherit` | — | AI subcomponent: backpass | `backpass` | [docs/profiles/ai.md](../profiles/ai.md) |
+| `aerospace` | `--aerospace` | `--no-aerospace` | `true` | — | AeroSpace tiling window manager | `aerospace` | [docs/platforms/macos.md](../platforms/macos.md#5-aerospace-decision-record) |
 
 ## Parrot Security Edition CTF guest (`--platform parrot-ctf`)
 
