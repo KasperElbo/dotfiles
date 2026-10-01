@@ -1,0 +1,7 @@
+# The optional AeroSpace tiling window manager, installed by
+# platforms/macos/scripts/install-aerospace.sh only when --aerospace is
+# selected. Upstream publishes it through its own tap, not homebrew/cask.
+# network-source: homebrew-tap-nikitabobko
+tap "nikitabobko/tap"
+# network-source: homebrew-tap-nikitabobko
+cask "nikitabobko/tap/aerospace"

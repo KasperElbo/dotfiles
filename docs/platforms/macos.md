@@ -606,7 +606,8 @@ but the most capable configuration carries more security and macOS-update
 coupling than this workstation accepts.
 
 `platforms/macos/scripts/install-aerospace.sh` installs it from upstream's
-tap when the `aerospace` capability is selected; it is not in the Brewfile.
+tap when the `aerospace` capability is selected, through its own
+`platforms/macos/aerospace/Brewfile` rather than the baseline one.
 The Homebrew AeroSpace cask is the upstream-preferred install path, but the app
 is not notarized; the cask removes its quarantine attribute. Review the
 [AeroSpace repository](https://github.com/nikitabobko/AeroSpace) and release

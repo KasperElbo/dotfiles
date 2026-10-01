@@ -143,7 +143,8 @@ if grep -Fiq aerospace "$brewfile"; then
   printf 'The Brewfile installs AeroSpace, which --no-aerospace cannot then leave out.\n' >&2
   exit 1
 fi
-code_grep -Fq '"$(homebrew_path)" install --cask nikitabobko/tap/aerospace' \
+grep -Fxq 'cask "nikitabobko/tap/aerospace"' "$macos_root/aerospace/Brewfile"
+code_grep -Fq 'bundle --file="$DOTFILES_ROOT/platforms/macos/aerospace/Brewfile"' \
   "$macos_root/scripts/install-aerospace.sh"
 code_grep -Fq 'Intel Homebrew exists at /usr/local/bin/brew' \
   "$macos_root/scripts/install-system.sh"

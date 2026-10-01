@@ -78,7 +78,7 @@ dev-workflows	fedora	workstation	--dev-workflows	disabled	base	-	repository	-	-	
 dev-workflows	fedora-wsl	workstation	--dev-workflows	disabled	base	-	repository	-	-	scripts/test-dev-workflows.sh	-	-	docs/workflows/development.md#development-workflow-smoke-tests	repository	implemented	-	-
 dev-workflows	macos	workstation	--dev-workflows	disabled	base	-	repository	-	-	scripts/test-dev-workflows.sh	-	-	docs/platforms/macos.md	repository	implemented	-	-
 dev-workflows	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	-	docs/platforms/parrot-ctf.md	intentional-absence	unsupported	-	-
-aerospace	macos	workstation	--aerospace	enabled	base	-	homebrew-cask	aerospace	aerospace	platforms/macos/scripts/verify.sh	-	-	docs/platforms/macos.md#5-aerospace-decision-record	native	implemented	platforms/macos/scripts/install-aerospace.sh	-
+aerospace	macos	workstation	--aerospace	enabled	base	-	homebrew-cask	aerospace	aerospace	platforms/macos/scripts/verify.sh	-	-	docs/platforms/macos.md#5-aerospace-decision-record	native	implemented	platforms/macos/aerospace/Brewfile	-
 aerospace	fedora	workstation	-	disabled	-	-	unsupported	-	-	none	-	-	docs/platforms/fedora.md	intentional-absence	unsupported	-	-
 aerospace	fedora-wsl	workstation	-	disabled	-	-	unsupported	-	-	none	-	-	docs/platforms/fedora-wsl.md	intentional-absence	unsupported	-	-
 aerospace	parrot-ctf	ctf-guest	-	disabled	-	-	unsupported	-	-	none	-	-	docs/platforms/parrot-ctf.md	intentional-absence	unsupported	-	-

@@ -10,10 +10,10 @@ require_apple_silicon_macos
 require_native_homebrew
 activate_homebrew_path
 
-# AeroSpace is not in homebrew/cask; upstream publishes it through its own tap.
+# A Brewfile of its own, so the tap and the cask stay where the network-source
+# linter reads Homebrew trust roots, and out of the baseline every Mac runs.
 info "Installing the AeroSpace tiling window manager"
-# network-source: homebrew-tap-nikitabobko
-"$(homebrew_path)" install --cask nikitabobko/tap/aerospace
+"$(homebrew_path)" bundle --file="$DOTFILES_ROOT/platforms/macos/aerospace/Brewfile"
 
 # Stow has already linked the tracked configuration, so the first launch reads
 # it. macOS asks for Accessibility access here.
