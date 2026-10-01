@@ -42,4 +42,5 @@ macos	codex	tristate	--codex	--no-codex	inherit	-	codex	AI subcomponent: Codex C
 macos	firstmate	tristate	--firstmate	--no-firstmate	inherit	-	firstmate	AI subcomponent: FirstMate toolchain
 macos	gnhf	tristate	--gnhf	--no-gnhf	inherit	-	gnhf	AI subcomponent: GNHF
 macos	backpass	tristate	--backpass	--no-backpass	inherit	-	backpass	AI subcomponent: backpass
+macos	aerospace	boolean	--aerospace	--no-aerospace	true	-	aerospace	AeroSpace tiling window manager
 parrot-ctf	theme	value	--theme	-	macchiato	latte|frappe|macchiato|mocha	-	Catppuccin flavour

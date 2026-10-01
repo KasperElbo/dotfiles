@@ -1,6 +1,4 @@
 # Machine-level tools for the native Apple Silicon macOS workstation.
-# network-source: homebrew-tap-nikitabobko
-tap "nikitabobko/tap"
 
 brew "bash"
 brew "bat"
@@ -25,5 +23,3 @@ brew "zsh-autosuggestions"
 brew "zsh-syntax-highlighting"
 
 cask "ghostty"
-# network-source: homebrew-tap-nikitabobko
-cask "nikitabobko/tap/aerospace"

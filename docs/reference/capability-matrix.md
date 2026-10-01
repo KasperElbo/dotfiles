@@ -19,6 +19,7 @@ A cell reads one of three ways, and the difference matters:
 
 | Capability | Fedora | Fedora WSL | macOS | Parrot CTF | Windows |
 |---|---|---|---|---|---|
+| `aerospace` | — unsupported | — unsupported | ✓ `homebrew-cask` | — unsupported | — |
 | `ai` | ✓ `mise` | ✓ `mise` | ✓ `mise` | — unsupported | — |
 | `backpass` | ✓ `mise-npm` | ✓ `mise-npm` | ✓ `mise-npm` | — | — |
 | `base` | ✓ `dnf+terra` | ✓ `dnf+upstream` | ✓ `homebrew` | ✓ `apt+upstream` | ✓ `wsl` |

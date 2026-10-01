@@ -33,6 +33,8 @@ usage_persistent_options() {
   --gnhf/--no-gnhf   AI subcomponent: GNHF (default: inherit)
   --backpass/--no-backpass
                      AI subcomponent: backpass (default: inherit)
+  --aerospace/--no-aerospace
+                     AeroSpace tiling window manager (default: true)
 EOF
 }
 
@@ -52,5 +54,6 @@ plan_persistent_options() {
     'AI subcomponent: Codex CLI:' "${ai_codex:-inherit}" \
     'AI subcomponent: FirstMate toolchain:' "${ai_firstmate:-inherit}" \
     'AI subcomponent: GNHF:' "${ai_gnhf:-inherit}" \
-    'AI subcomponent: backpass:' "${ai_backpass:-inherit}"
+    'AI subcomponent: backpass:' "${ai_backpass:-inherit}" \
+    'AeroSpace tiling window manager:' "$install_aerospace"
 }

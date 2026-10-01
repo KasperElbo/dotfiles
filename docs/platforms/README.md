@@ -57,6 +57,7 @@ explicitly invoked `.exe` interop endpoints. The WSL variant is a Linux developm
 runtime: it deliberately does not reproduce the Fedora desktop, laptop, GPU or
 virtualization-host setup inside WSL.
 
-The macOS bootstrap targets `/opt/homebrew` on Apple Silicon and uses AeroSpace
-for a Sway-like nine-workspace model without disabling SIP. See the complete
+The macOS bootstrap targets `/opt/homebrew` on Apple Silicon and, unless
+`--no-aerospace` is given, uses AeroSpace for a Sway-like nine-workspace model
+without disabling SIP. See the complete
 [Apple Silicon macOS workstation guide](macos.md).

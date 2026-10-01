@@ -22,6 +22,13 @@ assert_contains() {
   }
 }
 
+assert_not_contains() {
+  [[ "$1" != *"$2"* ]] || {
+    printf 'Expected output not to contain %q:\n%s\n' "$2" "$1" >&2
+    exit 1
+  }
+}
+
 # The three searches below are negative assertions: they pass when ripgrep
 # prints nothing. `|| true` made "nothing" and "could not search" the same
 # answer, so with rg missing its exit 127 was swallowed and every one of them
@@ -59,7 +66,9 @@ fi
 
 dry_run="$("$repo_root"/install.sh --platform macos --dry-run --ocaml --containers --dev-workflows)"
 assert_contains "$dry_run" 'Apple Silicon macOS installation plan'
-assert_contains "$dry_run" 'AeroSpace (Sway-compatible nine-workspace profile)'
+assert_contains "$dry_run" 'AeroSpace tiling window manager: true'
+assert_contains "$dry_run" '[aerospace] Install and launch the AeroSpace tiling window manager'
+assert_contains "$dry_run" 'platforms/macos/scripts/stow.sh --aerospace'
 assert_contains "$dry_run" 'Homebrew at /opt/homebrew'
 assert_contains "$dry_run" 'OCaml profile:       true'
 assert_contains "$dry_run" 'Podman machine profile: true'
@@ -84,6 +93,13 @@ excluded:*) ;;
 esac
 assert_contains "$containers_scope" 'docs/platforms/macos.md#optional-containers'
 
+# AeroSpace is selected by default and --no-aerospace leaves out all of it:
+# the install step, its Stow package, and the verifier's checks.
+no_aerospace="$("$repo_root"/install.sh --platform macos --dry-run --no-aerospace)"
+assert_contains "$no_aerospace" 'AeroSpace tiling window manager: false'
+assert_contains "$no_aerospace" 'aerospace:false'
+assert_not_contains "$no_aerospace" '[aerospace]'
+assert_not_contains "$no_aerospace" 'stow.sh --aerospace'
 no_defaults="$("$repo_root"/install.sh --platform macos --dry-run --no-defaults)"
 assert_contains "$no_defaults" 'Reversible macOS defaults: false'
 if [[ "$no_defaults" == *'Apply reversible Dock'* ]]; then
@@ -121,7 +137,14 @@ for package in bash bat coreutils eza fd fzf gh git git-delta mise neovim ripgre
   grep -Eq "^brew \"$package\"$" "$brewfile"
 done
 grep -Fq 'cask "ghostty"' "$brewfile"
-grep -Fq 'cask "nikitabobko/tap/aerospace"' "$brewfile"
+# AeroSpace is its own capability: its cask comes from the step that installs
+# it when selected, never from the baseline Brewfile every Mac runs.
+if grep -Fiq aerospace "$brewfile"; then
+  printf 'The Brewfile installs AeroSpace, which --no-aerospace cannot then leave out.\n' >&2
+  exit 1
+fi
+code_grep -Fq '"$(homebrew_path)" install --cask nikitabobko/tap/aerospace' \
+  "$macos_root/scripts/install-aerospace.sh"
 code_grep -Fq 'Intel Homebrew exists at /usr/local/bin/brew' \
   "$macos_root/scripts/install-system.sh"
 for package in lazygit node python dotnet uv; do

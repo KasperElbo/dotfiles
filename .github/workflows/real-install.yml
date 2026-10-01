@@ -89,12 +89,13 @@ jobs:
         # 13.105.117.126` with nothing wrong on its own side (#500). This
         # selection runs no staged third-party installer, so the token reaches
         # mise and Homebrew only. See docs/supply-chain.md, "Authenticating
-        # the rate-limited API".
+        # the rate-limited API". --aerospace is the default, and is spelled
+        # out so this step stays the real-installation evidence for that row.
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: >-
-          ./install.sh --platform macos --theme macchiato
+          ./install.sh --platform macos --theme macchiato --aerospace
           --no-ocaml --no-containers --no-tailscale --no-defaults
           --non-interactive
 
@@ -118,7 +119,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: >-
-          ./install.sh --platform macos --theme macchiato
+          ./install.sh --platform macos --theme macchiato --aerospace
           --no-ocaml --no-containers --no-tailscale --no-defaults
           --non-interactive
 
