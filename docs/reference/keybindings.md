@@ -633,25 +633,25 @@ choice with a recorded reason, never an omission.
 
 | Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
 |---|---|---|---|---|---|---|---|
-| `Control+Option+Tab` | Focus the next display | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Ctrl+Opt+Shift+Tab` | Move the focused window to the next display | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Ctrl+Opt+Cmd+Tab` | Move the whole workspace to the next display | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Control+Option+H/J/K/L` | Focus left/down/up/right, across displays | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Control+Option+Enter` | Open a new Ghostty window | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Control+Option+S/W` | Vertical / horizontal accordion | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Ctrl+Opt+Shift+Space` | Toggle floating/tiling | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Control+Option+B/V` | Horizontal / vertical tiles | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Control+Option+E` | Toggle horizontal/vertical tiles | key | repository | `base` | the tracked config | no | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Control+Option+R` | Enter resize mode | mode | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Ctrl+Opt+Shift+H/J/K/L` | Move the focused window left/down/up/right, across displays | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `H/J/K/L` | Resize mode: shrink or grow width and height | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Enter, Esc` | Resize mode: return to the main mode | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Ctrl+Opt+Shift+R` | Reload the AeroSpace configuration | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Ctrl+Opt+Shift+C` | Close the focused window | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Control+Option+F` | Fullscreen within the current Space | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Ctrl+Opt+Cmd+H/J/K/L` | Move through the wrapping 3x3 workspace grid (aerospace-workspace-grid) | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Ctrl+Opt+Shift+1..9` | Move the focused window to workspace 1-9 | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
-| `Control+Option+1..9` | Switch to workspace 1-9 | key | repository | `base` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+Tab` | Focus the next display | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+Tab` | Move the focused window to the next display | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Cmd+Tab` | Move the whole workspace to the next display | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+H/J/K/L` | Focus left/down/up/right, across displays | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+Enter` | Open a new Ghostty window | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+S/W` | Vertical / horizontal accordion | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+Space` | Toggle floating/tiling | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+B/V` | Horizontal / vertical tiles | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+E` | Toggle horizontal/vertical tiles | key | repository | `aerospace` | the tracked config | no | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+R` | Enter resize mode | mode | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+H/J/K/L` | Move the focused window left/down/up/right, across displays | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `H/J/K/L` | Resize mode: shrink or grow width and height | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Enter, Esc` | Resize mode: return to the main mode | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+R` | Reload the AeroSpace configuration | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+C` | Close the focused window | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+F` | Fullscreen within the current Space | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Cmd+H/J/K/L` | Move through the wrapping 3x3 workspace grid (aerospace-workspace-grid) | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Ctrl+Opt+Shift+1..9` | Move the focused window to workspace 1-9 | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
+| `Control+Option+1..9` | Switch to workspace 1-9 | key | repository | `aerospace` | the tracked config | yes | `platforms/macos/stow/aerospace/.config/aerospace/aerospace.toml` |
 
 #### ghostty
 

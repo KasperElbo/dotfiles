@@ -24,10 +24,12 @@ macos_run_verifier() {
   local install_containers="$2"
   local install_tailscale="$3"
   local install_dictation="${4:-false}"
+  local install_aerospace="${5:-false}"
   set --
   [[ "$apply_defaults" != true ]] || set -- "$@" --defaults
   [[ "$install_containers" != true ]] || set -- "$@" --containers
   [[ "$install_tailscale" != true ]] || set -- "$@" --tailscale
   [[ "$install_dictation" != true ]] || set -- "$@" --dictation
+  [[ "$install_aerospace" != true ]] || set -- "$@" --aerospace
   "$DOTFILES_ROOT/platforms/macos/scripts/verify.sh" "$@"
 }

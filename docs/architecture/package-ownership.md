@@ -79,9 +79,10 @@ unsupported on a platform install nothing there and are omitted.
 
 | Capability | Selected by | Provider | Packages |
 |---|---|---|---|
+| `aerospace` | `--aerospace` | `homebrew-cask` | `aerospace` |
 | `ai` | `--ai` | `mise` | `claude-code` `herdr` |
 | `backpass` | `--backpass` | `mise-npm` | `acpx` `backpass` `lavish-axi` |
-| `base` | always | `homebrew` | `aerospace` `bash` `bat` `coreutils` `eza` `fd` `fzf` `gh` `ghostty` `git` `git-delta` `jq` `mise` `neovim` `ripgrep` `shellcheck` `sqlite` `starship` `stow` `tmux` `zoxide` `zsh-autosuggestions` `zsh-syntax-highlighting` |
+| `base` | always | `homebrew` | `bash` `bat` `coreutils` `eza` `fd` `fzf` `gh` `ghostty` `git` `git-delta` `jq` `mise` `neovim` `ripgrep` `shellcheck` `sqlite` `starship` `stow` `tmux` `zoxide` `zsh-autosuggestions` `zsh-syntax-highlighting` |
 | `codex` | `--codex` | `mise-npm` | `@openai/codex` |
 | `containers` | `--containers` | `homebrew` | `podman` `podman-compose` |
 | `dictation` | `--dictation` | `upstream-dmg` | `ghost-pepper` |

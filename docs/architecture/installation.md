@@ -20,8 +20,10 @@ composition without changing the normal Fedora manifest.
 its narrow lab manifest without inheriting general-workstation runtimes.
 
 macOS reuses the full common workstation manifest. Its own Stow packages are
-AeroSpace, the Homebrew-specific Zsh path/plugin hooks, and a small VimTeX
-PDF-viewer override for the shared Neovim/LazyVim configuration.
+the Homebrew-specific Zsh path/plugin hooks, a small VimTeX PDF-viewer override
+for the shared Neovim/LazyVim configuration, and AeroSpace, which is stowed only
+when its `--aerospace` option is selected (the default), the way Fedora stows
+Sway only with `--sway`.
 
 Fedora-specific shell paths and theme behavior are injected through tracked
 platform files under `platforms/fedora/stow`; the portable Zsh and `theme`
@@ -140,7 +142,7 @@ follows, and component scripts stay individually callable and safe to rerun.
 | 13 | `defaults` | `apply` | conditional | Apply reversible Dock, Finder, screenshot, keyboard, and Mission Control defaults |
 | 14 | `dev-workflows` | `verify` | conditional | Run the disposable development workflow smoke tests |
 | 15 | `theme` | `apply` | always | Apply the selected theme |
-| 16 | `aerospace` | `apply` | always | Launch AeroSpace |
+| 16 | `aerospace` | `apply` | conditional | Install and launch the AeroSpace tiling window manager |
 | 17 | `verify` | `verify` | always | Verify installation and native architecture |
 
 ### Parrot Security Edition CTF guest

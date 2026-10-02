@@ -103,10 +103,20 @@ done
 run_stow "$repo_root/platforms/macos/scripts/stow.sh"
 
 for package in \
-  "${portable_packages[@]}" zsh-platform aerospace nvim-macos ghostty-macos \
+  "${portable_packages[@]}" zsh-platform nvim-macos ghostty-macos \
   theme-hooks theme-assets; do
   grep -Fqx "$package" "$stow_log"
 done
+# AeroSpace is its own capability, so the package goes with --aerospace only,
+# the way Fedora's sway and waybar go with --sway.
+if grep -Fqx aerospace "$stow_log"; then
+  printf 'macOS Stow entry point deployed aerospace without --aerospace.\n' >&2
+  exit 1
+fi
+
+: >"$stow_log"
+run_stow "$repo_root/platforms/macos/scripts/stow.sh" --aerospace
+grep -Fqx aerospace "$stow_log"
 # theme-hooks is a package name each platform fills with its own file, not a
 # shared one, so macOS deploying it is not a boundary crossing. What would be
 # is the file inside: platforms/macos/stow/theme-hooks holds macos.sh alone.

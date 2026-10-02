@@ -755,6 +755,51 @@ run_verifier
 assert_eq "$baseline_failures" "$failures" 'the application fixture is removed again'
 printf 'PASS: the application bundles are read where the fixture puts them, not in /Applications\n'
 
+# --- AeroSpace is an optional capability ------------------------------------
+#
+# Selected by default, but a Mac installed with --no-aerospace has neither the
+# application nor its configuration, and must not fail on either. With no
+# record selecting it and nothing stowed, the section does not run; the
+# installer's --aerospace, or the stowed configuration, each bring it back.
+assert_contains "$baseline_output" 'AeroSpace window manager'
+mv "$config/aerospace/aerospace.toml" "$TEST_ROOT/aerospace.toml.aside"
+mv "$home/.local/bin/aerospace-workspace-grid" "$TEST_ROOT/aerospace-workspace-grid.aside"
+run_verifier
+assert_not_contains "$TEST_OUTPUT" 'AeroSpace'
+assert_eq "$((baseline_failures - 3))" "$failures" 'a Mac without AeroSpace: failure count'
+verifier_flags=(--aerospace)
+run_verifier
+assert_contains "$TEST_OUTPUT" 'AeroSpace window manager'
+assert_contains "$TEST_OUTPUT" 'AeroSpace application is missing'
+assert_contains "$TEST_OUTPUT" "$config/aerospace/aerospace.toml"
+assert_eq "$((baseline_failures + 2))" "$failures" '--aerospace with nothing installed: failure count'
+verifier_flags=()
+# A hand-run verifier has no flag; the installation record is what selects it.
+aerospace_record="$home/.local/state/dotfiles/install.conf"
+[[ ! -e "$aerospace_record" ]] || _test_die "the fixture unexpectedly has an installation record"
+mkdir -p "${aerospace_record%/*}"
+cat >"$aerospace_record" <<'EOF'
+schema_version=2
+profile=install
+status=installed
+platform=macos
+requested_capabilities=base,dotnet-debug,aerospace
+observed_capabilities=base,dotnet-debug,aerospace
+external_assurance=not-recorded
+repository=local-checkout
+revision=0123456789abcdef
+provenance=capability-manifest@0123456789abcdef
+EOF
+run_verifier
+assert_contains "$TEST_OUTPUT" 'AeroSpace application is missing'
+assert_contains "$TEST_OUTPUT" "$config/aerospace/aerospace.toml"
+rm -f -- "$aerospace_record"
+mv "$TEST_ROOT/aerospace.toml.aside" "$config/aerospace/aerospace.toml"
+mv "$TEST_ROOT/aerospace-workspace-grid.aside" "$home/.local/bin/aerospace-workspace-grid"
+run_verifier
+assert_eq "$baseline_failures" "$failures" 'the AeroSpace links are restored'
+printf 'PASS: the AeroSpace checks run when it is selected or stowed, and only then\n'
+
 # expect_one_more_failure <description> <message>: the last run failed exactly
 # one more check than the healthy fixture, and named it.
 expect_one_more_failure() {
@@ -980,7 +1025,11 @@ done
 mv "$home/.zshenv" "$withheld_links/zshenv"
 ln -s "$other_checkout/zsh/.zshenv" "$home/.zshenv"
 mv "$mock_bin/aerospace" "$root/withheld-aerospace"
+# The installer selected AeroSpace, so the AeroSpace checks run with nothing
+# deployed for them to find.
+verifier_flags=(--aerospace)
 run_verifier 'MOCK_NVIM_START_ERROR=E5113: Error while calling lua chunk: fixture configuration error'
+verifier_flags=()
 undeployed_failures=()
 for expected in "${macos_fixture_failures[@]}"; do
   # With no aerospace to ask, the window manager is reported as unreachable,

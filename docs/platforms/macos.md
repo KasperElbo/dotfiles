@@ -122,8 +122,8 @@ The installer:
 
 1. refuses non-macOS, non-`arm64`, and Rosetta-translated shells;
 2. installs native Homebrew at `/opt/homebrew` if needed;
-3. installs the Homebrew-owned tools in `platforms/macos/Brewfile`, Ghostty,
-   and AeroSpace;
+3. installs the Homebrew-owned tools in `platforms/macos/Brewfile` and
+   Ghostty;
 4. reuses the common Zsh, Starship, Git, Ghostty, Neovim/LazyVim, tmux, fzf,
    bat, eza, ripgrep, fd, zoxide, mise, and Catppuccin packages through Stow;
 5. installs the existing mise-owned .NET, Node/JS, Python, and portable CLI
@@ -131,7 +131,16 @@ The installer:
 6. sets a registered Zsh as the account login shell when the account does not
    already use one;
 7. applies the small reversible defaults set below; and
-8. launches AeroSpace and runs architecture/configuration verification.
+8. installs and launches AeroSpace, unless `--no-aerospace` was given (see
+   below), and runs architecture/configuration verification.
+
+AeroSpace is its own selectable capability, the way Sway is on Fedora. It is
+selected by default, so a plain install or rerun keeps it; pass
+`--no-aerospace` for a Mac without a tiling window manager. That skips the
+AeroSpace cask, its Stow package and its launch, and the verifier skips its
+checks. It removes nothing an earlier install left behind: the verifier keeps
+checking a stowed AeroSpace configuration until it is removed with the
+commands in section 9, "Verification and rollback".
 
 Any Zsh listed in `/etc/shells` is supported, so Apple's `/bin/zsh` and a
 deliberately selected Homebrew Zsh are both left alone. The shell is changed
@@ -596,6 +605,9 @@ beta. yabai would gain deeper native Space control and mature BSP automation,
 but the most capable configuration carries more security and macOS-update
 coupling than this workstation accepts.
 
+`platforms/macos/scripts/install-aerospace.sh` installs it from upstream's
+tap when the `aerospace` capability is selected, through its own
+`platforms/macos/aerospace/Brewfile` rather than the baseline one.
 The Homebrew AeroSpace cask is the upstream-preferred install path, but the app
 is not notarized; the cask removes its quarantine attribute. Review the
 [AeroSpace repository](https://github.com/nikitabobko/AeroSpace) and release
@@ -742,8 +754,10 @@ platforms/macos/scripts/verify.sh --defaults
 git diff --check
 ```
 
-Add `--containers`, `--tailscale` and/or `--dictation` to verification when
-those optional profiles are installed. The verifier checks arm64, `/opt/homebrew`, the
+Add `--containers`, `--tailscale`, `--dictation` and/or `--aerospace` to
+verification when those optional profiles are installed. AeroSpace is also
+verified whenever the installation record selects it or its configuration is
+stowed. The verifier checks arm64, `/opt/homebrew`, the
 absence of Intel Homebrew, SIP, Gatekeeper, shared/macOS Stow links,
 tools (each run as well as found), mise ownership of the managed runtimes,
 the applied theme, the Mason inventory, the Catppuccin tmux plugin, apps,
@@ -751,6 +765,14 @@ defaults, the Podman machine, and Tailscale (app presence, CLI version, and
 connection state via `tailscale status --json`) when selected. An ungranted AeroSpace Accessibility permission and a
 not-yet-installed Tailscale CLI are both reported as warnings with their
 manual remedy, not hard failures, since both are optional interactive steps.
+
+To remove only AeroSpace from a Mac that now installs with `--no-aerospace`:
+
+```bash
+pkill AeroSpace || true
+brew uninstall --cask nikitabobko/tap/aerospace
+stow --dir=platforms/macos/stow --target="$HOME" --delete aerospace
+```
 
 To remove only the Mac desktop layer while leaving common dotfiles intact:
 
