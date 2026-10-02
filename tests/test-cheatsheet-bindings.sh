@@ -138,9 +138,9 @@ require_in "$sway_tex" 'across displays' "Sway cheat sheet"
 require_in "$macos_tex" 'across displays' "macOS cheat sheet"
 
 # --- Waybar's keyboard-layout indicator matches what the Sway sheet claims ---
-require_in "$waybar_config" '"sway/language"' "Waybar config"
-require_in "$waybar_config" '"format": "{short}"' "Waybar config"
-require_in "$sway_tex" 'sway/language' "Sway cheat sheet"
+require_in "$waybar_config" '"custom/keyboard-layout"' "Waybar config"
+require_in "$waybar_config" '"exec": "keyboard-layout-status --follow"' "Waybar config"
+require_in "$sway_tex" 'keyboard-layout-status' "Sway cheat sheet"
 require_in "$sway_tex" 'clicked' "Sway cheat sheet"
 
 # --- The Sway sheet's grid note describes the keys the config actually binds --

@@ -42,7 +42,7 @@ window#waybar {
 
 #tray,
 #custom-power-profile,
-#language,
+#custom-keyboard-layout,
 #network,
 #bluetooth,
 #pulseaudio,
@@ -54,7 +54,7 @@ window#waybar {
 
 #tray { padding: 0 6px; }
 #custom-power-profile { color: @mauve; }
-#language {
+#custom-keyboard-layout {
   min-width: 18px;
   padding: 0 6px;
   color: @lavender;

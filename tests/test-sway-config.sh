@@ -69,16 +69,22 @@ if grep -Eq 'suspend|hibernate' <<<"$config_code"; then
 fi
 
 for module in \
-  sway/workspaces sway/window tray custom/power-profile sway/language network bluetooth \
+  sway/workspaces sway/window tray custom/power-profile custom/keyboard-layout network bluetooth \
   pulseaudio battery clock; do
   grep -Fq "\"$module\"" "$waybar"
 done
 
-grep -Fq '"format": "{short}"' "$waybar"
+grep -Fq '"exec": "keyboard-layout-status --follow"' "$waybar"
+# Waybar's native module blanks whenever wtype's virtual keyboard reports in
+# (Handy dictation); the indicator must not depend on it.
+if grep -Fq '"sway/language"' "$waybar"; then
+  printf 'Waybar must not use sway/language; it goes blank after wtype runs.\n' >&2
+  exit 1
+fi
 grep -Fq \
   '"on-click": "swaymsg input type:keyboard xkb_switch_layout next"' \
   "$waybar"
-grep -Fq '#language' \
+grep -Fq '#custom-keyboard-layout' \
   "$fedora_stow/waybar/.config/waybar/style.css"
 
 # Backticks are literal Markdown delimiters.

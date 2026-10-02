@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Waybar status module: the active XKB layout of the physical keyboards, as the
+# short code (us, dk).
+#
+# Waybar's native sway/language module shows whatever layout the most recent
+# input event names. Handy types dictated text through wtype, which registers a
+# short-lived Wayland virtual keyboard with its own unnamed keymap; Waybar
+# before 0.15 then blanked the label until Waybar restarted, which a theme
+# change does through `swaymsg reload`. This reads every keyboard instead,
+# ignores virtual ones and keymaps XKB has no name for, and keeps the last
+# good value rather than ever printing an empty line.
+#
+#   keyboard-layout-status            print the current layout once
+#   keyboard-layout-status --follow   print it, then again on each change
+set -euo pipefail
+
+layout_list="${XKB_RULES_LIST:-/usr/share/X11/xkb/rules/evdev.lst}"
+unknown_layout="??"
+
+# Layout and variant descriptions mapped to their layout code, as JSON:
+# {"English (US)": "us", "Danish": "dk", "Danish (no dead keys)": "dk", ...}
+layout_codes() {
+  if [[ ! -r "$layout_list" ]]; then
+    printf '{}\n'
+    return
+  fi
+
+  awk '
+    /^! / { section = $2; next }
+    section == "layout" && NF >= 2 {
+      code = $1
+      sub(/^[[:space:]]*[^[:space:]]+[[:space:]]+/, "")
+      print code "\t" $0
+    }
+    section == "variant" && NF >= 3 && $2 ~ /:$/ {
+      code = substr($2, 1, length($2) - 1)
+      sub(/^[[:space:]]*[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+/, "")
+      print code "\t" $0
+    }
+  ' "$layout_list" | jq -Rn '
+    [inputs | split("\t") | {key: .[1], value: .[0]}] | from_entries
+  '
+}
+
+codes="$(layout_codes)"
+
+# Of the keyboards whose active layout XKB can name, the one with the most
+# layouts, as Waybar itself picks at startup. Prints nothing when none
+# qualifies, such as the instant a virtual keyboard is the only one reporting.
+current_layout() {
+  swaymsg -r -t get_inputs | jq -r --argjson codes "$codes" '
+    [ .[]
+      | select(.type == "keyboard")
+      | select((.identifier // "") | test("virtual"; "i") | not)
+      | select((.xkb_active_layout_name // "") as $name | $codes | has($name))
+    ]
+    | max_by(.xkb_layout_names | length)
+    | if . == null then empty else $codes[.xkb_active_layout_name] end
+  '
+}
+
+last=""
+
+print_layout() {
+  local layout
+  layout="$(current_layout)" || layout=""
+  if [[ -z "$layout" ]]; then
+    # Keep showing the last known layout; on the first read say it is unknown
+    # rather than leave an empty slot.
+    [[ -z "$last" ]] || return 0
+    layout="$unknown_layout"
+  fi
+  if [[ "$layout" != "$last" ]]; then
+    printf '%s\n' "$layout"
+    last="$layout"
+  fi
+}
+
+case "${1:-}" in
+"")
+  print_layout
+  ;;
+--follow)
+  print_layout
+  while IFS= read -r _event; do
+    print_layout
+  done < <(swaymsg -r -m -t subscribe '["input"]')
+  ;;
+*)
+  printf 'Usage: keyboard-layout-status [--follow]\n' >&2
+  exit 2
+  ;;
+esac

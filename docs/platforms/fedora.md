@@ -151,10 +151,13 @@ Fedora KDE and Sway use the same two-layout workflow:
 | `Super+Alt+K` | Switch between US and Danish keyboard layouts |
 
 The Sway profile tracks `us,dk` for `input type:keyboard`, so the setting also
-applies to external keyboards connected after login. Waybar's native
-`sway/language` module shows the active XKB layout as the compact code `us` or
-`dk`, updates from Sway input events immediately, and can also be clicked to
-switch layouts.
+applies to external keyboards connected after login. Waybar's layout module
+runs `keyboard-layout-status --follow`, which shows the active XKB layout of the
+physical keyboards as the compact code `us` or `dk`, updates from Sway input
+events immediately, and can also be clicked to switch layouts. It replaces
+Waybar's native `sway/language` module, which before Waybar 0.15 went blank
+whenever Handy typed dictated text through `wtype`'s virtual keyboard and only
+came back when Waybar restarted (a theme change restarts it).
 
 Plasma 6 already uses `Meta+Alt+K` as the default shortcut for **Switch to Next
 Keyboard Layout**. Layout selection remains a one-time desktop preference so

@@ -314,7 +314,7 @@ The shell re-exec belongs to the Zsh wrapper, not to the command; see
 
 ## Complete action reference
 
-Every action this repository defines or deliberately puts in front of you: 239 entries, grouped by the platform they exist on.
+Every action this repository defines or deliberately puts in front of you: 240 entries, grouped by the platform they exist on.
 
 **Origin** is the distinction that matters when something behaves unexpectedly.
 `repository` means this repository binds it, and the `Source` column says where.
@@ -577,6 +577,7 @@ choice with a recorded reason, never an omission.
 |---|---|---|---|---|---|---|---|
 | `Click: volume module` | Open pavucontrol | click | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
 | `Click: bluetooth module` | Open blueman-manager | click | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
+| `keyboard-layout-status` | Status module showing the active keyboard layout of the physical keyboards | command | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
 | `Waybar layout click` | Switch between the US and Danish keyboard layouts | click | repository | `sway` | the status bar itself | yes | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
 | `Click: network module` | Open nm-connection-editor | click | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
 | `power-profile-status` | Status module showing the active asusd/power-profiles-daemon profile | command | repository | `sway` | the status bar itself | no | `platforms/fedora/stow/waybar/.config/waybar/config.jsonc` |
@@ -720,7 +721,7 @@ choice with a recorded reason, never an omission.
 
 ### Why an action is not on a printable sheet
 
-45 of the 239 registered actions are deliberately kept off every sheet:
+46 of the 240 registered actions are deliberately kept off every sheet:
 
 | Action | Reason |
 |---|---|
@@ -764,6 +765,7 @@ choice with a recorded reason, never an omission.
 | `tmux.option.numbering` | The numbering is visible in the status bar the moment tmux starts; the sheets' tmux block is for keys |
 | `waybar.audio.click` | Discoverable by clicking the module it sits on |
 | `waybar.bluetooth.click` | Discoverable by clicking the module it sits on |
+| `waybar.keyboard-layout.status` | A status display, not an action: there is nothing to invoke |
 | `waybar.network.click` | Discoverable by clicking the module it sits on; the sheet documents only the layout click, which has no other entry point |
 | `waybar.power-profile.status` | A status display, not an action: there is nothing to invoke |
 | `waybar.workspaces.scroll` | It records a suppressed default rather than an action: there is nothing to press |
