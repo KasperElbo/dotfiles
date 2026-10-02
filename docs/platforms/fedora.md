@@ -155,8 +155,8 @@ applies to external keyboards connected after login. Waybar's layout module
 runs `keyboard-layout-status --follow`, which shows the active XKB layout of the
 physical keyboards as the compact code `us` or `dk`, updates from Sway input
 events immediately, and can also be clicked to switch layouts. It replaces
-Waybar's native `sway/language` module, which before Waybar 0.15 went blank
-whenever Handy typed dictated text through `wtype`'s virtual keyboard and only
+Waybar's native `sway/language` module, which in Waybar 0.15.0 and earlier
+went blank whenever Handy typed dictated text through `wtype`'s virtual keyboard and only
 came back when Waybar restarted (a theme change restarts it).
 
 Plasma 6 already uses `Meta+Alt+K` as the default shortcut for **Switch to Next

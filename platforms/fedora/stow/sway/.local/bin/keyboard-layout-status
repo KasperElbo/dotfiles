@@ -5,8 +5,9 @@
 # Waybar's native sway/language module shows whatever layout the most recent
 # input event names. Handy types dictated text through wtype, which registers a
 # short-lived Wayland virtual keyboard with its own unnamed keymap; Waybar
-# before 0.15 then blanked the label until Waybar restarted, which a theme
-# change does through `swaymsg reload`. This reads every keyboard instead,
+# then blanked the label until it restarted, which a theme change does through
+# `swaymsg reload`. Upstream guarded against this after 0.15.0 (commit
+# 0ec6d0647, unreleased as of October 2026). This reads every keyboard instead,
 # ignores virtual ones and keymaps XKB has no name for, and keeps the last
 # good value rather than ever printing an empty line.
 #
