@@ -34,6 +34,7 @@ extensionless=(
   platforms/fedora-wsl/stow/interop/.local/bin/wsl-open
   platforms/fedora-wsl/stow/interop/.local/bin/wsl-paste
   platforms/fedora/assets/dotfiles-sway
+  platforms/fedora/stow/sway/.local/bin/keyboard-layout-status
   platforms/fedora/stow/sway/.local/bin/power-profile-status
   platforms/fedora/stow/sway/.local/bin/sway-output-cycle
   platforms/fedora/stow/sway/.local/bin/sway-screenshot

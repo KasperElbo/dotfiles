@@ -114,6 +114,7 @@ default_tests=(
   tests/test-install-rerun.sh
   tests/test-secure-boot.sh
   tests/test-power-profiles.sh
+  tests/test-keyboard-layout-status.sh
   tests/test-installer-options.sh
   tests/test-installer-plan-commands.sh
   tests/test-platform-boundary.sh

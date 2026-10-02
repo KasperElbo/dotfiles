@@ -238,3 +238,4 @@ herdr.pickers	workstation	ai	herdr	upstream	key	Ctrl+B w / Ctrl+B g	Workspace pi
 herdr.sidebar	workstation	ai	herdr	upstream	key	Ctrl+B b	Toggle the agent sidebar (blocked/working/done/idle)	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
 herdr.copy-mode	workstation	ai	herdr	upstream	key	Ctrl+B [	Copy mode	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
 herdr.detach	workstation	ai	herdr	upstream	key	Ctrl+B q	Detach; the agents keep running	-	-	tool-help	true	fedora-kde,fedora-sway,fedora-wsl,macos	-
+waybar.keyboard-layout.status	fedora	sway	waybar	repository	command	keyboard-layout-status	Status module showing the active keyboard layout of the physical keyboards	platforms/fedora/stow/waybar/.config/waybar/config.jsonc	"exec": "keyboard-layout-status --follow"	status-bar	false	-	A status display, not an action: there is nothing to invoke
