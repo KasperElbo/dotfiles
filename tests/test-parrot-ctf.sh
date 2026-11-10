@@ -317,9 +317,30 @@ done
 
 parrot_zsh="$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform.zsh"
 parrot_env="$repo_root/platforms/parrot-ctf/stow/zsh-platform/.config/zsh/platform-env.zsh"
+parrot_distro_path=(/usr/local/bin /usr/bin /bin /usr/local/sbin /usr/sbin /sbin)
+# Sourcing twice, from a PATH that already carries a duplicate, is what proves
+# the tied unique array leaves every entry single.
 path_output="$(PATH="/usr/bin:/bin:/usr/bin" zsh -f -c "source '$parrot_env'; source '$parrot_env'; print -l -- \$path")"
-for expected_path in /usr/bin /bin /usr/local/sbin /usr/sbin /sbin; do
+for expected_path in "${parrot_distro_path[@]}"; do
   [[ "$(grep -Fxc "$expected_path" <<<"$path_output")" == 1 ]]
+done
+
+# Seeding a PATH that already holds the distro directories only ever proved
+# they survived. Nothing in Parrot's login chain supplies them -- zprofile is
+# pure comments and zshenv assigns only to an empty or exactly "/bin:/usr/bin"
+# PATH -- so a thin inherited PATH reached the verifier unchanged and failed it
+# on a missing /usr/bin. The seed here carries none of them, which is the only
+# way this asserts that the file provides them rather than passes them through.
+# Resolved before the seed is applied: a PATH thin enough to be worth testing
+# is also too thin to find Zsh itself.
+parrot_zsh_bin="$(command -v zsh)"
+provisioned_path="$(PATH="/opt/thin-caller" "$parrot_zsh_bin" -f -c "source '$parrot_env'; print -l -- \$path")"
+for expected_path in "${parrot_distro_path[@]}"; do
+  [[ "$(grep -Fxc "$expected_path" <<<"$provisioned_path")" == 1 ]] || {
+    printf 'platform-env.zsh did not provide %s from a thin caller PATH:\n%s\n' \
+      "$expected_path" "$provisioned_path" >&2
+    exit 1
+  }
 done
 shell_output="$(
   PATH="$mock_bin:$PATH" zsh -f -c \
