@@ -673,6 +673,36 @@ if [[ "$system_bash_is_old" == true ]]; then
   }
   printf 'PASS: theme reaches a supported Bash with Homebrew off PATH\n'
 
+  # git tidy re-executes the same way, and is reached as `git tidy`, so Git
+  # rather than a shell picks the interpreter from PATH. A real run in a
+  # throwaway repository, because `-h` answers before the modern-Bash
+  # libraries are sourced and would pass even if they could not be.
+  tidy_repo="$root/tidy-repo"
+  git init --quiet --initial-branch=main "$tidy_repo"
+  git -C "$tidy_repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
+    -c commit.gpgsign=false commit --quiet --allow-empty -m seed
+  git -C "$tidy_repo" branch --quiet feat/landed
+  ln -s "$repo_root/bin/.local/bin/git-tidy" "$stowed_bin/git-tidy"
+  output="$(
+    cd "$tidy_repo" &&
+      env PATH="$stowed_bin:/bin:/usr/bin:/opt/homebrew/bin" \
+        HOME="$root/home" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+        DOTFILES_BOOTSTRAP_TRACE=true \
+        git tidy --dry-run 2>&1
+  )" || {
+    printf 'git tidy failed under a system-Bash-first PATH:\n%s\n' "$output" >&2
+    exit 1
+  }
+  grep -Fq 'feat/landed' <<<"$output" || {
+    printf 'git tidy did not run under a system-Bash-first PATH:\n%s\n' "$output" >&2
+    exit 1
+  }
+  grep -Fq 're-executing with' <<<"$output" || {
+    printf 'git tidy did not re-exec although the system Bash is 3.2:\n%s\n' "$output" >&2
+    exit 1
+  }
+  printf 'PASS: git tidy runs under a real Apple Bash on a system-Bash-first PATH\n'
+
   # The entry points, on the same system-Bash-first PATH. This is the situation
   # docs/troubleshooting.md describes and then answers with `./doctor`, so it is
   # run here for real rather than modelled: `./doctor` used to die on

@@ -88,6 +88,14 @@ tool_version() {
       sed -n 's/^\([0-9][0-9.]*\)$/\1/p' |
       sed -n 1p
     ;;
+  git)
+    # "git version 2.39.5 (Apple Git-154)" on macOS, and a trailing
+    # ".windows.1" from Git for Windows: only the leading dotted number counts.
+    reported="$("${probe[@]}" --version 2>/dev/null || true)"
+    printf '%s\n' "$reported" |
+      sed -n 's/^git version \([0-9][0-9]*\(\.[0-9][0-9]*\)*\).*/\1/p' |
+      sed -n 1p
+    ;;
   *)
     printf 'No version probe is defined for %s\n' "$tool" >&2
     return 1

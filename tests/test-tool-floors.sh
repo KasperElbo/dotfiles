@@ -67,6 +67,26 @@ check_stubbed_nvim
 assert_failure
 assert_contains "$TEST_OUTPUT" 'nvim did not report a usable version'
 
+# Git's banner carries a vendor suffix on macOS and Git for Windows; only the
+# leading dotted number is the version.
+assert_eq 2.38 "$(tool_floor git)" 'the Git floor comes from the registry'
+stub_git() {
+  cat >"$stub_bin/git" <<EOF
+#!/usr/bin/env bash
+[[ "\${1:-}" == --version ]] || exit 0
+printf '%s\n' '$1'
+EOF
+  chmod +x "$stub_bin/git"
+}
+stub_git 'git version 2.39.5 (Apple Git-154)'
+assert_eq 2.39.5 "$(tool_version git "$stub_bin/git")" 'the Apple Git banner'
+stub_git 'git version 2.45.1.windows.1'
+assert_eq 2.45.1 "$(tool_version git "$stub_bin/git")" 'the Git for Windows banner'
+stub_git 'git version 2.37.3'
+run_capture tool_floor_check git "$stub_bin/git"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'git 2.37.3 is older than the required 2.38 (config/tool-floors.tsv)'
+
 # --- The validator holds the registry, the docs and the enforcers together --
 
 run_capture python3 "$repo_root/scripts/validate-tool-floors.py"
@@ -579,7 +599,9 @@ assert_contains "$TEST_OUTPUT" 'enforce.sh cannot be read as shell'
 # than leaving this check looking for a name that no longer exists.
 renamed="$root/renamed-reader"
 mkdir -p "$renamed/common/lib"
-sed 's/\btool_floor_check\b/require_tool_floor/g' \
+# Word boundaries spelled out, because `\b` is GNU sed only: BSD sed reads it
+# as a literal and renames nothing.
+sed -E 's/(^|[^[:alnum:]_])tool_floor_check([^[:alnum:]_]|$)/\1require_tool_floor\2/g' \
   "$repo_root/common/lib/tool-floors.sh" >"$renamed/common/lib/tool-floors.sh"
 run_capture python3 - "$repo_root" "$renamed/common/lib/tool-floors.sh" <<'PY'
 import importlib.util, pathlib, sys
@@ -670,7 +692,9 @@ printf 'PASS: the four Bash floor sites agree with the registry row\n'
 bash_floor_mutation() {
   local site="$1" expression="$2" expected="$3"
   cp "$repo_root/$site" "$bash_fixture/$site"
-  sed -i "$expression" "$bash_fixture/$site"
+  # An attached backup suffix is the one in-place form GNU and BSD sed share.
+  sed -i.orig "$expression" "$bash_fixture/$site"
+  rm -f -- "$bash_fixture/$site.orig"
   if cmp -s "$repo_root/$site" "$bash_fixture/$site"; then
     _test_die "the mutation '$expression' no longer changes $site"
   fi
