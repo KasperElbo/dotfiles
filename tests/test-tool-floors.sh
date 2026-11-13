@@ -67,6 +67,26 @@ check_stubbed_nvim
 assert_failure
 assert_contains "$TEST_OUTPUT" 'nvim did not report a usable version'
 
+# Git's banner carries a vendor suffix on macOS and Git for Windows; only the
+# leading dotted number is the version.
+assert_eq 2.38 "$(tool_floor git)" 'the Git floor comes from the registry'
+stub_git() {
+  cat >"$stub_bin/git" <<EOF
+#!/usr/bin/env bash
+[[ "\${1:-}" == --version ]] || exit 0
+printf '%s\n' '$1'
+EOF
+  chmod +x "$stub_bin/git"
+}
+stub_git 'git version 2.39.5 (Apple Git-154)'
+assert_eq 2.39.5 "$(tool_version git "$stub_bin/git")" 'the Apple Git banner'
+stub_git 'git version 2.45.1.windows.1'
+assert_eq 2.45.1 "$(tool_version git "$stub_bin/git")" 'the Git for Windows banner'
+stub_git 'git version 2.37.3'
+run_capture tool_floor_check git "$stub_bin/git"
+assert_failure
+assert_contains "$TEST_OUTPUT" 'git 2.37.3 is older than the required 2.38 (config/tool-floors.tsv)'
+
 # --- The validator holds the registry, the docs and the enforcers together --
 
 run_capture python3 "$repo_root/scripts/validate-tool-floors.py"

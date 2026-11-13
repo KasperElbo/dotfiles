@@ -120,6 +120,7 @@ default_tests=(
   tests/test-platform-boundary.sh
   tests/test-local-state.sh
   tests/test-git-identity.sh
+  tests/test-git-tidy.sh
   tests/test-theme.sh
   tests/test-theme-hooks.sh
   tests/test-theme-precedence.sh

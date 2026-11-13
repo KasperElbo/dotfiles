@@ -22,12 +22,13 @@ expect, matching `./scripts/test.sh`'s aggregate preflight list and the
 | GNU Stow (`stow`) | any recent release | install/stow suites |
 | OpenSSH client tools (`ssh`, `scp`, `sftp`) | any recent release | SFTP/remote-access suites |
 | Python 3 (`python3`) | >= 3.11 | every `scripts/*.py` validator and generator |
+| Git (`git`) | >= 2.38 | `git tidy` (`git merge-tree --write-tree`) and `tests/test-git-tidy.sh`; the other suites use only long-standing Git |
 | jq | any recent release | JSON-fixture and action-registry suites |
 | ripgrep (`rg`) | any recent release | `./scripts/test.sh` preflight and search-based checks |
 | lazy.nvim | the revision [`nvim-lazyvim/.config/nvim/lazy-lock.json`](../nvim-lazyvim/.config/nvim/lazy-lock.json) pins | `./scripts/test.sh` preflight and the Neovim spec-resolution suite. A checkout, not a command — see below |
 
 `./scripts/test.sh` also preflights `awk`, `curl`, `find`, `getent`,
-`git`, `grep`, `mktemp`, `sed`, `sha256sum`, `timeout` and `unlink`, which are
+`grep`, `mktemp`, `sed`, `sha256sum`, `timeout` and `unlink`, which are
 assumed already present on any supported development machine. The list is the
 whole set the default suites reach for, not the memorable part of it: a command
 that is missing from the preflight does not go unnoticed, it surfaces halfway

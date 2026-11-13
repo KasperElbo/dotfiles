@@ -1,0 +1,330 @@
+#!/usr/bin/env bash
+
+# git tidy: delete the local branches whose work is already on the default
+# branch, after showing which ones and why.
+#
+# Everything down to the modern-Bash guard may run under Apple's Bash 3.2, so it
+# stays inside that dialect, as in bin/.local/bin/theme.
+
+# Resolve the dotfiles repository from this script's symlink without GNU-only
+# readlink flags: <repo>/bin/.local/bin/git-tidy
+script_path="${BASH_SOURCE[0]}"
+while [ -L "$script_path" ]; do
+  script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
+  link_target="$(readlink "$script_path")"
+
+  case "$link_target" in
+  /*) script_path="$link_target" ;;
+  *) script_path="$script_dir/$link_target" ;;
+  esac
+done
+
+script_path="$(cd -P "$(dirname "$script_path")" && pwd)/$(basename "$script_path")"
+repo_root="$(cd "$(dirname "$script_path")/../../.." && pwd)"
+
+# shellcheck source=../../../common/lib/modern-bash.sh
+. "$repo_root/common/lib/modern-bash.sh"
+modern_bash_reexec git-tidy "$script_path" "$@" || exit 2
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: git tidy [--yes | --dry-run]
+
+Fetch and prune origin, then delete the local branches whose work is already
+on origin's default branch. It lists them first and asks before deleting.
+
+A branch counts as already on the default branch when its tip is reachable
+from it, when every commit has an equivalent there (a rebase merge), when its
+whole change matches one commit there (a squash merge), or when merging it
+would change nothing.
+
+It never deletes the current branch, the default branch, or a branch checked
+out in any worktree. Remote branches are never deleted.
+
+Options:
+  -y, --yes      delete without asking
+  -n, --dry-run  only list what would be deleted
+  -h             show this help (git tidy --help looks for a man page instead)
+
+Without --yes, deleting needs a terminal to answer the prompt; otherwise the
+list is printed and nothing is deleted.
+
+Exit status:
+  0  nothing failed, including when nothing was deleted
+  1  one or more branches could not be deleted
+  2  usage error, not a Git repository, or Git too old
+EOF
+}
+
+mode=ask
+
+while (($#)); do
+  case "$1" in
+  -y | --yes) mode=yes ;;
+  -n | --dry-run) mode=dry-run ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    printf 'Unknown argument: %s\n' "$1" >&2
+    usage >&2
+    exit 2
+    ;;
+  esac
+  shift
+done
+
+# shellcheck source=../../../common/lib/tool-floors.sh
+source "$repo_root/common/lib/tool-floors.sh"
+
+# `git merge-tree --write-tree`, the merge no-op check below, needs Git 2.38.
+tool_floor_check git || exit 2
+
+git rev-parse --git-dir >/dev/null 2>&1 || {
+  printf 'git tidy: not inside a Git repository\n' >&2
+  exit 2
+}
+
+# --- The branch everything is compared against -----------------------------
+
+if git remote get-url origin >/dev/null 2>&1; then
+  # network-source: git-tidy-origin
+  if ! git fetch --prune --quiet origin; then
+    printf 'git tidy: could not fetch origin; comparing against what was last fetched\n' >&2
+  fi
+fi
+
+base=""
+for candidate in refs/remotes/origin/HEAD refs/remotes/origin/main refs/heads/main; do
+  if git rev-parse --verify --quiet "$candidate^{commit}" >/dev/null; then
+    base="$candidate"
+    break
+  fi
+done
+[[ -n "$base" ]] || {
+  printf 'git tidy: found neither origin/HEAD, origin/main nor main to compare against\n' >&2
+  exit 2
+}
+base_name="$(git rev-parse --abbrev-ref "$base")"
+# origin/HEAD names the branch it points at, so that is what gets reported and
+# protected rather than the symbolic name.
+if [[ "$base" == refs/remotes/origin/HEAD ]]; then
+  base_name="$(git rev-parse --abbrev-ref "$(git symbolic-ref "$base")")"
+fi
+base_sha="$(git rev-parse "$base^{commit}")"
+base_tree="$(git rev-parse "$base^{tree}")"
+# The local branch with the default branch's name, `main` for origin/main.
+default_branch="${base_name#origin/}"
+
+# --- Detection -------------------------------------------------------------
+
+# Command output is captured before it is searched throughout: `grep -q` stops
+# reading at the first match, and under pipefail the writer's SIGPIPE would then
+# fail the pipeline, turning "found" into "not found".
+
+# unmerged_count <tip>: how many of the branch's commits have no equal patch on
+# the base. Counting commits instead would include ones squash-merged there.
+unmerged_count() {
+  local cherry
+  cherry="$(git cherry "$base_sha" "$1")"
+  grep -c '^+' <<<"$cherry" || true
+}
+
+# patch_ids: the stable patch id of each patch on stdin. The diffs are made
+# without colour, an external diff driver or a textconv filter, so a user's Git
+# configuration cannot change them.
+patch_ids() {
+  git patch-id --stable | cut -d' ' -f1
+}
+
+# merged_reason <tip>: why the branch's work is already on the base, or fail.
+merged_reason() {
+  local tip="$1"
+  local merge_base branch_patch base_patches merged_tree
+
+  if git merge-base --is-ancestor "$tip" "$base_sha"; then
+    printf 'merged into %s\n' "$base_name"
+    return 0
+  fi
+
+  # Rebase merge: each commit has an equal patch on the base.
+  if [[ "$(unmerged_count "$tip")" == 0 ]]; then
+    printf 'every commit is already on %s\n' "$base_name"
+    return 0
+  fi
+
+  # Squash merge: the branch's whole change, as one patch, equals one commit
+  # on the base since the two diverged.
+  merge_base="$(git merge-base "$base_sha" "$tip" || true)"
+  if [[ -n "$merge_base" ]]; then
+    branch_patch="$(git diff --no-color --no-ext-diff --no-textconv "$merge_base" "$tip" | patch_ids)"
+    base_patches="$(
+      git log --no-merges --no-color --no-ext-diff --no-textconv --format='commit %H' -p \
+        "$merge_base..$base_sha" | patch_ids
+    )"
+    if [[ -n "$branch_patch" ]] && grep -qxF "$branch_patch" <<<"$base_patches"; then
+      printf 'squash-merged into %s\n' "$base_name"
+      return 0
+    fi
+  fi
+
+  # Anything else that is on the base by content, such as a squash merge the
+  # base has since edited around, or one the branch then merged back in.
+  if merged_tree="$(git merge-tree --write-tree "$base_sha" "$tip" 2>/dev/null)" &&
+    [[ "${merged_tree%%$'\n'*}" == "$base_tree" ]]; then
+    printf 'merging it into %s changes nothing\n' "$base_name"
+    return 0
+  fi
+
+  return 1
+}
+
+current_branch="$(git symbolic-ref --quiet --short HEAD || true)"
+
+delete_names=()
+delete_tips=()
+delete_reasons=()
+kept_names=()
+kept_tips=()
+kept_reasons=()
+
+# Worktree paths are shown from the home directory, which may be spelled
+# through a symlink Git has resolved, such as macOS's /var -> /private/var.
+home_real="$(cd -P "$HOME" 2>/dev/null && pwd || true)"
+home_relative() {
+  local path="$1" home
+  for home in "$HOME" "$home_real"; do
+    if [[ -n "$home" && "$path" == "$home"/* ]]; then
+      # shellcheck disable=SC2088 # A literal ~ to read, not a path to expand.
+      printf '~/%s\n' "${path#"$home"/}"
+      return
+    fi
+  done
+  printf '%s\n' "$path"
+}
+
+# The fields are split on ':', which no branch name, object name or tracking
+# state can contain. A tab would not do: it is whitespace to `read`, so an
+# empty tracking state would collapse and shift the worktree path into its
+# place. The path comes last and keeps any ':' of its own.
+while IFS=: read -r name tip track worktree; do
+  [[ "$name" == "$default_branch" ]] && continue
+
+  if reason="$(merged_reason "$tip")"; then
+    if [[ -n "$worktree" ]]; then
+      kept_names+=("$name")
+      kept_tips+=("$tip")
+      if [[ "$name" == "$current_branch" ]]; then
+        kept_reasons+=("$reason, but it is the current branch")
+      else
+        kept_reasons+=("$reason, but checked out in $(home_relative "$worktree")")
+      fi
+    else
+      delete_names+=("$name")
+      delete_tips+=("$tip")
+      delete_reasons+=("$reason")
+    fi
+  elif [[ "$track" == "[gone]" ]]; then
+    # A branch reused for a second pull request looks finished, because the
+    # first merge deleted its remote branch. Saying so explains why it stays.
+    unmerged="$(unmerged_count "$tip")"
+    if [[ "$unmerged" == 1 ]]; then
+      unmerged="1 commit is"
+    else
+      unmerged="$unmerged commits are"
+    fi
+    kept_names+=("$name")
+    kept_tips+=("$tip")
+    kept_reasons+=("remote branch is gone, but $unmerged not on $base_name")
+  fi
+done < <(git for-each-ref \
+  --format='%(refname:lstrip=2):%(objectname):%(upstream:track):%(worktreepath)' \
+  refs/heads)
+
+# --- Preview ---------------------------------------------------------------
+
+width=0
+for name in "${delete_names[@]}" "${kept_names[@]}"; do
+  ((${#name} > width)) && width=${#name}
+done
+
+print_rows() {
+  local -n names="$1" tips="$2" reasons="$3"
+  local index
+  for index in "${!names[@]}"; do
+    printf '  %-*s  %s  %s\n' "$width" "${names[index]}" \
+      "$(git rev-parse --short "${tips[index]}")" "${reasons[index]}"
+  done
+}
+
+count=${#delete_names[@]}
+if ((count == 0)); then
+  printf 'Nothing to tidy: no local branch is already on %s.\n' "$base_name"
+elif ((count == 1)); then
+  printf 'This branch is already on %s and will be deleted:\n' "$base_name"
+else
+  printf 'These %d branches are already on %s and will be deleted:\n' "$count" "$base_name"
+fi
+((count == 0)) || print_rows delete_names delete_tips delete_reasons
+
+if ((${#kept_names[@]} > 0)); then
+  printf '\nKept:\n'
+  print_rows kept_names kept_tips kept_reasons
+fi
+
+((count > 0)) || exit 0
+
+case "$mode" in
+dry-run)
+  printf '\nDry run: nothing deleted.\n'
+  exit 0
+  ;;
+ask)
+  if [[ ! -t 0 ]]; then
+    printf '\nNot a terminal: nothing deleted. Re-run with --yes to delete them.\n'
+    exit 0
+  fi
+  if ((count == 1)); then
+    printf '\nDelete this branch? [y/N] '
+  else
+    printf '\nDelete these %d branches? [y/N] ' "$count"
+  fi
+  answer=""
+  read -r answer || true
+  case "$answer" in
+  [yY] | [yY][eE][sS]) ;;
+  *)
+    printf 'Nothing deleted.\n'
+    exit 0
+    ;;
+  esac
+  ;;
+esac
+
+# --- Delete ----------------------------------------------------------------
+
+printf '\n'
+status=0
+for index in "${!delete_names[@]}"; do
+  name="${delete_names[index]}"
+  tip="${delete_tips[index]}"
+
+  # The branch may have moved since the preview. -D deletes whatever it
+  # points at now, so only a branch still at the previewed commit goes.
+  if [[ "$(git rev-parse --verify --quiet "refs/heads/$name" || true)" != "$tip" ]]; then
+    printf 'Kept    %-*s  it changed after the list was shown\n' "$width" "$name"
+    status=1
+    continue
+  fi
+
+  if git branch --quiet -D "$name" >/dev/null; then
+    printf 'Deleted %-*s  restore: git branch %s %s\n' "$width" "$name" "$name" "$tip"
+  else
+    status=1
+  fi
+done
+
+exit "$status"

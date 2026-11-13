@@ -314,7 +314,7 @@ The shell re-exec belongs to the Zsh wrapper, not to the command; see
 
 ## Complete action reference
 
-Every action this repository defines or deliberately puts in front of you: 240 entries, grouped by the platform they exist on.
+Every action this repository defines or deliberately puts in front of you: 241 entries, grouped by the platform they exist on.
 
 **Origin** is the distinction that matters when something behaves unexpectedly.
 `repository` means this repository binds it, and the `Source` column says where.
@@ -336,6 +336,12 @@ choice with a recorded reason, never an omission.
 | `Alt+C` | Fuzzy cd into a directory | key | upstream | `base` | the tool's own help | yes | — |
 | `Ctrl+T` | Fuzzy file selection | key | upstream | `base` | the tool's own help | yes | — |
 | `Ctrl+R` | Fuzzy history search | key | upstream-configured | `base` | the tool's own help | yes | `zsh/.config/zsh/.zshrc` |
+
+#### git
+
+| Binding | Action | Input | Origin | Profile | Discover via | Print | Source |
+|---|---|---|---|---|---|---|---|
+| `git tidy` | Delete the local branches whose work is already on main, after listing them and asking | command | repository | `base` | documentation only | no | `bin/.local/bin/git-tidy` |
 
 #### lazygit
 
@@ -721,7 +727,7 @@ choice with a recorded reason, never an omission.
 
 ### Why an action is not on a printable sheet
 
-46 of the 240 registered actions are deliberately kept off every sheet:
+47 of the 241 registered actions are deliberately kept off every sheet:
 
 | Action | Reason |
 |---|---|
@@ -729,6 +735,7 @@ choice with a recorded reason, never an omission.
 | `fedora-wsl.verify` | The workstation sheets are a desktop and shell reference; the platform guide is where an installer-time command belongs |
 | `fedora.verify` | The workstation sheets are a desktop and shell reference; the platform guide is where an installer-time command belongs |
 | `fedora.x-copy` | Only present inside the optional VM-guest profile; the workstation sheets would advertise a command most machines do not have |
+| `git.command.tidy` | An occasional clean-up rather than a key or command used daily; docs/workflows/git.md and git tidy -h describe it |
 | `macos.verify` | The workstation sheets are a desktop and shell reference; the platform guide is where an installer-time command belongs |
 | `nvim.dotnet.debug-nearest` | Preserves LazyVim's own test keys in C# buffers, so it is discoverable exactly where a LazyVim user already looks |
 | `nvim.dotnet.run-file` | Preserves LazyVim's own test keys in C# buffers, so it is discoverable exactly where a LazyVim user already looks |
