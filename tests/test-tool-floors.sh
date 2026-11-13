@@ -579,7 +579,9 @@ assert_contains "$TEST_OUTPUT" 'enforce.sh cannot be read as shell'
 # than leaving this check looking for a name that no longer exists.
 renamed="$root/renamed-reader"
 mkdir -p "$renamed/common/lib"
-sed 's/\btool_floor_check\b/require_tool_floor/g' \
+# Word boundaries spelled out, because `\b` is GNU sed only: BSD sed reads it
+# as a literal and renames nothing.
+sed -E 's/(^|[^[:alnum:]_])tool_floor_check([^[:alnum:]_]|$)/\1require_tool_floor\2/g' \
   "$repo_root/common/lib/tool-floors.sh" >"$renamed/common/lib/tool-floors.sh"
 run_capture python3 - "$repo_root" "$renamed/common/lib/tool-floors.sh" <<'PY'
 import importlib.util, pathlib, sys
@@ -670,7 +672,9 @@ printf 'PASS: the four Bash floor sites agree with the registry row\n'
 bash_floor_mutation() {
   local site="$1" expression="$2" expected="$3"
   cp "$repo_root/$site" "$bash_fixture/$site"
-  sed -i "$expression" "$bash_fixture/$site"
+  # An attached backup suffix is the one in-place form GNU and BSD sed share.
+  sed -i.orig "$expression" "$bash_fixture/$site"
+  rm -f -- "$bash_fixture/$site.orig"
   if cmp -s "$repo_root/$site" "$bash_fixture/$site"; then
     _test_die "the mutation '$expression' no longer changes $site"
   fi
