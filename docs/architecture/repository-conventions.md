@@ -133,12 +133,12 @@ see [what the shell lint gate checks](../testing.md#what-the-shell-lint-gate-che
 
 | Kind | Where (examples) | What it means |
 |---|---|---|
-| **Portable entry point** (`public-entrypoint`) | `./install.sh`, `./doctor`, `./scripts/lint.sh`, `./scripts/test.sh` | Works on every supported platform. These are the documented way in. |
+| **Portable entry point** (`public-entrypoint`) | `./install.sh`, `./doctor`, `./update`, `./scripts/lint.sh`, `./scripts/test.sh` | Works on every supported platform. These are the documented way in. |
 | **Platform entry point** (`platform-entrypoint`) | `platforms/<platform>/install.sh` | Belongs to exactly one platform and is the documented way to install just that platform. |
 | **Platform command** (`platform-command`) | `platforms/<platform>/scripts/*.sh` | Belongs to exactly one platform and says so in its path. Safe to run directly when you want one component. |
 | **Portable wrapper** (`portable-wrapper`) | `scripts/install-ai.sh`, `scripts/install-mise.sh`, `scripts/install-neovim-tools.sh`, `scripts/install-tmux-theme.sh`, `scripts/verify-ai.sh` | A supported alias for the matching `common/` script. Not deprecated: the target really is portable. |
 | **Deprecated compatibility wrapper** (`deprecated-wrapper`) | every other `scripts/*.sh` | A Fedora-only path from before the platform layout existed. Still forwards; see below. The catch-all is enforced by a body check, not by the pattern alone: a `scripts/*.sh` file that never calls `deprecated_wrapper` fails lint until it is given its own exact row. |
-| **Internal implementation** (`internal-executable`) | `common/*.sh`, `scripts/install-main.sh`, `scripts/bootstrap-macos.sh`, `scripts/doctor.sh` | Called by a documented entry point. Individually rerunnable, but not the documented interface — `scripts/doctor.sh` is the implementation `./doctor` execs into, not something to run directly. |
+| **Internal implementation** (`internal-executable`) | `common/*.sh`, `scripts/install-main.sh`, `scripts/bootstrap-macos.sh`, `scripts/doctor.sh`, `scripts/update.sh` | Called by a documented entry point. Individually rerunnable, but not the documented interface — `scripts/doctor.sh` and `scripts/update.sh` are the implementations `./doctor` and `./update` exec into, not something to run directly. |
 | **Sourced library** (`sourced-library`) | `common/lib/*.sh`, `platforms/*/lib/*.sh`, `scripts/lib/*.sh`, `tests/lib/*.sh` | Meant to be sourced, never executed. Never carries the executable bit. |
 | **Stowed command** (`stowed-command`) | `bin/.local/bin/*`, `platforms/*/stow/*/.local/bin/*` | Lands on `PATH` once stowed; a real command a user runs by name. |
 | **Stowed config / data** (`stowed-config`, `stowed-data`) | `zsh/.config/zsh/*`, `fzf/.config/fzf/themes/*.sh` | Sourced by a shell (`.zshrc` by an interactive one, `.zprofile` by every login) or another tool once stowed; never executed directly. |

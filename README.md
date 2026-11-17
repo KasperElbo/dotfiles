@@ -135,14 +135,16 @@ provider is generated from these manifests or checked against them; see
 ./install.sh                    # install
 ./install.sh --rerun            # reapply this machine's last successful configuration
 ./install.sh --rerun --dry-run  # show what that would apply
+./update                        # git pull --ff-only, list what landed, then --rerun
 ./doctor                        # read-only health report; changes nothing
 ```
 
 `--rerun` means "apply the remembered *configuration* with the installer in
 this checkout" — not "run the old command again". The machine remembers the
 resolved selection of its last successful install; the implementation is
-always the current one. No stored command text is ever executed. See
-[docs/workflows/rerun.md](docs/workflows/rerun.md).
+always the current one. No stored command text is ever executed. `./update`
+pulls `main`, lists the pull requests merged since the installed revision and
+runs `--rerun`. See [docs/workflows/rerun.md](docs/workflows/rerun.md).
 
 `./doctor` reports whether the recorded lifecycle state is valid, whether the
 checkout matches the installed revision, whether each selected capability's

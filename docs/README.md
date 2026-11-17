@@ -52,7 +52,7 @@ current support contract. A guide never says a capability is "waiting for" or
 
 - [workflows/install.md](workflows/install.md) — quick start, installer behavior, post-install checklist
 - [workflows/first-run.md](workflows/first-run.md) — the choices the installer will not make for you
-- [workflows/rerun.md](workflows/rerun.md) — `--rerun` and the last-known-good model
+- [workflows/rerun.md](workflows/rerun.md) — `--rerun`, `./update` and the last-known-good model
 - [workflows/verification.md](workflows/verification.md) — `./doctor`, the platform verifiers, and what they prove
 - [workflows/theming.md](workflows/theming.md) — Catppuccin, the `theme` command, generated Starship configs
 - [workflows/shell.md](workflows/shell.md) — Zsh startup, PATH policy, ergonomics
