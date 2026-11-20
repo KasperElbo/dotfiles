@@ -36,6 +36,51 @@ A rerun goes through the ordinary preflight, execution plan,
 came from, when it was recorded, the reconstructed options and the resolved
 execution plan, and changes nothing.
 
+### Pulling and reapplying in one step: `./update`
+
+```bash
+./update            # git pull --ff-only, list what landed, ./install.sh --rerun
+./update --dry-run  # the same pull and list, then ./install.sh --rerun --dry-run
+```
+
+`./update` keeps a machine current. It fast-forwards the checkout's `main`,
+prints the pull requests merged since the revision this machine installed (the
+`revision` in `install.conf`, the same value `./doctor` compares), and then
+runs `./install.sh --rerun`:
+
+```text
+$ ./update
+Pulled main 1721a38..78b1ccf.
+Merged since the installed revision 1721a38:
+  #563 Make AeroSpace a selectable macOS option, like Sway on Fedora
+  #564 Keep the Waybar keyboard-layout indicator visible after dictation
+  #566 Provide Parrot's distro directories instead of assuming them
+  #567 Add git tidy to delete local branches already on main
+
+Running ./install.sh --rerun
+```
+
+The list comes from local history, so it works offline. It follows `main`'s
+first parents and reads both shapes a pull request has landed in: a
+`Merge pull request #N` merge (the title is the first line of its body) and a
+squash commit titled `Title (#N)`. A commit pushed straight to `main` is listed
+by its hash and subject, followed by `(no pull request)`.
+
+It refuses, changing nothing, not even the checkout, when the checkout is not on
+`main` (a detached HEAD included), when `git status --porcelain` shows anything
+(untracked files count), and when the machine has no configuration for
+`--rerun` to reapply. That last check uses the same reader and messages as
+`--rerun` itself. A `main` with local commits that `origin` does not have is not
+merged: `./update` only fast-forwards, and installs nothing.
+
+"Already up to date" means what `./doctor` means: the installed revision is
+`HEAD` and that installation finished. Whether the pull brought anything does
+not decide it. A checkout moved by a plain `git pull`, by `./update --dry-run`,
+or by a failed installation still has that change to apply, so the next
+`./update` lists it and reruns even though there is nothing new to pull.
+`--dry-run` pulls for real and previews with the installer it just pulled: the
+checkout moves, and nothing is installed.
+
 ### What the machine remembers
 
 The configuration lives in the existing versioned lifecycle state at

@@ -112,6 +112,7 @@ default_tests=(
   tests/test-doctor.sh
   tests/test-install-lifecycle.sh
   tests/test-install-rerun.sh
+  tests/test-update.sh
   tests/test-secure-boot.sh
   tests/test-power-profiles.sh
   tests/test-keyboard-layout-status.sh

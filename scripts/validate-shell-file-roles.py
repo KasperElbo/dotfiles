@@ -84,7 +84,7 @@ def governed(root: pathlib.Path, name: str) -> bool:
     # the shebang is what decides.
     if matches("platforms/*/assets/**", name) and has_shell_shebang(root / name):
         return True
-    return name in {"doctor", "zsh/.zshenv"} or name.startswith("zsh/.config/zsh/")
+    return name in {"doctor", "update", "zsh/.zshenv"} or name.startswith("zsh/.config/zsh/")
 
 
 def is_deprecated_wrapper(path: pathlib.Path) -> bool:
